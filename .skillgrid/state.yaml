@@ -32,7 +32,7 @@ changes:
     phase: spec
     status: in-progress
 
-  # 2026-10-24-hermes-integration: shipped 2026-10-25, archived to xarchive/
+  # 2026-10-24-hermes-integration: shipped 2026-10-25, archived to xarchive/, complete
 progress:
   completed_changes: 31
   blocked_changes: 0

@@ -214,3 +214,91 @@ No CRITICAL findings. All hard gates PASS. 25/25 acceptance scenarios VERIFIED.
 ## Human Override
 
 None.
+
+## Final-State Facts
+
+**What shipped:** Hermes Agent integration — a first-class install target for skillgrid with 5 layers: (1) Python MemoryProvider plugin at `plugins/hermes/` (thin shim over mnemonic CLI), (2) Go installer `SetupHermes()` (YAML config, SOUL.md protocol, Kanban board, skills, ticketing, cron templates), (3) `MNEMONIC_MCP_EXCLUDE` env var for tool split, (4) `hermes` in the installer's agent selection, (5) `hermes-kanban` ticketing backend in the ticketing skill.
+
+**Base branch:** `release/2` (agent-faster-install is an ancestor — all 13 commits already on release/2)
+**Commits:** d8f4afd4 → deb92e29 (13 commits: provider, installer, install flow, Kanban ticketing, E2E verification, review fixes, QA tests)
+**Archive move:** `git mv` → `.skillgrid/xarchive/2026-10-24-hermes-integration/` · `diff -r` readback: empty ✅
+**Archive commit:** e5407956 `chore(ship): archive hermes-integration change folder`
+
+## Sourced Learnings
+
+### Decisions
+
+- **Thin Python shim, not a Go plugin** — the MemoryProvider is Python (Hermes runtime requirement) but all logic stays in the Go binary via `subprocess.run`. The provider is a ~300-line delegation layer, not a reimplementation. Tradeoff: ~50-100ms per CLI call (amortized by `queue_prefetch()`). Source: `plugins/hermes/provider.py:1-16` (docstring), briefing.md "Architecture" §1.
+- **`MNEMONIC_MCP_EXCLUDE=mem` for tool split** — the MCP server suppresses `mem_*` tools (handled natively by the MemoryProvider) via a prefix filter in `server.go`. Subagents that need `mem_*` can unset the env var. Tradeoff: two places to update when adding a new memory tool (provider schema + CLI). Source: `mnemonic/internal/mcp/server.go:43-68`, briefing.md "Resolved Decisions" #7.
+- **`hermes kanban --board` is top-level, not on subcommands** — verified against hermes v0.22.5. The adapter was corrected from `hermes kanban create --board` to `hermes kanban --board create`. Tradeoff: the adapter had to be rewritten after initial verification. Source: `mnemonic/internal/setup/hermes_test.go:605` (TestKanbanTicketPublishRoundTrip), 200853be commit.
+
+### Lessons
+
+- **The synced repo copy is the installer's repo root, not the working tree** — `FindRepoRoot(c.RepoDir)` finds `~/.skillgrid/repos/skillgrid` (a git clone), not the working tree. New files (like `plugins/hermes/`) only appear after `git push` + `git pull` in the synced copy. The live install did not copy the plugin because the synced copy was stale. Root cause: the installer uses the synced copy for hermeticity, but it goes stale during active development. Source: QA finding WARNING #2, `install.go:66` (FindRepoRoot call), `hermes.go:63` (pluginSrc path).
+- **`copyDir` silent no-op on missing source** — when the source directory doesn't exist, `copyDir` returned nil silently. The memory layer was dead while the install reported success. Fixed to warn. Root cause: the no-op was intentional for the skills copy (non-fatal) but wrong for the plugin copy (primary integration layer). Source: `hermes.go:510-514` (pre-fix), bd977622 (fix), TestSetupHermes_PluginSourceMissingWarns.
+- **`yaml.v3` struct unmarshal drops unknown top-level keys** — a `struct { MCPServers map[string]hmcEntry }` silently drops `model:`, `provider:`, etc. Fixed by parsing into `map[string]interface{}`. Source: TICKET-02 task report "Key Bugs Found & Fixed", `hermes.go:439-452`.
+
+### Patterns
+
+- **`MNEMONIC_MCP_EXCLUDE` prefix filter** — comma-separated tool name prefixes, read at call time (not construction) so `t.Setenv` works in tests. Never returns nil (mcp-go panics on nil filters). Reusable for any future tool split. Source: `mnemonic/internal/mcp/server.go:99-143`, TestMCPExcludeFilters.
+- **Marker-delimited protocol block** — `<!-- BEGIN SKILLGRID MNEMONIC -->` / `<!-- END SKILLGRID MNEMONIC -->` in SOUL.md. Idempotent replace-in-place (re-run replaces, doesn't duplicate). Same pattern as Kilo. Source: `hermes.go` writeHermesSoul, TestSetupHermes_SoulMD.
+- **`KanbanExec` injectable var** — exported at the `mnemonic` package boundary so cross-module tests can stub the shell-out. Keeps the internal package's API surface unchanged. Source: `mnemonic/setup.go:192-196`, TICKET-03 report "Decisions" #3.
+- **Hermes test gating** — integration tests gated on `exec.LookPath("hermes")` + `testing.Short()` skip. Fresh HERMES_HOME needs a `cache/uv` symlink to avoid a one-time `uv sync` (minutes of dependency prep). Source: `hermes_test.go:555-580` (TestKanbanTicketPublishRoundTrip).
+
+### Surprises
+
+- **`hermes kanban create` task IDs are `t_<hex>`, not `t<digits>`** — the `kanbanTaskID` helper had to use a `t_[0-9a-f]+` regex, not `t\d+`. Discovered during the integration test. Source: `hermes_test.go:674` (kanbanTaskID regex), TICKET-05 report.
+- **`hermes` CLI hangs on stdin** — the kanban create command inherited the installer's stdin and blocked. Fixed with `os.DevNull` stdin + 60s `exec.CommandContext` timeout. Source: TICKET-02 task report "Key Bugs Found & Fixed", `hermes.go:584-610`.
+- **`--parents` is actually `--parent` (repeatable)** — the brief's field mapping table said `--parents <id1,id2>`, but the real CLI uses `--parent` (repeatable, one per parent). Discovered during TICKET-05 verification. Source: 200853be commit, `.agents/skills/_shared/rules/ticketing/hermes-kanban.md`.
+- **`list --status` is single-value, not repeatable** — the adapter's duplicate check passed `--status` four times in one command. Fixed to a single value. Source: 200853be commit, hermes-kanban.md:37.
+- **The `unavailable_reason` string said `skillgrid setup hermes`, not `skillgrid install --agents hermes`** — the acceptance scenario required "skillgrid install" in the reason. The string was wrong because it was written before the installer command was finalized. Source: a0862c18 (fix), `plugins/hermes/provider.py:141`.
+
+## Finding Triage
+
+| Finding | Type | Process bug? | Follow-up |
+|---------|------|-------------|-----------|
+| Synced repo copy stale | Surprise | Yes — process bug in the installer's repo resolution | Follow-up ticket: push to synced copy before install, or use working tree when it's ahead |
+| `copyDir` silent no-op | Lesson | Yes — process bug (missing guardrail) | Fixed in bd977622 (warn added); no follow-up needed |
+| `hermes` CLI stdin hang | Surprise | One-off (Hermes-specific) | Fixed in TICKET-02 (os.DevNull + timeout) |
+| `--parents` vs `--parent` | Surprise | One-off (CLI version-specific) | Fixed in 200853be |
+| yaml.v3 struct drop | Lesson | One-off (implementation detail) | Fixed in TICKET-02 |
+
+## Acceptance Verdict
+
+**accepted**
+
+Goal met: Hermes Agent is a first-class install target for skillgrid. All 25/25 acceptance scenarios verified. The 4-layer architecture (MemoryProvider + MCP + Skills + Protocol) + Kanban ticketing is wired by `skillgrid install --agents hermes`. No open items.
+
+## Prior-Change Follow-Through
+
+No prior open items addressed by this change. No prior archived changes have open items that this change addresses.
+
+## Web-Cache Promotion Candidates
+
+No web-cache promotion candidates — no web-cache entries were created during this change (research was done via the hermes-agent source code and CLI `--help`, not via the mnemonic web-cache protocol).
+
+## Lineage
+
+| Artifact | Source | Commit |
+|----------|--------|--------|
+| Briefing | `.skillgrid/xarchive/2026-10-24-hermes-integration/briefing.md` | 8df43d6d |
+| Blueprint | `.skillgrid/xarchive/2026-10-24-hermes-integration/blueprint.md` | 8df43d6d |
+| Tasks | `.skillgrid/xarchive/2026-10-24-hermes-integration/tasks.md` | 207990f |
+| Acceptance | `.skillgrid/xarchive/2026-10-24-hermes-integration/acceptance.feature` | 8df43d6d |
+| QA report | This file (QA half) | 9ca7fb7d, deb92e29 |
+| TICKET-01 | `plugins/hermes/` + `mnemonic/cmd/mnemonic/mem.go` | d8f4afd4, 02ad3cd8, f13237cd |
+| TICKET-02 | `mnemonic/internal/setup/hermes.go` + `hermes_test.go` + `setup.go` + `mcp.go` | 6a92f77d, 1de32f05, 238accda |
+| TICKET-03 | `skillgrid-cli/internal/install/` | 13830019, bb252ae2 |
+| TICKET-04 | `.agents/skills/_shared/rules/ticketing/hermes-kanban.md` + `SKILL.md` + `config.yaml` | de52b92d, 69415d6e |
+| TICKET-05 | `hermes.go` (cron) + `hermes-kanban.md` (CLI fixes) | d3e07cf5, 200853be |
+| Review fixes | `provider.py` + `hermes.go` | a0862c18 |
+| QA tests | `hermes_test.go` + `install_test.go` | bd977622, ddb3e2ea |
+| Archive move | `e5407956` | e5407956 |
+
+## Environment Retro
+
+| Category | Finding | Fix lands in | Source |
+|----------|---------|--------------|--------|
+| Navigation | Agent spent ~5 min finding the installer's repo root behavior (`FindRepoRoot` finds the synced copy, not the working tree) — caused the plugin copy to silently no-op on the live install | Add a comment in `install.go` near the `FindRepoRoot` call: "finds the synced copy at ~/.skillgrid/repos/, not the working tree — push before install" | QA WARNING #2, session: plugin not found in live install |
+| Automated checks | `copyDir` silent no-op on missing source — a check that `plugins/hermes/` exists in the repo root before the installer runs would have caught the stale synced copy | Add a pre-install check in `install.go`: `if agentSelected(c, "hermes") && !dirExists(filepath.Join(repoRoot, "plugins/hermes")) { warn }` | QA WARNING #1, bd977622 (warn added to copyDir) |
+| Tool economy | Git hooks are slow (~2-5 min per commit) — the implementer noted this twice (TICKET-03 report, TICKET-05 report). Commits timed out at 120s and 180s | Investigate hook performance (the gofmt check + checkpoint-state guard are the likely culprits). If >5s, consider parallelizing or skipping on non-Go commits | TICKET-03 report "Concerns" #2, TICKET-05 report "Concerns" #1 |
