@@ -28,6 +28,15 @@ changes:
     phase: blueprint
     status: queued
   2026-10-24-global-llm-wiki:
+    phase: qa
+    status: in-progress
+    # All 8 tickets (TASK-107..TASK-114) complete + reviewed.
+    # QA gate: PASS (42/42 scenarios, 10/10 truths VERIFIED).
+    # Next: requesting-code-review (two-axis: Standards + Spec).
+  2026-10-24-agent-reach-integration:
+    phase: spec
+    status: in-progress
+  2026-10-24-faster-install:
     phase: spec
     status: in-progress
 progress:
