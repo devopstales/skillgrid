@@ -99,7 +99,31 @@ func SetupHermes(home, repoRoot string, mcpEntries []MCPServerConfig, dryRun boo
 	if err := updateHermesTicketing(repoRoot, slug, dryRun); err != nil {
 		return err
 	}
+
+	// 7. Cron templates as next-steps (informational, never auto-created).
+	if dryRun {
+		logInfo("[dry-run] install complete; next steps below")
+	} else {
+		logInfo("hermes install complete")
+	}
+	printCronTemplates(slug)
 	return nil
+}
+
+// printCronTemplates prints the memory-maintenance cron jobs to set up after
+// a hermes install (TICKET-05). Informational only: the jobs are never
+// created here — the user runs the commands when (and if) they want the
+// scheduler to do maintenance. Command shapes verified against
+// `hermes cron create --help` (v0.22.5): `hermes cron create <schedule>
+// <prompt> [--name <name>]`; `--workdir` pins the project cwd so the agent
+// resolves the right repo.
+func printCronTemplates(slug string) {
+	logInfo("Next steps — optional cron jobs (not created automatically):")
+	logInfo("  # Nightly memory maintenance for project " + slug + ":")
+	logInfo("  hermes cron create \"0 2 * * *\" \"Run the mnemonic memory protocol maintenance pass for project " + slug + ": review recent observations, flag stale needs_review entries, and record what you changed.\" --name mnemonic-maintenance --workdir <repo-path>")
+	logInfo("  # Weekly prune + distill (heavier LLM pass):")
+	logInfo("  hermes cron create \"0 3 * * 0\" \"Run the weekly mnemonic prune + distill pass for project " + slug + ": compact superseded observations and merge duplicate topic_keys.\" --name mnemonic-prune --workdir <repo-path>")
+	logInfo("  Manage jobs afterwards: hermes cron list | hermes cron runs | hermes cron doctor")
 }
 
 // hermesHome resolves $HERMES_HOME (relocates all Hermes state) with the
