@@ -53,6 +53,14 @@ func runMem(version string, args []string) {
 		trajectory bool
 		hookQuery  string
 		hookFile   string
+		// Hermes integration (2026-10-24-hermes-integration): write-path flags
+		// shared by `mem save` / `mem update` (the CLI parity for the MCP
+		// mem_save / mem_update tools the Python MemoryProvider shells out to).
+		title     string
+		content   string
+		scope     string
+		topicKey  string
+		sessionID string
 	)
 	fs.StringVar(&dataDir, "dir", envOr("SKILLGRID_MNEMONIC_DATA_DIR", ""), "mnemonic data directory")
 	fs.StringVar(&project, "project", "", "project id (defaults to CWD-resolved)")
@@ -69,8 +77,13 @@ func runMem(version string, args []string) {
 	fs.StringVar(&exportFile, "file", "", "export: write the bundle to this file (default: stdout)")
 	fs.BoolVar(&skipEmb, "skip-embeddings", false, "export: omit embedding data for a smaller payload")
 	fs.Float64Var(&minConf, "min-confidence", 0.0, "relations: minimum edge confidence (0.0..1.0; 0.0 = all)")
-	fs.StringVar(&memType, "type", "", "list: filter by fine-grained memory_type (014 step 18; one of the 10 typed categories)")
-	fs.StringVar(&hookQuery, "query", "", "hook run: the query to classify / retrieve on (prompt-submit, session-start)")
+	fs.StringVar(&memType, "type", "", "list: filter by fine-grained memory_type (014 step 18); save|update: the observation type (e.g. decision, bugfix, discovery)")
+	fs.StringVar(&title, "title", "", "save|update: observation title (required for save)")
+	fs.StringVar(&content, "content", "", "save|update: observation content (required for save)")
+	fs.StringVar(&scope, "scope", "", "save|update: scope (project|personal; default project)")
+	fs.StringVar(&topicKey, "topic-key", "", "save|update: stable topic key (upsert target)")
+	fs.StringVar(&sessionID, "session-id", envOr("SKILLGRID_MEMORY_SESSION_ID", ""), "save: session id (required; also SKILLGRID_MEMORY_SESSION_ID)")
+	fs.StringVar(&hookQuery, "query", "", "search|hook run: the query to classify / retrieve on (search: flag form of the positional query; hook: prompt-submit/session-start)")
 	fs.StringVar(&hookFile, "hook-file", "", "hook run: the target file (pre-edit risk analysis)")
 	var searchMode string
 	fs.StringVar(&searchMode, "mode", "", "search: FTS match mode (trigram|prefix|phrase|all; default = phrase OR)")
@@ -82,7 +95,7 @@ func runMem(version string, args []string) {
 		riskFlag      bool
 		riskThreshold float64
 	)
-	fs.BoolVar(&handoffJSON, "json", false, "handoff: print the full handoff JSON to stdout")
+	fs.BoolVar(&handoffJSON, "json", false, "json: print the machine-readable JSON result (handoff: full artifact; save/get/update: always JSON; read subcommands already print JSON)")
 	fs.StringVar(&handoffDir, "handoff-dir", "", "handoff: directory to write handoff.latest.json (default: the project's mnemonic data dir)")
 	fs.BoolVar(&envelopeFlag, "envelope", false, "context: print the full context envelope JSON (014 step 22.4)")
 	fs.BoolVar(&riskFlag, "risk", false, "graph: show high-risk hub files instead of edge timeline (014 step 23.4)")
@@ -102,7 +115,7 @@ func runMem(version string, args []string) {
 	case "share":
 		runMemShare(svc, projID, pos, visibility, grants)
 	case "search":
-		runMemSearch(svc, projID, dataDir, pos, owner, agent, limit, items, chars, timeout, searchMode, trajectory)
+		runMemSearch(svc, projID, dataDir, pos, owner, agent, limit, items, chars, timeout, searchMode, trajectory, hookQuery)
 	case "context":
 		runMemContext(svc, projID, dataDir, limit, items, chars, timeout, envelopeFlag)
 	case "timeline":
@@ -131,6 +144,12 @@ func runMem(version string, args []string) {
 		runMemSnapshot(svc, projID, pos)
 	case "skills":
 		runMemSkills(svc, projID, pos)
+	case "save":
+		runMemSave(svc, projID, dataDir, title, memType, content, scope, topicKey, sessionID, handoffJSON)
+	case "get":
+		runMemGet(svc, projID, pos)
+	case "update":
+		runMemUpdate(svc, projID, pos, title, content, memType, scope, topicKey, handoffJSON)
 	case "hook":
 		runMemHook(svc, projID, pos, hookQuery, hookFile)
 	case "handoff":
@@ -153,7 +172,7 @@ func printMemUsage() {
   governance <id>                 governed-asset view (mem_governance)
   share <id> --target-visibility team|restricted|agent [--grants a,b]
                                    widen visibility (mem_share)
-  search <query> [--mode trigram|prefix|phrase|all] [--limit N] [--reader-owner X]
+  search <query>|--query <q> [--mode trigram|prefix|phrase|all] [--limit N] [--reader-owner X]
                    [--item N] [--char N] [--timeout 3s] [--trajectory]
                                      budgeted FTS search (mem_search; default mode = phrase OR);
                                      --trajectory also prints the directory
@@ -173,6 +192,18 @@ func printMemUsage() {
    provenance <observation_id>          curation chain of an observation
                                         (session_id, curate_command, source_files,
                                         llm_reasoning); clear message when unset
+   save --title <t> --type <type> --content <c> [--scope project|personal]
+                                      [--topic-key K] [--session-id ID]
+                                      create an observation (mem_save; the
+                                      session is created on demand); prints the
+                                      JSON result with the saved id
+   get <id>                            full untruncated observation by id
+                                      (mem_get_observation; the only
+                                      full-content read path)
+   update <id> [--title t] [--content c] [--type t] [--scope s]
+                                      [--topic-key K]
+                                      update an observation in place (mem_update;
+                                      only the given fields are applied)
    list [--type <category>] [--limit N]
                                        recent observations, optionally filtered
                                        to one fine-grained memory_type (014 step
@@ -341,9 +372,17 @@ func runMemShare(svc *service.Service, projID string, pos []string, visibility, 
 	printJSON(map[string]any{"id": id, "shared": true, "visibility": visibility})
 }
 
-func runMemSearch(svc *service.Service, projID, dataDir string, pos []string, owner, agent string, limit, items, chars int, timeout string, searchMode string, trajectory bool) {
-	if len(pos) < 1 {
-		fmt.Fprintln(os.Stderr, "error: mem search requires a query")
+func runMemSearch(svc *service.Service, projID, dataDir string, pos []string, owner, agent string, limit, items, chars int, timeout string, searchMode string, trajectory bool, queryFlag string) {
+	// The query may arrive as a flag (--query, TICKET-01: the Hermes provider
+	// always passes it as a flag) or positionally; a blank flag falls back to
+	// the positional form, so both `mem search foo` and `mem search --query foo`
+	// work. Neither present is a usage error before any store read.
+	query := strings.TrimSpace(queryFlag)
+	if query == "" {
+		query = strings.Join(pos, " ")
+	}
+	if query == "" {
+		fmt.Fprintln(os.Stderr, "error: mem search requires a query (positional or --query)")
 		os.Exit(2)
 	}
 	// --mode (014 step 02): FTS match mode for the fact leg. "phrase" is the
@@ -354,7 +393,6 @@ func runMemSearch(svc *service.Service, projID, dataDir string, pos []string, ow
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(2)
 	}
-	query := strings.Join(pos, " ")
 	if limit <= 0 {
 		limit = 20
 	}
@@ -899,6 +937,187 @@ func runMemDistill(svc *service.Service, projID string, pos []string) {
 		fmt.Fprintf(os.Stderr, "error: unknown distill subcommand %q\n", sub)
 		os.Exit(2)
 	}
+}
+
+// ───────────────────────── Hermes integration write/read CLI ─────────────
+//
+// `mem save` / `mem get` / `mem update` are the CLI parity layer for the MCP
+// mem_save / mem_get_observation / mem_update tools (change
+// 2026-10-24-hermes-integration, TICKET-01). The Hermes MemoryProvider
+// (plugins/hermes, Python) shells out to these subcommands via subprocess, so
+// they must route through the SAME service seams the MCP handlers use
+// (SaveWithAction / Get / Update) — the provider stays a thin shim. The
+// asJSON parameter documents the accepted --json flag (it is honored
+// by handoff too); these three subcommands are machine-consumed, so the
+// result is JSON whether or not the flag is set.
+
+// memSessionID resolves the session id for `mem save`: the explicit --session-id
+// wins; otherwise a session is started on demand for the CWD (the provider does
+// not manage sessions — it only needs an owner for the observation).
+func memSessionID(svc *service.Service, explicit string) (string, error) {
+	if s := strings.TrimSpace(explicit); s != "" {
+		return s, nil
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	sid, _, err := svc.SessionStart(hCtx(), cwd, "")
+	if err != nil {
+		return "", fmt.Errorf("start session: %w", err)
+	}
+	return sid, nil
+}
+
+func memScopeForSave(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return "project"
+	}
+	if s == "personal" {
+		return "user"
+	}
+	return s
+}
+
+// memObservationOut is the CLI projection of an observation for the save/get
+// JSON responses: the fields a shim consumer needs, stable and flat.
+func memObservationOut(o memory.Observation) map[string]any {
+	out := map[string]any{
+		"id":         o.ID,
+		"type":       o.Type,
+		"title":      o.Title,
+		"content":    o.Content,
+		"project":    o.Project,
+		"scope":      o.Scope,
+		"session_id": o.SessionID,
+		"owner":      o.Owner,
+		"created_at": o.CreatedAt,
+		"updated_at": o.UpdatedAt,
+	}
+	if o.TopicKey != "" {
+		out["topic_key"] = o.TopicKey
+	}
+	return out
+}
+
+// runMemSave is the CLI for `mem save` (TICKET-01): create an observation
+// through the same SaveWithAction seam the mem_save MCP tool uses (4-way AUDN
+// dedup routing, hash floor, owner, scope). Only --json is accepted: the
+// consumer is a machine (the Python provider), so the result is always JSON.
+func runMemSave(svc *service.Service, projID, dataDir, title, typ, content, scope, topicKey, sessionID string, asJSON bool) {
+	_ = dataDir
+	_ = asJSON // the result is always JSON (machine consumer)
+	if strings.TrimSpace(title) == "" || strings.TrimSpace(typ) == "" || strings.TrimSpace(content) == "" {
+		fmt.Fprintln(os.Stderr, "error: mem save requires --title, --type, and --content")
+		os.Exit(2)
+	}
+	sid, err := memSessionID(svc, sessionID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	h, cleanup, err := svc.Open(projID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+	res, err := h.Memory().SaveWithAction(hCtx(), memory.SaveInput{
+		Title:         title,
+		Type:          typ,
+		Content:       content,
+		Scope:         memScopeForSave(scope),
+		TopicKey:      strings.TrimSpace(topicKey),
+		SessionID:     sid,
+		CapturePrompt: false,
+		ToolName:      "mem_save",
+		Owner:         sid,
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	out := map[string]any{"id": res.ObservationID, "project": projID, "session_id": sid}
+	if res.Action != "" {
+		out["action"] = string(res.Action)
+	}
+	if res.SupersededID > 0 {
+		out["superseded_id"] = res.SupersededID
+	}
+	printJSON(out)
+}
+
+// runMemGet is the CLI for `mem get <id>` (TICKET-01): the full-content read
+// path, parity with the mem_get_observation MCP tool (ReadAs with no owner
+// gate — the CLI caller reads as the saving session's owner). A missing id is
+// a clear error; the result is always JSON.
+func runMemGet(svc *service.Service, projID string, pos []string) {
+	if len(pos) < 1 {
+		fmt.Fprintln(os.Stderr, "error: mem get requires an observation id")
+		os.Exit(2)
+	}
+	id, err := strconv.ParseInt(pos[0], 10, 64)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error: invalid observation id")
+		os.Exit(2)
+	}
+	h, cleanup, err := svc.Open(projID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+	obs, err := h.Memory().Get(hCtx(), id)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: observation %d: %v\n", id, err)
+		os.Exit(1)
+	}
+	printJSON(memObservationOut(obs))
+}
+
+// runMemUpdate is the CLI for `mem update <id>` (TICKET-01): in-place update,
+// parity with the mem_update MCP tool (only non-empty fields are applied). The
+// result is always JSON.
+func runMemUpdate(svc *service.Service, projID string, pos []string, title, content, typ, scope, topicKey string, asJSON bool) {
+	_ = asJSON // the result is always JSON (machine consumer)
+	if len(pos) < 1 {
+		fmt.Fprintln(os.Stderr, "error: mem update requires an observation id")
+		os.Exit(2)
+	}
+	id, err := strconv.ParseInt(pos[0], 10, 64)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error: invalid observation id")
+		os.Exit(2)
+	}
+	if title == "" && content == "" && typ == "" && scope == "" && topicKey == "" {
+		fmt.Fprintln(os.Stderr, "error: mem update requires at least one of --title, --content, --type, --scope, --topic-key")
+		os.Exit(2)
+	}
+	h, cleanup, err := svc.Open(projID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+	in := memory.UpdateInput{
+		Title:    title,
+		Content:  content,
+		Type:     typ,
+		TopicKey: strings.TrimSpace(topicKey),
+	}
+	if s := strings.TrimSpace(scope); s != "" {
+		// "project" is the no-op default (keep the row's existing scope);
+		// "personal" maps to the user scope, mirroring the save path.
+		if s != "project" {
+			in.Scope = memScopeForSave(s)
+		}
+	}
+	if err := h.Memory().Update(hCtx(), id, in); err != nil {
+		fmt.Fprintf(os.Stderr, "error: observation %d: %v\n", id, err)
+		os.Exit(1)
+	}
+	printJSON(map[string]any{"id": id, "updated": true, "project": projID})
 }
 
 // runMemSkills is the CLI for `mem skills` (014 step 24.4): `mem skills list`
