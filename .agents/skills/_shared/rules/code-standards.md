@@ -33,6 +33,9 @@ These are the load-bearing rules. Everything else is a consequence.
 6. **YAGNI, then delete.** Don't build the abstraction until the second use
    case exists. When you do, delete the special case — one general path beats
    two with a flag.
+7. **FTS5 `bm25()` requires a deterministic secondary sort key.** `ORDER BY
+   bm25(fts_table)` alone does not guarantee stable ordering across SQLite
+   versions or concurrent inserts. Always add a tiebreaker (e.g. `, row_id`).
 
 ## Designing deep modules
 

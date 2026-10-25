@@ -100,6 +100,7 @@ State: `.skillgrid/state.yaml` (dynamic) — where the project is right now (pha
 - **No new dependencies without an ADR.** Adding a third-party dependency is a decision; record it in `.skillgrid/ASSUMPTIONS.md` § `LOCKED` before it lands (ADR-0008 is the `yaml`-package precedent).
 - **Trivy is advisory-only** — findings are reported, never blocking the QA gate.
 - **Serial development:** one change at a time, no parallel branches.
+- **Parallel subagents use isolated worktrees:** parallel tickets in the same wave MUST use separate `git worktree add` checkouts, never a shared checkout. Shared checkouts cause index-lock conflicts and cherry-pick overhead.
 - **Conventional commits only;** no AI-attribution trailers (commit-msg hook enforces).
 - **Spec-zone changes commit before code-zone changes** (pre-commit zone guard enforces).
 - **The repo is the source of truth** (ADR-0013): when an external tracker, session memory, or dashboard disagrees with a committed artifact, the committed artifact wins. A commit that closes a Backlog task names that task ID in the `[skillgrid-context]` block so the `task → commit → diff` chain is recoverable from git alone.
