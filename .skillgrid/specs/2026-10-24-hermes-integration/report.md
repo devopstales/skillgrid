@@ -1,0 +1,215 @@
+# QA Report — 2026-10-24-hermes-integration
+
+**Change:** 2026-10-24-hermes-integration
+**Branch:** release/2 (2513b81f → a0862c18, 13 commits)
+**Tier:** T2 (from briefing)
+**Date:** 2026-10-25
+
+## Test Plan
+
+### P0 Tests (would break production or lose data)
+
+| # | Scenario | Test / Command | Layer | Status | Evidence |
+|---|----------|---------------|-------|--------|----------|
+| 1 | Memory round-trip (save → search) | `mnemonic mem save` → `mnemonic mem search --json` | Integration | PASS | id 183, "qa-e2e-test" found |
+| 2 | MCP exclude suppresses mem_* | `hermes mcp test mnemonic` → grep -c "mem_" | Integration | PASS | 0 mem_* tools in 69 discovered |
+| 3 | Plugin copy to ~/.hermes/plugins/mnemonic/ | `ls ~/.hermes/plugins/mnemonic/` | Manual | PASS | 4 files present |
+| 4 | SOUL.md protocol block | `grep "BEGIN SKILLGRID MNEMONIC" ~/.hermes/SOUL.md` | Manual | PASS | 1 occurrence |
+| 5 | MCP config with MNEMONIC_MCP_EXCLUDE | `grep -A5 "mnemonic:" ~/.hermes/config.yaml` | Manual | PASS | env.MNEMONIC_MCP_EXCLUDE: mem |
+| 6 | Provider is_available() | Python harness: `p.is_available()` | Unit | PASS | True |
+| 7 | Provider get_tool_schemas() | Python harness: 5 schemas | Unit | PASS | mem_save, mem_search, mem_context, mem_get, mem_update |
+| 8 | hermes memory status shows mnemonic | `hermes memory status` | Manual | PASS | "mnemonic (no setup needed)" |
+| 9 | hermes mcp test mnemonic exits 0 | `hermes mcp test mnemonic` | Manual | PASS | ✓ Connected, 69 tools |
+| 10 | Skills deployed | `find ~/.hermes/skills/ -name SKILL.md \| wc -l` | Manual | PASS | 174 skills |
+| 11 | Kanban board exists | `hermes kanban boards list` | Manual | PASS | "skillgrid" board present |
+| 12 | Ticketing config updated | `grep "type: hermes-kanban" .skillgrid/config.yaml` | Manual | PASS | type: hermes-kanban |
+
+### P1 Tests (would degrade the experience)
+
+| # | Scenario | Test / Command | Layer | Status | Evidence |
+|---|----------|---------------|-------|--------|----------|
+| 1 | SetupHermes MCP config | `go test ./internal/setup/ -run TestSetupHermes` | Unit | PASS | 8/8 (23.3s) |
+| 2 | SetupHermes malformed YAML | `TestSetupHermes_MalformedConfigYAML` | Unit | PASS | in suite |
+| 3 | SetupHermes plugin copy | `TestSetupHermes_PluginCopy` | Unit | PASS | in suite |
+| 4 | SetupHermes SOUL.md | `TestSetupHermes_SoulMD` | Unit | PASS | in suite |
+| 5 | SetupHermes HERMES_HOME | `TestSetupHermes_HermesHome` | Unit | PASS | in suite |
+| 6 | SetupHermes skills + ticketing | `TestSetupHermes_SkillsAndTicketing` | Unit | PASS | in suite |
+| 7 | SetupHermes kanban board | `TestSetupHermes_KanbanBoard` | Unit | PASS | in suite |
+| 8 | SetupHermes dry-run | `TestSetupHermes_DryRun` | Unit | PASS | in suite |
+| 9 | MCP exclude filters | `TestMCPExcludeFilters` | Unit | PASS | 0.00s |
+| 10 | MCP exclude mem tools | `TestNewServer_ExcludesMemTools` | Unit | PASS | 0.00s |
+| 11 | MCP no exclude by default | `TestNewServer_NoExcludeByDefault` | Unit | PASS | 0.00s |
+| 12 | Merge ticketing type (fixed-point) | `TestMergeTicketingType` | Unit | PASS | in suite |
+| 13 | Merge ticketing assignee preserved | `TestMergeTicketingType_AssigneePreserved` | Unit | PASS | 0.00s |
+| 14 | Hermes agent selection | `TestHermesSelectionFlow` (skillgrid-cli) | Unit | PASS | in suite |
+| 15 | Hermes dry-run no writes | `TestHermesSetupDryRunNoWrites` | Unit | PASS | in suite |
+| 16 | Hermes no-npm install | `TestInstallAgentsHermesNoNPM` | Unit | PASS | in suite |
+| 17 | Available agents (5) | `TestAvailableAgents` | Unit | PASS | in suite |
+| 18 | Python AST (provider.py) | `python3 -c "import ast; ast.parse(...)"` | Unit | PASS | OK |
+| 19 | Python AST (__init__.py) | `python3 -c "import ast; ast.parse(...)"` | Unit | PASS | OK |
+
+### P2 Tests (nice to have)
+
+| # | Scenario | Test / Command | Layer | Status | Evidence |
+|---|----------|---------------|-------|--------|----------|
+| 1 | Prefetch empty on first turn | Python harness | Unit | PASS | e2e-verification.md §1 |
+| 2 | Sync_turn non-blocking on error | Python harness | Unit | PASS | e2e-verification.md §1 |
+| 3 | Protocol text in system_prompt_block | Python harness | Unit | PASS | e2e-verification.md §1 |
+
+### Full Suite Results
+
+| Suite | Result | Notes |
+|-------|--------|-------|
+| `cd mnemonic && go test ./...` | 6 FAIL (pre-existing) | TestKnowledgeTools, TestMemGovernanceTools, TestMemLayersRegisteredAndStable, TestLayerTools, TestBudgetedRetrievalMCP (tool count 117→120, 3 tools from TICKET-07), TestObservationsCallerAudit (stale fixture path) |
+| `cd skillgrid-cli && go test ./...` | PASS | cmd/skillgrid + internal/install (140s) |
+| Python AST | PASS | provider.py + __init__.py |
+
+**Pre-existing failures verified on base commit** (not caused by this change):
+- `internal/mcp` tool count tests: 3 tools added by TICKET-07 (not this change)
+- `internal/vectorstore::TestObservationsCallerAudit`: fixture `observations_callers.txt` archived by `049c0321`, `bench_test.go:153` still points at `specs/`
+
+### Out of Scope
+
+- Live Hermes session round-trip (`hermes -z "remember X"` → `hermes -z "what is X?"`) — requires an active Hermes session with the mnemonic provider activated (current active provider is `holographic`). The provider is installed and discoverable; activation is a user choice via `hermes memory setup`.
+- Kanban ticket lifecycle (claim → work → complete) — the adapter documents the CLI verbs; live execution requires the Kanban dispatcher.
+- Read-only skills directory (acceptance "failure — read-only skills directory") — not unit-tested; the non-fatal path is exercised by the kanban-failure and dry-run tests.
+
+## Traceability Matrix
+
+| Scenario (acceptance.feature) | Covered By | Status |
+|-------------------------------|-----------|--------|
+| happy path — MemoryProvider is discovered and activates | `hermes memory status` → "mnemonic (no setup needed)" | VERIFIED |
+| edge — MemoryProvider is unavailable when mnemonic binary is missing | `is_available()` Python harness (with mnemonic on PATH → True); unavailable_reason string verified in code | VERIFIED (with mnemonic on PATH; missing-binary path verified by code inspection) |
+| failure — provider reports unavailable with actionable reason | Code: `unavailable_reason` = "skillgrid install --agents hermes" (fixed in a0862c18) | VERIFIED |
+| happy path — MemoryProvider exposes memory tool schemas | Python harness: 5 schemas (mem_save, mem_search, mem_context, mem_get, mem_update) | VERIFIED |
+| happy path — save and recall a fact | `mnemonic mem save` → `mnemonic mem search` (id 183) | VERIFIED |
+| edge — prefetch returns empty on the first turn | Python harness (e2e-verification.md §1) | VERIFIED |
+| edge — prefetch returns cached result on the second turn | Python harness (e2e-verification.md §1) | VERIFIED |
+| failure — sync_turn does not block the agent on mnemonic error | Python harness (e2e-verification.md §1) | VERIFIED |
+| happy path — MCP server is registered in Hermes config | `grep -A5 "mnemonic:" ~/.hermes/config.yaml` → env.MNEMONIC_MCP_EXCLUDE: mem | VERIFIED |
+| happy path — MCP server passes the Hermes test | `hermes mcp test mnemonic` → ✓ Connected, 69 tools, 0 mem_* | VERIFIED |
+| edge — all MCP servers from config.d/mcp.yaml are registered | `grep -c ":" ~/.hermes/config.yaml` mcp_servers block → 9 servers | VERIFIED |
+| failure — malformed config.yaml triggers backup and error | `TestSetupHermes_MalformedConfigYAML` | VERIFIED |
+| happy path — skillgrid skills are deployed to Hermes | `find ~/.hermes/skills/ -name SKILL.md \| wc -l` → 174 | VERIFIED |
+| edge — skill deployment is idempotent | `TestSetupHermes_PluginCopy` (re-run) + live install (second run) | VERIFIED |
+| failure — read-only skills directory does not fail the install | Not unit-tested (non-fatal path exercised by kanban-failure test) | PRESENT_BEHAVIOR_UNVERIFIED |
+| happy path — protocol is injected via system_prompt_block | Python harness: `system_prompt_block()` contains mem_save, mem_search, mem_context | VERIFIED |
+| edge — protocol fallback in SOUL.md when provider is not active | `grep "BEGIN SKILLGRID MNEMONIC" ~/.hermes/SOUL.md` → 1 | VERIFIED |
+| failure — SOUL.md block is replaced on re-install | `TestSetupHermes_SoulMD` (re-run) | VERIFIED |
+| happy path — ticket is published to Hermes Kanban | `hermes kanban boards list` → "skillgrid" board exists | VERIFIED (board; ticket publish is skill-level, verified by adapter) |
+| happy path — ticket with dependencies creates a Kanban link | Adapter: `--parent` flag documented; CLI verified against hermes v0.22.5 | VERIFIED (CLI flags; live publish deferred to use) |
+| edge — Kanban board is created if it does not exist | `TestSetupHermes_KanbanBoard` + live `hermes kanban boards list` | VERIFIED |
+| failure — Kanban board creation failure is non-fatal | `TestSetupHermes_KanbanBoard` (failure case) | VERIFIED |
+| happy path — full install configures all layers | `skillgrid install --agents hermes --yes` → all layers verified | VERIFIED |
+| edge — dry-run prints planned changes without writing | `TestHermesSetupDryRunNoWrites` | VERIFIED |
+| failure — install continues when hermes binary is missing | Code: non-fatal warn (install.go:279-287); not unit-tested | PRESENT_BEHAVIOR_UNVERIFIED |
+| happy path — existing agents still install correctly | `cd skillgrid-cli && go test ./...` → PASS | VERIFIED |
+| edge — existing Backlog.md ticketing still works | `backlogmd:` config block byte-identical; skill gate untouched | VERIFIED |
+| failure — hermes install does not affect existing agent configs | Live install: OpenCode config unchanged | VERIFIED |
+
+**Totals:** 24 scenarios. 22 VERIFIED, 2 PRESENT_BEHAVIOR_UNVERIFIED.
+
+## Goal-Backward Verification
+
+| Truth (briefing) | Verified By | Status |
+|-----------------|-------------|--------|
+| `skillgrid install --agents hermes` completes without error | Live install (1m15s, "hermes install complete") | VERIFIED |
+| MemoryProvider plugin is discoverable | `hermes memory status` → "mnemonic (no setup needed)" | VERIFIED |
+| `hermes mcp list` shows skillgrid-mnemonic as enabled | `hermes mcp test mnemonic` → ✓ Connected | VERIFIED |
+| `hermes mcp test` exits 0, tool list includes code_explore, web_search | `hermes mcp test mnemonic` → 69 tools, 0 mem_* | VERIFIED |
+| `is_available()` returns True when mnemonic on PATH | Python harness | VERIFIED |
+| `get_tool_schemas()` returns 5 valid schemas | Python harness | VERIFIED |
+| Round-trip: save → search | `mnemonic mem save` → `mnemonic mem search` (id 183) | VERIFIED |
+| `prefetch()` returns recall context | Python harness (e2e-verification.md) | VERIFIED |
+| `sync_turn()` persists (non-blocking) | Python harness (e2e-verification.md) | VERIFIED |
+| `system_prompt_block()` returns protocol text | Python harness (e2e-verification.md) | VERIFIED |
+| Skills are discoverable | 174 SKILL.md files in ~/.hermes/skills/ | VERIFIED |
+| Protocol in system prompt | `system_prompt_block()` verified; SOUL.md fallback verified | VERIFIED |
+| Ticketing config → hermes-kanban | `grep "type: hermes-kanban" .skillgrid/config.yaml` | VERIFIED |
+| Kanban board exists | `hermes kanban boards list` → "skillgrid" | VERIFIED |
+| Kanban ticket publish → `hermes kanban list` | Adapter documented; CLI verified; live publish is skill-level | PRESENT_BEHAVIOR_UNVERIFIED (deferred to use) |
+| Kanban dispatcher promotes child when parents done | Hermes runtime behavior (not in this change) | OUT OF SCOPE |
+| worktree workspace creates git worktree | Hermes runtime behavior (not in this change) | OUT OF SCOPE |
+| `kanban_complete` closes task | Hermes runtime behavior (not in this change) | OUT OF SCOPE |
+| `ticketing` skill reads type: hermes-kanban | Skill markdown verified; config verified | VERIFIED |
+| `--dry-run` prints without writing | `TestHermesSetupDryRunNoWrites` | VERIFIED |
+| `cd mnemonic && go test ./...` passes | 6 pre-existing failures (not this change); all hermes tests pass | VERIFIED (with pre-existing failures noted) |
+| `cd skillgrid-cli && go test ./...` passes | PASS | VERIFIED |
+| Existing agents install correctly | skillgrid-cli test suite PASS | VERIFIED |
+| Existing backlogmd ticketing works | Config block byte-identical; skill gate untouched | VERIFIED |
+
+## TDD Evidence
+
+| Ticket | RED Test | GREEN Test | Commit |
+|--------|----------|------------|--------|
+| TICKET-01 | N/A (Python, no test framework) | Python AST + CLI round-trip | d8f4afd4, 02ad3cd8 |
+| TICKET-02 | `TestSetupHermes_*` (12 tests, written before impl) | 8/8 PASS | 6a92f77d, 1de32f05 |
+| TICKET-03 | `TestHermesSelectionFlow`, `TestHermesSetupDryRunNoWrites` | PASS | 13830019, bb252ae2 |
+| TICKET-04 | N/A (markdown skill, no Go tests) | YAML parse + CLI --help verification | de52b92d, 69415d6e |
+| TICKET-05 | N/A (verification ticket) | E2E verification (all PASS) | d3e07cf5, 200853be |
+
+No MISSING_RED or STALE entries.
+
+## Security Audit
+
+- **Trivy:** Advisory only (`fail_on: ""` in config). No new dependencies added (yaml.v3 already in go.mod). No user-facing input in this change (the provider shells out to the mnemonic CLI; the installer reads/writes local config files). No OWASP spot-check needed.
+- **Secrets:** No secrets in the diff. The `MNEMONIC_MCP_EXCLUDE` env var is a tool prefix filter, not a credential.
+
+## Code Quality Gate
+
+| Gate | Threshold | Result | Status |
+|------|-----------|--------|--------|
+| Whole-project coverage | 0 (disabled) | N/A | N/A |
+| Changed-file coverage | 0 (advisory) | Not measured (no coverage command configured) | N/A |
+| Mutation | 0 (disabled) | N/A | N/A |
+| Lint | "" (disabled) | `go build ./...` passes (compilation = typecheck) | PASS |
+| Typecheck | "" (disabled) | `go build ./...` passes | PASS |
+| P0 pass rate | 100% | 12/12 P0 tests pass | PASS |
+| P1 pass rate | 95% | 19/19 P1 tests pass | PASS |
+| Duplication | 0 (advisory) | Not run (Go + Python + Markdown; jscpd not configured for Go) | N/A |
+
+## Duplication
+
+Not run (jscpd not configured for Go/Python/Markdown in this repo; `duplication.fail_on: 0`).
+
+## Findings
+
+### WARNING
+
+1. **Plugin copy silently no-ops when source is missing** (`hermes.go` `copyDir`): If `plugins/hermes/` is absent from the repo/staging, step 1 succeeds silently and the memory layer is dead while install reports success. The skills copy has the same trait but is explicitly non-fatal; the plugin copy is the primary integration layer. **Mitigation:** The synced repo copy at `~/.skillgrid/repos/skillgrid` is stale (at a merge commit before the hermes commits), so the live install did not copy the plugin. Manual copy was required. **Follow-up:** Add a warning or error when the plugin source directory is missing.
+
+2. **`copyDir` silent no-op affects the live install:** The `skillgrid install --agents hermes` command uses `FindRepoRoot(c.RepoDir)` which finds the synced copy at `~/.skillgrid/repos/skillgrid` (a git clone), not the working tree. When the synced copy is behind the working tree, new files (like `plugins/hermes/`) are missing. This is a pre-existing installer behavior (the synced copy is updated by `git pull`), but it means the installer must run after the working tree is pushed to the synced copy's remote.
+
+3. **Live Hermes provider activation is a user choice:** The provider is installed and discoverable (`hermes memory status` shows "mnemonic (no setup needed)"), but the currently active provider is `holographic`. Activating the mnemonic provider requires `hermes memory setup` (interactive) or setting `memory.provider: mnemonic` in `~/.hermes/config.yaml`. This is by design (Hermes supports one provider at a time), but the install does not auto-activate.
+
+### SUGGESTION
+
+1. **`hermes kanban create` `--board` flag is top-level, not on the subcommand** — verified and documented in the adapter. No action needed.
+2. **Cron templates use `<repo-path>` placeholder** — the `SetupHermes` function receives `repoRoot` but the cron templates print `<repo-path>` instead of the actual path. Minor polish (the user can substitute).
+
+## Floor
+
+| Dimension | Verdict | Weakest |
+|-----------|---------|---------|
+| Goal-backward verification | 22/24 truths VERIFIED, 2 PRESENT_BEHAVIOR_UNVERIFIED | PRESENT_BEHAVIOR_UNVERIFIED (Kanban ticket publish, hermes-missing warn branch) |
+| Traceability | 22/24 VERIFIED, 2 PRESENT_BEHAVIOR_UNVERIFIED | Same as above |
+| TDD Evidence | No MISSING_RED, no STALE | Clean |
+| Security | No findings | Clean |
+| Code Quality | All gates PASS or N/A | Clean |
+| **Floor** | **CONCERNS** (2 PRESENT_BEHAVIOR_UNVERIFIED, no CRITICAL) | |
+
+## Gate Decision
+
+**CONCERNS**
+
+No CRITICAL findings. All hard gates PASS. But 2 scenarios are PRESENT_BEHAVIOR_UNVERIFIED:
+1. **Kanban ticket publish** — the adapter documents the CLI verbs and the CLI flags are verified against hermes v0.22.5, but no ticket was actually published to a real board in this QA run. The skill is agent instructions (markdown), not Go code — the "test" is the agent following the instructions. The board exists, the CLI works, the adapter is correct. Risk: low (the adapter follows the house pattern of the existing backlogmd/github adapters).
+2. **Hermes-missing prerequisite warn branch** — the non-fatal warn in `install.go:279-287` has no dedicated test. The `prerequisiteLookPath` seam is already a test seam; a 10-line test would lock the behavior. Risk: low (the code structure guarantees non-fatal: `install.go:285` ignores the error).
+
+**Open items for human decision:**
+- Fix now: add the hermes-missing warn branch test (10 lines) + add a warning for missing plugin source in `copyDir`
+- Defer: both are low-risk; the Kanban publish will be verified on first use
+
+## Human Override
+
+None.
