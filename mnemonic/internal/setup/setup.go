@@ -83,8 +83,13 @@ func RunSetup(agent, repoRoot string, mcpEntries []MCPServerConfig, home string,
 		// dir; the launcher's explicit extension enumeration discovers it, so
 		// no MCP or settings.json registration is needed (ADR-0043).
 		return SetupPi(home, repoRoot, dryRun)
+	case "hermes":
+		// Hermes (2026-10-24-hermes-integration): the Python MemoryProvider
+		// plugin plus the YAML MCP config under $HERMES_HOME, the SOUL.md
+		// protocol fallback, the Kanban board, and the skills catalog.
+		return SetupHermes(home, repoRoot, mcpEntries, dryRun)
 	default:
-		return fmt.Errorf("unknown agent %q (use opencode, kilocode, cursor, or pi)", agent)
+		return fmt.Errorf("unknown agent %q (use opencode, kilocode, cursor, pi, or hermes)", agent)
 	}
 }
 
