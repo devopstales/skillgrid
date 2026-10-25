@@ -92,7 +92,7 @@
 | failure — malformed config.yaml triggers backup and error | `TestSetupHermes_MalformedConfigYAML` | VERIFIED |
 | happy path — skillgrid skills are deployed to Hermes | `find ~/.hermes/skills/ -name SKILL.md \| wc -l` → 174 | VERIFIED |
 | edge — skill deployment is idempotent | `TestSetupHermes_PluginCopy` (re-run) + live install (second run) | VERIFIED |
-| failure — read-only skills directory does not fail the install | Not unit-tested (non-fatal path exercised by kanban-failure test) | PRESENT_BEHAVIOR_UNVERIFIED |
+| failure — read-only skills directory does not fail the install | `TestSetupHermes_ReadOnlySkillsDir` (0555 on $HERMES_HOME/skills, permission denied on copy, install continues) | VERIFIED |
 | failure — install continues when hermes binary is missing | `TestHermesPrerequisiteMissingNonFatal` (prerequisiteLookPath stubbed to error) | VERIFIED |
 | happy path — protocol is injected via system_prompt_block | Python harness: `system_prompt_block()` contains mem_save, mem_search, mem_context | VERIFIED |
 | edge — protocol fallback in SOUL.md when provider is not active | `grep "BEGIN SKILLGRID MNEMONIC" ~/.hermes/SOUL.md` → 1 | VERIFIED |
@@ -108,7 +108,7 @@
 | edge — existing Backlog.md ticketing still works | `backlogmd:` config block byte-identical; skill gate untouched | VERIFIED |
 | failure — hermes install does not affect existing agent configs | Live install: OpenCode config unchanged | VERIFIED |
 
-**Totals:** 25 scenarios. 24 VERIFIED, 1 PRESENT_BEHAVIOR_UNVERIFIED (read-only skills directory — non-fatal path exercised by kanban-failure test).
+**Totals:** 25 scenarios. 25 VERIFIED.
 
 ## Goal-Backward Verification
 
@@ -192,8 +192,8 @@ Not run (jscpd not configured for Go/Python/Markdown in this repo; `duplication.
 
 | Dimension | Verdict | Weakest |
 |-----------|---------|---------|
-| Goal-backward verification | 24/25 truths VERIFIED, 1 PRESENT_BEHAVIOR_UNVERIFIED | PRESENT_BEHAVIOR_UNVERIFIED (read-only skills directory) |
-| Traceability | 24/25 VERIFIED, 1 PRESENT_BEHAVIOR_UNVERIFIED | Same as above |
+| Goal-backward verification | 25/25 truths VERIFIED | Clean |
+| Traceability | 25/25 VERIFIED | Clean |
 | TDD Evidence | No MISSING_RED, no STALE | Clean |
 | Security | No findings | Clean |
 | Code Quality | All gates PASS or N/A | Clean |
@@ -203,12 +203,13 @@ Not run (jscpd not configured for Go/Python/Markdown in this repo; `duplication.
 
 **PASS**
 
-No CRITICAL findings. All hard gates PASS. 24/25 acceptance scenarios VERIFIED (1 PRESENT_BEHAVIOR_UNVERIFIED: read-only skills directory — non-fatal path exercised by the kanban-failure test, low risk).
+No CRITICAL findings. All hard gates PASS. 25/25 acceptance scenarios VERIFIED.
 
-**QA fix round (bd977622):**
+**QA fix round (bd977622 + ddb3e2ea):**
 - `TestHermesPrerequisiteMissingNonFatal` — hermes-missing warn branch now tested (non-fatal, install continues)
 - `TestKanbanTicketPublishRoundTrip` — real hermes v0.22.5 round-trip (board → parent → child with `--parent` → list → show → archive)
 - `TestSetupHermes_PluginSourceMissingWarns` — `copyDir` now warns on missing source (no more silent no-op)
+- `TestSetupHermes_ReadOnlySkillsDir` — read-only $HERMES_HOME/skills/ is non-fatal (permission denied on copy, install continues, MCP config + SOUL.md written)
 
 ## Human Override
 
