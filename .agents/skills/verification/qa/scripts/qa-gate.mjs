@@ -74,19 +74,53 @@ function runScript(root, scriptPath, args) {
   };
 }
 
-// Find the active change's tasks.md (newest dir under .skillgrid/specs/).
-function findTasksPath(root) {
+// Find the active change's slug (newest dir under .skillgrid/specs/).
+function findActiveSlug(root) {
   const specsDir = join(root, ".skillgrid", "specs");
   if (!existsSync(specsDir)) return null;
   const dirs = readdirSync(specsDir, { withFileTypes: true })
     .filter((e) => e.isDirectory())
     .map((e) => e.name)
     .sort();
-  for (let i = dirs.length - 1; i >= 0; i--) {
-    const p = join(specsDir, dirs[i], "tasks.md");
-    if (existsSync(p)) return p;
+  return dirs.length ? dirs[dirs.length - 1] : null;
+}
+
+// Find the active change's tasks.md (newest dir under .skillgrid/specs/).
+function findTasksPath(root) {
+  const slug = findActiveSlug(root);
+  if (!slug) return null;
+  const p = join(root, ".skillgrid", "specs", slug, "tasks.md");
+  return existsSync(p) ? p : null;
+}
+
+// Run a repo-level check script (traceability / tdd-evidence) for the active
+// change. These emit JSON (not the drift-guard `SCOPE:` line protocol), so the
+// gate parses the JSON and folds it into a check entry. A run that errors
+// (no acceptance.feature / no TDD table — exit 2) is a finding (exit 1), not
+// an ERROR, so the gate stays informative rather than failing closed.
+function runRepoCheck(root, scriptName, args) {
+  const scriptPath = join(root, "scripts", scriptName);
+  if (!existsSync(scriptPath)) {
+    return { exit: 2, lines: ["script not found"], summary: null };
   }
-  return null;
+  try {
+    const stdout = execFileSync("node", [scriptPath, ...args, root], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let parsed = null;
+    try { parsed = JSON.parse(stdout); } catch {}
+    return {
+      exit: 0,
+      lines: parsed ? [parsed.summary] : stdout.trim().split("\n"),
+      summary: parsed?.summary ?? null,
+      detail: parsed ?? null,
+    };
+  } catch (e) {
+    const msg = ((e.stdout || "") + "\n" + (e.stderr || "")).trim();
+    return { exit: 1, lines: msg ? msg.split("\n") : ["no output"], summary: null, detail: null };
+  }
 }
 
 // Read the base ref from tasks.md → "Chain strategy: X" line.
@@ -173,6 +207,27 @@ function main() {
     result.checks.status_banner = runScript(root, bannerScript, ["check"]);
   } else {
     result.checks.status_banner = { exit: 2, scope: null, lines: ["script not found"] };
+  }
+
+  // --- traceability (scenario → covering-test matrix, QA Step 5) ---
+  // The counts are exact by construction; the QA skill renders the matrix.
+  {
+    const slug = findActiveSlug(root);
+    if (slug) {
+      result.checks.traceability = runRepoCheck(root, "traceability.mjs", [slug]);
+    } else {
+      result.checks.traceability = { exit: 0, lines: ["skipped: no active change"], summary: null };
+    }
+  }
+
+  // --- tdd-evidence (RED→GREEN commit + test-file validation, QA Step 6) ---
+  {
+    const slug = findActiveSlug(root);
+    if (slug) {
+      result.checks.tdd_evidence = runRepoCheck(root, "tdd-evidence.mjs", [slug]);
+    } else {
+      result.checks.tdd_evidence = { exit: 0, lines: ["skipped: no active change"], summary: null };
+    }
   }
 
   // --- composite scope (worst-scope-wins) ---

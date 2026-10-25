@@ -264,6 +264,100 @@ export function parseBlocked(text) {
   return out;
 }
 
+// --- acceptance.feature scenario enumeration ---
+// Scenarios come from `#### Scenario:` / `#### Scenario Outline:` headings;
+// requirements from `### Requirement:` headings. Fences (```gherkin) hold steps
+// only and are not scenarios. This is the same structure extract-gherkin.cjs
+// consumes — one source of truth for "how many scenarios, named what."
+export function parseScenarios(text) {
+  if (!text) return [];
+  const out = [];
+  let requirement = null;
+  for (const line of text.split("\n")) {
+    const req = line.match(/^###\s+Requirement:\s*(.+?)\s*$/i);
+    if (req) {
+      requirement = req[1].trim();
+      continue;
+    }
+    const sc = line.match(/^####\s+Scenario(?:\s+Outline)?:\s*(.+?)\s*$/i);
+    if (sc) {
+      out.push({ name: sc[1].trim(), requirement });
+      continue;
+    }
+    // A `## ` (level 2) heading ends the current requirement scope; a `# `
+    // (level 1) heading is the title.
+    if (/^#{1,2}\s/.test(line)) requirement = null;
+  }
+  return out;
+}
+
+/** Normalize a scenario name for matching (casefold, collapse dashes/whitespace). */
+export function normalizeName(s) {
+  return String(s)
+    .toLowerCase()
+    .replace(/[—–-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// --- report.md TDD Evidence table ---
+/**
+ * The `## TDD Evidence` table in a report.md → one row object per data row.
+ * Column layouts vary between changes:
+ *   | Ticket | RED commit | GREEN commit | Test file |   (faster-install)
+ *   | Ticket | RED Test   | GREEN Test   | Commit    |   (hermes)
+ * Either way the RED cell, GREEN cell, and an optional test-file / commit cell
+ * are extracted by header name. A cell that does not exist is null.
+ * Returns [] when there is no TDD Evidence section.
+ */
+export function parseTddEvidenceTable(reportText) {
+  if (!reportText) return [];
+  const section = sectionBetween(reportText, "TDD Evidence");
+  if (!section) return [];
+  const pipeLines = section
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith("|"));
+  if (pipeLines.length < 3) return [];
+  const cells = (line) => line.split("|").slice(1, -1).map((c) => c.trim());
+  const header = cells(pipeLines[0]).map((h) => h.toLowerCase());
+  const redIdx = header.findIndex((h) => h.startsWith("red"));
+  const greenIdx = header.findIndex((h) => h.startsWith("green"));
+  const fileIdx = header.findIndex((h) => h.includes("file"));
+  const commitIdx = header.findIndex((h) => h === "commit");
+  const rows = [];
+  for (let i = 2; i < pipeLines.length; i++) {
+    const line = pipeLines[i];
+    if (/^\|[\s:|-]+\|$/.test(line)) continue;
+    const c = cells(line);
+    if (!c.length || c.every((x) => !x)) continue;
+    rows.push({
+      ticket: c[0] || "",
+      red: redIdx >= 0 ? c[redIdx] || null : null,
+      green: greenIdx >= 0 ? c[greenIdx] || null : null,
+      testFile: fileIdx >= 0 ? c[fileIdx] || null : null,
+      commit: commitIdx >= 0 ? c[commitIdx] || null : null,
+    });
+  }
+  return rows;
+}
+
+/**
+ * Extract git commit hashes (7–40 hex chars) from a TDD table cell.
+ * A cell may hold one hash, several comma/space-separated, `N/A (…)`, or
+ * test names instead of hashes. Returns the hashes found.
+ */
+export function hashesFromCell(cell) {
+  if (!cell) return [];
+  return String(cell).match(/\b[0-9a-f]{7,40}\b/gi) || [];
+}
+
+/** A TDD cell that is `N/A` (any casing, optionally with a parenthetical). */
+export function isNaCell(cell) {
+  if (!cell) return false;
+  return /^n\/?a\b/i.test(String(cell).trim());
+}
+
 // --- Next-skill routing (sdd-structure.md § Phase derivation / Resume markers) ---
 // Derived phase → the skill that owns the next step. A `blocked(...)` entry
 // overrides this with `resolve-blockers` (handled by the consumer).
