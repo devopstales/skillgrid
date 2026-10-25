@@ -1,10 +1,10 @@
 ---
 id: TASK-115.04
 title: 'TICKET-04: Kanban ticketing backend in the ticketing skill'
-status: in-progress
+status: done
 assignee: []
 created_date: '2026-10-25 08:02'
-updated_date: '2026-10-25 11:24'
+updated_date: '2026-10-25 11:45'
 labels: []
 dependencies:
   - TASK-115.03
@@ -12,7 +12,9 @@ references:
   - .skillgrid/specs/2026-10-24-hermes-integration/blueprint.md
   - .skillgrid/specs/2026-10-24-hermes-integration/tasks.md
   - .skillgrid/specs/2026-10-24-hermes-integration/acceptance.feature
-  - "Kanban board: skillgrid (board is source of truth; this entry is a mirror — see .agents/skills/_shared/rules/ticketing/hermes-kanban.md)"
+  - >-
+    Kanban board: skillgrid (board is source of truth; this entry is a mirror —
+    see .agents/skills/_shared/rules/ticketing/hermes-kanban.md)
 parent_task_id: TASK-115
 priority: high
 type: feature
