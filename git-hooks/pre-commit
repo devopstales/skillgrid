@@ -32,6 +32,16 @@ if [ -f "scripts/check-adr-invariants.mjs" ]; then
     }
 fi
 
+# 3b. STATUS banner contract (advisory — surfaces banner drift without blocking,
+#     since pre-existing briefings may predate the contract).
+if [ -f "scripts/status-banner.mjs" ]; then
+    if ! banner_out=$(node scripts/status-banner.mjs check . 2>&1); then
+        echo ""
+        echo "STATUS banner drift (advisory — run: node scripts/status-banner.mjs check):"
+        echo "$banner_out"
+    fi
+fi
+
 # 4. checkpoint-state guards (zone guard, cwd-drift, protected-ref, etc.)
 if [ -f "$root/git-hooks/pre-commit.js" ]; then
     node "$root/git-hooks/pre-commit.js" || exit 1

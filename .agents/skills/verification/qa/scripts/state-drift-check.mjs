@@ -29,44 +29,18 @@
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parse } from "yaml";
+import { derivePhase as derivePhaseLib, worstScope as libWorstScope } from "../../../../../scripts/lib/skillgrid-parse.mjs";
 
-// --- Phase derivation from spec-zone artifacts ---
-// Matches the Artifact File Paths table in sdd-structure.md.
-// The deepest present artifact determines the phase.
-
+// Phase derivation + scope atoms now live in scripts/lib/skillgrid-parse.mjs
+// (the single source of truth shared with phase-router.mjs). The guard keeps
+// only its own I/O and the three drift checks.
+//
+// The lib's derivePhase returns { phase, marker } and treats "no briefing" as
+// the "unknown" phase; the guard maps that back to null (skip the drift check).
 function derivePhase(changeDir) {
-  const briefing = existsSync(join(changeDir, "briefing.md"));
-  const blueprint = existsSync(join(changeDir, "blueprint.md"));
-  const tasks = existsSync(join(changeDir, "tasks.md"));
-  const report = existsSync(join(changeDir, "report.md"));
-
-  if (!briefing) return null;
-
-  if (report) return "qa";
-  if (tasks && hasExecutionSignal(changeDir)) return "execution";
-  if (tasks) return "slicing";
-  if (blueprint) return "blueprint";
-  return "spec";
-}
-
-function hasExecutionSignal(changeDir) {
   const sddDir = join(resolve(changeDir, "..", ".."), "sdd");
-  if (existsSync(sddDir)) {
-    for (const entry of readdirSync(sddDir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const progress = join(sddDir, entry.name, "progress.md");
-      if (existsSync(progress)) {
-        const content = readFileSync(progress, "utf8");
-        if (/\[x\]/i.test(content)) return true;
-      }
-    }
-  }
-  const tasksPath = join(changeDir, "tasks.md");
-  if (existsSync(tasksPath)) {
-    const content = readFileSync(tasksPath, "utf8");
-    if (/\[x\]/i.test(content)) return true;
-  }
-  return false;
+  const { phase } = derivePhaseLib({ changeDir, sddDir });
+  return phase === "unknown" ? null : phase;
 }
 
 // --- Completion detection from report.md ---
@@ -75,11 +49,7 @@ function hasExecutionSignal(changeDir) {
 // A zero count is never a bare zero: it carries the scope of the input the
 // derivation actually saw. Four atoms, worst-scope-wins when composed.
 // Severity: UNREADABLE > UNSCOPED > TRUNCATED > COMPLETE.
-const SCOPE_RANK = { COMPLETE: 0, TRUNCATED: 1, UNSCOPED: 2, UNREADABLE: 3 };
-
-function worstScope(a, b) {
-  return SCOPE_RANK[b] > SCOPE_RANK[a] ? b : a;
-}
+const worstScope = libWorstScope;
 
 function specsDirScope(specsDir) {
   if (!existsSync(specsDir)) return "UNSCOPED";

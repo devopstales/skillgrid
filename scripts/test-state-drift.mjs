@@ -17,7 +17,9 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const GUARD = join(HERE, "state-drift-check.mjs");
+// The guard lives in the qa skill's scripts dir (moved there in the scripts
+// reorg); the test stays in scripts/ as the harness home.
+const GUARD = join(HERE, "..", ".agents", "skills", "verification", "qa", "scripts", "state-drift-check.mjs");
 
 let passed = 0;
 let failed = 0;
