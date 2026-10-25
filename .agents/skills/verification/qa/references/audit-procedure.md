@@ -267,6 +267,29 @@ their exit codes + SCOPE lines, and prints a JSON summary. Read the JSON.
   exit 1 (no TDD table, or a row verdict is not OK) → a TDD-evidence WARNING
   naming the failing row, never CRITICAL (the gate is advisory on evidence,
   blocking only on the four-state verdict).
+- **`checks.review_ledger`** — schema validation of the active change's
+  `review-ledger.md` (review-ledger/SKILL.md § Step 3). The `detail.findings[]`
+  carry the per-rule violations (no-disposition / bad-fix-commit /
+  parked-no-ruling / round-gap / round-dup / finding-id-gap); `detail.debt[]`
+  surfaces `parked` findings from prior archived changes' ledgers (review debt).
+  exit 0 → the ledger is schema-clean. exit 1 (schema violation, or no ledger
+  yet for the active change) → a review-ledger WARNING naming the rule, never
+  CRITICAL.
+- **`checks.windows`** — the broken-windows ledger (`.skillgrid/WINDOWS.md`)
+  schema: monotonic W<NNN> IDs (no gaps, no dupes), severity in
+  {WARNING, SUGGESTION}. The `summary` is `N windows, M schema findings`. exit
+  0 → the ledger is clean (a healthy register). exit 1 (a dupe / gap / bad
+  severity) → a broken-windows WARNING naming the offending W id, never
+  CRITICAL. The `append` subcommand is invoked by `qa` at gate-render time
+  (one line) to register this change's open findings.
+- **`checks.delivery_guard`** — the four delivery-guard lines in `tasks.md`
+  (subagent-execution contract). The `detail` carries
+  `{decisionNeeded, chainedPRs, chainStrategy, budgetRisk, consistency,
+  blocked, baseBranch}`. exit 0 → the guard parsed; `blocked` is non-null when
+  a human decision is needed before apply. exit 1 (no tasks.md) → a delivery-
+  guard WARNING. The `consistency` field flags the contract violation
+  (High budget risk but chained PRs not recommended). Advisory — never blocks
+  the gate itself; it is data the execution/ship skills consume.
 - **Review evidence (advisory, not a script check)** — at the point QA routes
   to review (PASS / CONCERNS / WAIVED), a later change's `review.md`
   (written by `skillgrid:requesting-code-review`) is the durable audit record of
