@@ -220,6 +220,17 @@ their exit codes + SCOPE lines, and prints a JSON summary. Read the JSON.
   Exit 0 with `lines[0]` starting "skipped" → no base ref; note it.
 - **`checks.size_budget`** — exit 1 (overage) → WARNING per over-budget
   skill. Exit 0 → no action. Advisory.
+- **`checks.okf_lint`** — the knowledge-bundle lint (9 checks: frontmatter,
+  index completeness, broken links, provenance, claims/anchors, reverse-index
+  sync). exit 1 (drift) → WARNING findings in the report's `## State Drift`
+  section (the bundle is a knowledge zone, not code — never CRITICAL, never
+  affects the four-state verdict). exit 0 / UNSCOPED → no action (UNSCOPED is a
+  non-answer when no bundle exists; it flows into `scopes.composite`).
+- **`checks.status_banner`** — the spec-zone STATUS banner contract (every
+  `briefing.md`/`tasks.md` carries a banner, value in the allowed set,
+  consistent with the derived phase). exit 1 (drift) → WARNING per finding in
+  the report's `## State Drift` section. Advisory — never blocks, never
+  CRITICAL.
 - **Review evidence (advisory, not a script check)** — at the point QA routes
   to review (PASS / CONCERNS / WAIVED), a later change's `review.md`
   (written by `skillgrid:requesting-code-review`) is the durable audit record of
