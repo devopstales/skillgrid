@@ -27,12 +27,7 @@ changes:
   2026-10-20-parallel-cleave-port:
     phase: blueprint
     status: queued
-  2026-10-24-global-llm-wiki:
-    phase: qa
-    status: in-progress
-    # All 8 tickets (TASK-107..TASK-114) complete + reviewed.
-    # QA gate: PASS (42/42 scenarios, 10/10 truths VERIFIED).
-    # Next: requesting-code-review (two-axis: Standards + Spec).
+  # 2026-10-24-global-llm-wiki: shipped 2026-10-25, archived to xarchive/
   2026-10-24-agent-reach-integration:
     phase: spec
     status: in-progress
