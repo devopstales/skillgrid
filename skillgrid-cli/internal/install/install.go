@@ -71,84 +71,105 @@ func Run(c *Config) error {
 		return err
 	}
 
+	// Fan out the independent install phases in parallel (capped at 4).
+	// Phase A: agents (npm batch → setup → config → personas → LSP config)
+	// Phase B: security tools (go/uv, parallel within)
+	// Phase C: LSP tools (go/npm/cargo, parallel within) — only if --lsp
+	// Phase D: provider setup (ollama) — non-fatal
+	//
+	// Phase A's npm batch must complete before setupAgents (needs binaries on
+	// PATH), but A is independent of B, C, D. runParallel caps total
+	// concurrency at 4 to avoid disk thrash.
+
+	var phases []func() error
+
+	// Phase A: agents.
 	if len(c.Agents) > 0 {
-		// Hermes prerequisite: the hermes binary on PATH is non-fatal — a
-		// missing binary prints the install hint and the run continues
-		// (SetupHermes's kanban step warns on its own).
-		if agentSelected(c, "hermes") {
-			if _, err := prerequisiteLookPath("hermes"); err != nil {
-				Out("      warn", "hermes not on PATH — uv tool install hermes-agent; continuing")
+		phases = append(phases, func() error {
+			// Hermes prerequisite: non-fatal.
+			if agentSelected(c, "hermes") {
+				if _, err := prerequisiteLookPath("hermes"); err != nil {
+					Out("      warn", "hermes not on PATH — uv tool install hermes-agent; continuing")
+				}
 			}
-		}
-		// Batch all npm installs (agents + MCP CLI + MCP servers + global tools)
-		// into a single `npm install -g` call to cut N serial npm calls to 1.
-		info("installing npm packages (batched)")
-		if err := installNPMBatch(c); err != nil {
-			return err
-		}
-		info("configuring agents (memory): " + strings.Join(c.Agents, ", "))
-		if err := setupAgents(c); err != nil {
-			return err
-		}
-		if err := backupAgentConfigs(c); err != nil {
-			return fmt.Errorf("backup agent configs: %w", err)
-		}
-		info("configuring agents (harness): " + strings.Join(c.Agents, ", "))
-		for _, key := range c.Agents {
-			if err := installAgentConfig(c, key); err != nil {
-				return fmt.Errorf("harness config %s: %w", key, err)
+			info("installing npm packages (batched)")
+			if err := installNPMBatch(c); err != nil {
+				return err
 			}
-			if key == "skill-pi" {
-				if err := installPiHookBridge(c); err != nil {
+			info("configuring agents (memory): " + strings.Join(c.Agents, ", "))
+			if err := setupAgents(c); err != nil {
+				return err
+			}
+			if err := backupAgentConfigs(c); err != nil {
+				return fmt.Errorf("backup agent configs: %w", err)
+			}
+			info("configuring agents (harness): " + strings.Join(c.Agents, ", "))
+			for _, key := range c.Agents {
+				if err := installAgentConfig(c, key); err != nil {
 					return fmt.Errorf("harness config %s: %w", key, err)
 				}
-			}
-		}
-		if !c.SkipAgentsCopy {
-			info("installing personas: " + strings.Join(c.Agents, ", "))
-			for _, key := range c.Agents {
-				if err := installPersonas(c, key); err != nil {
-					return fmt.Errorf("install personas %s: %w", key, err)
+				if key == "skill-pi" {
+					if err := installPiHookBridge(c); err != nil {
+						return fmt.Errorf("harness config %s: %w", key, err)
+					}
 				}
 			}
-		}
-		if c.LSP {
-			info("configuring LSP for agents: " + strings.Join(c.Agents, ", "))
-			if err := configureLSP(c); err != nil {
-				return err
+			if !c.SkipAgentsCopy {
+				info("installing personas: " + strings.Join(c.Agents, ", "))
+				for _, key := range c.Agents {
+					if err := installPersonas(c, key); err != nil {
+						return fmt.Errorf("install personas %s: %w", key, err)
+					}
+				}
 			}
-		}
+			if c.LSP {
+				info("configuring LSP for agents: " + strings.Join(c.Agents, ", "))
+				if err := configureLSP(c); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
 	}
 
-	if c.SkipTools {
+	// Phase B + C: security tools + LSP tools.
+	if !c.SkipTools {
+		phases = append(phases, func() error {
+			info("installing security tools (wapiti3, akca, nuclei)")
+			if err := installSecurityTools(c); err != nil {
+				return err
+			}
+			if c.LSP {
+				info("installing LSP servers (gopls, pyright, cclsp, typescript, rust-analyzer, jj-language-server)")
+				if err := installLSPTools(c); err != nil {
+					return err
+				}
+			} else {
+				verb("skipping LSP server install (use --lsp)")
+			}
+			return nil
+		})
+	} else {
 		verb("skipping global tool install (--skip-tools)")
-	} else {
-		// Global npm tools are installed by installNPMBatch above.
-		// Security tools use their own managers (go/uv) and install in parallel.
-		info("installing security tools (wapiti3, akca, nuclei)")
-		if err := installSecurityTools(c); err != nil {
-			return err
-		}
-		if c.LSP {
-			info("installing LSP servers (gopls, pyright, cclsp, typescript, rust-analyzer, jj-language-server)")
-			if err := installLSPTools(c); err != nil {
-				return err
-			}
-		} else {
-			verb("skipping LSP server install (use --lsp)")
-		}
 	}
 
-	// Provider setup (ADR-0023, TICKET-03): a normal install step, not an
-	// opt-in bolt-on — indexing already needs an embedder host. Non-fatal: a
-	// failure warns with a manual hint and the install continues.
-	if c.SkipProvider {
-		verb("skipping provider setup (--skip-provider)")
+	// Phase D: provider setup (non-fatal).
+	if !c.SkipProvider {
+		phases = append(phases, func() error {
+			info("setting up LLM/embedder provider (" + providerLabel(c) + ")")
+			if err := setupProvider(c); err != nil {
+				Out("  warning: provider setup:", err)
+				return nil // non-fatal
+			}
+			return nil
+		})
 	} else {
-		info("setting up LLM/embedder provider (" + providerLabel(c) + ")")
-		if err := setupProvider(c); err != nil {
-			Out("  warning: provider setup:", err) // manual hint already printed inside
-		}
+		verb("skipping provider setup (--skip-provider)")
+	}
+
+	// Run all phases in parallel, capped at 4 concurrent.
+	if err := runParallel(4, phases); err != nil {
+		return err
 	}
 
 	if c.SkipAgentsCopy {
