@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
@@ -25,6 +26,13 @@ var svc *service.Service
 // initialized on the first query; tests may replace it.
 var pool *StorePool
 
+// excludeEnvVar is the Hermes integration seam (2026-10-24-hermes-
+// integration, TICKET-02): a comma-separated list of tool name prefixes.
+// The Hermes MCP registration sets it to "mem" because the MemoryProvider
+// handles the mem_* tools natively; the MCP server hides them so no tool
+// name is exposed by both paths.
+const excludeEnvVar = "MNEMONIC_MCP_EXCLUDE"
+
 // serverOptions returns the MCP server options: the initialize-injected
 // guidance (steer to the composite primary tool, don't re-grep), the
 // tool filter that hides the narrow code_* menu tools by default, and
@@ -33,7 +41,59 @@ func serverOptions() []server.ServerOption {
 	return []server.ServerOption{
 		server.WithInstructions(exploreInitializeGuidance()),
 		server.WithToolFilter(applyCodeToolFilter()),
+		server.WithToolFilter(applyExcludeToolFilter()),
 	}
+}
+
+// applyExcludeToolFilter returns a ToolFilterFunc that hides every tool
+// whose name starts with a prefix listed in MNEMONIC_MCP_EXCLUDE. Empty or
+// unset (the default) means no exclusion — the filter passes tools through
+// unchanged. Never returns nil (the mcp-go library does not tolerate nil
+// filters in its chain).
+func applyExcludeToolFilter() server.ToolFilterFunc {
+	return func(_ context.Context, tools []mcplib.Tool) []mcplib.Tool {
+		prefixes := excludeToolPrefixes()
+		if len(prefixes) == 0 {
+			return tools
+		}
+		out := make([]mcplib.Tool, 0, len(tools))
+		for _, t := range tools {
+			if excludedTool(t.Name, prefixes) {
+				continue
+			}
+			out = append(out, t)
+		}
+		return out
+	}
+}
+
+// excludeToolPrefixes parses MNEMONIC_MCP_EXCLUDE into a trimmed,
+// de-duplicated prefix list ("" and whitespace entries dropped).
+func excludeToolPrefixes() []string {
+	v := strings.TrimSpace(os.Getenv(excludeEnvVar))
+	if v == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, p := range strings.Split(v, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" && !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// excludedTool reports whether name starts with any of the prefixes.
+func excludedTool(name string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // applyUnknownToolSuggestion wraps a tool handler so that when the MCP

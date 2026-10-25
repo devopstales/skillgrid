@@ -36,6 +36,7 @@ func runMCP(version string, args []string) {
 		fmt.Fprintln(fs.Output(), "usage: skillgrid mcp [flags]")
 		fmt.Fprintln(fs.Output(), "  Starts the Mnemonic MCP stdio server (mem_*, code_*, web_* tools).")
 		fmt.Fprintln(fs.Output(), "  The auto-sync watcher + fingerprint gate keep the index fresh; SKILLGRID_NO_WATCH=1 disables the watcher.")
+		fmt.Fprintln(fs.Output(), "  MNEMONIC_MCP_EXCLUDE=mem,web hides tools whose names start with the listed prefixes (Hermes sets 'mem' — the MemoryProvider handles mem_* natively).")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
