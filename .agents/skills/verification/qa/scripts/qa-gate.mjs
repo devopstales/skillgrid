@@ -230,6 +230,61 @@ function main() {
     }
   }
 
+  // --- review-ledger-lint (ledger schema validation, review-ledger Step 3) ---
+  {
+    const slug = findActiveSlug(root);
+    if (slug) {
+      result.checks.review_ledger = runRepoCheck(root, "review-ledger-lint.mjs", [slug]);
+    } else {
+      result.checks.review_ledger = { exit: 0, lines: ["skipped: no active change"], summary: null };
+    }
+  }
+
+  // --- windows (broken-windows ledger schema, qa auto-append) ---
+  // windows.mjs prints JSON (not the drift-guard SCOPE line), so fold it the
+  // same way as runRepoCheck.
+  {
+    const scriptPath = join(root, "scripts", "windows.mjs");
+    if (existsSync(scriptPath)) {
+      try {
+        const stdout = execFileSync("node", [scriptPath, "check", root], {
+          cwd: root, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"],
+        });
+        let parsed = null;
+        try { parsed = JSON.parse(stdout); } catch {}
+        result.checks.windows = {
+          exit: 0,
+          lines: parsed ? [`${parsed.windows} windows, next ${parsed.nextWindow}`] : stdout.trim().split("\n"),
+          summary: parsed ? `${parsed.windows} windows, ${parsed.findings.length} schema findings` : null,
+          detail: parsed ?? null,
+        };
+        if (parsed && parsed.findings.length > 0) result.checks.windows.exit = 1;
+      } catch (e) {
+        const msg = ((e.stdout || "") + "\n" + (e.stderr || "")).trim();
+        let parsed = null;
+        try { parsed = JSON.parse(e.stdout || ""); } catch {}
+        result.checks.windows = {
+          exit: e.status ?? 1,
+          lines: parsed ? [`${parsed.windows} windows, ${parsed.findings.length} schema findings`] : (msg ? msg.split("\n") : ["no output"]),
+          summary: parsed ? `${parsed.windows} windows, ${parsed.findings.length} schema findings` : null,
+          detail: parsed ?? null,
+        };
+      }
+    } else {
+      result.checks.windows = { exit: 2, lines: ["script not found"], summary: null };
+    }
+  }
+
+  // --- delivery-guard (the four guard lines, subagent-execution contract) ---
+  {
+    const slug = findActiveSlug(root);
+    if (slug) {
+      result.checks.delivery_guard = runRepoCheck(root, "delivery-guard.mjs", [slug]);
+    } else {
+      result.checks.delivery_guard = { exit: 0, lines: ["skipped: no active change"], summary: null };
+    }
+  }
+
   // --- composite scope (worst-scope-wins) ---
   let composite = "COMPLETE";
   for (const key of ["state_drift", "ship_drift", "okf_lint"]) {

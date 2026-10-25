@@ -358,6 +358,72 @@ export function isNaCell(cell) {
   return /^n\/?a\b/i.test(String(cell).trim());
 }
 
+// --- review-ledger.md parsing (review-ledger/SKILL.md § Step 2 format) ---
+// Disposition enum. A finding's Disposition column must be one of these.
+export const REVIEW_DISPOSITIONS = new Set(["fixed", "parked", "waived"]);
+
+/**
+ * Parse a review-ledger.md into rounds. Returns
+ *   { rounds: [ { n, date, frozenHash, findings: [ {id, severity, file,
+ *     disposition, fixCommit} ], dispositions: Set<findingId>, verdict } ] }
+ * Round headings: `## Round <N> — <date>`. Findings come from the Findings
+ * table (columns ID | Severity | File:Line | Finding | Disposition | Fix Commit
+ * | Lineage). Disposition bullets: `- **<id>** — <text>`.
+ */
+export function parseReviewLedger(text) {
+  if (!text) return { rounds: [] };
+  const rounds = [];
+  let cur = null;
+  let section = null;
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const rh = line.match(/^##\s+Round\s+(\d+)\s*—?\s*(.*)$/);
+    if (rh) {
+      cur = { n: parseInt(rh[1], 10), date: rh[2].trim(), frozenHash: null, findings: [], dispositionIds: new Set(), verdict: null };
+      rounds.push(cur);
+      section = null;
+      continue;
+    }
+    if (!cur) continue;
+    // Frozen candidate line.
+    const fz = line.match(/\*\*Frozen candidate:\*\*\s*base\s+([0-9a-f]{7,40})\s*→\s*([0-9a-f]{7,40})\s*,\s*\d+\s+files?,\s*hash\s+([0-9a-f]{6,40})/i);
+    if (fz) { cur.frozenHash = fz[3]; continue; }
+    // Section switches.
+    if (/^###\s+Findings\b/i.test(line)) { section = "findings"; continue; }
+    if (/^###\s+Dispositions\b/i.test(line)) { section = "dispositions"; continue; }
+    if (/^###\s+Round Verdict\b/i.test(line)) { section = "verdict"; continue; }
+    if (/^##\s/.test(line)) { section = null; continue; }
+
+    if (section === "findings") {
+      const cells = line.trim().startsWith("|")
+        ? line.trim().split("|").slice(1, -1).map((c) => c.trim())
+        : null;
+      if (!cells) continue;
+      if (/^\|[\s:|-]+\|$/.test(line.trim())) continue; // separator
+      if (cells.length < 6) continue;
+      // Skip the header row (first cell is "ID").
+      if (/^id$/i.test(cells[0])) continue;
+      const id = cells[0];
+      if (!/^R\d+-F\d+$/.test(id)) continue;
+      cur.findings.push({
+        id,
+        severity: cells[1],
+        file: cells[2],
+        disposition: (cells[4] || "").toLowerCase(),
+        fixCommit: cells[5],
+      });
+    } else if (section === "dispositions") {
+      const d = line.match(/^\s*-\s*\*\*(R\d+-F\d+)\*\*/);
+      if (d) cur.dispositionIds.add(d[1]);
+    } else if (section === "verdict") {
+      const v = line.match(/^(clean|findings-dispositioned|invalidated)\s*$/);
+      if (v) cur.verdict = v[1];
+    }
+  }
+  return { rounds };
+}
+
 // --- Next-skill routing (sdd-structure.md § Phase derivation / Resume markers) ---
 // Derived phase → the skill that owns the next step. A `blocked(...)` entry
 // overrides this with `resolve-blockers` (handled by the consumer).
