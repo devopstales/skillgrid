@@ -302,8 +302,8 @@ func kanbanProject(repoRoot string) (slug, name string) {
 // KanbanExec is the `hermes` CLI invoked for Kanban board creation; tests
 // (in this package or the skillgrid-cli installer) replace it with a stub so
 // the suites stay hermetic on machines with a real hermes binary on PATH.
-var KanbanExec = func(args ...string) (string, error) {
-	return runKanbanCLI(args...)
+var KanbanExec = func(hermesHome string, args ...string) (string, error) {
+	return runKanbanCLI(hermesHome, args...)
 }
 
 // kanbanTimeout bounds a real CLI call: a hung hermes (e.g. an interrupted
@@ -311,13 +311,14 @@ var KanbanExec = func(args ...string) (string, error) {
 var kanbanTimeout = 60 * time.Second
 
 // runKanbanCLI runs `hermes <args...>` with the board's state rooted at
-// $HERMES_HOME (set by the caller) and the process detached from the
-// installer's stdin.
-func runKanbanCLI(args ...string) (string, error) {
+// HERMES_HOME (passed per-call, never via a process-global env mutation)
+// and the process detached from the installer's stdin.
+func runKanbanCLI(hermesHome string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), kanbanTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "hermes", args...)
 	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, HermesHomeEnv+"="+hermesHome)
 	devNull, err := os.OpenFile(os.DevNull, os.O_RDONLY, 0)
 	if err == nil {
 		cmd.Stdin = devNull
@@ -343,16 +344,10 @@ func createKanbanBoard(hermesHome, slug, name string, dryRun bool) error {
 		logInfo("[dry-run] hermes " + strings.Join(args, " "))
 		return nil
 	}
-	// Pin HERMES_HOME for the subprocess so the board lands under the
-	// target home even when the installer's own env differs.
-	prev := os.Getenv(HermesHomeEnv)
-	_ = os.Setenv(HermesHomeEnv, hermesHome)
-	out, err := KanbanExec(args...)
-	if prev == "" {
-		_ = os.Unsetenv(HermesHomeEnv)
-	} else {
-		_ = os.Setenv(HermesHomeEnv, prev)
-	}
+	// HERMES_HOME is pinned per-call (cmd.Env in runKanbanCLI) so the board
+	// lands under the target home even when the installer's own env differs —
+	// no process-global env mutation.
+	out, err := KanbanExec(hermesHome, args...)
 	if err != nil {
 		return fmt.Errorf("%v: %s", err, out)
 	}
@@ -365,6 +360,16 @@ func createKanbanBoard(hermesHome, slug, name string, dryRun bool) error {
 // (ticketing.kanban.board / .assignee). The text-level merge preserves
 // every comment and key a YAML round-trip would flatten. A missing or
 // disabled ticketing block is left untouched (nothing to dispatch to).
+// homeFromRepoRoot resolves the OS home dir the ticketing backup writes
+// into ($HOME/.skillgrid/backup/hermes/), falling back to the user cache
+// dir when HOME is unset (CI) so the backup never fails on a path.
+func homeFromRepoRoot(repoRoot string) string {
+	if h := os.Getenv("HOME"); h != "" {
+		return h
+	}
+	return filepath.Dir(repoRoot)
+}
+
 func updateHermesTicketing(repoRoot, slug string, dryRun bool) error {
 	path := filepath.Join(repoRoot, ".skillgrid", "config.yaml")
 	data, err := os.ReadFile(path)
@@ -395,6 +400,12 @@ func updateHermesTicketing(repoRoot, slug string, dryRun bool) error {
 		logInfo("[dry-run] set ticketing.type=" + KanbanTicketType + " in " + path)
 		return nil
 	}
+	// Back up the config before the merge write (same pattern as the
+	// Hermes config backup) so the user's pre-install ticketing setup
+	// is always recoverable.
+	if err := backupConfigFile(homeFromRepoRoot(repoRoot), "hermes", path, false); err != nil {
+		return fmt.Errorf("backup %s: %w", path, err)
+	}
 	if err := os.WriteFile(path, []byte(merged), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
@@ -406,8 +417,11 @@ func updateHermesTicketing(repoRoot, slug string, dryRun bool) error {
 // ticketing block's `type:` line becomes hermes-kanban, and
 // kanban.board/assignee are set inside the block (or the block is
 // created when absent) — preserving every comment and key a YAML
-// round-trip would flatten. Returns the merged text (identical to doc
-// when already installed).
+// round-trip would flatten. board is always set to slug; assignee is
+// set to `default` only when the block has no user-chosen assignee
+// (a non-empty, non-default value the user set before installing is
+// kept). Returns the merged text (identical to doc when already
+// installed).
 func mergeTicketingType(doc, ticketType, slug string) string {
 	lines := strings.Split(doc, "\n")
 	out := make([]string, 0, len(lines)+5)
@@ -434,7 +448,8 @@ func mergeTicketingType(doc, ticketType, slug string) string {
 		}
 		if !kanbanSet && trimmed == "kanban:" {
 			out = append(out, line)
-			// Keep the kanban sub-keys, forcing board + assignee.
+			// Keep the kanban sub-keys, forcing board; assignee is kept
+			// when the user chose a non-default profile.
 			boardSet := false
 			assigneeSet := false
 			for i+1 < len(lines) {
@@ -450,7 +465,11 @@ func mergeTicketingType(doc, ticketType, slug string) string {
 					continue
 				}
 				if strings.HasPrefix(subT, "assignee:") {
-					out = append(out, "    assignee: default")
+					if v := strings.TrimSpace(strings.TrimPrefix(subT, "assignee:")); v != "" && v != "default" {
+						out = append(out, "    assignee: "+v) // user-set profile: keep it
+					} else {
+						out = append(out, "    assignee: default")
+					}
 					assigneeSet = true
 					continue
 				}

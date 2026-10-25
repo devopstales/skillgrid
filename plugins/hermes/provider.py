@@ -138,7 +138,7 @@ class MnemonicMemoryProvider(MemoryProvider):
         return shutil.which("mnemonic") is not None
 
     def unavailable_reason(self) -> str:
-        return "mnemonic binary not found on PATH. Run: skillgrid setup hermes"
+        return "mnemonic binary not found on PATH. Run: skillgrid install --agents hermes"
 
     def initialize(self, session_id: str, **kwargs: Any) -> None:
         self._session_id = session_id

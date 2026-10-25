@@ -32,7 +32,7 @@ func stubKanban(t *testing.T) *[]string {
 	t.Helper()
 	var calls []string
 	orig := KanbanExec
-	KanbanExec = func(args ...string) (string, error) {
+	KanbanExec = func(hermesHome string, args ...string) (string, error) {
 		calls = append(calls, strings.Join(args, " "))
 		return "ok", nil
 	}
@@ -383,12 +383,15 @@ func TestSetupHermes_KanbanBoard(t *testing.T) {
 		t.Fatal(err)
 	}
 	home := t.TempDir()
-	t.Setenv(HermesHomeEnv, t.TempDir())
+	kanbanHome := t.TempDir()
+	t.Setenv(HermesHomeEnv, kanbanHome)
 
 	// Success path: the CLI is invoked with the project slug.
 	var gotArgs []string
+	var gotHome string
 	orig := KanbanExec
-	KanbanExec = func(args ...string) (string, error) {
+	KanbanExec = func(hermesHome string, args ...string) (string, error) {
+		gotHome = hermesHome
 		gotArgs = args
 		return "board created", nil
 	}
@@ -400,9 +403,13 @@ func TestSetupHermes_KanbanBoard(t *testing.T) {
 		gotArgs[2] != "create" || gotArgs[3] != "kanban-test-proj" {
 		t.Fatalf("kanban create args = %v, want kanban boards create kanban-test-proj", gotArgs)
 	}
+	// HERMES_HOME is passed per-call to the CLI (no process-env mutation).
+	if gotHome != kanbanHome {
+		t.Fatalf("kanban CLI HERMES_HOME = %q, want %q", gotHome, kanbanHome)
+	}
 
 	// Failure path: a failing CLI is non-fatal (the install completes).
-	KanbanExec = func(args ...string) (string, error) {
+	KanbanExec = func(hermesHome string, args ...string) (string, error) {
 		return "", fmt.Errorf("exit status 1")
 	}
 	home2 := t.TempDir()
@@ -420,7 +427,7 @@ func TestSetupHermes_KanbanBoard(t *testing.T) {
 
 	// Dry-run path: the CLI is never invoked, only printed.
 	called := false
-	KanbanExec = func(args ...string) (string, error) {
+	KanbanExec = func(hermesHome string, args ...string) (string, error) {
 		called = true
 		return "", nil
 	}
@@ -488,5 +495,35 @@ func TestMergeTicketingType(t *testing.T) {
 	appended := mergeTicketingType(bare, "hermes-kanban", "p")
 	if !strings.Contains(appended, "ticketing:") || !strings.Contains(appended, "type: hermes-kanban") {
 		t.Fatalf("no ticketing block appended: %s", appended)
+	}
+}
+
+// TestMergeTicketingType_AssigneePreserved is the whole-branch review fix:
+// a user-set kanban.assignee (non-empty, non-default) must survive the
+// install instead of being silently reset to default; an empty or
+// default-valued assignee still becomes `default`.
+func TestMergeTicketingType_AssigneePreserved(t *testing.T) {
+	// User-set profile: kept.
+	user := "ticketing:\n  enabled: true\n  type: backlogmd\n  kanban:\n    assignee: alice\n"
+	out := mergeTicketingType(user, "hermes-kanban", "p")
+	if !strings.Contains(out, "assignee: alice") {
+		t.Fatalf("user-set assignee not preserved: %s", out)
+	}
+	if strings.Contains(out, "assignee: default") {
+		t.Fatalf("user-set assignee overwritten: %s", out)
+	}
+
+	// Existing default: stays default (fixed point).
+	def := "ticketing:\n  enabled: true\n  kanban:\n    assignee: default\n"
+	outDef := mergeTicketingType(def, "hermes-kanban", "p")
+	if !strings.Contains(outDef, "assignee: default") {
+		t.Fatalf("default assignee changed: %s", outDef)
+	}
+
+	// Empty assignee: becomes default.
+	empty := "ticketing:\n  enabled: true\n  kanban:\n    assignee: \"\"\n"
+	outEmpty := mergeTicketingType(empty, "hermes-kanban", "p")
+	if !strings.Contains(outEmpty, "assignee: default") {
+		t.Fatalf("empty assignee not normalized to default: %s", outEmpty)
 	}
 }

@@ -238,7 +238,7 @@ func TestHermesSelectionFlow(t *testing.T) {
 	// with a real hermes binary on PATH.
 	oldKanban := mnemonic.KanbanExec
 	t.Cleanup(func() { mnemonic.KanbanExec = oldKanban })
-	mnemonic.KanbanExec = func(args ...string) (string, error) { return "", nil }
+	mnemonic.KanbanExec = func(hermesHome string, args ...string) (string, error) { return "", nil }
 	home := t.TempDir()
 	repo := t.TempDir()
 
