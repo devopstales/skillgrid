@@ -322,6 +322,7 @@ func TestRunnerTimeout(t *testing.T) {
 - Produces:
   - CLI: `runHarnessRun`, `runHarnessJudge`, `runHarnessReport`, `runHarnessSetup`, `runHarnessCheck` (each → `int`). `--dry-run` on `run` prints argv and returns 0 without exec.
   - HTTP handlers: `handleHarnessRuns` (GET list), `handleHarnessRunGet` (GET one), `handleHarnessRunCreate` (POST launch, `202` + `{"run_id": …}`), `handleHarnessRunJudge` (POST judge). Routes: `GET /harness/runs`, `GET /harness/runs/{id}`, `POST /harness/runs`, `POST /harness/runs/{id}/judge`. POSTs wrapped in `requireWriteAuth`.
+  - **Launch semantics (decided): detached spawn.** `handleHarnessRunCreate` mints the run id as a timestamped slug (`<UTC-stamp>-<rand4>`), creates `runs/<run_id>/`, spawns `harness2` as a detached child with `HARNESS2_RUNS_DIR=…/runs/<run_id>/` (and `Setpgid` so the timeout kills the group), and returns `202 {"run_id": …}` immediately. The sweep continues in the background; the SPA polls `GET /harness/runs/{id}` for progress (the run's `Status`/`HasJudged` flip as Harness² writes the tree). No long-held HTTP request, no terminal block.
   - `func (s *Server) registerHarnessRoutes()`.
 - Seam: the HTTP boundary — the spawn is delegated to `Runner`; handlers stay thin.
 - Deletion test: none (surface).
@@ -351,7 +352,7 @@ func TestHarnessGetRun404(t *testing.T) {
 ```
 
 - [ ] **Step 2: Run test to verify it fails** — `go test ./mnemonic/internal/http/ -run TestHarness` → FAIL (route not mounted / handler undefined).
-- [ ] **Step 3: Write minimal implementation** — `harness.go` handlers + `registerHarnessRoutes`; mount in `server.go`. POST launch: validate the request, call `Runner.Run` (or spawn detached and return the run id immediately — decide: **spawn detached, return `202` with the new run id from the target `runs/` subdir**; the sweep continues in the background), write `202`. Judge: validate id (`runIDPattern`), `Runner.Run` with `Command:"judge"`, `ResumeID:id`.
+- [ ] **Step 3: Write minimal implementation** — `harness.go` handlers + `registerHarnessRoutes`; mount in `server.go`. POST launch (**detached spawn**, decided): validate the request, mint `run_id` = `<UTC-stamp>-<rand4>`, `MkdirAll(runs/<run_id>)`, spawn `harness2` detached with `HARNESS2_RUNS_DIR=…/runs/<run_id>/` + `Setpgid`, write `202 {"run_id": …}` and return without waiting. Judge: validate id (`runIDPattern`), `Runner.Run` with `Command:"judge"`, `ResumeID:id`.
 - [ ] **Step 4: Run test to verify it passes** — `go test ./mnemonic/internal/http/ -run TestHarness` → PASS; `go test ./mnemonic/...` → PASS.
 - [ ] **Step 5: Commit** — `git commit -m "feat(harness): add run/judge/report/setup/check CLI + /harness/* REST routes"`.
 
@@ -456,7 +457,7 @@ func TestInstallHarnessToolsNonFatal(t *testing.T) {
 
 **1. Spec coverage.** Briefing decisions mapped: (1) host-not-subject → scope + out-of-scope list; (2) Go-spawns-Python → Task 4 `Runner`; (3) `ExternalTool` install → Task 7; (4) `runs/` under data dir → Task 1 `RunsRoot`; (5) `mnemonic harness …` group → Tasks 3,5; (6) REST routes → Task 5; (7) SPA view → Task 6; (8) threat matrix → Tasks 2,4,5 + the matrix section. No gap.
 
-**2. Must-haves coverage.** Every briefing requirement has a truth/artifact/key-link: install (Task 7 truth), CLI (Tasks 3,5), REST (Task 5), SPA (Task 6), file contract (Task 2), defense (Threat Matrix RED tests). The `backstop` truth has a held-out test (Task 8).
+**2. Must-haves coverage.** Every briefing requirement has a truth/artifact/key-link: install (Task 7 truth), CLI (Tasks 3,5), REST (Task 5), SPA (Task 6), file contract (Task 2), defense (Threat Matrix RED tests). The `backstop` truth has a held-out test (Task 8). The launch-semantics decision (detached spawn, `202` + minted `run_id`, SPA polls for progress) was routed to the user at the blueprint gate and is now pinned in Task 5's Interfaces + Step 3 — no residue.
 
 **3. One-way-door completeness.** The only hard-to-reverse decision (new REST write contract) is listed in Must-Haves and tagged `> ⚠ one-way:` on Task 5 with a STOP before Task 6. The `SecTool`→`ExternalTool` rename is internal/mechanical and explicitly noted as not one-way. No migration.
 
@@ -469,7 +470,7 @@ func TestInstallHarnessToolsNonFatal(t *testing.T) {
 Every value the build produces has a named source:
 - runs root → Task 1 `RunsRoot` default `~/.skillgrid/mnemonic/harness2/runs/` (briefing decision 4).
 - `HARNESS2_*` env values → `LoadHarnessConfig` reads env/config.d (named).
-- run id returned by `POST /harness/runs` → the target `runs/` subdir name the runner creates (named in Task 5).
+- run id returned by `POST /harness/runs` → a minted `<UTC-stamp>-<rand4>` slug the handler creates as the `runs/<run_id>/` subdir (named in Task 5, decided: detached spawn).
 - judge verdict/score/Δ → parsed from `judged.json`/`base_judged.json` (Task 2, named).
 - install command → `HarnessTools()` `InstallArgs` (Task 7, named).
 - SPA columns → the `RunSummary` fields (Task 2, named).
