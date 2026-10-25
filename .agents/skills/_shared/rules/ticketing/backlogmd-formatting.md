@@ -153,6 +153,8 @@ Format: `[TYPE] Brief description (COMPONENT)` where `[TYPE]` ∈ `{BUG, FEATURE
 - `[FEATURE] Add dark mode toggle (UI)`
 - `[REFACTOR] Migrate E2E tests to Page Object Model (UI)`
 
+**ASCII only.** The backlog CLI slugifies the title into a filename. Em dashes (`—`), en dashes (`–`), curly quotes, and other non-ASCII characters survive the slugify and produce unquotable filenames. Use ASCII hyphens (`-`) for separators, and avoid dots in file-relevant parts of the title (e.g. `SOUL.md` → `SOUL-md` in the title if it becomes part of the filename). The pre-commit hook enforces this.
+
 Match the project's existing style if it differs. Title `[TYPE]` is **not** a substitute for frontmatter `type:` — both are required.
 
 ### Frontmatter fields

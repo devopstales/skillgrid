@@ -90,7 +90,7 @@ backlog → ready → in-progress → review → done
 - **Milestone name = spec folder name** (e.g. `2026-10-06-mnemonic-standalone`). The milestone must be named after the full spec folder under `.skillgrid/specs/` or `.skillgrid/xarchive/`, never a short slug or numeric ID. This makes the `milestone → spec` mapping 1:1 and recoverable from the tracker alone.
 
 **Tickets** — one per ticket in tasks.md:
-- Title: per the formatting reference's title convention (e.g. `TICKET-<NN>: <title>` or `[TYPE] description (COMPONENT)`)
+- Title: per the formatting reference's title convention (e.g. `TICKET-<NN>: <title>` or `[TYPE] description (COMPONENT)`). **ASCII only** — the backlog CLI slugifies titles into filenames; em dashes and other non-ASCII characters produce unquotable filenames. Use ASCII hyphens for separators.
 - Body: per the formatting reference's issue template
 - Blocked by: link to blocker tickets (native dependency if tracker supports it, `Blocked by:` text section otherwise)
 - Status: `backlog`
