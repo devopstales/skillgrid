@@ -142,3 +142,4 @@ Questions that are not yet decided and not yet prototyped.
 3. **README alignment** — the README is still installer-first; aligning it to the engine-first PRD is a follow-up ticket, not part of this consolidation.
 4. **Housekeeping** — remove the stray `internal/mnemonic/mcp/.git` nested repo (still present as of 2026-09-29); the migration numbering gap (002–039 squashed into `001_schema.sql`) is a known issue with no action.
 5. **Knowledge-retrieval direction** — the goal is a fast, cheap knowledge-retrieval surface that makes the agent smarter, sourced from the Mnemonic SQLite store (observations + web_cache), plus ingesting local `.skillgrid/` files into that store. Needs a fresh decision/ADR before any re-attempt.
+smoke test
