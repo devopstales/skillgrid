@@ -162,3 +162,22 @@ None.
 |---|---|---|---|---|---|---|
 | W001 | 2026-10-24-global-llm-wiki | SUGGESTION | gofmt pre-existing drift in service/parallel_search_many_test.go, retrieval.go, teams.go (not introduced by this change) | qa-auto | 2026-10-25 | open |
 | W002 | 2026-10-24-global-llm-wiki | SUGGESTION | mcp full-package test suite times out at 600s (pre-existing slow codeindex fixture) | qa-auto | 2026-10-25 | open |
+
+## Environment Retro
+
+| Category | Finding | Fix lands in | Source |
+|----------|---------|--------------|--------|
+| Automated checks | `git commit` hangs on post-commit hook (`mnemonic index` + `mnemonic pages` on 58-file diff) — 3 commits timed out at 30s during this session, requiring manual `git log` verification each time. The hook is fail-open but not fast-open. | Add a size guard to `git-hooks/post-commit`: skip `mnemonic index`/`pages` when the diff exceeds N files (e.g. 20), or make it async (`nohup ... &`). Or add a `--no-verify` convention for bulk commits. | `git-hooks/post-commit:6-7`; 3× `git commit` timeouts in session |
+| Automated checks | No `gofmt` pre-commit hook — pre-existing drift in 10+ files (service/, cmd/mnemonic/) is never caught at commit time. W001 is a symptom of this gap. | Add a pre-commit hook: `gofmt -l` on staged Go files, fail if any are unformatted. Cheap, deterministic, catches the drift at the source. | W001; `gofmt -l` output in QA step |
+| Tool economy | Parallel subagents in the same worktree caused git index conflicts (T03 committed in an isolated worktree, T04 stash/pop mid-flight, cherry-pick conflicts). Cost: ~30 min of conflict resolution that would have been avoided with worktree isolation from the start. | Add a convention to `subagent-execution` skill or `AGENTS.md`: parallel tickets in the same wave MUST use separate git worktrees, not shared checkout. The skill already mentions `skillgrid:isolated-workspace` but doesn't mandate it for parallel dispatch. | T03 report (isolated worktree), T04 report (stash/pop conflict), cherry-pick conflict resolution in session |
+| Information access | The `backlog search` CLI command dumps minified JS source instead of search results — a broken code path in the backlog CLI. Had to fall back to `tools.backlog.task_list` MCP tool. | Fix the `backlog search` CLI code path (or remove the command if the MCP tool is the canonical interface). The bug is in the backlog package, not in this change. | `backlog search "global-llm-wiki" --plain` output in session |
+| Coding standards | FTS5 `ORDER BY bm25(facts_fts)` without a secondary sort key is a recurring trap — T03's review found it, but it could bite any future FTS query. | Add a one-line note to `code-standards.md` under "Design principles" or a new "Database" section: "FTS5 queries must have a deterministic secondary sort key (e.g. `, f.id`) to guarantee stable ordering across SQLite versions." | T03 review finding 2; `scope.go` `searchRanked` fix |
+| Navigation | No finding. The codebase navigation was smooth — file paths were in the task briefs, and the existing code patterns were clear. | — | — |
+| Steering-file no-ops | No finding. AGENTS.md and config.yaml were clean and used. | — | — |
+
+### Follow-up tickets
+
+1. **post-commit hook size guard** (Automated checks) — skip or async the mnemonic index for large diffs. Real build: edit `git-hooks/post-commit`, add a `git diff --stat` check.
+2. **gofmt pre-commit hook** (Automated checks) — catch formatting drift at commit time. Real build: add a pre-commit hook running `gofmt -l` on staged Go files.
+3. **Parallel subagent worktree convention** (Tool economy) — mandate worktree isolation for parallel dispatch. Real build: edit `subagent-execution` SKILL.md or `AGENTS.md` with a one-line convention.
+4. **FTS5 secondary sort key** (Coding standards) — add a note to `code-standards.md`. Real build: one-line edit to the standards file.
