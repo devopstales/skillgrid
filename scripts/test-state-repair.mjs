@@ -144,6 +144,29 @@ const FEATURE = "# Cap\n\n### Requirement: r\n\n#### Scenario: s\n";
   p.cleanup();
 }
 
+// 5b. Comment preservation: the repair must NOT drop YAML comments (the
+//     parse/stringify round-trip used to — that's the "agent mis-edits the
+//     YAML" failure this script exists to prevent).
+{
+  const state = `schema: skillgrid/state/v2\n# v2: the map IS the resume pointer.\nchanges:\n  demo:\n    phase: spec\n    status: in-progress\n  # 2026-01-01-old: shipped, archived\n  other:\n    phase: spec\n    status: in-progress\nprogress:\n  completed_changes: 1\n`;
+  // demo has only a briefing → derives "spec" (matches). other has a briefing
+  // too. Add a specs dir for demo with a blueprint so demo drifts to slicing.
+  const p = makeRoot({
+    state,
+    specs: {
+      "demo": { "briefing.md": BRIEFING, "blueprint.md": BLUEPRINT, "acceptance.feature": FEATURE },
+      "other": { "briefing.md": BRIEFING },
+    },
+  });
+  run(p.root, "--write");
+  const after = readFileSync(join(p.root, ".skillgrid", "state.yaml"), "utf8");
+  assert("comments: top comment preserved", after.includes("# v2: the map IS the resume pointer."), after);
+  assert("comments: archived-comment preserved", after.includes("# 2026-01-01-old: shipped, archived"), after);
+  assert("comments: demo phase updated", /phase: (slicing|blueprint)/.test(after), after);
+  assert("comments: still valid YAML + 2 entries", (after.match(/^\s{2}\S.*:$/gm) || []).length >= 2, after);
+  p.cleanup();
+}
+
 // 6. Determinism: dry-run run twice identical
 {
   const p = makeRoot({
