@@ -180,7 +180,7 @@ class MnemonicMemoryProvider(MemoryProvider):
                 else:
                     self._cache = ""
             except Exception as exc:
-                logger.debug("mnemonic prefetch failed: %s", exc)
+                logger.warning("mnemonic prefetch failed: %s", exc)
                 with self._lock:
                     self._cache = ""
 
@@ -212,7 +212,7 @@ class MnemonicMemoryProvider(MemoryProvider):
                     ]
                 )
             except Exception as exc:
-                logger.debug("mnemonic sync_turn failed: %s", exc)
+                logger.warning("mnemonic sync_turn failed: %s", exc)
 
         t = spawn_context_thread(target=_save, name="mnemonic-sync")
         t.start()
@@ -257,7 +257,7 @@ class MnemonicMemoryProvider(MemoryProvider):
                 ]
             )
         except Exception as exc:
-            logger.debug("mnemonic on_memory_write failed: %s", exc)
+            logger.warning("mnemonic on_memory_write failed: %s", exc)
 
     def shutdown(self) -> None:
         # Flush pending background work. v1: no-op (threads are daemon).
@@ -268,12 +268,17 @@ class MnemonicMemoryProvider(MemoryProvider):
     def _run(self, args: List[str]) -> str:
         """Run the mnemonic CLI and return stdout.
 
-        Raises RuntimeError on a non-zero exit; callers decide whether
-        that is fatal (handle_tool_call propagates it to Hermes) or
-        swallowed (background threads log at debug).
+        Raises RuntimeError on a non-zero exit or a timeout; callers
+        decide whether that is fatal (handle_tool_call propagates it to
+        Hermes) or swallowed (background threads log at warning).
         """
         cmd = ["mnemonic"] + args
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=_CLI_TIMEOUT)
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=_CLI_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(
+                f"mnemonic {' '.join(args)}: timed out after {_CLI_TIMEOUT}s"
+            ) from None
         if result.returncode != 0:
             raise RuntimeError(f"mnemonic {' '.join(args)}: {result.stderr.strip()}")
         return result.stdout
