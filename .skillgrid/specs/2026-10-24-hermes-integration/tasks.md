@@ -39,6 +39,7 @@ Chain strategy: stacked-to-main
 
 ### TICKET-01 — MemoryProvider plugin: provider.py + __init__.py + plugin.yaml
 
+- **Tracker ID:** TASK-115.01
 - **Scope:** Create the Python MemoryProvider plugin at `plugins/hermes/` — the full lifecycle class, the `register(ctx)` entry point, and the plugin manifest. Verify the mnemonic CLI flags the provider needs (add `--json` if missing).
 - **Acceptance:** `plugins/hermes/provider.py` defines `MnemonicMemoryProvider(MemoryProvider)` with all 12 methods (is_available, initialize, system_prompt_block, prefetch, queue_prefetch, sync_turn, get_tool_schemas, handle_tool_call, on_session_end, on_pre_compress, on_memory_write, shutdown). `__init__.py` defines `register(ctx)`. `plugin.yaml` has `name: mnemonic`. The provider's `is_available()` returns True when `mnemonic` is on PATH. `get_tool_schemas()` returns 5 valid OpenAI schemas. `handle_tool_call("mem_save", {...})` calls `mnemonic mem save` and returns JSON.
 - **SATISFIES:** happy path — MemoryProvider is discovered and activates; happy path — MemoryProvider exposes memory tool schemas
@@ -51,6 +52,7 @@ Chain strategy: stacked-to-main
 
 ### TICKET-02 — SetupHermes: Go installer for Hermes
 
+- **Tracker ID:** TASK-115.02
 - **Scope:** Implement `SetupHermes()` in `mnemonic/internal/setup/hermes.go` — copies the plugin, writes MCP config to `~/.hermes/config.yaml` (YAML), sets `MNEMONIC_MCP_EXCLUDE=mem`, writes SOUL.md marker block, creates Kanban board, copies skills, updates ticketing config. Add the `"hermes"` case to `RunSetup`. Add `MNEMONIC_MCP_EXCLUDE` handling to `mnemonic mcp`.
 - **Acceptance:** `SetupHermes()` copies `plugins/hermes/` → `~/.hermes/plugins/mnemonic/`. Writes `mcp_servers` block to `config.yaml` with all servers from `config.d/mcp.yaml`. The mnemonic entry has `env: {MNEMONIC_MCP_EXCLUDE: "mem"}`. SOUL.md gets a marker-delimited protocol block (idempotent — replaced on re-run). Kanban board created (non-fatal if exists). Skills copied. `.skillgrid/config.yaml` updated with `type: hermes-kanban`. `RunSetup("hermes", ...)` dispatches to `SetupHermes()`. `MNEMONIC_MCP_EXCLUDE=mem` suppresses `mem_*` tools from `mnemonic mcp`. Dry-run writes nothing.
 - **SATISFIES:** happy path — MCP server is registered in Hermes config; happy path — MCP server passes the Hermes test; edge — all MCP servers from config.d/mcp.yaml are registered; failure — malformed config.yaml triggers backup and error; happy path — protocol fallback in SOUL.md; failure — SOUL.md block is replaced on re-install
@@ -62,6 +64,7 @@ Chain strategy: stacked-to-main
 
 ### TICKET-03 — Install flow: hermes in agent selection + prerequisite check
 
+- **Tracker ID:** TASK-115.03
 - **Scope:** Add `hermes` to the skillgrid installer's agent selection, prerequisite check (hermes binary on PATH, non-fatal), and install flow. Wire `setup.RunSetup("hermes", ...)` into the install sequence.
 - **Acceptance:** `skillgrid install --agents hermes` selects hermes, checks `hermes` on PATH (prints `uv tool install hermes-agent` if missing, continues), calls `SetupHermes`. `skillgrid install --dry-run --agents hermes` prints planned changes without writing. `skillgrid install --agents opencode` still works (no regression).
 - **SATISFIES:** happy path — full install configures all layers; edge — dry-run prints planned changes without writing; failure — install continues when hermes binary is missing; happy path — existing agents still install correctly
@@ -73,6 +76,7 @@ Chain strategy: stacked-to-main
 
 ### TICKET-04 — Kanban ticketing backend in the ticketing skill
 
+- **Tracker ID:** TASK-115.04
 - **Scope:** Add the `hermes-kanban` backend to the `ticketing` skill. Read `ticketing.type` from `.skillgrid/config.yaml`; when `hermes-kanban`, publish tickets via `hermes kanban create` with `--assignee`, `parents`, `--board`, `--skill`. Map skillgrid ticket fields to Kanban task fields. Update the Backlog.md entry with the Kanban task ID (mirror).
 - **Acceptance:** When `ticketing.type: hermes-kanban`, the ticketing skill calls `hermes kanban create <title> --assignee <profile> --board <slug>`. Tickets with dependencies get `parents`. Coding tickets use `worktree` workspace; research tickets use `scratch`. The local Backlog.md entry is updated with the Kanban task ID. When `ticketing.type: backlogmd`, the skill writes to `.backlog/` (unchanged behavior).
 - **SATISFIES:** happy path — ticket is published to Hermes Kanban; happy path — ticket with dependencies creates a Kanban link; edge — Kanban board is created if it does not exist; failure — Kanban board creation failure is non-fatal; edge — existing Backlog.md ticketing still works
@@ -84,6 +88,7 @@ Chain strategy: stacked-to-main
 
 ### TICKET-05 — Protocol + Cron + end-to-end verification
 
+- **Tracker ID:** TASK-115.05
 - **Scope:** Verify the protocol is injected via `system_prompt_block()`. Add cron job templates (printed as next-steps after install). Run the full end-to-end verification: memory round-trip, MCP test, skills discovery, Kanban round-trip, no-regression check.
 - **Acceptance:** The system prompt contains the Mnemonic Memory Protocol section. Cron templates are printed after install. Memory round-trip works (`hermes -z "Remember X"` → `hermes -z "What is X?"`). `hermes mcp test skillgrid-mnemonic` exits 0. Skills are discoverable. Kanban ticket round-trip works. `cd mnemonic && go test ./...` and `cd skillgrid-cli && go test ./...` pass.
 - **SATISFIES:** happy path — protocol is injected via system_prompt_block; happy path — save and recall a fact; edge — prefetch returns empty on the first turn; failure — sync_turn does not block the agent on mnemonic error; failure — hermes install does not affect existing agent configs
