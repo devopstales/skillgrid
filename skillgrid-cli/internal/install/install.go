@@ -71,6 +71,14 @@ func Run(c *Config) error {
 	}
 
 	if len(c.Agents) > 0 {
+		// Hermes prerequisite: the hermes binary on PATH is non-fatal — a
+		// missing binary prints the install hint and the run continues
+		// (SetupHermes's kanban step warns on its own).
+		if agentSelected(c, "hermes") {
+			if _, err := prerequisiteLookPath("hermes"); err != nil {
+				Out("      warn", "hermes not on PATH — uv tool install hermes-agent; continuing")
+			}
+		}
 		info("installing agents: " + strings.Join(c.Agents, ", "))
 		if err := installAgents(c); err != nil {
 			return err
@@ -235,6 +243,16 @@ func checkPrerequisites(c *Config) error {
 	}
 	fmt.Fprintln(os.Stderr, "      then re-run: skillgrid install")
 	return fmt.Errorf("missing from PATH: %s", strings.Join(missing, ", "))
+}
+
+// agentSelected reports whether the given agent key is in the selection.
+func agentSelected(c *Config, key string) bool {
+	for _, k := range c.Agents {
+		if k == key {
+			return true
+		}
+	}
+	return false
 }
 
 func prerequisiteMissing(missing []string, bin string) bool {

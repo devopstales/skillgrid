@@ -63,7 +63,7 @@ func main() {
 	fs.BoolVar(&vVerbose, "vv", false, "shorthand for --verbose")
 	fs.BoolVar(&vYes, "yes", false, "skip interactive prompts (default agent selection)")
 	fs.BoolVar(&vYes, "y", false, "shorthand for --yes")
-	fs.StringVar(&vAgents, "agents", "", "comma-separated agent keys (opencode,kilo,cursor,skill-pi); none by default")
+	fs.StringVar(&vAgents, "agents", "", "comma-separated agent keys (opencode,kilo,cursor,skill-pi,hermes); none by default")
 	fs.BoolVar(&vSkipTools, "skip-tools", false, "skip global npm tool install")
 	fs.BoolVar(&vSkipAgents, "skip-agents", false, "skip the ~/.agents override step")
 	fs.BoolVar(&vLSP, "lsp", false, "install LSP servers (gopls, pyright, cclsp/typescript, rust-analyzer, jj-language-server) and configure them for the selected agents")

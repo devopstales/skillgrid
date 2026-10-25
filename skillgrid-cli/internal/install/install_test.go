@@ -5,18 +5,21 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/devopstales/skillgrid/mnemonic"
 )
 
 func TestAvailableAgents(t *testing.T) {
 	got := AvailableAgents()
-	if len(got) != 4 {
-		t.Fatalf("want 4 agents, got %d", len(got))
+	if len(got) != 5 {
+		t.Fatalf("want 5 agents, got %d", len(got))
 	}
 	want := map[string]struct{ npm, bin string }{
 		"opencode": {"opencode-ai", "opencode"},
 		"kilo":     {"@kilocode/cli", "kilo"},
 		"cursor":   {"", ""},
 		"skill-pi": {"@devopstales/skill-pi", "skill-pi"},
+		"hermes":   {"", "hermes"},
 	}
 	for _, a := range got {
 		w := want[a.Key]
@@ -205,6 +208,188 @@ func TestSetupAgentsUnknown(t *testing.T) {
 	cfg := Config{Agents: []string{"unknown"}}
 	if err := setupAgents(&cfg); err == nil {
 		t.Fatal("expected error for unknown agent")
+	}
+}
+
+func TestAgentSelected(t *testing.T) {
+	cfg := Config{Agents: []string{"opencode", "hermes"}}
+	if !agentSelected(&cfg, "hermes") {
+		t.Error("agentSelected(hermes)=false, want true")
+	}
+	if agentSelected(&cfg, "kilo") {
+		t.Error("agentSelected(kilo)=true, want false")
+	}
+}
+
+func TestInstallAgentsHermesNoNPM(t *testing.T) {
+	// Hermes has no npm package: installAgents must be a no-op for it
+	// (the hermes binary is a uv-installed prerequisite, not npm).
+	cfg := Config{Agents: []string{"hermes"}, DryRun: true}
+	if err := installAgents(&cfg); err != nil {
+		t.Fatalf("installAgents(hermes): %v", err)
+	}
+}
+
+func TestHermesSelectionFlow(t *testing.T) {
+	// Full hermes selection path: setupAgents routes "hermes" to
+	// SetupHermes (mnemonic setup), writing the plugin, MCP config,
+	// SOUL.md, and the ticketing block — and nothing is npm-installed.
+	// kanbanExec is stubbed so the suite stays hermetic even on machines
+	// with a real hermes binary on PATH.
+	oldKanban := mnemonic.KanbanExec
+	t.Cleanup(func() { mnemonic.KanbanExec = oldKanban })
+	mnemonic.KanbanExec = func(args ...string) (string, error) { return "", nil }
+	home := t.TempDir()
+	repo := t.TempDir()
+
+	// Memory assets SetupHermes needs: the MemoryProvider plugin, the
+	// memory protocol, and the skills tree.
+	for _, f := range []string{
+		"plugins/hermes/__init__.py",
+		"plugins/hermes/provider.py",
+		"plugins/opencode/skillgrid-context.ts",
+		"plugins/opencode/memory-protocol.md",
+		".agents/skills/mnemonic/SKILL.md",
+	} {
+		p := filepath.Join(repo, f)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("mock content"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mcpYAML := `servers:
+  mnemonic:
+    type: local
+    command:
+      - mnemonic
+      - mcp
+`
+	if err := os.MkdirAll(filepath.Join(repo, "config.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "config.d", "mcp.yaml"), []byte(mcpYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// .skillgrid/config.yaml with an enabled ticketing block: SetupHermes
+	// must rewrite it to hermes-kanban.
+	sgCfg := "project: skillgrid-v2\nticketing:\n  enabled: true\n  type: backlog\n"
+	if err := os.MkdirAll(filepath.Join(repo, ".skillgrid"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(repo, ".skillgrid", "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte(sgCfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	hermesHome := filepath.Join(home, ".hermes")
+	t.Setenv("HOME", home)
+	t.Setenv("HERMES_HOME", hermesHome)
+
+	cfg := Config{
+		HomeDir: home,
+		RepoDir: repo,
+		Agents:  []string{"hermes"},
+	}
+
+	if err := installAgents(&cfg); err != nil {
+		t.Fatalf("installAgents: %v", err)
+	}
+	if err := setupAgents(&cfg); err != nil {
+		t.Fatalf("setupAgents(hermes): %v", err)
+	}
+
+	// 1. MemoryProvider plugin copied to $HERMES_HOME/plugins/mnemonic/.
+	pluginDst := filepath.Join(hermesHome, "plugins", "mnemonic", "provider.py")
+	if _, err := os.Stat(pluginDst); err != nil {
+		t.Errorf("hermes plugin not installed: %v", err)
+	}
+	// 2. MCP config with the mem_* exclusion env on the mnemonic entry.
+	cfgYAML, err := os.ReadFile(filepath.Join(hermesHome, "config.yaml"))
+	if err != nil {
+		t.Fatalf("read $HERMES_HOME/config.yaml: %v", err)
+	}
+	if !strings.Contains(string(cfgYAML), "mcp_servers") || !strings.Contains(string(cfgYAML), "MNEMONIC_MCP_EXCLUDE") {
+		t.Errorf("hermes config.yaml missing mcp_servers/MCP exclude: %s", cfgYAML)
+	}
+	// 3. SOUL.md protocol block.
+	soul, err := os.ReadFile(filepath.Join(hermesHome, "SOUL.md"))
+	if err != nil {
+		t.Fatalf("read SOUL.md: %v", err)
+	}
+	if !strings.Contains(string(soul), "BEGIN SKILLGRID MNEMONIC") {
+		t.Errorf("SOUL.md missing protocol block: %s", soul)
+	}
+	// 5. Skills copied to $HERMES_HOME/skills/.
+	skillsDst := filepath.Join(hermesHome, "skills", "mnemonic", "SKILL.md")
+	if _, err := os.Stat(skillsDst); err != nil {
+		t.Errorf("skills not copied: %v", err)
+	}
+	// 6. Ticketing block rewired to the kanban backend.
+	merged, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(merged), "hermes-kanban") {
+		t.Errorf("ticketing.type not set to hermes-kanban: %s", merged)
+	}
+}
+
+func TestHermesSetupDryRunNoWrites(t *testing.T) {
+	// Dry-run: SetupHermes via the install path plans but writes nothing.
+	home := t.TempDir()
+	repo := t.TempDir()
+	for _, f := range []string{
+		"plugins/hermes/__init__.py",
+		"plugins/opencode/skillgrid-context.ts",
+		"plugins/opencode/memory-protocol.md",
+	} {
+		p := filepath.Join(repo, f)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("mock content"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mcpYAML := `servers:
+  mnemonic:
+    type: local
+    command:
+      - mnemonic
+      - mcp
+`
+	if err := os.MkdirAll(filepath.Join(repo, "config.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "config.d", "mcp.yaml"), []byte(mcpYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, ".skillgrid"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".skillgrid", "config.yaml"),
+		[]byte("project: skillgrid-v2\nticketing:\n  enabled: true\n  type: backlog\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	hermesHome := filepath.Join(home, ".hermes")
+	t.Setenv("HOME", home)
+	t.Setenv("HERMES_HOME", hermesHome)
+
+	cfg := Config{
+		HomeDir: home,
+		RepoDir: repo,
+		Agents:  []string{"hermes"},
+		DryRun:  true,
+	}
+	if err := setupAgents(&cfg); err != nil {
+		t.Fatalf("setupAgents(hermes, dry-run): %v", err)
+	}
+	// No file may exist under $HERMES_HOME.
+	if entries, _ := os.ReadDir(hermesHome); len(entries) != 0 {
+		t.Errorf("dry-run wrote %d entries under $HERMES_HOME", len(entries))
 	}
 }
 
