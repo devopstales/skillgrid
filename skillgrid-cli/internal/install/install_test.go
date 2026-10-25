@@ -1,10 +1,13 @@
 package install
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/devopstales/skillgrid/mnemonic"
 )
@@ -227,6 +230,85 @@ func TestInstallAgentsHermesNoNPM(t *testing.T) {
 	cfg := Config{Agents: []string{"hermes"}, DryRun: true}
 	if err := installAgents(&cfg); err != nil {
 		t.Fatalf("installAgents(hermes): %v", err)
+	}
+}
+
+func TestHermesPrerequisiteMissingNonFatal(t *testing.T) {
+	// The hermes-on-PATH prerequisite check in Run is non-fatal: when the
+	// binary is missing, the installer prints the install hint and the
+	// agent setup continues. prerequisiteLookPath is stubbed so the test
+	// holds on machines that do have hermes on PATH.
+	oldLookPath := prerequisiteLookPath
+	prerequisiteLookPath = func(name string) (string, error) {
+		if name == "hermes" {
+			return "", os.ErrNotExist
+		}
+		return oldLookPath(name)
+	}
+	t.Cleanup(func() { prerequisiteLookPath = oldLookPath })
+
+	// Kanban CLI stubbed so the suite stays hermetic.
+	oldKanban := mnemonic.KanbanExec
+	t.Cleanup(func() { mnemonic.KanbanExec = oldKanban })
+	mnemonic.KanbanExec = func(hermesHome string, args ...string) (string, error) { return "", nil }
+
+	home := t.TempDir()
+	repo := t.TempDir()
+	for _, f := range []string{
+		"plugins/hermes/__init__.py",
+		"plugins/opencode/skillgrid-context.ts",
+		"plugins/opencode/memory-protocol.md",
+	} {
+		p := filepath.Join(repo, f)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("mock content"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mcpYAML := `servers:
+  mnemonic:
+    type: local
+    command:
+      - mnemonic
+      - mcp
+`
+	if err := os.MkdirAll(filepath.Join(repo, "config.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "config.d", "mcp.yaml"), []byte(mcpYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, ".skillgrid"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".skillgrid", "config.yaml"),
+		[]byte("project: skillgrid-v2\nticketing:\n  enabled: true\n  type: backlog\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	hermesHome := filepath.Join(home, ".hermes")
+	t.Setenv("HOME", home)
+	t.Setenv("HERMES_HOME", hermesHome)
+
+	cfg := Config{
+		HomeDir: home,
+		RepoDir: repo,
+		Agents:  []string{"hermes"},
+	}
+
+	// The warn branch itself: hermes missing on PATH must not error.
+	if _, err := prerequisiteLookPath("hermes"); err == nil {
+		t.Fatal("stub should report hermes as missing")
+	}
+	// setupAgents must still complete (the warn only prints, it never fails).
+	if err := setupAgents(&cfg); err != nil {
+		t.Fatalf("setupAgents(hermes) must be non-fatal when hermes is off PATH: %v", err)
+	}
+	// The install actually proceeded: the plugin is installed.
+	if _, err := os.Stat(filepath.Join(hermesHome, "plugins", "mnemonic", "__init__.py")); err != nil {
+		t.Errorf("hermes setup did not continue after the prerequisite warn: %v", err)
 	}
 }
 
@@ -790,5 +872,116 @@ func TestInstallCreatesOpenCodeHookLayout(t *testing.T) {
 				t.Fatalf("%s still references retired %q:\n%s", rel, retired, text)
 			}
 		}
+	}
+}
+
+func TestCollectNPMPackages(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "config.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yaml := `agents:
+  - "@kilocode/cli"
+mcp:
+  - "@upstash/context7-mcp"
+  - "@playwright/mcp@latest"
+`
+	if err := os.WriteFile(filepath.Join(repo, "config.d", "tools.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{
+		RepoDir: repo,
+		Agents:  []string{"opencode", "kilo"},
+		DryRun:  true,
+	}
+	got := collectNPMPackages(&cfg)
+
+	// opencode-ai (agent), @kilocode/cli (agent), install-mcp (MCP CLI),
+	// @upstash/context7-mcp (MCP server), @playwright/mcp@latest (MCP server),
+	// skills (global), @cucumber/cucumber (global), backlog.md (global),
+	// jscpd (global)
+	want := map[string]bool{
+		"opencode-ai":            true,
+		"@kilocode/cli":          true,
+		"install-mcp":            true,
+		"@upstash/context7-mcp":  true,
+		"@playwright/mcp@latest": true,
+		"skills":                 true,
+		"@cucumber/cucumber":     true,
+		"backlog.md":             true,
+		"jscpd":                  true,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("collectNPMPackages: got %d packages %v, want %d %v", len(got), got, len(want), want)
+	}
+	for _, p := range got {
+		if !want[p] {
+			t.Errorf("unexpected package %q in %v", p, got)
+		}
+	}
+}
+
+func TestInstallNPMBatchDryRun(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "config.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yaml := `agents: []
+mcp:
+  - "@upstash/context7-mcp"
+`
+	if err := os.WriteFile(filepath.Join(repo, "config.d", "tools.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{
+		RepoDir: repo,
+		Agents:  []string{"opencode"},
+		DryRun:  true,
+	}
+	if err := installNPMBatch(&cfg); err != nil {
+		t.Fatalf("installNPMBatch (dry-run): %v", err)
+	}
+}
+
+func TestParallelInstallErrorAggregation(t *testing.T) {
+	// runParallel should collect all errors, not fail-fast on the first.
+	var mu sync.Mutex
+	var succeeded, failed []string
+
+	err := runParallel(3, []func() error{
+		func() error {
+			time.Sleep(10 * time.Millisecond)
+			mu.Lock()
+			succeeded = append(succeeded, "a")
+			mu.Unlock()
+			return nil
+		},
+		func() error {
+			mu.Lock()
+			failed = append(failed, "b")
+			mu.Unlock()
+			return fmt.Errorf("tool b failed")
+		},
+		func() error {
+			time.Sleep(5 * time.Millisecond)
+			mu.Lock()
+			succeeded = append(succeeded, "c")
+			mu.Unlock()
+			return nil
+		},
+	})
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "tool b failed") {
+		t.Errorf("error should contain 'tool b failed', got: %v", err)
+	}
+	if len(succeeded) != 2 {
+		t.Errorf("expected 2 succeeded, got %d: %v", len(succeeded), succeeded)
+	}
+	if len(failed) != 1 || failed[0] != "b" {
+		t.Errorf("expected 1 failed (b), got %v", failed)
 	}
 }

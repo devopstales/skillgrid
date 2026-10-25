@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/devopstales/skillgrid/mnemonic"
@@ -79,18 +80,10 @@ func Run(c *Config) error {
 				Out("      warn", "hermes not on PATH — uv tool install hermes-agent; continuing")
 			}
 		}
-		info("installing agents: " + strings.Join(c.Agents, ", "))
-		if err := installAgents(c); err != nil {
-			return err
-		}
-		// install-mcp CLI + MCP server packages (binaries on PATH). Agent MCP
-		// config is written only by setupAgents from config.d/mcp.yaml — do not
-		// also run install-mcp --client (that duplicated client config).
-		info("installing mcp CLI")
-		if err := installInstallMcp(c); err != nil {
-			return err
-		}
-		if err := installMCPServers(c); err != nil {
+		// Batch all npm installs (agents + MCP CLI + MCP servers + global tools)
+		// into a single `npm install -g` call to cut N serial npm calls to 1.
+		info("installing npm packages (batched)")
+		if err := installNPMBatch(c); err != nil {
 			return err
 		}
 		info("configuring agents (memory): " + strings.Join(c.Agents, ", "))
@@ -130,10 +123,8 @@ func Run(c *Config) error {
 	if c.SkipTools {
 		verb("skipping global tool install (--skip-tools)")
 	} else {
-		info("installing remaining global tools (skills, cucumber, backlog.md)")
-		if err := installTools(c); err != nil {
-			return err
-		}
+		// Global npm tools are installed by installNPMBatch above.
+		// Security tools use their own managers (go/uv) and install in parallel.
 		info("installing security tools (wapiti3, akca, nuclei)")
 		if err := installSecurityTools(c); err != nil {
 			return err
@@ -498,9 +489,12 @@ func installTools(c *Config) error {
 // their own managers: `uv tool install` for wapiti3 and `go install` for the
 // Go-based scanners. These are non-fatal: a missing manager warns and skips its
 // tools with the manual fallback, rather than aborting the whole install (which
-// is gated on node + npm, not on go/uv).
+// is gated on node + npm, not on go/uv). Tools install in parallel (capped at
+// 3 concurrent) to cut the serial go-install compile time.
 func installSecurityTools(c *Config) error {
+	var fns []func() error
 	for _, t := range SecurityTools() {
+		t := t
 		if t.Bin != "" {
 			if _, err := exec.LookPath(t.Bin); err == nil {
 				Out("      skip", t.Name, "(already installed)")
@@ -516,11 +510,14 @@ func installSecurityTools(c *Config) error {
 			continue
 		}
 		Out(append([]any{"      ", t.Manager}, toAny(t.InstallArgs)...)...)
-		if err := run(c, "", t.Manager, t.InstallArgs...); err != nil {
-			return fmt.Errorf("%s %s: %w", t.Manager, strings.Join(t.InstallArgs, " "), err)
-		}
+		fns = append(fns, func() error {
+			if err := run(c, "", t.Manager, t.InstallArgs...); err != nil {
+				return fmt.Errorf("%s %s: %w", t.Manager, strings.Join(t.InstallArgs, " "), err)
+			}
+			return nil
+		})
 	}
-	return nil
+	return runParallel(3, fns)
 }
 
 func copyAgents(c *Config) error {
@@ -540,6 +537,166 @@ func copyAgents(c *Config) error {
 }
 
 // --- helpers ---
+
+// collectNPMPackages gathers all npm package names needed by the install:
+// selected agents, the install-mcp CLI, MCP server packages from tools.yaml,
+// and global tools. Deduplicated. Used by installNPMBatch to make a single
+// `npm install -g` call instead of N serial calls.
+func collectNPMPackages(c *Config) []string {
+	seen := map[string]bool{}
+	var pkgs []string
+	add := func(p string) {
+		if p != "" && !seen[p] {
+			seen[p] = true
+			pkgs = append(pkgs, p)
+		}
+	}
+
+	// Selected agents with npm packages.
+	for _, key := range c.Agents {
+		for _, a := range AvailableAgents() {
+			if a.Key == key {
+				add(a.NPM)
+			}
+		}
+	}
+
+	// install-mcp CLI (always needed when agents are selected).
+	if len(c.Agents) > 0 {
+		add(installMcpPkg)
+	}
+
+	// MCP server packages from tools.yaml.
+	if toolsCfg, err := LoadToolsConfig(c.RepoDir); err == nil {
+		for _, pkg := range toolsCfg.MCP {
+			add(normalizeNPMPackage(pkg))
+		}
+	}
+
+	// Global tools.
+	for _, t := range GlobalTools() {
+		add(t.NPM)
+	}
+
+	return pkgs
+}
+
+// installNPMBatch installs all collected npm packages in a single
+// `npm install -g` call. Packages already on PATH are skipped.
+// This replaces the N serial npm calls in installAgents, installInstallMcp,
+// installMCPServers, and installTools with one batched call.
+func installNPMBatch(c *Config) error {
+	pkgs := collectNPMPackages(c)
+
+	// Filter out packages already installed (binary on PATH).
+	var toInstall []string
+	for _, pkg := range pkgs {
+		// Find the binary name for this package to check if it's already installed.
+		if bin := npmBinForPkg(pkg); bin != "" {
+			if _, err := exec.LookPath(bin); err == nil {
+				Out("      skip", pkg, "(already installed)")
+				continue
+			}
+		}
+		toInstall = append(toInstall, pkg)
+	}
+
+	if len(toInstall) == 0 {
+		VerboseOut(c, "all npm packages already installed")
+		return nil
+	}
+
+	// Build the single npm install -g command.
+	args := []string{"install", "-g"}
+	for _, pkg := range toInstall {
+		// Packages with native postinstalls need --allow-scripts.
+		switch pkg {
+		case "opencode-ai", "agent-browser":
+			args = append(args, "--allow-scripts="+pkg)
+		}
+		args = append(args, pkg)
+	}
+
+	if c.DryRun {
+		Out(append([]any{"      [dry-run] npm"}, toAny(args)...)...)
+		return nil
+	}
+	Out(append([]any{"      npm"}, toAny(args)...)...)
+	if err := run(c, "", "npm", args...); err != nil {
+		return fmt.Errorf("npm install -g %s: %w", strings.Join(toInstall, " "), err)
+	}
+	return nil
+}
+
+// npmBinForPkg returns the PATH binary name for an npm package, or "" if
+// the package has no known binary (e.g. MCP server packages).
+func npmBinForPkg(pkg string) string {
+	switch pkg {
+	case "opencode-ai":
+		return "opencode"
+	case "@kilocode/cli":
+		return "kilo"
+	case "@devopstales/skill-pi":
+		return "skill-pi"
+	case "install-mcp":
+		return "install-mcp"
+	case "skills":
+		return "skills"
+	case "@cucumber/cucumber":
+		return "cucumber-js"
+	case "backlog.md":
+		return "backlog"
+	case "jscpd":
+		return "jscpd"
+	default:
+		return ""
+	}
+}
+
+// runParallel executes fns concurrently with at most limit goroutines.
+// It collects all errors (not fail-fast) and returns a combined error if
+// any function failed. Successful functions complete even if others fail.
+func runParallel(limit int, fns []func() error) error {
+	if len(fns) == 0 {
+		return nil
+	}
+	if limit < 1 {
+		limit = 1
+	}
+
+	var (
+		wg      sync.WaitGroup
+		mu      sync.Mutex
+		errs    []error
+	)
+
+	sem := make(chan struct{}, limit)
+	for _, fn := range fns {
+		fn := fn
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if err := fn(); err != nil {
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+
+	if len(errs) == 0 {
+		return nil
+	}
+	// Join all errors into a single message.
+	msgs := make([]string, len(errs))
+	for i, e := range errs {
+		msgs[i] = e.Error()
+	}
+	return fmt.Errorf("%d install(s) failed: %s", len(errs), strings.Join(msgs, "; "))
+}
 
 func run(c *Config, dir string, name string, args ...string) error {
 	cmd := exec.Command(name, args...)
