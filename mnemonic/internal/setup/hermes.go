@@ -220,7 +220,9 @@ func hmcEntryFromMCPServer(e MCPServerConfig) hmcEntry {
 			h.Args = e.Command[1:]
 		}
 	}
-	if e.Name == mcpServerName || e.Name == "mnemonic" {
+	// "mnemonic" is the server name from config.d/mcp.yaml (the map key that
+	// becomes MCPServerConfig.Name).
+	if e.Name == "mnemonic" {
 		h.Env = map[string]string{ExcludeEnvVar: "mem"}
 	}
 	return h
