@@ -31,13 +31,11 @@ changes:
   2026-10-24-agent-reach-integration:
     phase: spec
     status: in-progress
-  2026-10-24-faster-install:
-    phase: qa
-    status: in-progress
+
   2026-10-24-hermes-integration:
     phase: qa
     status: in-progress
 progress:
-  completed_changes: 30
+  completed_changes: 31
   blocked_changes: 0
 constraints_ref: .skillgrid/ASSUMPTIONS.md
