@@ -119,3 +119,5 @@ Mnemonic (local SQLite + FTS5): `mem_*`, `code_*`, `web_*` over MCP and HTTP.
 
 Run `skillgrid:onboarding` to update config after stack changes.
 <!-- skillgrid:end -->
+
+
