@@ -37,7 +37,19 @@ if [ -f "$root/git-hooks/pre-commit.js" ]; then
     node "$root/git-hooks/pre-commit.js" || exit 1
 fi
 
-# 5. gofmt on staged Go files
+# 5. backlog task filenames: ASCII only (em dashes, accented chars, etc.
+#    survive the backlog CLI's slugify and produce unquotable filenames).
+backlog_files=$(git -c core.quotepath=false diff --cached --name-only 2>/dev/null | grep '^\.backlog/tasks/.*\.md$' || true)
+if [ -n "$backlog_files" ]; then
+    bad=$(echo "$backlog_files" | LC_ALL=C grep '[^ -~]' 2>/dev/null || true)
+    if [ -n "$bad" ]; then
+        echo "backlog: non-ASCII characters in task filename (use hyphens, not em dashes):"
+        echo "$bad"
+        exit 1
+    fi
+fi
+
+# 6. gofmt on staged Go files
 gofmt_files=$(git diff --cached --name-only 2>/dev/null | grep '\.go$')
 if [ -n "$gofmt_files" ]; then
     unformatted=$(echo "$gofmt_files" | xargs gofmt -l 2>/dev/null)
