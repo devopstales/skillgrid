@@ -15,21 +15,22 @@ import (
 
 const installMcpPkg = "install-mcp"
 
-// Run executes the install flow in the order defined by the project spec:
+// Run executes the install flow:
 //  1. validate prerequisites (node, npm, uv, go) — stop before any writes
 //  2. create ~/.skillgrid structure
 //  3. sync the skillgrid repository (clone or pull)
 //  4. ask which agents to install (or use preset/--yes defaults)
-//  5. npm install -g each selected agent (skip if binary already on PATH)
-//  6. npm install -g install-mcp, then npm install -g each MCP package from tools.yaml
-//  7. configure selected agents (plugins + mcp.yaml merge) — sole writer of agent MCP config
-//  8. npm install -g for the remaining shared tools
-//  9. install security scanners (uv tool install wapiti3; go install akca, nuclei)
-//
-// 10. override ~/.agents from the repo's .agents/
+//  5. fan out independent phases in parallel (runParallel, capped at 4):
+//     - Phase A: batched npm install (agents + MCP + global tools) →
+//     setupAgents → backup → harness config → personas → LSP config
+//     - Phase B: security scanners (uv/go, parallel within, capped at 3)
+//     - Phase C: LSP servers (go/npm/cargo, parallel within, capped at 3)
+//     - Phase D: provider setup (non-fatal)
+//  6. override ~/.agents from the repo's .agents/
 //
 // Any hard failure stops the run with a descriptive error; individual
-// non-fatal issues are reported but the run continues.
+// non-fatal issues (missing manager, provider setup) are reported but
+// the run continues.
 func Run(c *Config) error {
 	start := time.Now()
 
@@ -215,7 +216,7 @@ func syncRepo(c *Config) error {
 			return nil
 		}
 		Out("      git pull --ff-only in", c.RepoDir)
-		return runFunc(c, c.RepoDir, "git", "pull", "--ff-only")
+		return commandRunner(c, c.RepoDir, "git", "pull", "--ff-only")
 	}
 
 	if c.DryRun {
@@ -223,7 +224,7 @@ func syncRepo(c *Config) error {
 		return nil
 	}
 	Out("      git clone --branch", c.Branch, c.RepoURL, "→", c.RepoDir)
-	return runFunc(c, "", "git", "clone", "--branch", c.Branch, c.RepoURL, c.RepoDir)
+	return commandRunner(c, "", "git", "clone", "--branch", c.Branch, c.RepoURL, c.RepoDir)
 }
 
 // prerequisiteLookPath is exec.LookPath, replaced in tests.
@@ -364,7 +365,7 @@ func installAgents(c *Config) error {
 				continue
 			}
 			Out(append([]any{"      npm"}, toAny(args)...)...)
-			if err := runFunc(c, "", "npm", args...); err != nil {
+			if err := commandRunner(c, "", "npm", args...); err != nil {
 				return fmt.Errorf("npm %s: %w", strings.Join(args, " "), err)
 			}
 		}
@@ -420,7 +421,7 @@ func installInstallMcp(c *Config) error {
 		return nil
 	}
 	Out("      npm install -g", pkg)
-	return runFunc(c, "", "npm", "install", "-g", pkg)
+	return commandRunner(c, "", "npm", "install", "-g", pkg)
 }
 
 // npmPkgName strips a @version suffix from an npm package spec
@@ -468,7 +469,7 @@ func installMCPServers(c *Config) error {
 		}
 		args := npmInstallGlobalArgs(npmPkg)
 		Out(append([]any{"      npm"}, toAny(args)...)...)
-		if err := runFunc(c, "", "npm", args...); err != nil {
+		if err := commandRunner(c, "", "npm", args...); err != nil {
 			return fmt.Errorf("npm %s: %w", strings.Join(args, " "), err)
 		}
 	}
@@ -500,7 +501,7 @@ func installTools(c *Config) error {
 			continue
 		}
 		Out("      npm install -g", t.NPM)
-		if err := runFunc(c, "", "npm", "install", "-g", t.NPM); err != nil {
+		if err := commandRunner(c, "", "npm", "install", "-g", t.NPM); err != nil {
 			return fmt.Errorf("npm install -g %s: %w", t.NPM, err)
 		}
 	}
@@ -533,7 +534,7 @@ func installSecurityTools(c *Config) error {
 		}
 		Out(append([]any{"      ", t.Manager}, toAny(t.InstallArgs)...)...)
 		fns = append(fns, func() error {
-			if err := runFunc(c, "", t.Manager, t.InstallArgs...); err != nil {
+			if err := commandRunner(c, "", t.Manager, t.InstallArgs...); err != nil {
 				return fmt.Errorf("%s %s: %w", t.Manager, strings.Join(t.InstallArgs, " "), err)
 			}
 			return nil
@@ -560,8 +561,12 @@ func copyAgents(c *Config) error {
 
 // --- helpers ---
 
-// runFunc is the function that executes a command. Replaced in tests.
-var runFunc = run
+// commandRunner is the function that executes a command. Replaced in tests.
+var commandRunner = run
+
+// batchLookPath is exec.LookPath for the npm batch skip check. Replaced in
+// tests to make the "already installed" decision deterministic.
+var batchLookPath = exec.LookPath
 
 // collectNPMPackages gathers all npm package names needed by the install:
 // selected agents, the install-mcp CLI, MCP server packages from tools.yaml,
@@ -618,7 +623,7 @@ func installNPMBatch(c *Config) error {
 	for _, pkg := range pkgs {
 		// Find the binary name for this package to check if it's already installed.
 		if bin := npmBinForPkg(pkg); bin != "" {
-			if _, err := exec.LookPath(bin); err == nil {
+			if _, err := batchLookPath(bin); err == nil {
 				Out("      skip", pkg, "(already installed)")
 				continue
 			}
@@ -631,15 +636,15 @@ func installNPMBatch(c *Config) error {
 		return nil
 	}
 
-	// Build the single npm install -g command.
+	// Build the single npm install -g command. Each package's args are
+	// built via npmInstallGlobalArgs so the --allow-scripts switch stays
+	// in one place.
 	args := []string{"install", "-g"}
 	for _, pkg := range toInstall {
-		// Packages with native postinstalls need --allow-scripts.
-		switch pkg {
-		case "opencode-ai", "agent-browser":
-			args = append(args, "--allow-scripts="+pkg)
-		}
-		args = append(args, pkg)
+		pkgArgs := npmInstallGlobalArgs(pkg)
+		// npmInstallGlobalArgs returns ["install", "-g", ...flags, pkg] —
+		// we only want the flags + pkg (the "install -g" is already in args).
+		args = append(args, pkgArgs[2:]...)
 	}
 
 	if c.DryRun {
@@ -647,35 +652,30 @@ func installNPMBatch(c *Config) error {
 		return nil
 	}
 	Out(append([]any{"      npm"}, toAny(args)...)...)
-	if err := runFunc(c, "", "npm", args...); err != nil {
+	if err := commandRunner(c, "", "npm", args...); err != nil {
 		return fmt.Errorf("npm install -g %s: %w", strings.Join(toInstall, " "), err)
 	}
 	return nil
 }
 
-// npmBinForPkg returns the PATH binary name for an npm package, or "" if
-// the package has no known binary (e.g. MCP server packages).
+// npmBinForPkg returns the PATH binary name for an npm package, derived from
+// the Agent and Tool catalogs. Returns "" for packages with no known binary
+// (e.g. MCP server packages) — those always go into the batch.
 func npmBinForPkg(pkg string) string {
-	switch pkg {
-	case "opencode-ai":
-		return "opencode"
-	case "@kilocode/cli":
-		return "kilo"
-	case "@devopstales/skill-pi":
-		return "skill-pi"
-	case "install-mcp":
-		return "install-mcp"
-	case "skills":
-		return "skills"
-	case "@cucumber/cucumber":
-		return "cucumber-js"
-	case "backlog.md":
-		return "backlog"
-	case "jscpd":
-		return "jscpd"
-	default:
-		return ""
+	for _, a := range AvailableAgents() {
+		if a.NPM == pkg {
+			return a.Bin
+		}
 	}
+	for _, t := range GlobalTools() {
+		if t.NPM == pkg {
+			return t.Bin
+		}
+	}
+	if pkg == installMcpPkg {
+		return installMcpPkg
+	}
+	return ""
 }
 
 // runParallel executes fns concurrently with at most limit goroutines.
@@ -701,8 +701,8 @@ func runParallel(limit int, fns []func() error) error {
 		wg.Add(1)
 		sem <- struct{}{}
 		go func() {
+			defer func() { <-sem }() // release semaphore first (LIFO: runs last)
 			defer wg.Done()
-			defer func() { <-sem }()
 			if err := fn(); err != nil {
 				mu.Lock()
 				errs = append(errs, err)
