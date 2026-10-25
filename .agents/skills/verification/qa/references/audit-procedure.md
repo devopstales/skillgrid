@@ -36,6 +36,15 @@ Classify each gap:
 
 Build the matrix: every scenario in `acceptance.feature` → the test that covers it → did it run? → pass/fail?
 
+**Deterministic enumeration first.** Run `node scripts/traceability.mjs <active-slug> .`
+(or read `checks.traceability` from the `qa-gate.mjs` JSON, which runs it for the
+active change). Its `summary.total` is the EXACT scenario count — never invent
+it. Its `detail.scenarios[]` carry `satisfies_refs` (which ticket claims each
+scenario) and a tentative `status` (`COMPLIANT`/`FAILING`/`UNTESTED`). Where a
+test covers only *part* of a scenario the script will mark it `COMPLIANT` or
+`UNTESTED` — refine those to `PARTIAL` by judgment. The script owns the counts;
+you own the PARTIAL refinements and the verdict.
+
 **Compliance statuses** (every scenario lands in exactly one):
 
 | Status | Meaning | Severity |
@@ -66,6 +75,16 @@ Build the matrix: every scenario in `acceptance.feature` → the test that cover
 ### Step 6: TDD Evidence Audit
 
 > Per `_shared/references/strict-tdd.md` § TDD Cycle Evidence Table. The evidence table is the machine-checkable contract: `qa` validates each cell against git history and the working tree, not against the implementer's narrative.
+
+**Deterministic validation first.** Run `node scripts/tdd-evidence.mjs <active-slug> .`
+(or read `checks.tdd_evidence` from the `qa-gate.mjs` JSON). Its `summary` is
+the exact `N/M tasks have complete TDD evidence` line; `detail.rows[]` carry the
+per-ticket verdict (`OK`/`MISSING_RED`/`MISSING_GREEN`/`STALE`/`FAILED`) and any
+`missingFile`. It verifies each cited hash resolves to a commit
+(`git cat-file -t`) and each named test file exists in the working tree. Pass
+`--run-test=<command>` to also re-run the named test (a failure →
+`MISSING_GREEN`, a runner error → `FAILED`). The script owns the commit-exists +
+file-exists verdicts; you classify a `FAILED` as infrastructure vs discipline.
 
 For each ticket in `tasks.md`, validate every cell of the TDD Cycle Evidence row:
 
@@ -231,6 +250,23 @@ their exit codes + SCOPE lines, and prints a JSON summary. Read the JSON.
   consistent with the derived phase). exit 1 (drift) → WARNING per finding in
   the report's `## State Drift` section. Advisory — never blocks, never
   CRITICAL.
+- **`checks.traceability`** — the scenario→covering-test matrix for the active
+  change (QA Step 5). The `summary` carries the EXACT counts
+  (`{"total": N, "requirements": R, "compliant": C, "failing": F, "untested": U}`)
+  and the per-scenario `detail`. The total is exact by construction — never
+  invent it. exit 0 → the counts are data for the report's `scenarios: N/N`
+  line and `## Verification Scope`. exit 1 (no `acceptance.feature` for the
+  active change) → a traceability-gap WARNING (UNTESTED/UNSCOPED scope),
+  never CRITICAL.
+- **`checks.tdd_evidence`** — validation of the active change's `report.md`
+  `## TDD Evidence` table (QA Step 6). The `summary` is
+  `N/M tasks have complete TDD evidence`; the `detail.rows[]` carry the
+  per-ticket verdict (OK / MISSING_RED / MISSING_GREEN / STALE / FAILED) and
+  any `missingFile`. exit 0 → the evidence is verified against the real git
+  object store (a cited hash resolves to a commit; a named test file exists).
+  exit 1 (no TDD table, or a row verdict is not OK) → a TDD-evidence WARNING
+  naming the failing row, never CRITICAL (the gate is advisory on evidence,
+  blocking only on the four-state verdict).
 - **Review evidence (advisory, not a script check)** — at the point QA routes
   to review (PASS / CONCERNS / WAIVED), a later change's `review.md`
   (written by `skillgrid:requesting-code-review`) is the durable audit record of
