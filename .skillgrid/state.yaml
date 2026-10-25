@@ -4,7 +4,7 @@ schema: skillgrid/state/v2
 # reflect sets phase: complete. Schema: _shared/rules/sdd-structure.md.
 changes:
   2026-10-02-skillgrid-workflow-updates:
-    phase: spec
+    phase: blueprint
     status: queued
   2026-10-05-agents-md-rich-format:
     phase: blueprint
@@ -13,7 +13,7 @@ changes:
     phase: blueprint
     status: in-progress
   2026-10-06-mnemonic-standalone:
-    phase: execution
+    phase: slicing
     status: in-progress
   2026-10-07-mnemonic-compaction-v2:
     phase: blueprint
@@ -36,6 +36,12 @@ changes:
     status: in-progress
 
   # 2026-10-24-hermes-integration: shipped 2026-10-25, archived to xarchive/, complete
+  2026-10-25-egm-adoption:
+    phase: blueprint
+    status: in-progress
+  2026-10-25-jev-local-judgment:
+    phase: spec
+    status: in-progress
 progress:
   completed_changes: 31
   blocked_changes: 0
