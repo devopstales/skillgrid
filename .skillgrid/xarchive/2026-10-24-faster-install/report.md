@@ -149,6 +149,41 @@ All truths VERIFIED, all scenarios covered, no CRITICAL findings, all code-quali
 
 None.
 
+## Environment Retro
+
+| Category | Finding | Fix lands in | Source |
+|----------|---------|--------------|--------|
+| Automated checks | `runParallel` panic/defer ordering (C1) caught by review, not by a test. A test with a panicking `fn` would catch it deterministically. | Add `TestRunParallelPanicReleasesSemaphore` to `install_test.go` | `install.go:698-713`, review finding C1 |
+| Automated checks | `TestInstallNPMBatchAllowScripts` passed without asserting (early-return when `capturedArgs == nil`). A "test must assert" check would catch silent no-op tests. | Add to `code-standards.md` Reviewing section: "a test that early-returns without an assertion is a silent no-op — it must assert or be deleted" | `install_test.go:898`, review findings S1/P3 |
+| Coding standards | "Test-is-spec" principle: a test that passes without exercising the behavior it claims is a silent no-op. This is a judgement call (requires reading the test logic), not a mechanical pattern. | Add to `code-standards.md` Reviewing section (judgement call, not a linter rule) | Review findings S1, P3 |
+
 ## Final-State Facts
 
-(Empty — for reflect)
+### Integration
+- Merged to `release/2` @ `cfc6b345` (no-ff merge)
+- Branch `agent-faster-install` retained
+- Archive move: `specs/2026-10-24-faster-install/` → `xarchive/2026-10-24-faster-install/`
+- `diff -r` readback: empty (verified)
+
+### Decisions
+1. **stdlib `sync.WaitGroup` over `golang.org/x/sync/errgroup`** — avoids a new `go.mod` dependency (which would require an ADR per the repo rule). Same pattern, zero new deps.
+2. **Batch npm into one call** — avoids the npm lock race that parallel `npm install -g` calls would cause. 14 → 1 process spawns.
+3. **`npmBinForPkg` derived from `AvailableAgents()` + `GlobalTools()` catalogs** — single source of truth, eliminates drift. The hardcoded switch was a behavior regression (MCP packages never skipped).
+4. **`commandRunner` + `batchLookPath` test seams** — follows the `prerequisiteLookPath` pattern. Makes the npm batch skip check deterministic in tests.
+5. **`--depth 1` deferred** — the repo is a working clone (needs `git pull --ff-only` on re-runs). Shallow clone would complicate the pull. No `git log`/`blame`/`diff` in install code.
+
+### Lessons
+- **IIFE is not parallelism.** `func() error { ... }()` runs immediately — it's not a deferred or concurrent execution. The first attempt at phase fan-out used IIFEs and ran serially.
+- **Defer order is LIFO.** A panicking function leaks a semaphore token if `<-sem` runs after `wg.Done()`. The fix is to release the semaphore first.
+- **Derive, don't duplicate.** A hardcoded switch that mirrors catalog data will drift. Derive from the catalog.
+- **Dry-run mode skips `commandRunner`.** The dry-run branches in `installNPMBatch` and `installSecurityTools` print `[dry-run]` and `continue` before reaching `commandRunner`. Tests must verify phase execution via side effects, not captured commands.
+
+### Patterns
+- `runParallel(limit, fns)` — concurrency-capped WaitGroup with error aggregation (not fail-fast). Reusable for any parallel tool install.
+- `commandRunner` / `batchLookPath` test seams — function variables that replace `exec.LookPath` and `run` in tests. Same pattern as `prerequisiteLookPath`.
+
+### Surprises
+- The hermes tests (`TestHermesSelectionFlow`, `TestHermesPrerequisiteMissingNonFatal`) hang for 60-146s because `mnemonic.KanbanExec` is a *copy* of `setup.KanbanExec`, not a reference. The stub never intercepts the real call. Pre-existing bug, not in scope for this change.
+
+### Archive Summary
+Change shipped: 7 commits (596682a9 → 86c94375). QA PASS. Review PASS (Grade A, three-axis). 6 review findings fixed, 7 deferred (all minor/low).
