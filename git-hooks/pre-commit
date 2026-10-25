@@ -32,8 +32,13 @@ if [ -f "scripts/check-adr-invariants.mjs" ]; then
     }
 fi
 
-# 4. gofmt on staged Go files
-gofmt_files=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null | grep '\.go$')
+# 4. checkpoint-state guards (zone guard, cwd-drift, protected-ref, etc.)
+if [ -f "$root/git-hooks/pre-commit.js" ]; then
+    node "$root/git-hooks/pre-commit.js" || exit 1
+fi
+
+# 5. gofmt on staged Go files
+gofmt_files=$(git diff --cached --name-only 2>/dev/null | grep '\.go$')
 if [ -n "$gofmt_files" ]; then
     unformatted=$(echo "$gofmt_files" | xargs gofmt -l 2>/dev/null)
     if [ -n "$unformatted" ]; then
@@ -42,11 +47,6 @@ if [ -n "$gofmt_files" ]; then
         echo "Run: gofmt -w <file>"
         exit 1
     fi
-fi
-
-# 5. checkpoint-state guards (zone guard, cwd-drift, protected-ref, etc.)
-if [ -f "$root/git-hooks/pre-commit.js" ]; then
-    node "$root/git-hooks/pre-commit.js" || exit 1
 fi
 
 exit 0
