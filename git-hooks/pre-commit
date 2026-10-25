@@ -1,0 +1,52 @@
+#!/bin/sh
+# pre-commit — all pre-commit checks in one script.
+# Single source of truth for pre-commit; .git/hooks/pre-commit should be
+# empty or a thin shim after consolidation.
+#
+# Order: gitleaks → taskwright worktree guard → ADR invariants → gofmt → checkpoint-state guards
+set -uo pipefail
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+cd "$root" || exit 0
+
+# 1. gitleaks (fail-closed when installed and .skip_gitleaks absent)
+if [ ! -f ".skip_gitleaks" ] && command -v gitleaks >/dev/null 2>&1; then
+    if [ -f ".gitleaks-report.json" ]; then
+        gitleaks detect --baseline-path ".gitleaks-report.json" || exit 1
+    else
+        gitleaks detect -vls || exit 1
+    fi
+fi
+
+# 2. taskwright worktree guard
+if [ -f ".taskwright/hooks/worktree-guard.js" ]; then
+    node ".taskwright/hooks/worktree-guard.js" || exit 1
+fi
+
+# 3. ADR invariants
+if [ -f "scripts/check-adr-invariants.mjs" ]; then
+    node scripts/check-adr-invariants.mjs || {
+        echo ""
+        echo "ADR invariant check failed — fix the drift above (or run: node scripts/check-adr-invariants.mjs)"
+        exit 1
+    }
+fi
+
+# 4. gofmt on staged Go files
+gofmt_files=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null | grep '\.go$')
+if [ -n "$gofmt_files" ]; then
+    unformatted=$(echo "$gofmt_files" | xargs gofmt -l 2>/dev/null)
+    if [ -n "$unformatted" ]; then
+        echo "gofmt: unformatted files:"
+        echo "$unformatted"
+        echo "Run: gofmt -w <file>"
+        exit 1
+    fi
+fi
+
+# 5. checkpoint-state guards (zone guard, cwd-drift, protected-ref, etc.)
+if [ -f "$root/git-hooks/pre-commit.js" ]; then
+    node "$root/git-hooks/pre-commit.js" || exit 1
+fi
+
+exit 0

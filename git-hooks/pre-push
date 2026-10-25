@@ -1,11 +1,73 @@
 #!/bin/sh
-# pre-push — validate Refs/Closes footers on outgoing commits. Blocks only on
-# malformed Closes/Fixes/Resolves (explicit close intent with no Tracker ID);
-# fail-open on infra errors (the implementation exits 0 when ticketing is
-# disabled or git gives it nothing to check). Ref lines arrive on stdin and
-# pass through untouched.
+# pre-push — sdd-gate verification + ticketing footer check.
+# Single source of truth for pre-push; .git/hooks/pre-push should be
+# empty or a thin shim after consolidation.
+set -uo pipefail
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+cd "$repo_root" || exit 0
+errors=0
+
+# 1. sdd-gate: verify SDD changes in the outgoing push.
+#    (Moved from .git/hooks/pre-push.)
+change_names=()
+sdd_collect_change_from_path() {
+    local f="$1"
+    local name=""
+    if [[ "$f" == openspec/changes/*/* ]]; then
+        name="$(echo "$f" | cut -d'/' -f3)"
+    elif [[ "$f" == .openspec/changes/*/* ]]; then
+        name="$(echo "$f" | cut -d'/' -f3)"
+    else
+        return 0
+    fi
+    [[ -z "$name" || "$name" == "archive" ]] && return 0
+    local found=false
+    for c in "${change_names[@]+"${change_names[@]}"}"; do
+        [[ "$c" == "$name" ]] && found=true && break
+    done
+    "$found" || change_names+=("$name")
+}
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    [[ -z "$local_sha" ]] && continue
+    if [[ "$local_sha" == "0000000000000000000000000000000000000000" ]]; then
+        continue
+    fi
+    if [[ "$remote_sha" == "0000000000000000000000000000000000000000" ]]; then
+        range="$local_sha"
+    else
+        range="${remote_sha}..${local_sha}"
+    fi
+    while IFS= read -r f; do
+        [[ -z "$f" ]] && continue
+        sdd_collect_change_from_path "$f"
+    done < <(git diff --name-only "$range" 2>/dev/null || true)
+done
+
+if [[ ${#change_names[@]} -gt 0 ]]; then
+    for change_name in "${change_names[@]}"; do
+        change_dir="$repo_root/openspec/changes/$change_name"
+        [[ -f "${change_dir}/tasks.md" ]] || continue
+
+        echo "[sdd-gate-pre-push] Checking: $change_name" >&2
+
+        if ! "${repo_root}/.skillgrid/scripts/sdd-gate.sh" verify --change "$change_name" 2>&1; then
+            echo "" >&2
+            echo "=== sdd-gate PRE-PUSH BLOCKED ===" >&2
+            echo "Change: $change_name" >&2
+            echo "Resolve gate failures before pushing. Run manually:" >&2
+            echo "  .skillgrid/scripts/sdd-gate.sh verify --change $change_name" >&2
+            errors=1
+        fi
+    done
+fi
+
+# 2. ticketing footer check (Refs/Closes format on outgoing commits).
+#    (Existing git-hooks/pre-push logic.)
 HOOK_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
-command -v node >/dev/null 2>&1 || exit 0
-node "$HOOK_DIR/../hooks/checkpoint-state.js" pre-push "$@"
-rc=$?
-exit $rc
+if command -v node >/dev/null 2>&1 && [ -f "$HOOK_DIR/../hooks/checkpoint-state.js" ]; then
+    node "$HOOK_DIR/../hooks/checkpoint-state.js" pre-push "$@" || errors=1
+fi
+
+exit $errors
