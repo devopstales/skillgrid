@@ -547,6 +547,61 @@ func copyDirWarnText(t *testing.T, src string) string {
 	return ""
 }
 
+// TestSetupHermes_ReadOnlySkillsDir is the acceptance scenario "failure —
+// read-only skills directory does not fail the install": when
+// $HERMES_HOME/skills is read-only, the skills copy fails but the install
+// continues (plugin, MCP config, and SOUL.md are already in place).
+func TestSetupHermes_ReadOnlySkillsDir(t *testing.T) {
+	// Scratch repo with a memory protocol (writeHermesSoul needs it).
+	repoRoot := t.TempDir()
+	protocolPath := filepath.Join(repoRoot, "plugins", "opencode", "memory-protocol.md")
+	if err := os.MkdirAll(filepath.Dir(protocolPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(protocolPath, []byte("# Memory protocol\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A skills source so copyDir has something to copy.
+	if err := os.MkdirAll(filepath.Join(repoRoot, ".agents", "skills", "test-skill"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, ".agents", "skills", "test-skill", "SKILL.md"), []byte("# Test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	home := t.TempDir()
+	hermesHome := t.TempDir()
+	t.Setenv(HermesHomeEnv, hermesHome)
+	stubKanban(t)
+
+	// Pre-create the skills directory and make it read-only BEFORE the
+	// install. copyDir creates subdirs via MkdirAll, but if the target
+	// skills/ dir already exists and is read-only, MkdirAll for
+	// skills/test-skill/ will fail with a permission error.
+	if err := os.MkdirAll(filepath.Join(hermesHome, "skills"), 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		os.Chmod(filepath.Join(hermesHome, "skills"), 0o755)
+	})
+
+	// The install must NOT return an error (skills copy is non-fatal).
+	if err := SetupHermes(home, repoRoot, hermesMCPEntries, false); err != nil {
+		t.Fatalf("read-only skills dir must be non-fatal: %v", err)
+	}
+
+	// MCP config was written (the install continued past the skills copy).
+	cfgPath := filepath.Join(hermesHome, "config.yaml")
+	if _, err := os.Stat(cfgPath); err != nil {
+		t.Fatalf("MCP config missing after read-only skills: %v", err)
+	}
+	// SOUL.md was written (the install continued).
+	soulPath := filepath.Join(hermesHome, "SOUL.md")
+	if _, err := os.Stat(soulPath); err != nil {
+		t.Fatalf("SOUL.md missing after read-only skills: %v", err)
+	}
+}
+
 // TestKanbanTicketPublishRoundTrip is the integration QA-fix scenario: a
 // parent task and a child task created with --parent must round-trip through
 // the real hermes Kanban CLI — list shows both, show <child> exposes the
