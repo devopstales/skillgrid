@@ -92,9 +92,12 @@ var lspLookPath = exec.LookPath
 // installLSPTools brings up the LSP servers (LSPTargets) with their own
 // managers. Non-fatal per server: a missing manager warns and skips its tool
 // with the manual fallback (same contract as installSecurityTools); a failing
-// install of one server does not abort the rest.
+// install of one server does not abort the rest. Servers install in parallel
+// (capped at 3 concurrent) to cut the serial go-install + cargo time.
 func installLSPTools(c *Config) error {
+	var fns []func() error
 	for _, t := range LSPTargets() {
+		t := t
 		if t.Bin != "" {
 			if _, err := lspLookPath(t.Bin); err == nil {
 				Out("      skip", t.Name, "(already installed)")
@@ -110,11 +113,14 @@ func installLSPTools(c *Config) error {
 			continue
 		}
 		Out(append([]any{"      ", t.Manager}, toAny(t.InstallArgs)...)...)
-		if err := run(c, "", t.Manager, t.InstallArgs...); err != nil {
-			return fmt.Errorf("%s %s: %w", t.Manager, strings.Join(t.InstallArgs, " "), err)
-		}
+		fns = append(fns, func() error {
+			if err := commandRunner(c, "", t.Manager, t.InstallArgs...); err != nil {
+				return fmt.Errorf("%s %s: %w", t.Manager, strings.Join(t.InstallArgs, " "), err)
+			}
+			return nil
+		})
 	}
-	return nil
+	return runParallel(3, fns)
 }
 
 // --- harness configuration ---

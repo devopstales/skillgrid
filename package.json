@@ -7,9 +7,11 @@
     "doc": "docs"
   },
   "scripts": {
-    "test": "node scripts/test-adr-invariants.mjs && node scripts/test-skill-size-budget.mjs .agents/skills/verification/qa/scripts/skill-size-budget.mjs && node --experimental-strip-types scripts/plugin-smoke.mjs",
+    "test": "node scripts/test-adr-invariants.mjs && node scripts/test-skillgrid-parse.mjs && node scripts/test-phase-router.mjs && node scripts/test-state-drift.mjs && node scripts/test-status-banner.mjs && node scripts/test-skill-size-budget.mjs .agents/skills/verification/qa/scripts/skill-size-budget.mjs && node --experimental-strip-types scripts/plugin-smoke.mjs",
     "test:plugins": "node --experimental-strip-types scripts/plugin-smoke.mjs",
-    "check:adr": "node scripts/check-adr-invariants.mjs"
+    "check:adr": "node scripts/check-adr-invariants.mjs",
+    "check:phase": "node scripts/phase-router.mjs all",
+    "check:banner": "node scripts/status-banner.mjs check"
   },
   "repository": {
     "type": "git",

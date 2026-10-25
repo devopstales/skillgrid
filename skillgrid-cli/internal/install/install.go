@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/devopstales/skillgrid/mnemonic"
@@ -14,20 +15,22 @@ import (
 
 const installMcpPkg = "install-mcp"
 
-// Run executes the install flow in the order defined by the project spec:
+// Run executes the install flow:
 //  1. validate prerequisites (node, npm, uv, go) — stop before any writes
 //  2. create ~/.skillgrid structure
 //  3. sync the skillgrid repository (clone or pull)
 //  4. ask which agents to install (or use preset/--yes defaults)
-//  5. npm install -g each selected agent (skip if binary already on PATH)
-//  6. npm install -g install-mcp, then npm install -g each MCP package from tools.yaml
-//  7. configure selected agents (plugins + mcp.yaml merge) — sole writer of agent MCP config
-//  8. npm install -g for the remaining shared tools
-//  9. install security scanners (uv tool install wapiti3; go install akca, nuclei)
-// 10. override ~/.agents from the repo's .agents/
+//  5. fan out independent phases in parallel (runParallel, capped at 4):
+//     - Phase A: batched npm install (agents + MCP + global tools) →
+//     setupAgents → backup → harness config → personas → LSP config
+//     - Phase B: security scanners (uv/go, parallel within, capped at 3)
+//     - Phase C: LSP servers (go/npm/cargo, parallel within, capped at 3)
+//     - Phase D: provider setup (non-fatal)
+//  6. override ~/.agents from the repo's .agents/
 //
 // Any hard failure stops the run with a descriptive error; individual
-// non-fatal issues are reported but the run continues.
+// non-fatal issues (missing manager, provider setup) are reported but
+// the run continues.
 func Run(c *Config) error {
 	start := time.Now()
 
@@ -70,94 +73,105 @@ func Run(c *Config) error {
 		return err
 	}
 
+	// Fan out the independent install phases in parallel (capped at 4).
+	// Phase A: agents (npm batch → setup → config → personas → LSP config)
+	// Phase B: security tools (go/uv, parallel within)
+	// Phase C: LSP tools (go/npm/cargo, parallel within) — only if --lsp
+	// Phase D: provider setup (ollama) — non-fatal
+	//
+	// Phase A's npm batch must complete before setupAgents (needs binaries on
+	// PATH), but A is independent of B, C, D. runParallel caps total
+	// concurrency at 4 to avoid disk thrash.
+
+	var phases []func() error
+
+	// Phase A: agents.
 	if len(c.Agents) > 0 {
-		// Hermes prerequisite: the hermes binary on PATH is non-fatal — a
-		// missing binary prints the install hint and the run continues
-		// (SetupHermes's kanban step warns on its own).
-		if agentSelected(c, "hermes") {
-			if _, err := prerequisiteLookPath("hermes"); err != nil {
-				Out("      warn", "hermes not on PATH — uv tool install hermes-agent; continuing")
+		phases = append(phases, func() error {
+			// Hermes prerequisite: non-fatal.
+			if agentSelected(c, "hermes") {
+				if _, err := prerequisiteLookPath("hermes"); err != nil {
+					Out("      warn", "hermes not on PATH — uv tool install hermes-agent; continuing")
+				}
 			}
-		}
-		info("installing agents: " + strings.Join(c.Agents, ", "))
-		if err := installAgents(c); err != nil {
-			return err
-		}
-		// install-mcp CLI + MCP server packages (binaries on PATH). Agent MCP
-		// config is written only by setupAgents from config.d/mcp.yaml — do not
-		// also run install-mcp --client (that duplicated client config).
-		info("installing mcp CLI")
-		if err := installInstallMcp(c); err != nil {
-			return err
-		}
-		if err := installMCPServers(c); err != nil {
-			return err
-		}
-		info("configuring agents (memory): " + strings.Join(c.Agents, ", "))
-		if err := setupAgents(c); err != nil {
-			return err
-		}
-		if err := backupAgentConfigs(c); err != nil {
-			return fmt.Errorf("backup agent configs: %w", err)
-		}
-		info("configuring agents (harness): " + strings.Join(c.Agents, ", "))
-		for _, key := range c.Agents {
-			if err := installAgentConfig(c, key); err != nil {
-				return fmt.Errorf("harness config %s: %w", key, err)
+			info("installing npm packages (batched)")
+			if err := installNPMBatch(c); err != nil {
+				return err
 			}
-			if key == "skill-pi" {
-				if err := installPiHookBridge(c); err != nil {
+			info("configuring agents (memory): " + strings.Join(c.Agents, ", "))
+			if err := setupAgents(c); err != nil {
+				return err
+			}
+			if err := backupAgentConfigs(c); err != nil {
+				return fmt.Errorf("backup agent configs: %w", err)
+			}
+			info("configuring agents (harness): " + strings.Join(c.Agents, ", "))
+			for _, key := range c.Agents {
+				if err := installAgentConfig(c, key); err != nil {
 					return fmt.Errorf("harness config %s: %w", key, err)
 				}
-			}
-		}
-		if !c.SkipAgentsCopy {
-			info("installing personas: " + strings.Join(c.Agents, ", "))
-			for _, key := range c.Agents {
-				if err := installPersonas(c, key); err != nil {
-					return fmt.Errorf("install personas %s: %w", key, err)
+				if key == "skill-pi" {
+					if err := installPiHookBridge(c); err != nil {
+						return fmt.Errorf("harness config %s: %w", key, err)
+					}
 				}
 			}
-		}
-		if c.LSP {
-			info("configuring LSP for agents: " + strings.Join(c.Agents, ", "))
-			if err := configureLSP(c); err != nil {
-				return err
+			if !c.SkipAgentsCopy {
+				info("installing personas: " + strings.Join(c.Agents, ", "))
+				for _, key := range c.Agents {
+					if err := installPersonas(c, key); err != nil {
+						return fmt.Errorf("install personas %s: %w", key, err)
+					}
+				}
 			}
-		}
+			if c.LSP {
+				info("configuring LSP for agents: " + strings.Join(c.Agents, ", "))
+				if err := configureLSP(c); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
 	}
 
-	if c.SkipTools {
+	// Phase B + C: security tools + LSP tools.
+	if !c.SkipTools {
+		phases = append(phases, func() error {
+			info("installing security tools (wapiti3, akca, nuclei)")
+			if err := installSecurityTools(c); err != nil {
+				return err
+			}
+			if c.LSP {
+				info("installing LSP servers (gopls, pyright, cclsp, typescript, rust-analyzer, jj-language-server)")
+				if err := installLSPTools(c); err != nil {
+					return err
+				}
+			} else {
+				verb("skipping LSP server install (use --lsp)")
+			}
+			return nil
+		})
+	} else {
 		verb("skipping global tool install (--skip-tools)")
-	} else {
-		info("installing remaining global tools (skills, cucumber, backlog.md)")
-		if err := installTools(c); err != nil {
-			return err
-		}
-		info("installing security tools (wapiti3, akca, nuclei)")
-		if err := installSecurityTools(c); err != nil {
-			return err
-		}
-		if c.LSP {
-			info("installing LSP servers (gopls, pyright, cclsp, typescript, rust-analyzer, jj-language-server)")
-			if err := installLSPTools(c); err != nil {
-				return err
-			}
-		} else {
-			verb("skipping LSP server install (use --lsp)")
-		}
 	}
 
-	// Provider setup (ADR-0023, TICKET-03): a normal install step, not an
-	// opt-in bolt-on — indexing already needs an embedder host. Non-fatal: a
-	// failure warns with a manual hint and the install continues.
-	if c.SkipProvider {
-		verb("skipping provider setup (--skip-provider)")
+	// Phase D: provider setup (non-fatal).
+	if !c.SkipProvider {
+		phases = append(phases, func() error {
+			info("setting up LLM/embedder provider (" + providerLabel(c) + ")")
+			if err := setupProvider(c); err != nil {
+				Out("  warning: provider setup:", err)
+				return nil // non-fatal
+			}
+			return nil
+		})
 	} else {
-		info("setting up LLM/embedder provider (" + providerLabel(c) + ")")
-		if err := setupProvider(c); err != nil {
-			Out("  warning: provider setup:", err) // manual hint already printed inside
-		}
+		verb("skipping provider setup (--skip-provider)")
+	}
+
+	// Run all phases in parallel, capped at 4 concurrent.
+	if err := runParallel(4, phases); err != nil {
+		return err
 	}
 
 	if c.SkipAgentsCopy {
@@ -202,7 +216,7 @@ func syncRepo(c *Config) error {
 			return nil
 		}
 		Out("      git pull --ff-only in", c.RepoDir)
-		return run(c, c.RepoDir, "git", "pull", "--ff-only")
+		return commandRunner(c, c.RepoDir, "git", "pull", "--ff-only")
 	}
 
 	if c.DryRun {
@@ -210,7 +224,7 @@ func syncRepo(c *Config) error {
 		return nil
 	}
 	Out("      git clone --branch", c.Branch, c.RepoURL, "→", c.RepoDir)
-	return run(c, "", "git", "clone", "--branch", c.Branch, c.RepoURL, c.RepoDir)
+	return commandRunner(c, "", "git", "clone", "--branch", c.Branch, c.RepoURL, c.RepoDir)
 }
 
 // prerequisiteLookPath is exec.LookPath, replaced in tests.
@@ -293,7 +307,7 @@ func selectAgents(c *Config) error {
 	}
 	if c.Yes {
 		c.Agents = availableAgentKeys()
-		VerboseOut(c, "default selection (yes mode): all agents (" + strings.Join(c.Agents, ", ") + ")")
+		VerboseOut(c, "default selection (yes mode): all agents ("+strings.Join(c.Agents, ", ")+")")
 		return nil
 	}
 	if !mnemonic.Interactive() {
@@ -351,7 +365,7 @@ func installAgents(c *Config) error {
 				continue
 			}
 			Out(append([]any{"      npm"}, toAny(args)...)...)
-			if err := run(c, "", "npm", args...); err != nil {
+			if err := commandRunner(c, "", "npm", args...); err != nil {
 				return fmt.Errorf("npm %s: %w", strings.Join(args, " "), err)
 			}
 		}
@@ -407,7 +421,7 @@ func installInstallMcp(c *Config) error {
 		return nil
 	}
 	Out("      npm install -g", pkg)
-	return run(c, "", "npm", "install", "-g", pkg)
+	return commandRunner(c, "", "npm", "install", "-g", pkg)
 }
 
 // npmPkgName strips a @version suffix from an npm package spec
@@ -455,7 +469,7 @@ func installMCPServers(c *Config) error {
 		}
 		args := npmInstallGlobalArgs(npmPkg)
 		Out(append([]any{"      npm"}, toAny(args)...)...)
-		if err := run(c, "", "npm", args...); err != nil {
+		if err := commandRunner(c, "", "npm", args...); err != nil {
 			return fmt.Errorf("npm %s: %w", strings.Join(args, " "), err)
 		}
 	}
@@ -487,7 +501,7 @@ func installTools(c *Config) error {
 			continue
 		}
 		Out("      npm install -g", t.NPM)
-		if err := run(c, "", "npm", "install", "-g", t.NPM); err != nil {
+		if err := commandRunner(c, "", "npm", "install", "-g", t.NPM); err != nil {
 			return fmt.Errorf("npm install -g %s: %w", t.NPM, err)
 		}
 	}
@@ -498,9 +512,12 @@ func installTools(c *Config) error {
 // their own managers: `uv tool install` for wapiti3 and `go install` for the
 // Go-based scanners. These are non-fatal: a missing manager warns and skips its
 // tools with the manual fallback, rather than aborting the whole install (which
-// is gated on node + npm, not on go/uv).
+// is gated on node + npm, not on go/uv). Tools install in parallel (capped at
+// 3 concurrent) to cut the serial go-install compile time.
 func installSecurityTools(c *Config) error {
+	var fns []func() error
 	for _, t := range SecurityTools() {
+		t := t
 		if t.Bin != "" {
 			if _, err := exec.LookPath(t.Bin); err == nil {
 				Out("      skip", t.Name, "(already installed)")
@@ -516,11 +533,14 @@ func installSecurityTools(c *Config) error {
 			continue
 		}
 		Out(append([]any{"      ", t.Manager}, toAny(t.InstallArgs)...)...)
-		if err := run(c, "", t.Manager, t.InstallArgs...); err != nil {
-			return fmt.Errorf("%s %s: %w", t.Manager, strings.Join(t.InstallArgs, " "), err)
-		}
+		fns = append(fns, func() error {
+			if err := commandRunner(c, "", t.Manager, t.InstallArgs...); err != nil {
+				return fmt.Errorf("%s %s: %w", t.Manager, strings.Join(t.InstallArgs, " "), err)
+			}
+			return nil
+		})
 	}
-	return nil
+	return runParallel(3, fns)
 }
 
 func copyAgents(c *Config) error {
@@ -540,6 +560,168 @@ func copyAgents(c *Config) error {
 }
 
 // --- helpers ---
+
+// commandRunner is the function that executes a command. Replaced in tests.
+var commandRunner = run
+
+// batchLookPath is exec.LookPath for the npm batch skip check. Replaced in
+// tests to make the "already installed" decision deterministic.
+var batchLookPath = exec.LookPath
+
+// collectNPMPackages gathers all npm package names needed by the install:
+// selected agents, the install-mcp CLI, MCP server packages from tools.yaml,
+// and global tools. Deduplicated. Used by installNPMBatch to make a single
+// `npm install -g` call instead of N serial calls.
+func collectNPMPackages(c *Config) []string {
+	seen := map[string]bool{}
+	var pkgs []string
+	add := func(p string) {
+		if p != "" && !seen[p] {
+			seen[p] = true
+			pkgs = append(pkgs, p)
+		}
+	}
+
+	// Selected agents with npm packages.
+	for _, key := range c.Agents {
+		for _, a := range AvailableAgents() {
+			if a.Key == key {
+				add(a.NPM)
+			}
+		}
+	}
+
+	// install-mcp CLI (always needed when agents are selected).
+	if len(c.Agents) > 0 {
+		add(installMcpPkg)
+	}
+
+	// MCP server packages from tools.yaml.
+	if toolsCfg, err := LoadToolsConfig(c.RepoDir); err == nil {
+		for _, pkg := range toolsCfg.MCP {
+			add(normalizeNPMPackage(pkg))
+		}
+	}
+
+	// Global tools.
+	for _, t := range GlobalTools() {
+		add(t.NPM)
+	}
+
+	return pkgs
+}
+
+// installNPMBatch installs all collected npm packages in a single
+// `npm install -g` call. Packages already on PATH are skipped.
+// This replaces the N serial npm calls in installAgents, installInstallMcp,
+// installMCPServers, and installTools with one batched call.
+func installNPMBatch(c *Config) error {
+	pkgs := collectNPMPackages(c)
+
+	// Filter out packages already installed (binary on PATH).
+	var toInstall []string
+	for _, pkg := range pkgs {
+		// Find the binary name for this package to check if it's already installed.
+		if bin := npmBinForPkg(pkg); bin != "" {
+			if _, err := batchLookPath(bin); err == nil {
+				Out("      skip", pkg, "(already installed)")
+				continue
+			}
+		}
+		toInstall = append(toInstall, pkg)
+	}
+
+	if len(toInstall) == 0 {
+		VerboseOut(c, "all npm packages already installed")
+		return nil
+	}
+
+	// Build the single npm install -g command. Each package's args are
+	// built via npmInstallGlobalArgs so the --allow-scripts switch stays
+	// in one place.
+	args := []string{"install", "-g"}
+	for _, pkg := range toInstall {
+		pkgArgs := npmInstallGlobalArgs(pkg)
+		// npmInstallGlobalArgs returns ["install", "-g", ...flags, pkg] —
+		// we only want the flags + pkg (the "install -g" is already in args).
+		args = append(args, pkgArgs[2:]...)
+	}
+
+	if c.DryRun {
+		Out(append([]any{"      [dry-run] npm"}, toAny(args)...)...)
+		return nil
+	}
+	Out(append([]any{"      npm"}, toAny(args)...)...)
+	if err := commandRunner(c, "", "npm", args...); err != nil {
+		return fmt.Errorf("npm install -g %s: %w", strings.Join(toInstall, " "), err)
+	}
+	return nil
+}
+
+// npmBinForPkg returns the PATH binary name for an npm package, derived from
+// the Agent and Tool catalogs. Returns "" for packages with no known binary
+// (e.g. MCP server packages) — those always go into the batch.
+func npmBinForPkg(pkg string) string {
+	for _, a := range AvailableAgents() {
+		if a.NPM == pkg {
+			return a.Bin
+		}
+	}
+	for _, t := range GlobalTools() {
+		if t.NPM == pkg {
+			return t.Bin
+		}
+	}
+	if pkg == installMcpPkg {
+		return installMcpPkg
+	}
+	return ""
+}
+
+// runParallel executes fns concurrently with at most limit goroutines.
+// It collects all errors (not fail-fast) and returns a combined error if
+// any function failed. Successful functions complete even if others fail.
+func runParallel(limit int, fns []func() error) error {
+	if len(fns) == 0 {
+		return nil
+	}
+	if limit < 1 {
+		limit = 1
+	}
+
+	var (
+		wg   sync.WaitGroup
+		mu   sync.Mutex
+		errs []error
+	)
+
+	sem := make(chan struct{}, limit)
+	for _, fn := range fns {
+		fn := fn
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer func() { <-sem }() // release semaphore first (LIFO: runs last)
+			defer wg.Done()
+			if err := fn(); err != nil {
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+
+	if len(errs) == 0 {
+		return nil
+	}
+	// Join all errors into a single message.
+	msgs := make([]string, len(errs))
+	for i, e := range errs {
+		msgs[i] = e.Error()
+	}
+	return fmt.Errorf("%d install(s) failed: %s", len(errs), strings.Join(msgs, "; "))
+}
 
 func run(c *Config, dir string, name string, args ...string) error {
 	cmd := exec.Command(name, args...)

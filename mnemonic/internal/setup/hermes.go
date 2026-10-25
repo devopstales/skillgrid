@@ -510,6 +510,7 @@ func mergeTicketingType(doc, ticketType, slug string) string {
 func copyDir(src, dst string, dryRun bool) error {
 	info, err := os.Stat(src)
 	if err != nil || !info.IsDir() {
+		logWarn("source directory not found, skipping: " + src)
 		return nil
 	}
 	err = filepath.WalkDir(src, func(p string, d os.DirEntry, err error) error {

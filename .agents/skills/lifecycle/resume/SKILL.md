@@ -42,21 +42,27 @@ A project-level pointer, two layers, plus the spec-zone artifacts that name the 
 
 **`state.yaml` is the first read.** It names the current change + phase in one glance. If it points at a change whose spec dir is missing or its phase is contradicted by the spec-zone artifacts, trust the spec-zone artifacts (the deeper truth) and reconcile per Step 2.5. `state.yaml` is a pointer, not the source of truth for task detail.
 
-The **phase** is not a separate file — it is read from the spec-zone artifacts present in `.skillgrid/specs/YYYY-MM-DD-<topic>/`:
+The **phase** is not a separate file — it is derived from the spec-zone artifacts present in the change dir. **Do not derive it by hand:** run
 
-| Artifacts present | Phase |
-|---|---|
-| `briefing.md` only (no `blueprint.md`) | planning (brainstorming / interviewing / design) |
-| `briefing.md` + `blueprint.md` (no `tasks.md` `[x]`) | blueprint done, slicing next |
-| `tasks.md` with `[ ]` items (no ledger) | slicing done, execution not started |
-| `tasks.md` with `[x]` items + ledger | execution in progress |
-| `report.md` absent, or `## Gate Decision` verdict EMPTY/`PENDING` (or section absent) | next: `qa` |
-| QA verdict filled (`PASS` / `CONCERNS` / `FAIL` / `WAIVED`) and `review.md` missing or its `## Verdict` floor not met | next: `requesting-code-review` |
-| `review.md` floor met (`met` or `met-with-fixes`) and the folder is still under `specs/` | next: `receiving-code-review`, then `ship` |
-| folder in `xarchive/`, verdict filled, retro sections EMPTY | next: `reflect` |
-| folder in `xarchive/` AND retro sections filled (e.g. `## Lessons` non-empty or `## Acceptance Verdict` present) | cycle complete → none |
+```
+node scripts/phase-router.mjs <slug>        # or a change-dir path
+```
 
-The tail rows are the resume markers in `_shared/rules/sdd-structure.md`. If this table disagrees with that section, that section wins.
+from the project root. It returns `{phase, next, marker, drift, ledger, blocked, scope}` in one JSON object — the same derivation `state-drift-check.mjs` uses, so the two never disagree. The mapping it applies (the canonical table in `_shared/rules/sdd-structure.md`):
+
+| Artifacts present | Phase | Next |
+|---|---|---|
+| `briefing.md` only | `spec` | `writing-blueprints` |
+| `briefing.md` + `blueprint.md` | `blueprint` | `blueprint-validation` |
+| `tasks.md` (no execution signal) | `slicing` | `slicing` |
+| `tasks.md` + execution signal (`[x]` in tasks.md or `sdd/<plan>/progress.md`) | `execution` | `qa` |
+| `report.md` (verdict not yet filled) | `qa` | `requesting-code-review` |
+| `report.md` verdict filled + `review.md` floor not met | `qa` | `requesting-code-review` |
+| `report.md` verdict filled + `review.md` floor met (`met`/`met-with-fixes`), still in `specs/` | `review` | `receiving-code-review` |
+| folder in `xarchive/`, retro sections EMPTY | `reflect` | `reflect` |
+| folder in `xarchive/` AND retro sections filled | `complete` | none |
+
+The router's `ledger` field (done/in-flight/next task from the plan's `progress.md`) and `blocked` field (any `blocked(...)` reasons) are part of the same read — use them instead of re-grepping the ledger. If the router reports `drift` (state.yaml disagrees with the spec zone), reconcile per Step 2.5 — the spec zone is the deeper truth.
 
 The tail phases key on **markers within `report.md`** (the merged qa+retro report), not on file existence. Concretely:
 
@@ -69,7 +75,7 @@ Mnemonic (when `mnemonic.enabled: true`) is a **fallback index**, not a layer: u
 
 ### 1. Locate the topic
 
-Read `.skillgrid/state.yaml` first — the `changes:` map lists every in-flight change with its `slug`, `phase`, and `status`. If the user names a specific change, locate its entry. If no change is named, list all in-flight entries (those with `status: in_progress`) and ask which one to resume, or default to the most recently active. If the map is empty, fall back to the newest directory under `conventions.specs_root` (default `.skillgrid/specs/`) that has in-flight artifacts — an uncompleted `tasks.md`, a latest commit whose `[skillgrid-context]` block has non-empty `Remaining:`, or a ledger. A branch name or ticket ID names the topic directly. If nothing is in flight, this skill is not for you; go back to `skillgrid:using-skillgrid`.
+Read `.skillgrid/state.yaml` first — the `changes:` map lists every in-flight change with its `slug`, `phase`, and `status`. If the user names a specific change, locate its entry. If no change is named, run `node scripts/phase-router.mjs all` to list every in-flight change with its derived phase and next skill, and ask which one to resume (or default to the most recently active). A branch name or ticket ID names the topic directly. If nothing is in flight (the router returns no in-flight changes, or the `changes:` map is empty), this skill is not for you; go back to `skillgrid:using-skillgrid`.
 
 ### 2. Read the layers, in order
 
@@ -82,13 +88,16 @@ Read `.skillgrid/state.yaml` first — the `changes:` map lists every in-flight 
 
 Before you announce anything, reconcile `.skillgrid/state.yaml` against the
 spec-zone artifacts you just read. `state.yaml` is a **pointer**, not the source
-of truth — the spec zone (the artifacts on disk) is the deeper truth. Compare,
-and if they disagree, **trust the disk and repair the pointer**:
+of truth — the spec zone (the artifacts on disk) is the deeper truth. The
+`phase-router` already did this comparison: its `drift` field is non-null exactly
+when `state.yaml` disagrees with the spec zone, and it names the field, the stale
+value, and the derived value. If `drift` is non-null, **trust the disk and repair
+the pointer**:
 
 | Field | Trust | Repair |
 |-------|-------|--------|
 | `changes.<slug>` entries | the in-flight spec dirs on disk (bidirectional: every `specs/<slug>/` dir needs a map entry and vice versa) | add missing entries or remove stale ones |
-| `changes.<slug>.phase` | the phase the spec-zone artifacts actually show (the table in Step 2) | set it to the artifact-derived phase |
+| `changes.<slug>.phase` | the phase the spec-zone artifacts actually show (the router's `phase`) | set it to the router's `phase` |
 | `completed_changes` | the archived spec dirs (`.skillgrid/xarchive/`) | add the dir that moved to archive |
 
 Rules:

@@ -147,6 +147,7 @@ Independent tickets within a wave run in parallel worktrees. A ticket in a later
 3. Fill in:
    - Epic summary (2-3 lines from the blueprint)
     - Each ticket: title, scope, acceptance criteria, `SATISFIES` (scenario — BDD is always on), files, size, blocks, blocked by
+    - **Ticket titles are ASCII only.** The backlog CLI slugifies titles into filenames; em dashes, en dashes, curly quotes, and other non-ASCII characters produce unquotable filenames. Use ASCII hyphens (`-`) for separators. See `backlogmd-formatting.md` § Task title.
    - Dependency graph (mermaid)
    - Execution order (waves, acceptance-first)
     - When a ticket's scope or rationale rests on a constraint/decision it did

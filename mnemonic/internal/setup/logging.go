@@ -14,6 +14,10 @@ func logInfof(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
 }
 
+func logWarn(msg string) {
+	fmt.Fprintln(os.Stderr, "warn: "+msg)
+}
+
 func logError(msg string) {
 	fmt.Fprintln(os.Stderr, "error:", msg)
 }

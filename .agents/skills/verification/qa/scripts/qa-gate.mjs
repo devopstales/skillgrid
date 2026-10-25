@@ -157,9 +157,27 @@ function main() {
     result.checks.adr_invariants = { exit: 2, scope: null, lines: ["script not found"] };
   }
 
+  // --- okf-lint (knowledge bundle) ---
+  const okfScript = join(scriptsDir, "okf-lint.mjs");
+  if (existsSync(okfScript)) {
+    const okf = runScript(root, okfScript, []);
+    result.checks.okf_lint = okf;
+    if (okf.scope) result.scopes.okf_lint = okf.scope;
+  } else {
+    result.checks.okf_lint = { exit: 2, scope: null, lines: ["script not found"] };
+  }
+
+  // --- status-banner (spec-zone banner contract) ---
+  const bannerScript = join(root, "scripts", "status-banner.mjs");
+  if (existsSync(bannerScript)) {
+    result.checks.status_banner = runScript(root, bannerScript, ["check"]);
+  } else {
+    result.checks.status_banner = { exit: 2, scope: null, lines: ["script not found"] };
+  }
+
   // --- composite scope (worst-scope-wins) ---
   let composite = "COMPLETE";
-  for (const key of ["state_drift", "ship_drift"]) {
+  for (const key of ["state_drift", "ship_drift", "okf_lint"]) {
     const s = result.scopes[key];
     if (s) composite = worstScope(composite, s);
   }
