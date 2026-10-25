@@ -25,6 +25,7 @@ const installMcpPkg = "install-mcp"
 //  7. configure selected agents (plugins + mcp.yaml merge) — sole writer of agent MCP config
 //  8. npm install -g for the remaining shared tools
 //  9. install security scanners (uv tool install wapiti3; go install akca, nuclei)
+//
 // 10. override ~/.agents from the repo's .agents/
 //
 // Any hard failure stops the run with a descriptive error; individual
@@ -305,7 +306,7 @@ func selectAgents(c *Config) error {
 	}
 	if c.Yes {
 		c.Agents = availableAgentKeys()
-		VerboseOut(c, "default selection (yes mode): all agents (" + strings.Join(c.Agents, ", ") + ")")
+		VerboseOut(c, "default selection (yes mode): all agents ("+strings.Join(c.Agents, ", ")+")")
 		return nil
 	}
 	if !mnemonic.Interactive() {
@@ -686,9 +687,9 @@ func runParallel(limit int, fns []func() error) error {
 	}
 
 	var (
-		wg      sync.WaitGroup
-		mu      sync.Mutex
-		errs    []error
+		wg   sync.WaitGroup
+		mu   sync.Mutex
+		errs []error
 	)
 
 	sem := make(chan struct{}, limit)
