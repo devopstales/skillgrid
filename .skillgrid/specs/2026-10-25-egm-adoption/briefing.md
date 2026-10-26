@@ -48,7 +48,7 @@ Adopt the EGM *method* — not the plugin — into skillgrid-v2's SDD pipeline, 
 - **R7 (structure + router rename).** `_shared/rules/sdd-structure.md` renames the phase `blueprint-validation (critic subagent + user)` to `blueprint-validation (goldfish protocol + user)` in: the Phase Order chain (line 10), the skill table row for `writing-blueprints`, and the Resume markers table. `lifecycle/using-skillgrid/SKILL.md`'s artifact-creation-order list (item 3) makes the same rename.
   - *True when:* a `grep -rn "critic subagent" .agents/skills/` returns zero hits in any pipeline file (the phrase may survive only inside `goldfish-protocol.md` itself as the description of what was replaced, if at all).
   - *False when:* any pipeline file still names "critic subagent" as the mechanism.
-- **R8 (ADR + index).** `.skillgrid/decisions/04-adr-0050-egm-goldfish-protocol.md` records the adoption: Context (the EGM post + the two repos, the four failure modes Google names, the gap analysis), Decision (4-stage protocol + Zero-Decision Rule + fresh-context mandate + the two supporting disciplines; the plugin itself NOT adopted, the single-doc design NOT adopted, `egm-drift-report` and `egm-bootstrap` parked as follow-ups), Consequences. A pointer row for 0050 is added to `ASSUMPTIONS.md` § LOCKED (in force: yes).
+- **R8 (ADR + index).** `.skillgrid/knowledge/decisions/04-adr-0050-egm-goldfish-protocol.md` records the adoption: Context (the EGM post + the two repos, the four failure modes Google names, the gap analysis), Decision (4-stage protocol + Zero-Decision Rule + fresh-context mandate + the two supporting disciplines; the plugin itself NOT adopted, the single-doc design NOT adopted, `egm-drift-report` and `egm-bootstrap` parked as follow-ups), Consequences. A pointer row for 0050 is added to `ASSUMPTIONS.md` § LOCKED (in force: yes).
   - *True when:* the file exists with the frontmatter (`type: TechnicalDecision`, `status: accepted`, `date: 2026-10-25`) and the index row exists.
   - *False when:* either is missing, or the ADR restates operational rules instead of citing them.
 - **R9 (config + AGENTS pointer).** `.skillgrid/config.yaml` gains a comment block under `rules:` pointing at `_shared/rules/goldfish-protocol.md` (no schema change, no new key). `AGENTS.md`'s `<!-- skillgrid:start -->` workflow line is updated: `writing-blueprints → blueprint-validation (goldfish protocol) → …`.
@@ -62,7 +62,7 @@ None new. All goldfish subagents are read-only, spawned in-process by the pipeli
 ## Scope (files)
 
 - Create: `.agents/skills/_shared/rules/goldfish-protocol.md`
-- Create: `.skillgrid/decisions/04-adr-0050-egm-goldfish-protocol.md`
+- Create: `.skillgrid/knowledge/decisions/04-adr-0050-egm-goldfish-protocol.md`
 - Modify: `.agents/skills/planning/writing-blueprints/SKILL.md`
 - Modify: `.agents/skills/planning/brainstorming/SKILL.md`
 - Modify: `.agents/skills/verification/structured-debugging/SKILL.md`
@@ -72,7 +72,7 @@ None new. All goldfish subagents are read-only, spawned in-process by the pipeli
 - Modify: `.agents/skills/lifecycle/using-skillgrid/SKILL.md`
 - Modify: `.skillgrid/config.yaml` (comment only)
 - Modify: `AGENTS.md` (workflow line only)
-- Modify: `.skillgrid/ASSUMPTIONS.md` (one index row)
+- Modify: `.skillgrid/knowledge/ASSUMPTIONS.md` (one index row)
 
 ## Open Questions
 

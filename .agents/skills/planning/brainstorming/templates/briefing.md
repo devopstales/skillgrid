@@ -28,9 +28,9 @@ sentences. This is the "intent" the whole spec hangs from.]
 ## Context
 
 [Relevant existing flows, files, or constraints in the repo that this
- feature must respect or integrate with. Reference `.skillgrid/ASSUMPTIONS.md`
+ feature must respect or integrate with. Reference `.skillgrid/knowledge/ASSUMPTIONS.md`
 (VERIFIED facts + `§ LOCKED` ADR index) and `AGENTS.md` (§ Rules — the
-operational rules) and `.skillgrid/ARCHITECTURE.md` sections where applicable.]
+operational rules) and `.skillgrid/knowledge/ARCHITECTURE.md` sections where applicable.]
 
 ## Approaches Considered
 
@@ -90,14 +90,14 @@ technical planning lives:]
 
 ## Impact on Global Docs
 
-[If this feature changes `.skillgrid/reference/00-prd.md` (scope, feature, metric),
-`.skillgrid/ASSUMPTIONS.md` (a new VERIFIED/INFERRED fact, a new ADR path row),
-or `.skillgrid/ARCHITECTURE.md` (new component, data store, integration), list
+[If this feature changes `.skillgrid/knowledge/reference/00-prd.md` (scope, feature, metric),
+`.skillgrid/knowledge/ASSUMPTIONS.md` (a new VERIFIED/INFERRED fact, a new ADR path row),
+or `.skillgrid/knowledge/ARCHITECTURE.md` (new component, data store, integration), list
 the exact edits here. If none, write "None".]
 
-- `.skillgrid/reference/00-prd.md`: [edit or "None"]
-- `.skillgrid/ASSUMPTIONS.md`: [edit or "None"]
-- `.skillgrid/ARCHITECTURE.md`: [edit or "None"]
+- `.skillgrid/knowledge/reference/00-prd.md`: [edit or "None"]
+- `.skillgrid/knowledge/ASSUMPTIONS.md`: [edit or "None"]
+- `.skillgrid/knowledge/ARCHITECTURE.md`: [edit or "None"]
 
 ## Clarity Report
 
@@ -128,7 +128,7 @@ treats it as an assumption.]
 
 ## Decisions (ADR)
 
-[Pointers to ADR files (`.skillgrid/decisions/04-adr-NNNN-slug.md`) that constrain THIS feature —
+[Pointers to ADR files (`.skillgrid/knowledge/decisions/04-adr-NNNN-slug.md`) that constrain THIS feature —
 the decisions made during the interview that clear the bar (hard to reverse +
 surprising + real trade-off). List each as the Record path plus a one-line gist.
 These are the source of truth; do not restate them here. If no decision for this
@@ -136,7 +136,7 @@ feature cleared the ADR bar, write "None".]
 
 ## Terms
 
-[Pointers only. The project's canonical terms live in `.skillgrid/glossary/`
+[Pointers only. The project's canonical terms live in `.skillgrid/knowledge/glossary/`
 (`01-business-terms.md` / `02-technical-terms.md`, maintained by skillgrid:architectural-decision-records during the interview). List here only
 the terms THIS feature introduced or relied on, each with a link to the terms
 file, plus a one-line note if a term was sharpened or split

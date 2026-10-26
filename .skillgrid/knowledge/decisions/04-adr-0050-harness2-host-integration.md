@@ -7,7 +7,7 @@ supersedes: []
 superseded_by: []
 ---
 
-# ADR-0044: Harness² is hosted as an external subprocess, not a Go dependency
+# ADR-0050: Harness² is hosted as an external subprocess, not a Go dependency
 
 ## Status
 

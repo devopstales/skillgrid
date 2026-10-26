@@ -1,6 +1,6 @@
 # Harness² Host Integration — Implementation Blueprint (steps, files, verification)
 
-> **Role:** this is the *how* — the implementation plan: concrete steps, files to touch, code, tests, and verification. The companion `briefing.md` is the *what*. The product *why* lives in `.skillgrid/reference/00-prd.md`; the decisions are ADR-0044 + the in-force set in `.skillgrid/ASSUMPTIONS.md` § LOCKED. This blueprint is pure-technical and cites them.
+> **Role:** this is the *how* — the implementation plan: concrete steps, files to touch, code, tests, and verification. The companion `briefing.md` is the *what*. The product *why* lives in `.skillgrid/knowledge/reference/00-prd.md`; the decisions are ADR-0050 + the in-force set in `.skillgrid/knowledge/ASSUMPTIONS.md` § LOCKED. This blueprint is pure-technical and cites them.
 >
 > Assume the engineer has zero context for the codebase. Document every file to touch, the code, the tests, and how to verify. DRY. YAGNI. TDD. Frequent commits. No placeholders.
 
@@ -17,14 +17,14 @@
 
 **Tech Stack:** Go 1.22+ stdlib (`os/exec`, `encoding/json`, `os`, `path/filepath`); existing `mark3labs/mcp-go`/`modernc.org/sqlite` untouched. Python 3.12/3.13 Harness² (external, `uv`-managed). SPA: Vite + React 19 + TS + Tailwind 4 (existing `skillgrid-ui/`).
 
-**Spec:** `./briefing.md` (requirements & intent) · **ADR:** `.skillgrid/decisions/04-adr-0044-harness2-host-integration.md` · **ADR manifest:** `./adr.md`
+**Spec:** `./briefing.md` (requirements & intent) · **ADR:** `.skillgrid/knowledge/decisions/04-adr-0050-harness2-host-integration.md` · **ADR manifest:** `./adr.md`
 
 ## Terms
 
-- **Harness² / harness2** — the external Python benchmarking + harness-optimization engine (arXiv:2610.14224). A *machine-level* dependency; not a Go package. `.skillgrid/glossary/02-technical-terms.md` (add entry: "Harness² — external agent-harness optimization engine, hosted as a subprocess").
+- **Harness² / harness2** — the external Python benchmarking + harness-optimization engine (arXiv:2610.14224). A *machine-level* dependency; not a Go package. `.skillgrid/knowledge/glossary/02-technical-terms.md` (add entry: "Harness² — external agent-harness optimization engine, hosted as a subprocess").
 - **runs tree** — the file contract Harness² writes under `HARNESS2_RUNS_DIR`: `config.json` (run identity), task summaries, `judged.json`/`base_judged.json`, adopted harnesses. Read-only to skillgrid.
 - **host, not subject** — skillgrid runs and observes Harness²; it does not feed its own memory/skills into Harness². (Sharpened in this plan; see briefing § Design Decisions 1.)
-- **ExternalTool** — the installer struct (renamed from `SecTool`) describing an `uv`/`go`-managed external CLI. `.skillgrid/glossary/02-technical-terms.md` (add entry).
+- **ExternalTool** — the installer struct (renamed from `SecTool`) describing an `uv`/`go`-managed external CLI. `.skillgrid/knowledge/glossary/02-technical-terms.md` (add entry).
 
 ---
 
@@ -65,7 +65,7 @@
 ## Global Constraints
 
 - **Go 1.22+ floor** (ADR-0031). `go build ./...` and `go test ./...` must pass.
-- **No new Go module dependency** (ADR-0008 rule; ADR-0044). `mnemonic/go.mod` gains zero new direct deps. Harness² is a machine-level Python runtime, not a `go.mod` entry.
+- **No new Go module dependency** (ADR-0008 rule; ADR-0050). `mnemonic/go.mod` gains zero new direct deps. Harness² is a machine-level Python runtime, not a `go.mod` entry.
 - **cgo-free invariant** preserved — pure-Go `modernc.org/sqlite` untouched; no CGo bridge.
 - **Conventional commits only**; no AI-attribution trailers (commit-msg hook).
 - **Spec-zone before code-zone** (pre-commit zone guard): `briefing.md`, `blueprint.md`, `adr.md`, the ADR file, and any `.skillgrid/config.yaml` / glossary edit commit *before* Go/UI code.
@@ -92,7 +92,7 @@
 - `skillgrid-cli/internal/install/install_test.go` — `TestHarnessTools`.
 - `skillgrid-ui/src/pages/HarnessPage.tsx` — SPA view; route + nav entry in the existing router.
 - `.skillgrid/config.yaml` — optional `harness:` block (model vars, runs dir override) — spec zone.
-- `.skillgrid/glossary/02-technical-terms.md` — add "Harness²" + "ExternalTool" terms.
+- `.skillgrid/knowledge/glossary/02-technical-terms.md` — add "Harness²" + "ExternalTool" terms.
 
 ---
 
@@ -437,7 +437,7 @@ func TestInstallHarnessToolsNonFatal(t *testing.T) {
 
 **Files:**
 - Modify: `.skillgrid/config.yaml` (optional `harness:` block: `runs_dir`, `solver_model`, `improver_model`, `judge_model`)
-- Modify: `.skillgrid/glossary/02-technical-terms.md` (add "Harness²", "ExternalTool")
+- Modify: `.skillgrid/knowledge/glossary/02-technical-terms.md` (add "Harness²", "ExternalTool")
 - Modify: `mnemonic/cmd/mnemonic/doctor.go` (add a `harness2` capability line to the doctor output via `Preflight()`) — *code-zone but additive, committed after Task 4's preflight exists*
 
 **Interfaces:**

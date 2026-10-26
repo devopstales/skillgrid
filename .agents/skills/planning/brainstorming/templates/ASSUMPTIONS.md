@@ -1,10 +1,10 @@
 # ASSUMPTIONS
 
-> Create this as the root `.skillgrid/ASSUMPTIONS.md`. It is the understanding
+> Create this as the root `.skillgrid/knowledge/ASSUMPTIONS.md`. It is the understanding
 > record a session reads first: what is true, what is a hypothesis, which
 > decisions are in force, and what is locked. The longer product requirements
-> live in `.skillgrid/reference/00-prd.md` (`templates/PRD.md`); decision bodies
-> live in `.skillgrid/decisions/04-adr-NNNN-slug.md`. This file stores the path
+> live in `.skillgrid/knowledge/reference/00-prd.md` (`templates/PRD.md`); decision bodies
+> live in `.skillgrid/knowledge/decisions/04-adr-NNNN-slug.md`. This file stores the path
 > to each. For a multi-project repo, merge rather than overwrite.
 >
 > Maintenance: VERIFIED is written by brainstorming as facts are confirmed during
@@ -28,7 +28,7 @@ Confirmed against the code, a prototype, or a primary source.
 
 ### Product requirements
 
-Target users, personas, the MoSCoW feature table, user flows, non-functional requirements, and the release line are in `.skillgrid/reference/00-prd.md`. Open it when a change touches scope or acceptance.
+Target users, personas, the MoSCoW feature table, user flows, non-functional requirements, and the release line are in `.skillgrid/knowledge/reference/00-prd.md`. Open it when a change touches scope or acceptance.
 
 ---
 
@@ -58,7 +58,7 @@ that names it and flipping its row here.**
 
 | # | Description | In force | File |
 |---|-------------|----------|------|
-| 0001 | [short description] | yes | `.skillgrid/decisions/04-adr-0001-slug.md` |
+| 0001 | [short description] | yes | `.skillgrid/knowledge/decisions/04-adr-0001-slug.md` |
 
 **Highest sequence in use:** 0001 (next ADR is `04-adr-0002-slug.md`).
 

@@ -54,18 +54,20 @@ brainstorming → [research | prototype | sketch] → writing-blueprints → blu
 .skillgrid/
 ├── config.yaml                 # REQUIRED static SoT — stack, testing, tracker, rules.*
 ├── state.yaml                  # DYNAMIC project state — phase, current change, progress (updated by pipeline skills)
-├── ASSUMPTIONS.md              # DURABLE root record (committed) — project understanding + in-force ADR index (path only) + locked constraints (the "bible")
-├── ARCHITECTURE.md             # DURABLE root record (committed, created lazily) — live repo/program structure
-├── prototypes/                     # DURABLE feasibility probes (committed, permanently retained) — NNN-name/ dirs (prototype.md + throwaway code)
+├── config.d/                   # machine-local config overrides (indexing.yaml: mnemonic global_memory, web TTLs, excludes)
+├── knowledge/                  # OKF knowledge bundle (OKF v0.2, committed, cross-change) — the wiki
+│   ├── index.md                #   root catalog (okf_version 0.2)
+│   ├── log.md                  #   changelog of knowledge-base writes
+│   ├── reverse-index.md        #   generated path → concept map
+│   ├── ASSUMPTIONS.md          #   DURABLE root record — project understanding + in-force ADR index (path only) + locked constraints (the "bible")
+│   ├── ARCHITECTURE.md         #   DURABLE root record (created lazily) — live repo/program structure
+│   ├── decisions/              #   one ADR per file (04-adr-NNNN-slug.md); ASSUMPTIONS.md stores the path
+│   ├── invariants/             #   locked constraints (05-locked-constraints.md)
+│   ├── glossary/               #   01-business-terms.md + 02-technical-terms.md
+│   ├── reference/              #   PRD (00-prd.md), research (06-…), roadmaps, plans
+│   └── workflows/              #   cross-package flows (sdd-pipeline.md)
+├── prototypes/                 # DURABLE feasibility probes (committed, permanently retained) — NNN-name/ dirs (prototype.md + throwaway code)
 │   └── NNN-name/
-├── index.md + decisions/ + invariants/ + glossary/ + reference/ + workflows/
-  │                     # OKF knowledge bundle (committed, cross-change; ADRs, constraints, terms, research)
-│   ├── README.md               #   topic index (what lives here, what's where)
-│   ├── 00-prd.md               #   product requirements (reference; ASSUMPTIONS.md links here)
-│   ├── 01-business-terms.md    #   domain/product/workflow vocabulary (was glossary/business.md)
-│   ├── 02-technical-terms.md   #   architecture/platform/protocol vocabulary (was glossary/technical.md)
-│   ├── 04-adr-NNNN-slug.md     #   one locked decision per file (body). ASSUMPTIONS.md stores the path
-│   └── 06-research-findings.md #   cross-change distilled research (carried forward from specs/)
 ├── specs/                      # ACTIVE change artifacts (committed); closed changes move to xarchive/
 │   └── YYYY-MM-DD-<topic>/
 │       ├── briefing.md         # brainstorming (falsifiable requirements, goal)
@@ -124,7 +126,7 @@ The deepest artifact present in the change dir determines the phase. This is the
 
 ### Resume rule
 
-`resume` and `using-skillgrid` MUST derive phase from artifacts first, then cross-check `state.yaml`. If they disagree, **artifacts win** (the spec zone is the deeper truth — same principle as the state-drift-guard). The skill records the disagreement as a dated entry in `.skillgrid/log.md` and patches the phase to match. `state.yaml` holds no freeform journal — prose goes to `log.md`, not `state.yaml`.
+`resume` and `using-skillgrid` MUST derive phase from artifacts first, then cross-check `state.yaml`. If they disagree, **artifacts win** (the spec zone is the deeper truth — same principle as the state-drift-guard). The skill records the disagreement as a dated entry in `.skillgrid/knowledge/log.md` and patches the phase to match. `state.yaml` holds no freeform journal — prose goes to `log.md`, not `state.yaml`.
 
 ### Edit scope guard
 
@@ -187,30 +189,30 @@ changes:
 progress:
   completed_changes: 18
   blocked_changes: 0
-constraints_ref: .skillgrid/ASSUMPTIONS.md                       # pointer, not a copy
+constraints_ref: .skillgrid/knowledge/ASSUMPTIONS.md                       # pointer, not a copy
 ```
 
 - The `changes:` map is the **resume pointer** — `resume` and `using-skillgrid` read it first, replacing the old "find newest `specs/` dir" heuristic. Each entry's `slug` is the `specs/<slug>/` directory name; `phase` + `status` describe where that change is right now.
 - **Parallel development:** multiple changes may coexist in the map simultaneously. There is no single "active" change — every entry is its own independent pipeline position.
-- `constraints_ref` points at `.skillgrid/ASSUMPTIONS.md` (the durable project understanding); operational rules live in AGENTS.md's `### Rules` section, not in `state.yaml`.
+- `constraints_ref` points at `.skillgrid/knowledge/ASSUMPTIONS.md` (the durable project understanding); operational rules live in AGENTS.md's `### Rules` section, not in `state.yaml`.
 - Onboarding creates it with an empty `changes:` map. `ship` removes the change's entry from the map and increments `completed_changes`. `reflect` sets the entry's `phase: complete`.
 - **Legacy v1** (single `pipeline.current_change` + `current_phase`) is still parsed by the drift guard for backward compatibility, but new writes use v2.
 
-**`ASSUMPTIONS.md`** (root) is the *durable* project understanding — the four tiers `## VERIFIED` / `## INFERRED (HYPOTHESIS)` / `## LOCKED` / `## Open Questions`. `## LOCKED` is **the ADR index only**: one pointer row per in-force decision (a short description + the path to the record). `status`, `supersedes`, and `date` live in the file's frontmatter, not the row. The decision body is the file. Operational rules that are *not* decisions (build toolchain floor, commit format, dependency policy, spec/code zone order) live in AGENTS.md's `### Rules` section, not here.
+**`knowledge/ASSUMPTIONS.md`** is the *durable* project understanding — the four tiers `## VERIFIED` / `## INFERRED (HYPOTHESIS)` / `## LOCKED` / `## Open Questions`. `## LOCKED` is **the ADR index only**: one pointer row per in-force decision (a short description + the path to the record). `status`, `supersedes`, and `date` live in the file's frontmatter, not the row. The decision body is the file. Operational rules that are *not* decisions (build toolchain floor, commit format, dependency policy, spec/code zone order) live in AGENTS.md's `### Rules` section, not here.
 
-**`ARCHITECTURE.md`** (root) is the *live* repo/program structure record — created lazily as the repo takes shape.
+**`knowledge/ARCHITECTURE.md`** is the *live* repo/program structure record — created lazily as the repo takes shape.
 
-The **knowledge bundle** (the `.skillgrid/` root, OKF v0.2) holds the product requirements reference (`reference/00-prd.md`), the terms glossary (`glossary/01/02-*-terms.md`), cross-change research (`reference/06-research-findings.md`), locked constraints (`invariants/`), and one ADR file per locked decision (`decisions/04-adr-NNNN-slug.md`). The per-change `findings.md` stays in `specs/` for traceability; `reflect` lifts the durable, still-relevant findings into `reference/06-research-findings.md` so they survive the archive.
+The **knowledge bundle** (`.skillgrid/knowledge/`, OKF v0.2) holds the product requirements reference (`knowledge/reference/00-prd.md`), the terms glossary (`knowledge/glossary/01/02-*-terms.md`), cross-change research (`knowledge/reference/06-research-findings.md`), locked constraints (`knowledge/invariants/`), and one ADR file per locked decision (`knowledge/decisions/04-adr-NNNN-slug.md`). The per-change `findings.md` stays in `specs/` for traceability; `reflect` lifts the durable, still-relevant findings into `knowledge/reference/06-research-findings.md` so they survive the archive.
 
 ## Artifact File Paths
 
 | Skill | Creates / updates | Path |
 |---|---|---|
-| onboarding | skeleton | `config.yaml`, `state.yaml`, `ASSUMPTIONS.md`, `ARCHITECTURE.md` (lazy), knowledge bundle zone (index.md + reference/06-research-findings), AGENTS block, `.gitignore` |
-| brainstorming | briefing + state (questioning via agent answer-select tool) | `specs/<topic>/briefing.md`, `specs/<topic>/adr.md`, `reference/00-prd.md` (new project, or when scope changes), `ASSUMPTIONS.md` (VERIFIED/INFERRED tiers auto-written; LOCKED on user OK), `state.yaml` (`changes.<topic>` entry) |
-| architectural-decision-records | terms + ADRs | `glossary/01-business-terms.md`, `glossary/02-technical-terms.md`, `decisions/04-adr-NNNN-slug.md`, `ASSUMPTIONS.md` (§ `LOCKED` ADR index pointer row only) |
-| knowledge-base | concepts + catalogs | `.skillgrid/<decisions\|invariants\|workflows\|glossary\|reference>/*.md` + root `index.md` / `log.md` / `reverse-index.md` (same-edit rule; post-R6 paths, pre-R6 `artifacts/`); ADR numbering stays with `architectural-decision-records` |
-| research | findings | `specs/<topic>/findings.md` (`## Research:` section) + durable findings to `reference/06-research-findings.md` |
+| onboarding | skeleton | `config.yaml`, `state.yaml`, `knowledge/ASSUMPTIONS.md`, `knowledge/ARCHITECTURE.md` (lazy), knowledge bundle zone (`knowledge/index.md` + `knowledge/reference/06-research-findings`), AGENTS block, `.gitignore` |
+| brainstorming | briefing + state (questioning via agent answer-select tool) | `specs/<topic>/briefing.md`, `specs/<topic>/adr.md`, `knowledge/reference/00-prd.md` (new project, or when scope changes), `knowledge/ASSUMPTIONS.md` (VERIFIED/INFERRED tiers auto-written; LOCKED on user OK), `state.yaml` (`changes.<topic>` entry) |
+| architectural-decision-records | terms + ADRs | `knowledge/glossary/01-business-terms.md`, `knowledge/glossary/02-technical-terms.md`, `knowledge/decisions/04-adr-NNNN-slug.md`, `knowledge/ASSUMPTIONS.md` (§ `LOCKED` ADR index pointer row only) |
+| knowledge-base | concepts + catalogs | `.skillgrid/knowledge/<decisions\|invariants\|workflows\|glossary\|reference>/*.md` + `knowledge/index.md` / `knowledge/log.md` / `knowledge/reverse-index.md` (same-edit rule); ADR numbering stays with `architectural-decision-records` |
+| research | findings | `specs/<topic>/findings.md` (`## Research:` section) + durable findings to `knowledge/reference/06-research-findings.md` |
 | prototype | findings + probe | `prototypes/NNN-name/` (`prototype.md` + throwaway code, permanently retained) + `specs/<topic>/findings.md` (`## Prototype:` section) |
 | sketch | findings | `specs/<topic>/findings.md` (`## Sketch:` section) |
 | writing-blueprints | plan + critic validation + state | `specs/<topic>/blueprint.md`, `state.yaml` (phase → `blueprint` then `blueprint-validated`) |
@@ -221,15 +223,15 @@ The **knowledge bundle** (the `.skillgrid/` root, OKF v0.2) holds the product re
 | qa | report (QA half) + state | `specs/<topic>/report.md` (test plan + verdict + evidence; retro half left empty), `state.yaml` (phase) |
 | review | findings + state | `specs/<topic>/` (review artifacts), `state.yaml` (phase) |
 | ship | move + state | **moves** `specs/<topic>/` → `xarchive/YYYY-MM-DD-<topic>/`; `state.yaml` (remove `changes.<topic>` entry, completed_changes +1) |
-| reflect | report (retro half) + state + artifacts | completes `xarchive/YYYY-MM-DD-<topic>/report.md` in place (from `## Final-State Facts` onward); lifts durable findings to `reference/06-research-findings.md`; `state.yaml` (terminal phase) + Mnemonic session close |
+| reflect | report (retro half) + state + artifacts | completes `xarchive/YYYY-MM-DD-<topic>/report.md` in place (from `## Final-State Facts` onward); lifts durable findings to `knowledge/reference/06-research-findings.md`; `state.yaml` (terminal phase) + Mnemonic session close |
 
 ## Writing Rules
 
 - Create the change folder **before** writing the briefing.
 - READ before UPDATE; never blind overwrite.
 - Commit spec-zone changes (`.skillgrid/specs/`) before code changes — the `pre-commit` zone guard enforces it.
-- ADRs live as `decisions/04-adr-NNNN-slug.md` — one file per decision, created lazily, global, not per-change. `ASSUMPTIONS.md` § `LOCKED` (the ADR index) stores a short description + the path only; `status`/`supersedes`/`date` live in the file's frontmatter. The per-change `specs/<topic>/adr.md` is a manifest of pointers to those files, never a copy.
-- Terms live in `glossary/01-business-terms.md` / `02-technical-terms.md` — a glossary and nothing else.
+- ADRs live as `knowledge/decisions/04-adr-NNNN-slug.md` — one file per decision, created lazily, global, not per-change. `knowledge/ASSUMPTIONS.md` § `LOCKED` (the ADR index) stores a short description + the path only; `status`/`supersedes`/`date` live in the file's frontmatter. The per-change `specs/<topic>/adr.md` is a manifest of pointers to those files, never a copy.
+- Terms live in `knowledge/glossary/01-business-terms.md` / `02-technical-terms.md` — a glossary and nothing else.
 - `state.yaml` is updated on every phase transition (see the Artifact File Paths table); it is the dynamic counterparty to the knowledge bundle (the durable knowledge).
 - Knowledge bundle files are committed (durable knowledge that survives across machines); `state.yaml` is committed (the change log of phase transitions lives in its git history).
 
@@ -242,7 +244,7 @@ skills keep writing `state.yaml` directly at every phase transition; the
 guard owns the verification.
 
 **Run:** `node .agents/skills/verification/qa/scripts/state-drift-check.mjs [project-root]` (defaults to
-cwd). ADR: `.skillgrid/decisions/04-adr-0008-state-drift-guard-js-yaml.md` (Node.js + `yaml` package).
+cwd). ADR: `.skillgrid/knowledge/decisions/04-adr-0008-state-drift-guard-js-yaml.md` (Node.js + `yaml` package).
 
 **Exit codes:** 0 clean, 1 drift (prints field/stale/derived table), 2
 usage/parse error.

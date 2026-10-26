@@ -40,15 +40,15 @@ crystallize and decisions are made — so the paper trail is written *here*, in
 the conversation, not batched at the end:
 
 - **Terms:** the moment a domain term is resolved, write it to the terms file
-  (`conventions.artifacts`, default `.skillgrid/glossary/01-business-terms.md`
+  (`conventions.artifacts`, default `.skillgrid/knowledge/glossary/01-business-terms.md`
   for domain/product/workflow, `02-technical-terms.md` for architecture/platform)
   — challenge conflicts, sharpen fuzzy language, cross-reference the code. A
   terms file that only changes after the interview is a summary, not the
   session's output.
 - **ADRs:** the moment a decision clears the bar (hard to reverse + surprising
   without context + real trade-off), offer to record it as
-   `.skillgrid/decisions/04-adr-NNNN-slug.md` and add a pointer row to the
-   `## LOCKED` ADR index in `.skillgrid/ASSUMPTIONS.md`. The "why" is freshest right now; a future reader
+   `.skillgrid/knowledge/decisions/04-adr-NNNN-slug.md` and add a pointer row to the
+   `## LOCKED` ADR index in `.skillgrid/knowledge/ASSUMPTIONS.md`. The "why" is freshest right now; a future reader
   needs exactly this moment's reasoning.
 
 If `conventions.artifacts` is set in `.skillgrid/config.yaml`, use that path

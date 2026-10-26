@@ -12,8 +12,8 @@ that still has authority.
 1. **Cite, don't copy.** When a blueprint's Global Constraints, a task's
    rationale, or a report's decision references a decision that already has an
    identifier, write the reference, not the text:
-     - ADR: `per .skillgrid/decisions/04-adr-NNNN-slug.md` (or `per ADR-NNNN`)
-     - Product requirements: `per .skillgrid/decisions/00-prd.md`
+     - ADR: `per .skillgrid/knowledge/decisions/04-adr-NNNN-slug.md` (or `per ADR-NNNN`)
+     - Product requirements: `per .skillgrid/knowledge/decisions/00-prd.md`
      - Operational rule: `per AGENTS.md § Rules <bullet>` (the hard limits a change must respect)
      - Prior change: `per .skillgrid/xarchive/2026-09-21-session-events-layer`
 2. **Restate only when the citation is not enough to act.** If a reader must

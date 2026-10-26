@@ -2,8 +2,8 @@
 // check-adr-invariants.mjs — machine-checkable invariants for the ADR system.
 //
 // "A rule asks; a hook guarantees." This is the guarantee for the ADR home
-// rule: decision bodies live in .skillgrid/decisions/04-adr-NNNN-slug.md,
-// .skillgrid/ASSUMPTIONS.md holds the path (one in-force row per file), and a
+// rule: decision bodies live in .skillgrid/knowledge/decisions/04-adr-NNNN-slug.md,
+// .skillgrid/knowledge/ASSUMPTIONS.md holds the path (one in-force row per file), and a
 // spec's adr.md is a per-change manifest of POINTERS — never a copy of a body.
 //
 // Violations (each a FAIL):
@@ -36,9 +36,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const ARTIFACTS = path.join(ROOT, ".skillgrid", "decisions");
+const ARTIFACTS = path.join(ROOT, ".skillgrid", "knowledge", "decisions");
 const SPECS = path.join(ROOT, ".skillgrid", "specs");
-const ASSUMPTIONS = path.join(ROOT, ".skillgrid", "ASSUMPTIONS.md");
+const ASSUMPTIONS = path.join(ROOT, ".skillgrid", "knowledge", "ASSUMPTIONS.md");
 const jsonFlag = process.argv.includes("--json");
 
 const ADR_FILE = /^04-adr-(\d{4})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/;
@@ -62,7 +62,7 @@ function parseInForceTable() {
   const content = readFileSync(ASSUMPTIONS, "utf8");
   const lines = [];
   for (const raw of content.split("\n")) {
-    // Table row: | 0001 | Title | accepted | — | 2026-09-16 | yes | `.skillgrid/decisions/...` |
+    // Table row: | 0001 | Title | accepted | — | 2026-09-16 | yes | `.skillgrid/knowledge/decisions/...` |
     const m = raw.match(/^\|\s*(\d{4})\s*\|.*?\|\s*`([^`]+)`\s*\|\s*$/);
     if (m) lines.push({ num: m[1], record: m[2] });
   }
@@ -87,7 +87,7 @@ function main() {
   }
   const tableRecords = new Set(table.map((r) => r.record));
   for (const f of files) {
-    const record = `.skillgrid/decisions/${f}`;
+    const record = `.skillgrid/knowledge/decisions/${f}`;
     if (!tableRecords.has(record)) {
       LINES.push(`DRIFT  ${f}: no in-force table row (orphan ADR file)`);
       FAIL = 1;
@@ -121,7 +121,7 @@ function main() {
       const isManifest = content.includes(MANIFEST_HEADER);
       const hasBody = BODY_HEADINGS.some((h) => new RegExp(`^${h.replace("##", "\\#\\#")}\\b`, "m").test(content));
       if (!isManifest && hasBody) {
-        LINES.push(`DRIFT  specs/${dir.name}/adr.md: decision body instead of manifest (move the body to .skillgrid/decisions/04-adr-NNNN-slug.md)`);
+        LINES.push(`DRIFT  specs/${dir.name}/adr.md: decision body instead of manifest (move the body to .skillgrid/knowledge/decisions/04-adr-NNNN-slug.md)`);
         FAIL = 1;
       }
       // Validate "New Durable ADRs Created" pointers exist.
@@ -151,7 +151,7 @@ function main() {
       console.log("ADR invariants: PASS");
     } else {
       console.log("ADR invariants: FAIL — a file drifted from the ADR home rule.");
-      console.log("Decision bodies belong in .skillgrid/decisions/04-adr-NNNN-slug.md;");
+      console.log("Decision bodies belong in .skillgrid/knowledge/decisions/04-adr-NNNN-slug.md;");
       console.log("ASSUMPTIONS.md holds the path; a spec adr.md is a manifest of pointers only.");
     }
   }

@@ -15,7 +15,7 @@ Break a blueprint into vertical tracer-bullet tickets that each fit a single fre
 
 **Announce at start:** "I'm using the skillgrid:slicing skill to break the blueprint into executable tickets."
 
-**Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for tasks.md location. If the file doesn't exist, use the default `.skillgrid/specs/`. Ticket titles and scope use the terms vocabulary from `conventions.artifacts` (default `.skillgrid/glossary/01-business-terms.md` + `02-technical-terms.md`). A ticket that contradicts an in-force ADR — per the change's ADR Review Manifest at `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md` (in-force set from the `## LOCKED` ADR index in `.skillgrid/ASSUMPTIONS.md`) — must call it out, not silently override it.
+**Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for tasks.md location. If the file doesn't exist, use the default `.skillgrid/specs/`. Ticket titles and scope use the terms vocabulary from `conventions.artifacts` (default `.skillgrid/knowledge/glossary/01-business-terms.md` + `02-technical-terms.md`). A ticket that contradicts an in-force ADR — per the change's ADR Review Manifest at `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md` (in-force set from the `## LOCKED` ADR index in `.skillgrid/knowledge/ASSUMPTIONS.md`) — must call it out, not silently override it.
 
 ## When to Use
 
@@ -152,7 +152,7 @@ Independent tickets within a wave run in parallel worktrees. A ticket in a later
    - Execution order (waves, acceptance-first)
     - When a ticket's scope or rationale rests on a constraint/decision it did
       not earn (an operational rule or a prior ADR), CITE the source rather than
-      restate it (`per AGENTS.md § Rules <x>` / `per .skillgrid/decisions/04-adr-NNNN-slug.md`) per
+      restate it (`per AGENTS.md § Rules <x>` / `per .skillgrid/knowledge/decisions/04-adr-NNNN-slug.md`) per
       `_shared/craft/cite-dont-restate.md`.
  4. Save to `.skillgrid/specs/YYYY-MM-DD-<topic>/tasks.md`
 

@@ -195,7 +195,7 @@ Subagent (general-purpose):
 **Placeholders:**
 - `[BASE_SHA]` — starting commit
 - `[HEAD_SHA]` — ending commit
-- `[TERMS_PATH]` — the ubiquitous-language terms files (e.g. `.skillgrid/glossary/01-business-terms.md` + `02-technical-terms.md`)
+- `[TERMS_PATH]` — the ubiquitous-language terms files (e.g. `.skillgrid/knowledge/glossary/01-business-terms.md` + `02-technical-terms.md`)
 - `[ADR_LIST]` — the in-force ADRs the change's manifest names (not the whole folder)
 
 **Reviewer returns:** Strengths, Issues (Critical / Important / Minor), Assessment

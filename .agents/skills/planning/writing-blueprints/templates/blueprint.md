@@ -25,11 +25,11 @@
 
 **Tech Stack:** [Key technologies/libraries]
 
-**Spec:** [path to the spec this plan implements — the plan argues from the spec, so it travels with it; e.g., `../briefing.md` or `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md`. The product *why* (user value, personas, success) lives in the spec + `.skillgrid/reference/00-prd.md`; decisions are `decisions/04-adr-NNNN-slug.md`. This blueprint is pure-technical and cites them rather than restating.]
+**Spec:** [path to the spec this plan implements — the plan argues from the spec, so it travels with it; e.g., `../briefing.md` or `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md`. The product *why* (user value, personas, success) lives in the spec + `.skillgrid/knowledge/reference/00-prd.md`; decisions are `decisions/04-adr-NNNN-slug.md`. This blueprint is pure-technical and cites them rather than restating.]
 
 ## Terms
 
-[Pointers only. The project's canonical terms live in `.skillgrid/glossary/`
+[Pointers only. The project's canonical terms live in `.skillgrid/knowledge/glossary/`
 (`01-business-terms.md` / `02-technical-terms.md`, maintained by skillgrid:architectural-decision-records). List here only the
 terms THIS plan introduced or relies on, each with a link to the terms file,
 plus a one-line note if a term was sharpened during

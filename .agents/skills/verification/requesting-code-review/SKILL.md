@@ -81,7 +81,7 @@ and the smell baseline are canonically defined in
 `_shared/rules/code-standards.md` ("Reviewing"); this template inlines
 them for the reviewer. Pass:
 - the diff range (`{BASE_SHA}..{HEAD_SHA}`)
-- the standards sources: the terms files (`.skillgrid/glossary/01-business-terms.md` /
+- the standards sources: the terms files (`.skillgrid/knowledge/glossary/01-business-terms.md` /
   `02-technical-terms.md`, ubiquitous language), the in-force ADRs from the change's ADR Review Manifest
   (`.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md`, or `conventions.artifacts`), plus
   the template's smell baseline. Don't dump the whole ADR folder — only the

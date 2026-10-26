@@ -26,7 +26,7 @@ Turns a raw idea into an approved design and spec before any implementation begi
 
 **When NOT to use:** For a fully-specified, small, well-understood change where the design is already obvious and there is an existing flow to read — that is the **Bounded** path: a short design in chat and an approval, not this full interview → approaches → spec process. And the prototype path stops at "present the probe, get a nod."
 
-**Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for spec location, `conventions.artifacts` for the terms zone (`01/02-*-terms.md`) and the requirements reference (`00-prd.md`), and the root `.skillgrid/ASSUMPTIONS.md` for the understanding record (the product statement, VERIFIED facts, the in-force ADR index in `## LOCKED` — open the Record path for the body — and the locked constraints) and `.skillgrid/ARCHITECTURE.md` for the live repo/program structure. Open `reference/00-prd.md` when the change touches scope or acceptance. If the file doesn't exist, use the defaults shown in this skill.
+**Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for spec location, `conventions.artifacts` for the terms zone (`01/02-*-terms.md`) and the requirements reference (`00-prd.md`), and the root `.skillgrid/knowledge/ASSUMPTIONS.md` for the understanding record (the product statement, VERIFIED facts, the in-force ADR index in `## LOCKED` — open the Record path for the body — and the locked constraints) and `.skillgrid/knowledge/ARCHITECTURE.md` for the live repo/program structure. Open `reference/00-prd.md` when the change touches scope or acceptance. If the file doesn't exist, use the defaults shown in this skill.
 
 Help turn ideas into fully formed designs and specs through natural collaborative dialogue.
 
@@ -82,10 +82,10 @@ override it:
     creating the architecture. Follow the full process: interview the user
     (`skillgrid:interviewing` skill — design tree, rounds, clarity gate), approaches,
     sectioned design, then write the product requirements reference
-    `.skillgrid/reference/00-prd.md` (from `templates/PRD.md`), the root
-    understanding record `.skillgrid/ASSUMPTIONS.md` (from `templates/ASSUMPTIONS.md`:
+    `.skillgrid/knowledge/reference/00-prd.md` (from `templates/PRD.md`), the root
+    understanding record `.skillgrid/knowledge/ASSUMPTIONS.md` (from `templates/ASSUMPTIONS.md`:
     VERIFIED product statement + INFERRED hypotheses + LOCKED in-force table and
-    constraints; it links to `00-prd.md`), and the live structure record `.skillgrid/ARCHITECTURE.md`
+    constraints; it links to `00-prd.md`), and the live structure record `.skillgrid/knowledge/ARCHITECTURE.md`
     (repo / program structure, from `templates/ARCHITECTURE.md`), plus the spec
     `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md` from `templates/briefing.md`.
     If the global files already exist (a second project in the repo), merge rather
@@ -96,10 +96,10 @@ override it:
    rounds, clarity gate), approaches, sectioned design, then write the
     spec `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md` from
     `templates/briefing.md`. If
-     the feature changes `.skillgrid/reference/00-prd.md` (scope, feature, metric),
-     the global `.skillgrid/ASSUMPTIONS.md` (new VERIFIED fact, a new ADR file under
+     the feature changes `.skillgrid/knowledge/reference/00-prd.md` (scope, feature, metric),
+     the global `.skillgrid/knowledge/ASSUMPTIONS.md` (new VERIFIED fact, a new ADR file under
      `decisions/04-adr-NNNN-slug.md`) or
-     `.skillgrid/ARCHITECTURE.md` (new component, data store, integration), update
+     `.skillgrid/knowledge/ARCHITECTURE.md` (new component, data store, integration), update
      those too — only when they exist AND the feature actually changes them. Then the
      skillgrid:writing-blueprints skill.
 
@@ -246,7 +246,7 @@ live in. This is a gate, not a suggestion:
 
  1. **Read the relevant existing code.** For New Function: the files and flows
     the feature touches. For New Project: the repo's existing structure,
-    `.skillgrid/ARCHITECTURE.md`, and `.skillgrid/ASSUMPTIONS.md` (if present).
+    `.skillgrid/knowledge/ARCHITECTURE.md`, and `.skillgrid/knowledge/ASSUMPTIONS.md` (if present).
 2. **Check against existing patterns.** Does the proposed architecture follow
    how the codebase is already organized? Naming, layering, data access,
    error handling, testing conventions?

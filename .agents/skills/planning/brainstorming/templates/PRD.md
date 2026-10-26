@@ -1,9 +1,9 @@
 # Product Requirements: [Product Name]
 
-> Create this as `.skillgrid/reference/00-prd.md`. It is the reference for
+> Create this as `.skillgrid/knowledge/reference/00-prd.md`. It is the reference for
 > scope, features, and target state. The one-paragraph product statement, the
 > VERIFIED facts, the in-force ADR index, and the locked constraints live in
-> `.skillgrid/ASSUMPTIONS.md` (see `templates/ASSUMPTIONS.md`), which links
+> `.skillgrid/knowledge/ASSUMPTIONS.md` (see `templates/ASSUMPTIONS.md`), which links
 > here. Where this file and `ASSUMPTIONS.md` § VERIFIED disagree, VERIFIED wins.
 > For a multi-project repo, merge rather than overwrite.
 
@@ -125,4 +125,4 @@ Prioritize with MoSCoW: **M**ust-have / **S**hould-have / **C**ould-have / **W**
 - **Finding 2:** [Key insight from research]
 
 ### Glossary
-- Terms live in `.skillgrid/glossary/01-business-terms.md` and `02-technical-terms.md`.
+- Terms live in `.skillgrid/knowledge/glossary/01-business-terms.md` and `02-technical-terms.md`.

@@ -4,7 +4,7 @@ okf_version: "0.2"
 
 # Index
 
-Root catalog of the `.skillgrid/` knowledge bundle (OKF v0.2). Durable project knowledge, organized by folder; every concept is listed here or in its directory catalog. Sibling documents outside the five concept zones — `ARCHITECTURE.md` (live system design), `ASSUMPTIONS.md` (state of the project: VERIFIED/INFERRED/LOCKED), `reverse-index.md` (generated), `log.md` (changelog) — are bundle documents, not linted concepts. `WINDOWS.md` (defect register), `specs/`, `xarchive/`, `sdd/`, `cache/`, and `prototypes/` are working state and SDD artifacts, outside the OKF concept set (ADR-0048).
+Root catalog of the `.skillgrid/knowledge/` bundle (OKF v0.2). Durable project knowledge, organized by folder; every concept is listed here or in its directory catalog. Sibling documents outside the five concept zones — `ARCHITECTURE.md` (live system design), `ASSUMPTIONS.md` (state of the project: VERIFIED/INFERRED/LOCKED), `reverse-index.md` (generated), `log.md` (changelog) — are bundle documents, not linted concepts. `WINDOWS.md` (defect register), `specs/`, `xarchive/`, `sdd/`, `cache/`, `prototypes/`, `config.yaml`, `state.yaml`, and `config.d/` are working state, config, and SDD artifacts at the `.skillgrid/` root, outside the OKF concept set (ADR-0048; dissolved into `knowledge/` by the global-llm-wiki 3-tier layout — ADR-0050/0051).
 
 ## ARCHITECTURE.md + ASSUMPTIONS.md — living documents (not linted concepts)
 
@@ -62,6 +62,8 @@ The ADR index is the in-force table in `ASSUMPTIONS.md` § LOCKED (one pointer r
 - [04-adr-0046-knowledge-class-dimension.md](decisions/04-adr-0046-knowledge-class-dimension.md) — Knowledge class dimension: nullable `knowledge_class` column (episodic\|convention\|doc\|unclassified) on observations, heuristic inference on save, re-runnable backfill, optional search filter (FTS-leg-only), migration 070 — additive on ADR-0012, no KB-per-class
 - [04-adr-0047-fused-mem-search-contract.md](decisions/04-adr-0047-fused-mem-search-contract.md) — Fused mem_search contract: every mem_search also FTS-MATCHes web_cache_fts (project-scoped, expired excluded), RRF-fused (k=60) with the observations leg, web hits labeled corpus=web_cache + source/url/fetched_at/expires_at + web_cache_get retrieve pointer; vector leg stays observations-only — a BEHAVIOR SHIFT for every mem_search caller
 - [04-adr-0048-hybrid-sot.md](decisions/04-adr-0048-hybrid-sot.md) — Hybrid source of truth: SQLite is the SoT for observations + code intelligence; the `.skillgrid/` Markdown bundle is the SoT for the knowledge base (R6 layout)
+- [04-adr-0049-global-operational-memory.md](decisions/04-adr-0049-global-operational-memory.md) — Global operational memory: the `global` pseudo-project cross-project fact store at `global.sqlite` (amends ADR-0012)
+- [04-adr-0050-harness2-host-integration.md](decisions/04-adr-0050-harness2-host-integration.md) — Harness² host integration: external subprocess, no Go dependency
 
 ## glossary/ — project vocabulary
 

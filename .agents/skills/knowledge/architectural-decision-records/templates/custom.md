@@ -1,8 +1,8 @@
 # Custom ADR entry template
 
 `adr_style: custom` is set in `.skillgrid/config.yaml`. Record the project's
-house format below, then draft every ADR as `.skillgrid/decisions/04-adr-NNNN-slug.md`.
-Add a pointer row to `.skillgrid/ASSUMPTIONS.md` § `## LOCKED` (the ADR index). Do not paste
+house format below, then draft every ADR as `.skillgrid/knowledge/decisions/04-adr-NNNN-slug.md`.
+Add a pointer row to `.skillgrid/knowledge/ASSUMPTIONS.md` § `## LOCKED` (the ADR index). Do not paste
 the body into `ASSUMPTIONS.md`. Keep the invariants from `SKILL.md` regardless of
 shape: one decision per file, known facts only (mark unknowns, don't invent),
 explicit rationale tied to requirements, honest consequences, a status, and

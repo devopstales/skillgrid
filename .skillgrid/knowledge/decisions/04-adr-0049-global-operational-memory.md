@@ -10,7 +10,7 @@ date: 2026-10-24
 **Amends:** `04-adr-0012-sqlite-as-second-brain.md` (extends the SQLite
 second-brain store with a cross-project fact tier; SQLite remains the engine).
 **Related:** the `2026-10-24-global-llm-wiki` spec (Change A) and its
-blueprint threat matrix; `04-adr-0050-llm-wiki-pipeline` (Change B) is the
+blueprint threat matrix; `04-adr-0051-llm-wiki-pipeline` (Change B, not yet authored) is the
 sister change that builds the wiki pipeline over this store's layout.
 
 ## Context and Problem Statement
@@ -37,7 +37,7 @@ source of truth?
   git-native, but ADR-0012's core finding still applies — a second retrieval
   surface over the same data, token-cost proportional to file size, and a
   sync path between the file and the store. The sister change (Change B,
-  ADR-0050) owns the Markdown wiki pipeline; the operational tier needs the
+  ADR-0051) owns the Markdown wiki pipeline; the operational tier needs the
   live engine, not a second one.
 - **A new database (PostgreSQL/Redis) for cross-project memory:** access
   control and scale come free, but the tool is local-first and single-user

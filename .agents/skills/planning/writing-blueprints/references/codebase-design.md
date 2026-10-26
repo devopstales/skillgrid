@@ -7,7 +7,7 @@ aim is leverage for callers, locality for maintainers, and testability for
 everyone.
 
 The terms below are also seeded into the project terms file at
-`.skillgrid/glossary/02-technical-terms.md` (see `skillgrid:architectural-decision-records`),
+`.skillgrid/knowledge/glossary/02-technical-terms.md` (see `skillgrid:architectural-decision-records`),
 so blueprints, briefs, and reviews all name things the same way. Use them
 exactly: don't substitute "component," "service," "API," or "boundary."
 Consistent language is the whole point.

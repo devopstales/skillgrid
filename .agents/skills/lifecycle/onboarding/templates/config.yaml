@@ -101,9 +101,9 @@ conventions:
   specs_root: .skillgrid/specs
   scratch_dir: .skillgrid/sdd
   # Durable project knowledge. Decisions (PRD understanding, ADRs, locked
-  # constraints) live at the repo root in .skillgrid/ASSUMPTIONS.md (a single
+  # constraints) live at the repo root in .skillgrid/knowledge/ASSUMPTIONS.md (a single
   # file with ### ADR-NNNN entries under § LOCKED) and the live repo/program
-  # structure in .skillgrid/ARCHITECTURE.md. Durable artifacts (terms glossary
+  # structure in .skillgrid/knowledge/ARCHITECTURE.md. Durable artifacts (terms glossary
   # + research findings) live here. Replaces the former per-file ADR/PRD/
   # locked-constraints layout.
   artifacts: .skillgrid/artifacts

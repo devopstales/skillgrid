@@ -41,13 +41,13 @@
 - `receiving-code-review/SKILL.md` caps review fix loops at 3 rounds by *citing* `_shared/planning/rigor-tiers.md` § Fix loop cap (no new number), requires fix-or-verbatim-rebuttal per finding, and escalates to the user at the cap with open findings listed.
 - `rigor-tiers.md`'s T2 row and the `writing-blueprints` tier entry name the goldfish protocol; the T3 fresh-model rule extends to the Stage 2 critic goldfish with the existing "recommendation the human can decline; the decline is recorded" posture.
 - `sdd-structure.md`'s Phase Order chain, skill table row, and Resume markers table all read `blueprint-validation (goldfish protocol + user)`; `using-skillgrid/SKILL.md`'s artifact-creation-order item 3 matches.
-- `.skillgrid/decisions/04-adr-0050-egm-goldfish-protocol.md` exists with frontmatter `type: TechnicalDecision`, `status: accepted`, `date: 2026-10-25`, and a pointer row for 0050 (in force: yes) exists in `ASSUMPTIONS.md` § LOCKED.
+- `.skillgrid/knowledge/decisions/04-adr-0050-egm-goldfish-protocol.md` exists with frontmatter `type: TechnicalDecision`, `status: accepted`, `date: 2026-10-25`, and a pointer row for 0050 (in force: yes) exists in `ASSUMPTIONS.md` § LOCKED.
 - `config.yaml` gained a comment (no new YAML key) under `rules:` pointing at the new rule; `AGENTS.md`'s workflow line reads `writing-blueprints → blueprint-validation (goldfish protocol) → acceptance-test-authoring → …`.
 
 **Artifacts:** (2 created + 10 edited = 12 files total)
 - `.agents/skills/_shared/rules/goldfish-protocol.md` — the protocol rule (stages, personas, mandates, gating, Zero-Decision Rule, synthesizer, loop)
-- `.skillgrid/decisions/04-adr-0050-egm-goldfish-protocol.md` — the adoption ADR
-- Edited skill files (10 files): `writing-blueprints/SKILL.md`, `brainstorming/SKILL.md`, `structured-debugging/SKILL.md`, `receiving-code-review/SKILL.md`, `_shared/planning/rigor-tiers.md`, `_shared/rules/sdd-structure.md`, `lifecycle/using-skillgrid/SKILL.md`, `.skillgrid/config.yaml`, `AGENTS.md`, `.skillgrid/ASSUMPTIONS.md`
+- `.skillgrid/knowledge/decisions/04-adr-0050-egm-goldfish-protocol.md` — the adoption ADR
+- Edited skill files (10 files): `writing-blueprints/SKILL.md`, `brainstorming/SKILL.md`, `structured-debugging/SKILL.md`, `receiving-code-review/SKILL.md`, `_shared/planning/rigor-tiers.md`, `_shared/rules/sdd-structure.md`, `lifecycle/using-skillgrid/SKILL.md`, `.skillgrid/config.yaml`, `AGENTS.md`, `.skillgrid/knowledge/ASSUMPTIONS.md`
 
 **Key links:**
 - `writing-blueprints/SKILL.md`'s validation section MUST cite `_shared/rules/goldfish-protocol.md` for stage definitions and MUST NOT redefine a stage's audit vectors (cite-don't-restate); it owns only the dispatch specifics (what artifact each stage receives, the header recording format, the user-decide loop that follows).
@@ -114,8 +114,8 @@ Per `_shared/references/threat-matrix.md`. Only the Skillgrid-specific boundarie
 - `.agents/skills/_shared/planning/rigor-tiers.md` (edit) — T2 row + tier-entry naming; T3 fresh-model extension to the Stage 2 goldfish.
 - `.agents/skills/_shared/rules/sdd-structure.md` (edit) — rename in Phase Order chain, skill table, Resume markers.
 - `.agents/skills/lifecycle/using-skillgrid/SKILL.md` (edit) — rename in artifact-creation-order item 3.
-- `.skillgrid/decisions/04-adr-0050-egm-goldfish-protocol.md` (new) — the adoption ADR.
-- `.skillgrid/ASSUMPTIONS.md` (edit) — one index row for 0050.
+- `.skillgrid/knowledge/decisions/04-adr-0050-egm-goldfish-protocol.md` (new) — the adoption ADR.
+- `.skillgrid/knowledge/ASSUMPTIONS.md` (edit) — one index row for 0050.
 - `.skillgrid/config.yaml` (edit) — comment block under `rules:` only.
 - `AGENTS.md` (edit) — workflow line inside the `<!-- skillgrid:start/end -->` block only.
 
@@ -145,7 +145,7 @@ Create `.agents/skills/_shared/rules/goldfish-protocol.md` with exactly this str
 Pre-implementation validation of design artifacts (briefing + blueprint).
 Adopted from Google's Elephant-Goldfish Model (2026-10-22;
 `github.com/google/elephant-goldfish-model`) — method adopted, plugin not.
-Decision record: `.skillgrid/decisions/04-adr-0050-egm-goldfish-protocol.md`.
+Decision record: `.skillgrid/knowledge/decisions/04-adr-0050-egm-goldfish-protocol.md`.
 If a skill disagrees with this file, **this file wins** (same authority rule
 as `sdd-structure.md`).
 
@@ -357,7 +357,7 @@ Protocol: fresh-context validators + a user-decide loop.**
 
 The validation is the **Goldfish Protocol** per `_shared/rules/goldfish-protocol.md`
 (adopted from Google's Elephant-Goldfish Model — method, not plugin;
-decision: `.skillgrid/decisions/04-adr-0050-egm-goldfish-protocol.md`).
+decision: `.skillgrid/knowledge/decisions/04-adr-0050-egm-goldfish-protocol.md`).
 The stages, their rubrics, the common mandates (fresh context, read-only,
 structured severity output), and the loop are defined there — cite, don't
 restate. This skill owns only the dispatch specifics:
@@ -643,8 +643,8 @@ Decisions: T2 mandates Stage 2; T3 fresh-model rule extended to the Stage 2 gold
 ### Task 7: ADR-0050 + index row
 
 **Files:**
-- Create: `.skillgrid/decisions/04-adr-0050-egm-goldfish-protocol.md`
-- Modify: `.skillgrid/ASSUMPTIONS.md` (one row in § LOCKED ADR index, after row 0049)
+- Create: `.skillgrid/knowledge/decisions/04-adr-0050-egm-goldfish-protocol.md`
+- Modify: `.skillgrid/knowledge/ASSUMPTIONS.md` (one row in § LOCKED ADR index, after row 0049)
 
 **Interfaces:**
 - Consumes: the briefing's gap analysis + the sources listed in the blueprint header.
@@ -738,10 +738,10 @@ the new protocol).
 
 **Step 2: Add the index row.**
 
-In `.skillgrid/ASSUMPTIONS.md` § LOCKED ADR index, after the 0049 row, add:
+In `.skillgrid/knowledge/ASSUMPTIONS.md` § LOCKED ADR index, after the 0049 row, add:
 
 ```markdown
-| 0050 | EGM Goldfish Protocol: 4-stage fresh-context pre-implementation validation (Zoom Out → Comprehension → Design Critic → Readiness) as a shared rule; Zero-Decision Rule as the readiness bar; tier gating per rigor-tiers; plugin NOT adopted | yes | `.skillgrid/decisions/04-adr-0050-egm-goldfish-protocol.md` |
+| 0050 | EGM Goldfish Protocol: 4-stage fresh-context pre-implementation validation (Zoom Out → Comprehension → Design Critic → Readiness) as a shared rule; Zero-Decision Rule as the readiness bar; tier gating per rigor-tiers; plugin NOT adopted | yes | `.skillgrid/knowledge/decisions/04-adr-0050-egm-goldfish-protocol.md` |
 ```
 
 **Step 3: Verify + commit.**
@@ -750,7 +750,7 @@ In `.skillgrid/ASSUMPTIONS.md` § LOCKED ADR index, after the 0049 row, add:
 - Commit (spec zone: both files are under `.skillgrid/`):
 
 ```bash
-git add .skillgrid/decisions/04-adr-0050-egm-goldfish-protocol.md .skillgrid/ASSUMPTIONS.md
+git add .skillgrid/knowledge/decisions/04-adr-0050-egm-goldfish-protocol.md .skillgrid/knowledge/ASSUMPTIONS.md
 git commit -m "docs(decisions): adopt EGM goldfish protocol (ADR-0050)
 
 [skillgrid-context]
@@ -796,7 +796,7 @@ In `.skillgrid/config.yaml`, under `rules:` (after the `review:` list, before `a
   # read-only validator stages (Zoom Out, Comprehension, Design Critic,
   # Implementation Readiness) with a synthesizer, per
   # .agents/skills/_shared/rules/goldfish-protocol.md (decision:
-  # .skillgrid/decisions/04-adr-0050-egm-goldfish-protocol.md). Gating is
+  # .skillgrid/knowledge/decisions/04-adr-0050-egm-goldfish-protocol.md). Gating is
   # tier-driven per .agents/skills/_shared/planning/rigor-tiers.md — no
   # config key; the rule + tier file are the sources of truth.
 ```
@@ -853,8 +853,8 @@ grep -rln "goldfish-protocol.md" .agents/skills/ | sort
 grep -rn "goldfish protocol + user" .agents/skills/ | sort
 
 # 4. ADR + index row present:
-test -f .skillgrid/decisions/04-adr-0050-egm-goldfish-protocol.md && echo "PASS: ADR exists"
-grep -n "0050" .skillgrid/ASSUMPTIONS.md
+test -f .skillgrid/knowledge/decisions/04-adr-0050-egm-goldfish-protocol.md && echo "PASS: ADR exists"
+grep -n "0050" .skillgrid/knowledge/ASSUMPTIONS.md
 
 # 5. Build still green (no code changed, but the floor is the floor):
 go build ./... && go test ./...

@@ -3,6 +3,30 @@
 Changelog of knowledge-base writes. Newest first. One entry per change that
 touches the bundle: what moved, what was authored, what was swept.
 
+## 2026-10-26
+
+- **3-tier layout conversion (ADR-0049 global memory store).** The wiki
+  zones dissolved into the `.skillgrid/` bundle root by the R6 layout
+  (2026-10-20) moved into `knowledge/` to resolve the role collision
+  (bundle root was simultaneously config/state root AND wiki):
+  `decisions/` `glossary/` `invariants/` `reference/` `workflows/` +
+  `index.md` `log.md` `reverse-index.md` `okf-metrics.jsonl`
+  `ASSUMPTIONS.md` `ARCHITECTURE.md` → `.skillgrid/knowledge/`
+  (okf-lint post-R6 `knowledge/` layout, detected first). Config/state
+  (`config.yaml`, `state.yaml`, `config.d/`, `specs/`, `xarchive/`,
+  `sdd/`, `prototypes/`, `WINDOWS.md`) stays at the `.skillgrid/` root.
+  Reference sweep: skills (`.agents/skills/**`), `scripts/`
+  (check-adr-invariants paths + fixtures), `AGENTS.md`
+  (skillgrid block), spec `adr.md` manifests. ADR index repaired:
+  the 0044 number collision resolved (harness2 renumbered → 0050),
+  the 0042 row's leading-space break fixed, ADR-0049's dangling
+  `04-adr-0050-llm-wiki-pipeline` reference re-pointed to the
+  not-yet-authored `04-adr-0051-llm-wiki-pipeline` (Change B).
+  Store rename: `__global__` pseudo-project → `global` (the cross-project
+  fact store is now `~/.skillgrid/mnemonic/global.sqlite`; per-project
+  stores unchanged — multi-tier: project stores keep their own
+  facts/pending_facts via migrations 072/073).
+
 ## 2026-10-20
 
 - **R6 bundle dissolution (TICKET-14, ADR-0048).** `.skillgrid/artifacts/`

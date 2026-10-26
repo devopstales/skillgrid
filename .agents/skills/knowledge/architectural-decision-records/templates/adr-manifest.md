@@ -13,18 +13,18 @@
 ## In-Force ADRs Reviewed
 
 <!-- Every currently in-force ADR that constrains this change — the rows in
-     `.skillgrid/ASSUMPTIONS.md` § `## LOCKED` ADR index marked "In force: yes".
+     `.skillgrid/knowledge/ASSUMPTIONS.md` § `## LOCKED` ADR index marked "In force: yes".
      List each as the linked file path with a one-line gist. If none are in force,
      say so. -->
 
-- `.skillgrid/decisions/04-adr-NNNN-slug.md` — {one-line gist}
+- `.skillgrid/knowledge/decisions/04-adr-NNNN-slug.md` — {one-line gist}
 - (or) None in force.
 
 ## New Durable ADRs Created
 
 <!-- Every ADR file this change created. Pointers only — never copy the body. -->
 
-- `.skillgrid/decisions/04-adr-NNNN-slug.md` — {decision, one line}
+- `.skillgrid/knowledge/decisions/04-adr-NNNN-slug.md` — {decision, one line}
 - (or) None — no major durable architectural decision was introduced by this
   change.
 

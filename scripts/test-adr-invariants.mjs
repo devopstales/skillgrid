@@ -72,11 +72,11 @@ const MANIFEST = `# ADR Review Manifest
 function makeProject({ artifacts = {}, assumptions = "", specs = {} }) {
   const root = mkdtempSync(join(tmpdir(), "sgadr-"));
   // R6 layout (ADR-0048): ADRs live in decisions/.
-  mkdirSync(join(root, ".skillgrid", "decisions"), { recursive: true });
+  mkdirSync(join(root, ".skillgrid", "knowledge", "decisions"), { recursive: true });
   for (const [f, content] of Object.entries(artifacts)) {
-    writeFileSync(join(root, ".skillgrid", "decisions", f), content);
+    writeFileSync(join(root, ".skillgrid", "knowledge", "decisions", f), content);
   }
-  writeFileSync(join(root, ".skillgrid", "ASSUMPTIONS.md"), assumptions);
+  writeFileSync(join(root, ".skillgrid", "knowledge", "ASSUMPTIONS.md"), assumptions);
   for (const [dir, content] of Object.entries(specs)) {
     mkdirSync(join(root, ".skillgrid", "specs", dir), { recursive: true });
     writeFileSync(join(root, ".skillgrid", "specs", dir, "adr.md"), content);
@@ -95,7 +95,7 @@ function run() {
   function withTempRepo(setup) {
     const root = mkdtempSync(join(tmpdir(), "sgadr-repo-"));
     mkdirSync(join(root, "scripts"), { recursive: true });
-    mkdirSync(join(root, ".skillgrid", "decisions"), { recursive: true });
+    mkdirSync(join(root, ".skillgrid", "knowledge", "decisions"), { recursive: true });
     mkdirSync(join(root, ".skillgrid", "specs"), { recursive: true });
     setup(root);
     copyFileSync(CHECK, join(root, "scripts", "check-adr-invariants.mjs"));
@@ -111,9 +111,9 @@ function run() {
   // 2. Clean: file + row + manifest → exit 0.
   {
     const r = withTempRepo((root) => {
-      writeFileSync(join(root, ".skillgrid", "decisions", "04-adr-0001-test-decision.md"), ADR_BODY(1));
-      writeFileSync(join(root, ".skillgrid", "ASSUMPTIONS.md"),
-        ASSUMPTIONS_HEADER + ROW("0001", ".skillgrid/decisions/04-adr-0001-test-decision.md") + "\n");
+      writeFileSync(join(root, ".skillgrid", "knowledge", "decisions", "04-adr-0001-test-decision.md"), ADR_BODY(1));
+      writeFileSync(join(root, ".skillgrid", "knowledge", "ASSUMPTIONS.md"),
+        ASSUMPTIONS_HEADER + ROW("0001", ".skillgrid/knowledge/decisions/04-adr-0001-test-decision.md") + "\n");
       mkdirSync(join(root, ".skillgrid", "specs", "2026-10-07-test"), { recursive: true });
       writeFileSync(join(root, ".skillgrid", "specs", "2026-10-07-test", "adr.md"), MANIFEST);
     }, "clean");
@@ -124,8 +124,8 @@ function run() {
   // 3. Orphan file (no table row) → exit 1.
   {
     const r = withTempRepo((root) => {
-      writeFileSync(join(root, ".skillgrid", "decisions", "04-adr-0001-test-decision.md"), ADR_BODY(1));
-      writeFileSync(join(root, ".skillgrid", "ASSUMPTIONS.md"), ASSUMPTIONS_HEADER + "\n");
+      writeFileSync(join(root, ".skillgrid", "knowledge", "decisions", "04-adr-0001-test-decision.md"), ADR_BODY(1));
+      writeFileSync(join(root, ".skillgrid", "knowledge", "ASSUMPTIONS.md"), ASSUMPTIONS_HEADER + "\n");
     }, "orphan");
     assert("orphan: exit 1", r.code === 1, r.out);
     assert("orphan: names the file", r.out.includes("04-adr-0001-test-decision.md") && r.out.includes("orphan"), r.out);
@@ -134,8 +134,8 @@ function run() {
   // 4. Dangling row (file missing) → exit 1.
   {
     const r = withTempRepo((root) => {
-      writeFileSync(join(root, ".skillgrid", "ASSUMPTIONS.md"),
-        ASSUMPTIONS_HEADER + ROW("0001", ".skillgrid/decisions/04-adr-0001-test-decision.md") + "\n");
+      writeFileSync(join(root, ".skillgrid", "knowledge", "ASSUMPTIONS.md"),
+        ASSUMPTIONS_HEADER + ROW("0001", ".skillgrid/knowledge/decisions/04-adr-0001-test-decision.md") + "\n");
     }, "dangling");
     assert("dangling: exit 1", r.code === 1, r.out);
     assert("dangling: names the row", r.out.includes("missing file"), r.out);
@@ -144,12 +144,12 @@ function run() {
   // 5. Duplicate number → exit 1.
   {
     const r = withTempRepo((root) => {
-      writeFileSync(join(root, ".skillgrid", "decisions", "04-adr-0001-test-decision.md"), ADR_BODY(1));
-      writeFileSync(join(root, ".skillgrid", "decisions", "04-adr-0001-other-decision.md"), ADR_BODY(1));
-      writeFileSync(join(root, ".skillgrid", "ASSUMPTIONS.md"),
+      writeFileSync(join(root, ".skillgrid", "knowledge", "decisions", "04-adr-0001-test-decision.md"), ADR_BODY(1));
+      writeFileSync(join(root, ".skillgrid", "knowledge", "decisions", "04-adr-0001-other-decision.md"), ADR_BODY(1));
+      writeFileSync(join(root, ".skillgrid", "knowledge", "ASSUMPTIONS.md"),
         ASSUMPTIONS_HEADER +
-        ROW("0001", ".skillgrid/decisions/04-adr-0001-test-decision.md") + "\n" +
-        ROW("0001", ".skillgrid/decisions/04-adr-0001-other-decision.md") + "\n");
+        ROW("0001", ".skillgrid/knowledge/decisions/04-adr-0001-test-decision.md") + "\n" +
+        ROW("0001", ".skillgrid/knowledge/decisions/04-adr-0001-other-decision.md") + "\n");
     }, "dup");
     assert("dup: exit 1", r.code === 1, r.out);
     assert("dup: names the number", r.out.includes("duplicated number 0001"), r.out);
@@ -159,9 +159,9 @@ function run() {
   {
     const noFm = "# ADR\n\n## Context\n\n## Decision\n\n## Consequences\n";
     const r = withTempRepo((root) => {
-      writeFileSync(join(root, ".skillgrid", "decisions", "04-adr-0001-test-decision.md"), noFm);
-      writeFileSync(join(root, ".skillgrid", "ASSUMPTIONS.md"),
-        ASSUMPTIONS_HEADER + ROW("0001", ".skillgrid/decisions/04-adr-0001-test-decision.md") + "\n");
+      writeFileSync(join(root, ".skillgrid", "knowledge", "decisions", "04-adr-0001-test-decision.md"), noFm);
+      writeFileSync(join(root, ".skillgrid", "knowledge", "ASSUMPTIONS.md"),
+        ASSUMPTIONS_HEADER + ROW("0001", ".skillgrid/knowledge/decisions/04-adr-0001-test-decision.md") + "\n");
     }, "frontmatter");
     assert("frontmatter: exit 1", r.code === 1, r.out);
     assert("frontmatter: names the field", r.out.includes("missing frontmatter field 'status'"), r.out);
@@ -172,11 +172,11 @@ function run() {
     const r = withTempRepo((root) => {
       mkdirSync(join(root, ".skillgrid", "specs", "2026-10-05-drift"), { recursive: true });
       writeFileSync(join(root, ".skillgrid", "specs", "2026-10-05-drift", "adr.md"), ADR_BODY(1));
-      writeFileSync(join(root, ".skillgrid", "ASSUMPTIONS.md"), ASSUMPTIONS_HEADER + "\n");
+      writeFileSync(join(root, ".skillgrid", "knowledge", "ASSUMPTIONS.md"), ASSUMPTIONS_HEADER + "\n");
     }, "body-drift");
     assert("body-drift: exit 1", r.code === 1, r.out);
     assert("body-drift: names the spec", r.out.includes("specs/2026-10-05-drift/adr.md"), r.out);
-    assert("body-drift: tells the fix", r.out.includes("move the body to .skillgrid/decisions"), r.out);
+    assert("body-drift: tells the fix", r.out.includes("move the body to .skillgrid/knowledge/decisions"), r.out);
   }
 
   // 8. Manifest with a dangling pointer → exit 1.
@@ -188,7 +188,7 @@ function run() {
     const r = withTempRepo((root) => {
       mkdirSync(join(root, ".skillgrid", "specs", "2026-10-07-test"), { recursive: true });
       writeFileSync(join(root, ".skillgrid", "specs", "2026-10-07-test", "adr.md"), manifest);
-      writeFileSync(join(root, ".skillgrid", "ASSUMPTIONS.md"), ASSUMPTIONS_HEADER + "\n");
+      writeFileSync(join(root, ".skillgrid", "knowledge", "ASSUMPTIONS.md"), ASSUMPTIONS_HEADER + "\n");
     }, "dangling-pointer");
     assert("dangling-pointer: exit 1", r.code === 1, r.out);
     assert("dangling-pointer: names the pointer", r.out.includes("04-adr-0042-gone.md"), r.out);

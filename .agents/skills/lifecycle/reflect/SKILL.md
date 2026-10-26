@@ -131,7 +131,7 @@ Complete the existing file IN PLACE in the moved folder (`.skillgrid/xarchive/YY
 
 **Lineage** — the observation IDs of every artifact read (the lineage endpoint), **plus** the `review.md` facts: the review verdict floor, each axis's independence grade, and the Critical/Important findings caught pre-merge (so a future reader can see what review caught vs. what escaped).
 
-**Lift durable findings.** From the sourced learnings above (Surprises, Patterns, Decisions that constrain *future* work), append the ones that outlive this change to `.skillgrid/reference/06-research-findings.md` — the durable, cross-change distillation. A finding that is only true for this one change stays in `report.md` alone. This is the terminal catch: anything `research`/`prototype`/`sketch` missed while the sources were fresh still lands here at close.
+**Lift durable findings.** From the sourced learnings above (Surprises, Patterns, Decisions that constrain *future* work), append the ones that outlive this change to `.skillgrid/knowledge/reference/06-research-findings.md` — the durable, cross-change distillation. A finding that is only true for this one change stays in `report.md` alone. This is the terminal catch: anything `research`/`prototype`/`sketch` missed while the sources were fresh still lands here at close.
 
 **Finding triage — process bug vs one-off.** For each Lesson and Surprise, classify it before it closes:
 

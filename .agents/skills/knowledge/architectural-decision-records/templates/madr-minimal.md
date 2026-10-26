@@ -1,7 +1,7 @@
 # ADR entry template — madr-minimal
 
-> Write this file as `.skillgrid/decisions/04-adr-NNNN-slug.md`.
-> Add one pointer row to the `## LOCKED` ADR index in `.skillgrid/ASSUMPTIONS.md`.
+> Write this file as `.skillgrid/knowledge/decisions/04-adr-NNNN-slug.md`.
+> Add one pointer row to the `## LOCKED` ADR index in `.skillgrid/knowledge/ASSUMPTIONS.md`.
 > Do not paste this body into `ASSUMPTIONS.md`.
 
 # {short title}

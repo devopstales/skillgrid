@@ -1,6 +1,6 @@
 ---
 name: architectural-decision-records
-description: Build and sharpen the project's domain model and record its architectural decisions. Use when discussing codebase terminology, editing the terms files in .skillgrid/glossary/, or authoring, reviewing, updating, or superseding an ADR file at .skillgrid/decisions/04-adr-NNNN-slug.md.
+description: Build and sharpen the project's domain model and record its architectural decisions. Use when discussing codebase terminology, editing the terms files in .skillgrid/knowledge/glossary/, or authoring, reviewing, updating, or superseding an ADR file at .skillgrid/knowledge/decisions/04-adr-NNNN-slug.md.
 license: MIT
 metadata:
   author: devopstales
@@ -31,13 +31,13 @@ This skill is for when you're *changing* the model, not just consuming it.)
 **When NOT to use:** for trivial or reversible choices that don't warrant a record (e.g. a variable name, a one-line config).
 
 **Config:** Read `.skillgrid/config.yaml` first.
-- Use `conventions.artifacts` for the knowledge root (default `.skillgrid/`) — the terms files live in `.skillgrid/glossary/` (`01-business-terms.md`, `02-technical-terms.md`).
-- ADRs are **separate files**: `.skillgrid/decisions/04-adr-NNNN-slug.md`, one decision per file. `.skillgrid/ASSUMPTIONS.md` § `## LOCKED` is the ADR index: one row per decision (a short description + the path to the record). `status`/`supersedes`/`date` live in the file's frontmatter, not the row. The table does not hold the body. The in-force set is read from that table.
+- Use `conventions.artifacts` for the knowledge root (default `.skillgrid/`) — the terms files live in `.skillgrid/knowledge/glossary/` (`01-business-terms.md`, `02-technical-terms.md`).
+- ADRs are **separate files**: `.skillgrid/knowledge/decisions/04-adr-NNNN-slug.md`, one decision per file. `.skillgrid/knowledge/ASSUMPTIONS.md` § `## LOCKED` is the ADR index: one row per decision (a short description + the path to the record). `status`/`supersedes`/`date` live in the file's frontmatter, not the row. The table does not hold the body. The in-force set is read from that table.
 - Use `adr_style` for the ADR entry's body shape (default `madr-minimal`) — see [ADR Formats](#adr-formats).
 
 ## File structure
 
-All skill artifacts live under `.skillgrid/` — never in `src/` — even in a single-context repo. The vocabulary is split into **business** (domain, product, workflow terms) and **technical** (architecture, platform, protocol terms) so a non-monorepo still has a clean home for both vocabularies. The terms live in `.skillgrid/glossary/` and the ADR files in `.skillgrid/decisions/`. `.skillgrid/ASSUMPTIONS.md` stores the path to each ADR.
+All skill artifacts live under `.skillgrid/` — never in `src/` — even in a single-context repo. The vocabulary is split into **business** (domain, product, workflow terms) and **technical** (architecture, platform, protocol terms) so a non-monorepo still has a clean home for both vocabularies. The terms live in `.skillgrid/knowledge/glossary/` and the ADR files in `.skillgrid/knowledge/decisions/`. `.skillgrid/knowledge/ASSUMPTIONS.md` stores the path to each ADR.
 
 Single context (most repos):
 
@@ -59,7 +59,7 @@ Single context (most repos):
     └── specs/                     ← briefing.md, blueprint.md, tasks.md, adr.md (manifest)
 ```
 
-Multiple contexts (monorepo): a `.skillgrid/decisions/CONTEXT-MAP.md` lists the
+Multiple contexts (monorepo): a `.skillgrid/knowledge/decisions/CONTEXT-MAP.md` lists the
 contexts and where their per-context terms live. Per-context terms still live in
 `glossary/01-business-terms.md` / `02-technical-terms.md`, keyed by context name
 (a `## <context>` section per file). **ADRs always live as files in `decisions/`**,
@@ -77,7 +77,7 @@ Nothing speculative.
 
 ### Challenge against the terms
 
-When the user uses a term that conflicts with the existing language in `.skillgrid/glossary/01-business-terms.md` / `02-technical-terms.md`, call it out immediately. "Your terms define 'cancellation' as X, but you seem to mean Y. Which is it?"
+When the user uses a term that conflicts with the existing language in `.skillgrid/knowledge/glossary/01-business-terms.md` / `02-technical-terms.md`, call it out immediately. "Your terms define 'cancellation' as X, but you seem to mean Y. Which is it?"
 
 ### Sharpen fuzzy language
 
@@ -124,7 +124,7 @@ never re-asks once it's set.
 | `y-statement` | [templates/y-statement.md](templates/y-statement.md) | One-sentence decision |
 | `custom` | [templates/custom.md](templates/custom.md) | Project-specific — fill in the note in the template |
 
-Write the body to `.skillgrid/decisions/04-adr-NNNN-slug.md`. Use sequential
+Write the body to `.skillgrid/knowledge/decisions/04-adr-NNNN-slug.md`. Use sequential
 numbering: `0001`, `0002`, etc. Scan the `## LOCKED` ADR index (its "Highest
 sequence in use" line) for the highest existing number and increment by one; the
 sequence is monotonic and never reused. In a multi-context repo, prefix the slug
@@ -174,7 +174,7 @@ marker and the read source for downstream skills. Template:
 
 Process (run at the end of the interview, before the blueprint is written):
 
-1. **Read `.skillgrid/ASSUMPTIONS.md` § `## LOCKED`.** The in-force set is the
+1. **Read `.skillgrid/knowledge/ASSUMPTIONS.md` § `## LOCKED`.** The in-force set is the
    rows in the ADR index marked "In force: yes". Note the
    "Highest sequence in use" line. Open the linked file when you need the body.
 2. **Re-examine the design.** Identify decisions that meet ALL of:
@@ -200,7 +200,7 @@ Process (run at the end of the interview, before the blueprint is written):
 
 ## How it runs
 
-- **Underneath `skillgrid:interviewing`** — its primary driver. The interview *is* the grilling session; this skill runs concurrently, writing terms to `.skillgrid/glossary/01-business-terms.md` / `02-technical-terms.md` and offering ADR files (`decisions/04-adr-NNNN-slug.md`, plus a path row in `ASSUMPTIONS.md`) as decisions crystallize, so the paper trail is born in the conversation where the trade-off was actually made.
+- **Underneath `skillgrid:interviewing`** — its primary driver. The interview *is* the grilling session; this skill runs concurrently, writing terms to `.skillgrid/knowledge/glossary/01-business-terms.md` / `02-technical-terms.md` and offering ADR files (`decisions/04-adr-NNNN-slug.md`, plus a path row in `ASSUMPTIONS.md`) as decisions crystallize, so the paper trail is born in the conversation where the trade-off was actually made.
 - **Underneath `skillgrid:brainstorming`** — during the codebase feasibility check and design presentation, keep the model sharp; at the end of the interview, run the per-change ADR Review Manifest (write `.skillgrid/specs/<topic>/adr.md`) so the blueprint is constrained by a *verified* in-force set.
 - **Alongside `skillgrid:knowledge-base`** — recall via the knowledge index before authoring (no duplicate concepts); non-ADR types (`InvariantContract` / `BusinessWorkflow` / glossary entries) are maintained under that skill's same-edit rule (`index.md` + `log.md` + `reverse-index.md` in the same commit). ADR numbering, the IRON RULE, and the LOCKED row stay here — knowledge-base never mints ADR numbers.
 - **Directly** — when you want the discipline without the full interview.
@@ -254,7 +254,7 @@ date: 'YYYY-MM-DD'
 status: accepted
 ---
 
-Source: `.skillgrid/decisions/04-adr-NNNN-slug.md`
+Source: `.skillgrid/knowledge/decisions/04-adr-NNNN-slug.md`
 
 <verbatim artifact file>
 ```
@@ -270,7 +270,7 @@ Rules:
 
 ## Verification
 
-- [ ] Every new ADR exists as `.skillgrid/decisions/04-adr-NNNN-slug.md` with a monotonic 4-digit number and frontmatter (`status`, `date`, `supersedes`).
+- [ ] Every new ADR exists as `.skillgrid/knowledge/decisions/04-adr-NNNN-slug.md` with a monotonic 4-digit number and frontmatter (`status`, `date`, `supersedes`).
 - [ ] When `ticketing.type` is `backlogmd`, `.backlog/decisions/decision-NNN - ADR-NNNN-slug.md` exists, lists the Source path, and carries the same status as the artifact.
 - [ ] Every new or superseding ADR has a matching pointer row in the `## LOCKED` ADR index, and the "Highest sequence in use" line is updated.
 - [ ] Every new ADR carries `status: accepted` (or `proposed`) and, when replacing a prior decision, a `supersedes` that resolves to a real file.

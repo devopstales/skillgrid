@@ -13,16 +13,16 @@ status: draft
 
 ## In-Force ADRs Reviewed
 
-- `.skillgrid/decisions/04-adr-0012-sqlite-as-second-brain.md` — SQLite stays the per-machine source of truth; this change adds a sync layer, not a storage swap. Its revisit trigger (1) — "multiple agents/sessions concurrently with access control … a concurrency/authorization change, not a storage swap" — is exactly the condition this change now satisfies. Local store untouched.
-- `.skillgrid/decisions/04-adr-0011-observations-are-bitemporal.md` — the local AUDN classifier stays the single writer of `valid_at/invalid_at/superseded_by`; sync transports the resulting rows and never re-classifies.
-- `.skillgrid/decisions/04-adr-0016-second-brain-capability-layer.md` — fail-open floors hold: sync never blocks or fails a local write.
-- `.skillgrid/decisions/04-adr-0005-trust-boundary-mcp-spawn-model.md` — the MCP-spawned process gains one new external dependency (the PG over the network); the token file (0600) is the credential at that boundary.
-- `.skillgrid/decisions/04-adr-0009-vector-search-in-sql-latency-viant-deferred.md` — embeddings/code index remain local-only; nothing in this change touches the vector path.
+- `.skillgrid/knowledge/decisions/04-adr-0012-sqlite-as-second-brain.md` — SQLite stays the per-machine source of truth; this change adds a sync layer, not a storage swap. Its revisit trigger (1) — "multiple agents/sessions concurrently with access control … a concurrency/authorization change, not a storage swap" — is exactly the condition this change now satisfies. Local store untouched.
+- `.skillgrid/knowledge/decisions/04-adr-0011-observations-are-bitemporal.md` — the local AUDN classifier stays the single writer of `valid_at/invalid_at/superseded_by`; sync transports the resulting rows and never re-classifies.
+- `.skillgrid/knowledge/decisions/04-adr-0016-second-brain-capability-layer.md` — fail-open floors hold: sync never blocks or fails a local write.
+- `.skillgrid/knowledge/decisions/04-adr-0005-trust-boundary-mcp-spawn-model.md` — the MCP-spawned process gains one new external dependency (the PG over the network); the token file (0600) is the credential at that boundary.
+- `.skillgrid/knowledge/decisions/04-adr-0009-vector-search-in-sql-latency-viant-deferred.md` — embeddings/code index remain local-only; nothing in this change touches the vector path.
 - Locked constraint "No new dependencies without an ADR" — satisfied by ADR-0024 naming `pgx/v5`.
 
 ## New Durable ADRs Created
 
-- `.skillgrid/decisions/04-adr-0024-central-pg-shared-memory-state.md` — team-shared memory state on a VM PostgreSQL: local SQLite + outbox journal, LWW + tombstones, tokens-as-roles, schema-per-project, all scopes synced, code index excluded.
+- `.skillgrid/knowledge/decisions/04-adr-0024-central-pg-shared-memory-state.md` — team-shared memory state on a VM PostgreSQL: local SQLite + outbox journal, LWW + tombstones, tokens-as-roles, schema-per-project, all scopes synced, code index excluded.
 
 ## Supersessions
 

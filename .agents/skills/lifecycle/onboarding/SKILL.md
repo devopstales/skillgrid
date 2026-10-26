@@ -54,14 +54,14 @@ The full step-by-step procedure lives in `references/process.md` — load it whe
 Step 1    Detect     — recall-before-detect (re-runs), then read project, detect facts (never guess); git worktree guard
 Step 1.5  Enroll     — brownfield only: mark existing capabilities, reverse-engineer conventions
 Step 1.5b Bootstrap  — brownfield only: enrolled conventions become draft candidates with anchors; confirm one at a time, drop unconfirmed
-Step 1.7  Generate   — fill .skillgrid/ARCHITECTURE.md <detect> markers with verified facts
+Step 1.7  Generate   — fill .skillgrid/knowledge/ARCHITECTURE.md <detect> markers with verified facts
 Step 2    Confirm    — present each detected fact, confirm one at a time
 Step 3    Write      — config.yaml, state.yaml, durable-knowledge zone, AGENTS.md block (idempotent upsert), tracker bootstrap, commit, skillgrid init
 Step 4    Verify     — show written artifacts; confirm no leftover <detect> markers
 ```
 
 Key invariants the spine must keep (details in `references/process.md`):
-- **Recall before detect.** On a re-run, Step 1 reads `.skillgrid/index.md` + the `log.md` tail + `mem_context`/`mem_search` *before* re-detecting facts — recorded knowledge is an earlier source than a fresh detection pass, and a fact the knowledge base already answers is not re-detected. Fresh projects skip recall with a note (nothing recorded yet).
+- **Recall before detect.** On a re-run, Step 1 reads `.skillgrid/knowledge/index.md` + the `log.md` tail + `mem_context`/`mem_search` *before* re-detecting facts — recorded knowledge is an earlier source than a fresh detection pass, and a fact the knowledge base already answers is not re-detected. Fresh projects skip recall with a note (nothing recorded yet).
 - **Detect, never guess.** Source precedence: AGENTS.md/CLAUDE.md → `.skillgrid/config.yaml` → Mnemonic → git remote → project files.
 - **TDD and BDD are non-negotiable.** Always `tdd: true`, `bdd.enabled: true`.
 - **AGENTS.md block is an idempotent upsert** between `<!-- skillgrid:start -->` / `<!-- skillgrid:end -->` — running onboarding twice never duplicates it.
@@ -71,7 +71,7 @@ Key invariants the spine must keep (details in `references/process.md`):
 ## Merge Mode (Re-running)
 
 If `.skillgrid/config.yaml` already exists:
-1. **Recall (recall-before-detect).** Read `.skillgrid/index.md` + the tail of `log.md` + `mem_context`/`mem_search` (degrade to filesystem-only reads when Mnemonic is unavailable — say so). Facts already recorded there (stack, tracker, testing capabilities, conventions) are *not* re-detected — they are re-confirmed instead. This is evidenced: the re-run states what it recalled before detecting anything.
+1. **Recall (recall-before-detect).** Read `.skillgrid/knowledge/index.md` + the tail of `log.md` + `mem_context`/`mem_search` (degrade to filesystem-only reads when Mnemonic is unavailable — say so). Facts already recorded there (stack, tracker, testing capabilities, conventions) are *not* re-detected — they are re-confirmed instead. This is evidenced: the re-run states what it recalled before detecting anything.
 2. Read the existing config
 3. Re-detect facts (stack may have changed)
 4. Show what changed: "Detected changes: test runner changed from X to Y. Update?"
@@ -113,15 +113,15 @@ If `.skillgrid/config.yaml` already exists:
 
 ## Verification
 
-- [ ] Recall is evidenced: on a re-run, the run states what it recalled from `.skillgrid/index.md`, the `log.md` tail, and `mem_context`/`mem_search` *before* re-detecting (fresh project: recall skipped with an explicit note)
+- [ ] Recall is evidenced: on a re-run, the run states what it recalled from `.skillgrid/knowledge/index.md`, the `log.md` tail, and `mem_context`/`mem_search` *before* re-detecting (fresh project: recall skipped with an explicit note)
 - [ ] Step 1.5b bootstrap (brownfield only): every drafted convention candidate carries `status: draft` AND `verification.anchors`; each was confirmed one at a time (→ `stable`), and no unconfirmed draft survives — unconfirmed drafts are dropped, never kept as zombies
 - [ ] `.skillgrid/config.yaml` exists and parses (`yaml` load succeeds); every detected field (stack, testing, commands, ticketing, TDD, commit discipline, BDD) is filled
-- [ ] `.skillgrid/state.yaml` exists, parses, and has `pipeline` + `progress` + `constraints_ref` pointing at `.skillgrid/ASSUMPTIONS.md` (existing values preserved on re-run)
-- [ ] `.skillgrid/ASSUMPTIONS.md` exists with the four tiers; `.skillgrid/ARCHITECTURE.md` exists, was scaffolded by `skillgrid init` (or copied by hand), and its `<detect>` markers are filled with verified facts for everything that exists (brownfield: all 17 sections addressed; greenfield: only sections with real content filled, the rest honestly left `<detect>` or dropped); every cited `file:line` was re-verified against the code
+- [ ] `.skillgrid/state.yaml` exists, parses, and has `pipeline` + `progress` + `constraints_ref` pointing at `.skillgrid/knowledge/ASSUMPTIONS.md` (existing values preserved on re-run)
+- [ ] `.skillgrid/knowledge/ASSUMPTIONS.md` exists with the four tiers; `.skillgrid/knowledge/ARCHITECTURE.md` exists, was scaffolded by `skillgrid init` (or copied by hand), and its `<detect>` markers are filled with verified facts for everything that exists (brownfield: all 17 sections addressed; greenfield: only sections with real content filled, the rest honestly left `<detect>` or dropped); every cited `file:line` was re-verified against the code
 - [ ] AGENTS.md (or CLAUDE.md) contains exactly one `<!-- skillgrid:start -->` … `<!-- skillgrid:end -->` block with the correct `{project}`, tracker/memory lines, and a `### Rules` section that is the real source of the operational rules (decisions live in `ASSUMPTIONS.md` § LOCKED, not here)
 - [ ] The block is lean: no inlined conventions/how-to or "getting started" section. Issue Tracker is the exact `{tracker_line}` for `ticketing.type` (a pointer to that convention file). No pointers at churning source paths. If both exist, `CLAUDE.md` holds only a one-line pointer to `AGENTS.md`
 - [ ] Detected test runner command runs and exits 0 (e.g. `go test ./...`, `npm test`, `pytest`)
-- [ ] Tracker CLI verified if `ticketing.enabled: true` (`gh --version` / `glab --version` / `jira config` / `backlog status`); skipped if `false`. If `ticketing.type: backlogmd`, every `.skillgrid/decisions/04-adr-*.md` has a `.backlog/decisions/decision-NNN` copy
+- [ ] Tracker CLI verified if `ticketing.enabled: true` (`gh --version` / `glab --version` / `jira config` / `backlog status`); skipped if `false`. If `ticketing.type: backlogmd`, every `.skillgrid/knowledge/decisions/04-adr-*.md` has a `.backlog/decisions/decision-NNN` copy
 - [ ] `git rev-parse --is-inside-work-tree` succeeds; onboarding artifacts are committed (`git log -1` shows `chore: add Skillgrid config + state + artifacts`)
 - [ ] If Mnemonic is enabled and a non-default embedder was chosen, `.skillgrid/config.d/indexing.yaml` exists with a valid `mnemonic.embedder` block (provider matches the user's choice; base_url/model/dimension are filled for ollama/external)
 - [ ] If the project is brownfield (existing feature code + history), Step 1.5 ran: existing capabilities are recorded as `existing`, conventions were reverse-engineered into the block + glossary, and the first slice is planned against the existing system (reuse, not regenerate)
