@@ -191,7 +191,7 @@ func runMemory(version string, args []string) {
 	svc, projID := openMemService(dir, project)
 	// The trail store is opened first (C3): every fact op trails a
 	// session_events row into the caller's project store, even a scope=global
-	// op whose data lands in __global__. A trail failure must not leave a
+	// op whose data lands in global store. A trail failure must not leave a
 	// data-store handle dangling behind it.
 	ph, pclean, err := svc.Open(projID)
 	if err != nil {
@@ -353,7 +353,7 @@ func runMemoryGlobalPrefetch(args []string) {
 		asJSON    bool
 	)
 	fs.StringVar(&dir, "dir", envOr("SKILLGRID_MNEMONIC_DATA_DIR", ""), "mnemonic data directory")
-	fs.String("project", "", "project id (accepted for flag parity; the snapshot reads the __global__ store)")
+	fs.String("project", "", "project id (accepted for flag parity; the snapshot reads the global store)")
 	fs.StringVar(&sessionID, "session-id", envOr("SKILLGRID_MEMORY_SESSION_ID", ""), "session id for the frozen-snapshot cache")
 	fs.BoolVar(&asJSON, "json", false, "print JSON instead of the raw block")
 	if err := fs.Parse(reorderMemArgs(args)); err != nil {
@@ -495,13 +495,13 @@ func printMemoryGlobalUsage() {
 
   prefetch [--session-id ID] [--json]
                                      render the frozen snapshot of the
-                                     __global__ store (GLOBAL MEMORY +
+                                     global store (GLOBAL MEMORY +
                                      USER PROFILE sections, § separators,
                                      usage headers, importance DESC)
                                      and print it to stdout
   pending [--json]
                                      list staged (write-approval queue)
-                                     fact writes from BOTH the __global__
+                                     fact writes from BOTH the global store
                                      and the project stores
   approve all [--json]
                                      apply every staged fact into the
@@ -622,7 +622,7 @@ func printMemoryUsage() {
   add <content> [--scope project|global] [--target memory|user] [--session-id ID] [--json]
                                     create a durable fact; prints the new fact id
                                     (scope=global lands the fact in the
-                                    __global__ store, trail in the project store)
+                                    global store, trail in the project store)
   search <query> [--scope project|global|all] [--limit N] [--mode fts|hybrid] [--include-deleted] [--session-id ID] [--json]
                                     lexical FTS search over facts
                                     (scope=all = fused search across both stores,

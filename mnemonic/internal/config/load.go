@@ -92,7 +92,7 @@ type Extraction struct {
 // 2026-10-24-global-llm-wiki, TICKET-04): the bounded global fact store's
 // per-category char budgets (the Hermes MEMORY.md / USER.md limits). The
 // batch ops ticket (TICKET-04) enforces MemoryCharLimit on category 'memory'
-// facts and UserCharLimit on category 'user' facts in the __global__ store;
+// facts and UserCharLimit on category 'user' facts in the global store;
 // project-store facts are unbounded. A non-positive YAML value keeps the
 // production default (the loader never lets a bad key disable the budget).
 type GlobalMemory struct {

@@ -3,7 +3,7 @@
 //
 // RED notes: these tests call the handlers with scope/target arguments the
 // registered tools do not declare yet, and assert the C3 trail split
-// (fact in __global__.sqlite, session_events trail in the project store).
+// (fact in global.sqlite, session_events trail in the project store).
 // Before the change, scope/target are silently ignored by the handlers, so
 // the global-scoped assertions fail: the fact lands in the project store,
 // not the global store.
@@ -83,7 +83,7 @@ func TestFactToolsExposeScopeParam(t *testing.T) {
 
 // TestFactAddGlobalScopeMCP (BDD: "happy path — global fact add writes to
 // global store with project trail", MCP layer): fact_add(scope=global,
-// target=memory) writes the fact to __global__.sqlite and trails to the
+// target=memory) writes the fact to global.sqlite and trails to the
 // caller's project store.
 func TestFactAddGlobalScopeMCP(t *testing.T) {
 	dataDir, project, st := openFactMCPStore(t)
@@ -113,7 +113,7 @@ func TestFactAddGlobalScopeMCP(t *testing.T) {
 	}
 
 	// The fact row is in the GLOBAL store, tagged with the target category.
-	gst, err := store.Open(dataDir, "__global__")
+	gst, err := store.Open(dataDir, "global")
 	if err != nil {
 		t.Fatalf("open global store: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestFactAddGlobalUserTargetMCP(t *testing.T) {
 	}
 	factID := int64(out["fact_id"].(float64))
 
-	gst, err := store.Open(dataDir, "__global__")
+	gst, err := store.Open(dataDir, "global")
 	if err != nil {
 		t.Fatalf("open global store: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestFactAddProjectScopeMCP(t *testing.T) {
 		t.Errorf("project fact category = %q, want 'memory'", category)
 	}
 
-	gst, err := store.Open(dataDir, "__global__")
+	gst, err := store.Open(dataDir, "global")
 	if err != nil {
 		t.Fatalf("open global store: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestFactAddGlobalUnknownSessionMCP(t *testing.T) {
 		t.Errorf("error %q does not name the missing session", text)
 	}
 
-	gst, err := store.Open(dataDir, "__global__")
+	gst, err := store.Open(dataDir, "global")
 	if err != nil {
 		t.Fatalf("open global store: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestFactForgetDecayGlobalScopeMCP(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("fact_forget error: %s", callResultText(t, res))
 	}
-	gst, err := store.Open(dataDir, "__global__")
+	gst, err := store.Open(dataDir, "global")
 	if err != nil {
 		t.Fatalf("open global store: %v", err)
 	}
@@ -571,7 +571,7 @@ func TestFactSearchScopeAllMCP(t *testing.T) {
 	if !strings.Contains(payload, `"mode":"fused"`) {
 		t.Errorf("trail payload %q does not carry mode fused", payload)
 	}
-	gst, err := store.Open(dataDir, "__global__")
+	gst, err := store.Open(dataDir, "global")
 	if err != nil {
 		t.Fatalf("open global store: %v", err)
 	}

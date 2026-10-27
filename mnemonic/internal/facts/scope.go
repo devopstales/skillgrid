@@ -4,7 +4,7 @@
 // A fact operation needs two store roles: the DATA store (where the fact row
 // lives) and the TRAIL store (where the session_events row goes). They are
 // the same store for scope=project; for scope=global the data store is the
-// __global__ pseudo-project and the trail store is the caller's project store
+// global store pseudo-project and the trail store is the caller's project store
 // (C3: the session — and its session_events FK — lives in the project store,
 // so a global fact_add must trail there or roll back on the FK).
 //
@@ -43,17 +43,17 @@ func (s Scope) Valid() bool {
 }
 
 // GlobalProjectID is the pseudo-project id of the cross-project fact store
-// (file name __global__.sqlite, created by the TICKET-01 bootstrap). It
+// (file name global.sqlite, created by the TICKET-01 bootstrap). It
 // duplicates service.GlobalProjectID: the facts package cannot import
 // service (import cycle via hybrid), so the constant is pinned here and the
 // two are asserted equal by the MCP layer's scope tests.
-const GlobalProjectID = "__global__"
+const GlobalProjectID = "global"
 
 // Route resolves a scope to its (dataStore, trailStore) pair. The caller
 // opens the store handles (Service.Open / OpenGlobal) and passes them here;
 // Route only wraps them in facts.Store. For scope=project the caller passes
 // the project store for both (the pre-change behavior, unchanged); for
-// scope=global the caller passes the __global__ store as dataDB and the
+// scope=global the caller passes the global store as dataDB and the
 // project store as trailDB (C3: the session — and its session_events FK —
 // lives in the project store).
 func Route(scope Scope, dataDB, trailDB *sql.DB) (data, trail *Store, err error) {
@@ -66,7 +66,7 @@ func Route(scope Scope, dataDB, trailDB *sql.DB) (data, trail *Store, err error)
 		return s, s, nil
 	case ScopeGlobal:
 		if dataDB == nil || trailDB == nil {
-			return nil, nil, errors.New("facts: scope global requires both the __global__ store and the project store handles")
+			return nil, nil, errors.New("facts: scope global requires both the global store and the project store handles")
 		}
 		return New(dataDB, GlobalProjectID), New(trailDB, ""), nil
 	case ScopeAll:
@@ -337,7 +337,7 @@ type FusedHit struct {
 // written; an empty store contributes no hits and no error.
 func FusedSearch(ctx context.Context, sessionID, query string, limit int, includeDeleted bool, global, project *Store) ([]FusedHit, error) {
 	if global == nil || global.db == nil || project == nil || project.db == nil {
-		return nil, errors.New("facts: fused search requires both the __global__ store and the project store handles")
+		return nil, errors.New("facts: fused search requires both the global store and the project store handles")
 	}
 	ftsQuery, err := buildFactFTSQuery(query)
 	if err != nil {

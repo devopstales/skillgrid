@@ -26,7 +26,7 @@ func (s *Server) registerFactsRoutes() {
 
 // handleGlobalMemoryPrefetch — GET /memory/global → 200 {snapshot}.
 // The OpenCode plugin's frozen-snapshot seam (TICKET-05): renders the
-// __global__ store via facts.RenderFrozenSnapshot (the same renderer the MCP
+// global store via facts.RenderFrozenSnapshot (the same renderer the MCP
 // resource memory/global and the CLI use). Fail-open: any error yields an
 // empty snapshot string with HTTP 200 — the system prompt injection must
 // never fail.

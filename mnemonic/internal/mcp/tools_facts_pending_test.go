@@ -42,7 +42,7 @@ func TestFactPendingQueueMCP(t *testing.T) {
 	seedFactMCPSession(t, st, project, dataDir, sid)
 
 	// The global store (where the global-scope staged rows live).
-	gst, err := store.Open(dataDir, "__global__")
+	gst, err := store.Open(dataDir, "global")
 	if err != nil {
 		t.Fatalf("open global store: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestFactPendingApproveUnknownIDMCP(t *testing.T) {
 	dataDir, project, st := openFactMCPStore(t)
 	sid := "sess-mcp-pending-unknown"
 	seedFactMCPSession(t, st, project, dataDir, sid)
-	gst, err := store.Open(dataDir, "__global__")
+	gst, err := store.Open(dataDir, "global")
 	if err != nil {
 		t.Fatalf("open global store: %v", err)
 	}

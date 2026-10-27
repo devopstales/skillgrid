@@ -51,7 +51,7 @@ func TestMemoryGlobalResourceReadsSnapshot(t *testing.T) {
 	SetService(service.New(dataDir))
 	t.Cleanup(func() { SetService(nil) })
 
-	// Seed one live fact directly into the __global__ store (bypassing the
+	// Seed one live fact directly into the global store (bypassing the
 	// session trail: the resource is a read path).
 	svc := service.New(dataDir)
 	gh, cleanup, err := svc.OpenGlobal()

@@ -16,14 +16,14 @@ import (
 	"github.com/devopstales/skillgrid/mnemonic/internal/service"
 )
 
-// TestGlobalMemoryPrefetchRoute: GET /memory/global renders the __global__
+// TestGlobalMemoryPrefetchRoute: GET /memory/global renders the global store
 // store via facts.RenderFrozenSnapshot (both section headers, the seeded
 // fact) and returns HTTP 200.
 func TestGlobalMemoryPrefetchRoute(t *testing.T) {
 	s, dataDir := newFactsServer(t)
 	defer closeStore(t, dataDir)
 
-	// Seed one live fact directly into the __global__ store (bypassing the
+	// Seed one live fact directly into the global store (bypassing the
 	// session trail: the route is a read path).
 	svc := service.New(dataDir)
 	gh, cleanup, err := svc.OpenGlobal()
@@ -62,7 +62,7 @@ func TestGlobalMemoryPrefetchRoute(t *testing.T) {
 	}
 }
 
-// TestGlobalMemoryPrefetchEmptyStore: an empty __global__ store renders both
+// TestGlobalMemoryPrefetchEmptyStore: an empty global store renders both
 // headers at 0% with no entries (HTTP 200).
 func TestGlobalMemoryPrefetchEmptyStore(t *testing.T) {
 	s, _ := newFactsServer(t)

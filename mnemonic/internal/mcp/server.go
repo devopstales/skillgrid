@@ -214,7 +214,7 @@ func NewServer() *Server {
 const memoryGlobalResourceURI = "memory/global"
 
 // registerMemoryGlobalResource registers the memory/global MCP resource.
-// The handler opens the __global__ store on each read and renders the
+// The handler opens the global store on each read and renders the
 // snapshot at read time (the frozen per-session cache is the OpenCode
 // plugin's job, not the resource's). Fail-open: any error returns empty
 // text content rather than a protocol error — the injection must never
@@ -224,7 +224,7 @@ func registerMemoryGlobalResource(s *server.MCPServer) {
 		memoryGlobalResourceURI,
 		"Global memory snapshot",
 		mcplib.WithResourceDescription(
-			"The frozen snapshot of the __global__ fact store: GLOBAL MEMORY + USER PROFILE sections, § separators, usage headers, sorted by importance. Fail-open: empty when the store cannot be read."),
+			"The frozen snapshot of the global store fact store: GLOBAL MEMORY + USER PROFILE sections, § separators, usage headers, sorted by importance. Fail-open: empty when the store cannot be read."),
 		mcplib.WithMIMEType("text/markdown"),
 	), func(ctx context.Context, req mcplib.ReadResourceRequest) ([]mcplib.ResourceContents, error) {
 		block, err := readMemoryGlobalResource(ctx)

@@ -321,10 +321,10 @@ func seedGlobalFactMCP(t *testing.T, project, sid, content string) (int64, error
 	return int64(id), nil
 }
 
-// openGlobalStoreMCP opens the __global__ store in dataDir for assertions.
+// openGlobalStoreMCP opens the global store in dataDir for assertions.
 func openGlobalStoreMCP(t *testing.T, dataDir string) (*store.Store, error) {
 	t.Helper()
-	gst, err := store.Open(dataDir, "__global__")
+	gst, err := store.Open(dataDir, "global")
 	if err != nil {
 		return nil, err
 	}

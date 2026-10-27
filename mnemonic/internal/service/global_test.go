@@ -5,7 +5,7 @@
 //     compile error — Service.OpenGlobal and the GlobalProjectID constant do
 //     not exist yet.
 //   - TestListProjectsExcludesGlobal / TestRunTTLExpirySkipsGlobal: the
-//     __global__ pseudo-project is currently treated like any other project
+//     global store pseudo-project is currently treated like any other project
 //     id, so ListProjects includes it and RunTTLExpiry opens + sweeps it
 //     (an expired global observation gets retired and counted).
 package service
@@ -28,10 +28,10 @@ import (
 const globalStoreFile = GlobalProjectID + ".sqlite"
 
 // TestOpenGlobalCreatesUnmangledStore is the door check for the whole change:
-// OpenGlobal() creates the global store at dataDir/__global__.sqlite through
+// OpenGlobal() creates the global store at dataDir/global.sqlite through
 // the same store.Open path as project stores, and the file name is exactly
-// __global__.sqlite — not what project.NormalizeID would produce for the id
-// ("__global__" collapses to "-global-", a leading-dash file name).
+// global.sqlite — not what project.NormalizeID would produce for the id
+// ("global" collapses to "-global-", a leading-dash file name).
 func TestOpenGlobalCreatesUnmangledStore(t *testing.T) {
 	dataDir := t.TempDir()
 	svc := New(dataDir)
@@ -137,7 +137,7 @@ func TestListProjectsExcludesGlobal(t *testing.T) {
 
 // TestRunTTLExpirySkipsGlobal is the TTL edge: the sweep must leave the global
 // store completely alone (an expired global observation survives the sweep
-// and no __global__ count is reported), while per-project stores still retire
+// and no global store count is reported), while per-project stores still retire
 // their expired rows normally.
 func TestRunTTLExpirySkipsGlobal(t *testing.T) {
 	dataDir := t.TempDir()

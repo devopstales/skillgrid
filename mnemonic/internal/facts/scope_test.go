@@ -47,7 +47,7 @@ func TestScopeValues(t *testing.T) {
 // TestRouteScopeRouting (BDD: "happy path — project fact add writes to project
 // store (unchanged)"): scope=project routes both stores to the project store
 // (the pre-existing behavior, unchanged); scope=global routes the data store
-// to __global__ while the trail store stays the caller's project store (C3).
+// to global store while the trail store stays the caller's project store (C3).
 func TestRouteScopeRouting(t *testing.T) {
 	dataDir := t.TempDir()
 	pst := openTestStore(t) // project store (id "factstest")
@@ -70,7 +70,7 @@ func TestRouteScopeRouting(t *testing.T) {
 		}
 	})
 
-	t.Run("global routes data to __global__, trail to the project store", func(t *testing.T) {
+	t.Run("global routes data to global store, trail to the project store", func(t *testing.T) {
 		data, trail, err := Route(ScopeGlobal, gst.DB, pst.DB)
 		if err != nil {
 			t.Fatalf("Route global: %v", err)
@@ -104,7 +104,7 @@ func TestRouteRejectsUnknownScope(t *testing.T) {
 	}
 }
 
-// openTwoStores opens a project store plus the __global__ store in one temp
+// openTwoStores opens a project store plus the global store in one temp
 // data dir (the two-store fixture the C3 tests share).
 func openTwoStores(t *testing.T) (project, global *store.Store, dataDir string) {
 	t.Helper()
@@ -120,7 +120,7 @@ func openTwoStores(t *testing.T) (project, global *store.Store, dataDir string) 
 
 // TestGlobalAddWritesGlobalStoreProjectTrail (BDD: "happy path — global fact
 // add writes to global store with project trail"): a fact added with
-// scope=global, target=memory lands in __global__.sqlite with
+// scope=global, target=memory lands in global.sqlite with
 // category='memory' (G1), and its session_events trail lands in the caller's
 // project store — NOT in the global store (G2).
 func TestGlobalAddWritesGlobalStoreProjectTrail(t *testing.T) {
@@ -363,12 +363,12 @@ func TestGlobalAddTrailSequenceIsMonotonic(t *testing.T) {
 	}
 }
 
-// TestGlobalStoreFilePinned (door check, TICKET-01 seam): the __global__
-// store opens at exactly <dataDir>/__global__.sqlite (no id mangling).
+// TestGlobalStoreFilePinned (door check, TICKET-01 seam): the global store
+// store opens at exactly <dataDir>/global.sqlite (no id mangling).
 func TestGlobalStoreFilePinned(t *testing.T) {
 	_, gst, dataDir := openTwoStores(t)
 	if filepath.Base(gst.Path()) != GlobalProjectID+".sqlite" {
-		t.Fatalf("global store file = %q, want __global__.sqlite", filepath.Base(gst.Path()))
+		t.Fatalf("global store file = %q, want global.sqlite", filepath.Base(gst.Path()))
 	}
 	if _, err := gst.DB.Exec(`SELECT 1`); err != nil {
 		t.Fatalf("global store unusable: %v", err)

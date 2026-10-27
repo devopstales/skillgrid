@@ -28,7 +28,7 @@ func registerFactTools(s *server.MCPServer) {
 
 // factScopeParam and factTargetParam are the two params every fact_* tool
 // accepts (change 2026-10-24-global-llm-wiki, TICKET-02): scope routes the
-// operation to the project or __global__ store; target maps to the facts
+// operation to the project or global store; target maps to the facts
 // category (memory/user) on the write ops.
 // factScopeParam is the scope param option shared by every fact_* tool.
 // 'all' is the fused-search read path (TICKET-03): it searches both stores
@@ -45,7 +45,7 @@ func factTargetParam() mcplib.ToolOption {
 
 func factAddTool() mcplib.Tool {
 	return mcplib.NewTool("fact_add",
-		mcplib.WithDescription("Add a durable fact to Fact Memory and record a session_events trail (action_type=fact_add). With scope=global the fact lands in the cross-project __global__ store and the trail in the caller's project store. Returns the new fact id. Alternatively, pass an `operations` array (add/patch/remove) to apply a batch as a unit — the global store's char budget (memory 2200 / user 1375) is checked on the batch's FINAL result only, overflow returns a structured error with current_entries + usage, and exact duplicates are rejected as no-duplicate-added."),
+		mcplib.WithDescription("Add a durable fact to Fact Memory and record a session_events trail (action_type=fact_add). With scope=global the fact lands in the cross-project global store and the trail in the caller's project store. Returns the new fact id. Alternatively, pass an `operations` array (add/patch/remove) to apply a batch as a unit — the global store's char budget (memory 2200 / user 1375) is checked on the batch's FINAL result only, overflow returns a structured error with current_entries + usage, and exact duplicates are rejected as no-duplicate-added."),
 		mcplib.WithString("content", mcplib.Description("Fact text (required unless `operations` is given)")),
 		mcplib.WithString("session_id", mcplib.Required(), mcplib.Description("Session id to attribute the trail event to (must exist in the project store; for scope=global the trail lands there, so the session must exist there)")),
 		mcplib.WithString("project", mcplib.Description("Project id (defaults to CWD resolve)")),
@@ -170,7 +170,7 @@ func handleFactBatch(ctx context.Context, data, trail *facts.Store, sessionID, p
 
 func factSearchTool() mcplib.Tool {
 	return mcplib.NewTool("fact_search",
-		mcplib.WithDescription("Lexical FTS search over Fact Memory (soft-deleted facts excluded). With scope=global the search reads the cross-project __global__ store and trails to the caller's project store. With scope=all the search covers BOTH stores (fused search): hits are interleaved by each store's own bm25 rank and every hit is labeled with its scope (global/project) and category. Returns matching facts and records a session_events trail (action_type=fact_search, mode=fused) with the matched fact ids."),
+		mcplib.WithDescription("Lexical FTS search over Fact Memory (soft-deleted facts excluded). With scope=global the search reads the cross-project global store and trails to the caller's project store. With scope=all the search covers BOTH stores (fused search): hits are interleaved by each store's own bm25 rank and every hit is labeled with its scope (global/project) and category. Returns matching facts and records a session_events trail (action_type=fact_search, mode=fused) with the matched fact ids."),
 		mcplib.WithString("query", mcplib.Required(), mcplib.Description("Search terms (any-term recall)")),
 		mcplib.WithString("session_id", mcplib.Required(), mcplib.Description("Session id to attribute the trail event to (must exist in the project store)")),
 		mcplib.WithString("project", mcplib.Description("Project id (defaults to CWD resolve)")),
@@ -241,7 +241,7 @@ func handleFactSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.
 
 func factForgetTool() mcplib.Tool {
 	return mcplib.NewTool("fact_forget",
-		mcplib.WithDescription("Soft-delete a fact (sets deleted_at; the row survives for the audit trail and default search excludes it afterwards). With scope=global the fact is looked up in the cross-project __global__ store and the trail lands in the caller's project store. Records a session_events trail (action_type=fact_forget). Forgetting an already-forgotten fact is a no-op."),
+		mcplib.WithDescription("Soft-delete a fact (sets deleted_at; the row survives for the audit trail and default search excludes it afterwards). With scope=global the fact is looked up in the cross-project global store and the trail lands in the caller's project store. Records a session_events trail (action_type=fact_forget). Forgetting an already-forgotten fact is a no-op."),
 		mcplib.WithNumber("fact_id", mcplib.Required(), mcplib.Description("Fact id to forget (JSON number)")),
 		mcplib.WithString("session_id", mcplib.Required(), mcplib.Description("Session id to attribute the trail event to (must exist in the project store)")),
 		mcplib.WithString("project", mcplib.Description("Project id (defaults to CWD resolve)")),
@@ -288,7 +288,7 @@ func handleFactForget(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.
 
 func factDecayTool() mcplib.Tool {
 	return mcplib.NewTool("fact_decay",
-		mcplib.WithDescription("Apply the 014 AKL importance decay to one fact: importance_score *= exp(-decay_rate * age_days) (the decay rate is the fact's stored recency_decay value). With scope=global the fact is looked up in the cross-project __global__ store and the trail lands in the caller's project store. Returns the new score and records a session_events trail (action_type=fact_decay)."),
+		mcplib.WithDescription("Apply the 014 AKL importance decay to one fact: importance_score *= exp(-decay_rate * age_days) (the decay rate is the fact's stored recency_decay value). With scope=global the fact is looked up in the cross-project global store and the trail lands in the caller's project store. Returns the new score and records a session_events trail (action_type=fact_decay)."),
 		mcplib.WithNumber("fact_id", mcplib.Required(), mcplib.Description("Fact id to decay (JSON number)")),
 		mcplib.WithString("session_id", mcplib.Required(), mcplib.Description("Session id to attribute the trail event to (must exist in the project store)")),
 		mcplib.WithString("project", mcplib.Description("Project id (defaults to CWD resolve)")),
@@ -337,7 +337,7 @@ func handleFactDecay(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 
 func factDecayAllTool() mcplib.Tool {
 	return mcplib.NewTool("fact_decay_all",
-		mcplib.WithDescription("Run the batch decay + below-threshold purge over ALL live facts (acceptance scenario 5: 'Decay via 014 AKL, logs event, purge below threshold'). With scope=global the pass covers the cross-project __global__ store (project facts untouched) and the trail lands in the caller's project store. Applies the 014 AKL decay to every non-deleted fact, then soft-deletes facts whose post-decay importance_score drops below threshold. Returns {decayed, purged} and records a single session_events trail (action_type=fact_decay_batch)."),
+		mcplib.WithDescription("Run the batch decay + below-threshold purge over ALL live facts (acceptance scenario 5: 'Decay via 014 AKL, logs event, purge below threshold'). With scope=global the pass covers the cross-project global store (project facts untouched) and the trail lands in the caller's project store. Applies the 014 AKL decay to every non-deleted fact, then soft-deletes facts whose post-decay importance_score drops below threshold. Returns {decayed, purged} and records a single session_events trail (action_type=fact_decay_batch)."),
 		mcplib.WithString("session_id", mcplib.Required(), mcplib.Description("Session id to attribute the batch trail event to (must exist in the project store)")),
 		mcplib.WithString("project", mcplib.Description("Project id (defaults to CWD resolve)")),
 		factScopeParam(),
@@ -457,7 +457,7 @@ func handleFactPendingList(ctx context.Context, req mcplib.CallToolRequest) (*mc
 
 func factPendingApproveTool() mcplib.Tool {
 	return mcplib.NewTool("fact_pending_approve",
-		mcplib.WithDescription("Approve one staged (pending) fact write: move it from the pending queue into the fact store of its scope (project facts → the project store, global facts → the __global__ store) and delete it from the queue. Two-phase: approve → apply. The fact lands in facts with its staged content/target/scope. A pending id that is already gone (approved or rejected) is a clean error."),
+		mcplib.WithDescription("Approve one staged (pending) fact write: move it from the pending queue into the fact store of its scope (project facts → the project store, global facts → the global store) and delete it from the queue. Two-phase: approve → apply. The fact lands in facts with its staged content/target/scope. A pending id that is already gone (approved or rejected) is a clean error."),
 		mcplib.WithNumber("pending_id", mcplib.Required(), mcplib.Description("The pending_facts row id to approve (from fact_pending_list)")),
 		mcplib.WithString("project", mcplib.Description("Project id (defaults to CWD resolve)")),
 		factScopeParam(),
@@ -545,7 +545,7 @@ func factScopeFor(raw string) (facts.Scope, error) {
 // openFactStores opens the stores a scope routes to and returns a
 // (dataStore, trailStore) pair plus a cleanup that releases both handles.
 // scope=project: both roles are the caller's project store (unchanged
-// behavior). scope=global: data is the __global__ store, trail is the
+// behavior). scope=global: data is the global store, trail is the
 // caller's project store (C3). scope=all errors for write ops (fused search
 // has its own path: openFusedStores).
 func openFactStores(svc *service.Service, projectID string, scope facts.Scope) (data, trail *facts.Store, cleanup func(), err error) {
@@ -578,7 +578,7 @@ func openFactStores(svc *service.Service, projectID string, scope facts.Scope) (
 }
 
 // openFusedStores opens BOTH stores for the scope=all read path (TICKET-03):
-// the __global__ store plus the caller's project store, plus a cleanup that
+// the global store plus the caller's project store, plus a cleanup that
 // releases both handles.
 func openFusedStores(svc *service.Service, projectID string) (global, project *facts.Store, cleanup func(), err error) {
 	gh, gclean, err := svc.OpenGlobal()

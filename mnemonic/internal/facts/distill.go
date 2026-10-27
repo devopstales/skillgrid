@@ -4,7 +4,7 @@
 // One LLM pass at session end (ADR-0023) extracts durable facts from the
 // conversation, classifying each as project or global scope. The extracted
 // facts are routed by scope: project facts go to the caller's project store,
-// global facts to the __global__ store (TICKET-02 scope routing). The
+// global facts to the global store (TICKET-02 scope routing). The
 // LLM seam mirrors skills.Store.LLM — a func field the MCP layer wires from
 // service.AskLLMSeam().Complete; tests inject a stub.
 //
@@ -73,12 +73,12 @@ Answer with a single JSON object only — no prose, no markdown:
 // Distiller is the background distill handle: one LLM pass at session end
 // over the conversation snapshot, scope-classifying, with the write
 // approval gate for passive writes. A Distiller is bound to the two store
-// roles (global = the __global__ data store for global-scope facts,
+// roles (global = the global store data store for global-scope facts,
 // project = the caller's project store for project-scope facts and the
 // session trail) and is reusable across sessions: the per-session
 // coalescing state is keyed by session id, not by the Distiller.
 type Distiller struct {
-	global  *Store // global-scope facts (the __global__ store)
+	global  *Store // global-scope facts (the global store)
 	project *Store // project-scope facts (the caller's project store)
 
 	// LLM is the extraction seam (ADR-0023). Nil = no LLM (fail-open).
@@ -104,7 +104,7 @@ type distillSession struct {
 }
 
 // NewDistiller builds a Distiller over the two store roles. global is the
-// __global__ store (global-scope facts); project is the caller's project
+// global store (global-scope facts); project is the caller's project
 // store (project-scope facts + session trail).
 func NewDistiller(global, project *Store) *Distiller {
 	return &Distiller{global: global, project: project, inFlight: make(map[string]*distillSession)}

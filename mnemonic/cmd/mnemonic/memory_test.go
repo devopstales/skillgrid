@@ -301,11 +301,11 @@ func TestMemoryGlobalPrefetchFailsOpen(t *testing.T) {
 // --- CLI surface for global memory (change 2026-10-24-global-llm-wiki,
 // --- Change A, TICKET-08).
 
-// openMemoryGlobalStore opens the __global__ pseudo-project store in dataDir
+// openMemoryGlobalStore opens the global store pseudo-project store in dataDir
 // (the CLI tests assert rows in it directly).
 func openMemoryGlobalStore(t *testing.T, dataDir string) *store.Store {
 	t.Helper()
-	gst, err := store.Open(dataDir, "__global__")
+	gst, err := store.Open(dataDir, "global")
 	if err != nil {
 		t.Fatalf("open global store: %v", err)
 	}
@@ -331,7 +331,7 @@ func runMemoryCLIGlobal(t *testing.T, dataDir, project string, args ...string) s
 
 // TestMemoryFactAddScopeGlobalTarget (BDD: "happy path — CLI adds a global
 // fact with scope and target", G1): `memory fact add --scope global
-// --target memory` writes the fact to __global__.sqlite with
+// --target memory` writes the fact to global.sqlite with
 // category='memory' and prints the new fact id.
 func TestMemoryFactAddScopeGlobalTarget(t *testing.T) {
 	dataDir := t.TempDir()
