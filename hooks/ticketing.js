@@ -32,7 +32,7 @@ const ID_PATTERNS = [
 
 // Footer keywords from the ticketing lifecycle (`Refs:` per commit, `Closes`
 // on done). Singular GitHub variants accepted.
-const FOOTER_RE = /^(Refs?|Closes?|Fixes?|Resolves?)\s*:?\s*(.+?)\s*$/i;
+const FOOTER_RE = /^(Refs?|Closes?|Fixes?|Resolves?)\s*:\s*(.+?)\s*$/i;
 
 // Closing keywords carry explicit close intent; a malformed one is a real
 // defect (pre-push blocks it) while a malformed Refs is only a warning.
