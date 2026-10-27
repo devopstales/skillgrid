@@ -1,6 +1,7 @@
 .DS_Store
 # Local vendor clone for syncing upstream agent-skills (not committed)
 .vendor/
+__pycache__
 
 node_modules
 .venv/

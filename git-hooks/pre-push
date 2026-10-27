@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # pre-push — sdd-gate verification + ticketing footer check.
 # Single source of truth for pre-push; .git/hooks/pre-push should be
 # empty or a thin shim after consolidation.
