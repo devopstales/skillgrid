@@ -34,23 +34,11 @@ tasks:
     cmds:
       - task: build
 
-  ui:build:
-    desc: Build the skillgrid-ui SPA into mnemonic/internal/http/ui/dist (go:embed input).
-    cmds:
-      - cd skillgrid-ui && npm ci && npm run build
-
-  build:all:
-    desc: Build the SPA then both binaries (embed needs ui:build first).
-    deps:
-      - ui:build
-    cmds:
-      - task: build
-
   build:
     desc: Build both local platform binaries into dist/.
     cmds:
       - mkdir -p {{.OUT}}
-      - cd {{.MEM_DIR}} && go build -tags ui -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}} {{.MEM_PKG}}
+      - cd {{.MEM_DIR}} && go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}} {{.MEM_PKG}}
       - cd {{.CLI_DIR}} && go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}} {{.CLI_PKG}}
       - rm -f ~/.local/bin/{{.MEM_BIN}} ~/.local/bin/{{.CLI_BIN}}
       - cp {{.OUT}}/{{.MEM_BIN}} ~/.local/bin/
@@ -66,16 +54,16 @@ tasks:
   build-linux:
     desc: Build linux binaries (amd64 + 386) for both modules.
     cmds:
-      - cd {{.MEM_DIR}} && GOOS=linux GOARCH=amd64 go build -tags ui -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-linux-amd64 {{.MEM_PKG}}
-      - cd {{.MEM_DIR}} && GOOS=linux GOARCH=386 go build -tags ui -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-linux-386 {{.MEM_PKG}}
+      - cd {{.MEM_DIR}} && GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-linux-amd64 {{.MEM_PKG}}
+      - cd {{.MEM_DIR}} && GOOS=linux GOARCH=386 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-linux-386 {{.MEM_PKG}}
       - cd {{.CLI_DIR}} && GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}}-linux-amd64 {{.CLI_PKG}}
       - cd {{.CLI_DIR}} && GOOS=linux GOARCH=386 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}}-linux-386 {{.CLI_PKG}}
 
   build-darwin:
     desc: Build macOS binaries (amd64 + arm64) for both modules.
     cmds:
-      - cd {{.MEM_DIR}} && GOOS=darwin GOARCH=amd64 go build -tags ui -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-darwin-amd64 {{.MEM_PKG}}
-      - cd {{.MEM_DIR}} && GOOS=darwin GOARCH=arm64 go build -tags ui -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-darwin-arm64 {{.MEM_PKG}}
+      - cd {{.MEM_DIR}} && GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-darwin-amd64 {{.MEM_PKG}}
+      - cd {{.MEM_DIR}} && GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-darwin-arm64 {{.MEM_PKG}}
       - cd {{.CLI_DIR}} && GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}}-darwin-amd64 {{.CLI_PKG}}
       - cd {{.CLI_DIR}} && GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}}-darwin-arm64 {{.CLI_PKG}}
 

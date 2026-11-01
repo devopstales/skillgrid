@@ -2,18 +2,19 @@
 
 Durable project knowledge: what you need to know to work on this project, organized by topic and surviving across changes. This zone replaces the former `docs/PRD.md`, `docs/ARCHITECTURE.md`, `.skillgrid/glossary/`, and `.skillgrid/adr/`.
 
-**Read order at session start:** `.skillgrid/ASSUMPTIONS.md` (product statement, verified facts, the in-force table) → the Record path for a decision you are touching → this index → the terms files. Open `00-prd.md` when a change touches scope or acceptance.
+**Read order at session start:** `.skillgrid/ASSUMPTIONS.md` (product statement, verified facts, the in-force table) → the File path for a decision you are touching → this index.
+
+> 2026-10-31: the old-mnemonic-v1 product zone was deleted for the mnemonic-v2 reset — `00-prd.md`, the `01`/`02` terms glossaries, `06-spec-second-brain-learnings.md`, `07`/`08`/`09` reference docs, and 27 ADRs (see `03-adr-index.md`). Their vocabulary and requirements return with the mnemonic-v2 specs (`.skillgrid/specs/2026-10-31-mnemonic-v2-*/`). The v1 PRD and glossaries remain recoverable in git history and `.skillgrid/archive/`.
 
 ## CANON (do not change without a locked constraint or an ADR)
 
-- `00-prd.md` — product requirements (users, personas, MoSCoW features, flows, NFRs, release line). Reference; `ASSUMPTIONS.md` § VERIFIED wins on conflict.
-- `00-architecture.md` — system architecture (components, boundaries, data flow) — created lazily on first use
 - `05-locked-constraints.md` — user-locked project-wide boundaries (the "bible")
+- `00-prd.md` — to be re-created by the mnemonic-v2 specs (created lazily on first use)
+- `00-architecture.md` — system architecture (components, boundaries, data flow) — created lazily on first use
 
 ## VOCABULARY
 
-- `01-business-terms.md` — domain / product / workflow terms (a glossary, nothing else)
-- `02-technical-terms.md` — architecture / platform / protocol terms (a glossary, nothing else)
+- `01-business-terms.md` / `02-technical-terms.md` — to be re-created by the mnemonic-v2 specs (a glossary, nothing else)
 
 ## DECISIONS
 
@@ -27,9 +28,7 @@ The in-force set is the table in `.skillgrid/ASSUMPTIONS.md` § `### In-force se
 
 ## REFERENCE
 
-- `07-mnemonic-tool-surface.md` — planned function areas for `skillgrid-mnemonic` (memory/observations/decisions, code index/semantic/vector, monitoring/session tracking/tool calls, web cache, session handoff) + session-inject design grounded in 5 reference projects
-- `08-second-brain-roadmap.md` — capability roadmap for making mnemonic *feel* like a second brain (autonomous capture, `mem_ask` synthesis, knowledge lifecycle, passive learning); claude-os reference mapping + P0–P3 change list
-- `09-claude-os-deep-dive.md` — verified deep-dive of the claude-os repo (MCP/SQLite/installer/dashboard/integrations); steal list ranked by "brain feel" per effort; headline: we already beat it on real vec0 + real FTS5
+- *(empty — the old-mnemonic reference docs `07`/`08`/`09` were deleted 2026-10-31 with the rest of mnemonic-v1; mnemonic-v2 reference material lands under `.skillgrid/specs/2026-10-31-mnemonic-v2-*/`)*
 
 ## What is NOT here
 

@@ -3,7 +3,7 @@ name: simplify-code
 description: "Cleanup pass over recent changes with four parallel reviewers (reuse, quality, efficiency, altitude): aggregate findings, apply by risk tier. Use when asked to simplify, clean up, or review recent changes."
 license: MIT
 metadata:
-  author: Hermes Agent, inspired by Claude Code /simplify (ported; see ADR-0015)
+  author: devopstales (pattern after Claude Code /simplify)
   version: "1.0"
   part-of: skillgrid
 ---
@@ -20,7 +20,7 @@ Review recent changes with four focused reviewers running in parallel, aggregate
 
 Relation to neighbors: `skillgrid:dry-refactoring` is clone-driven (starts from jscpd output); this skill is diff-driven (starts from your recent changes). `skillgrid:ponytail` picks the laziest solution before/instead of writing; this cleans what got written. `skillgrid:parallel-code-review` renders a verdict on a diff; this one applies fixes.
 
-Ported from the Hermes `simplify-code` skill under MIT (see ADR-0015). Behavioral delta from upstream: fan-out via skillgrid subagents (`skillgrid:parallel-execution`, depth ≤ 1) instead of `delegate_task`; Hermes `delegation.max_concurrent_children` dropped.
+Fan-out runs via skillgrid subagents (`skillgrid:parallel-execution`, depth ≤ 1).
 
 ## When to Use
 

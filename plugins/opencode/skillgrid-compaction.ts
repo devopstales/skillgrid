@@ -1,9 +1,9 @@
 // @ts-nocheck
-// Dual-compatible: v1 uses the named `SkillgridCompaction` export; v2 (opencode
-// >= 2.0) loads `default` and validates { id, effect|setup }. `define` is a
-// no-op identity helper so the default export is schema-valid without pulling
-// the effect runtime into module eval.
-import { define } from "@opencode-ai/plugin/v2/promise"
+// v2 (opencode >= 2.0, `@opencode/cli` host) only: default export { id, setup }
+// via Plugin.define from `@opencode/plugin`, which the host resolves for
+// discovery-loaded local plugins (no node_modules beside the file). The named
+// `SkillgridCompaction` export is retained for tooling parity only.
+import { Plugin } from "@opencode/plugin"
 import * as fs from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
@@ -184,11 +184,14 @@ export const SkillgridCompaction = async () => ({
 //   session.compacted                 -> GET /context/compaction  (refresh row)
 //   session.next.compaction.started   -> GET /context/compaction + write tmp file
 //                                          (v1 experimental.session.compacting substitute)
-export default define({
+export default Plugin.define({
   id: "skillgrid-compaction",
   setup: async (_ctx) => {
     const ctrl = new AbortController()
     try {
+      // Relative import: the installer copies skillgrid-v2sse.ts into plugins/
+      // beside this file (it double as a no-op plugin there, see its default
+      // export), and the repo layout keeps it in the same dir too.
       const { v2SSE } = await import("./skillgrid-v2sse")
       for await (const event of v2SSE(ctrl.signal)) {
         const sid = event?.properties?.sessionID

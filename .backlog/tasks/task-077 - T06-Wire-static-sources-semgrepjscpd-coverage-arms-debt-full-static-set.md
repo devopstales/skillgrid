@@ -3,10 +3,10 @@ id: TASK-077
 title: >-
   T06 Wire static sources (semgrep+jscpd) + coverage arms + debt + full static
   set
-status: needs-triage
+status: in-progress
 assignee: []
 created_date: '2026-10-17 18:49'
-updated_date: '2026-10-17 18:49'
+updated_date: '2026-10-17 20:34'
 labels:
   - quality-report
 milestone: m-10

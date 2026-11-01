@@ -1,0 +1,9 @@
+{
+  "name": "skillgrid-logo-tui",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./tui.js",
+    "./tui": "./tui.js"
+  }
+}

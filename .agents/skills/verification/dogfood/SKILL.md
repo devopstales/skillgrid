@@ -3,7 +3,7 @@ name: dogfood
 description: "Exploratory QA of a web app in a real browser: plan a sitemap, click through flows, check the console, and report classified findings with evidence. Use when asked to QA, dogfood, or exploratory-test a URL."
 license: MIT
 metadata:
-  author: Teknium, Hermes Agent (ported; see ADR-0015)
+  author: devopstales
   version: "1.0"
   part-of: skillgrid
 ---
@@ -18,7 +18,7 @@ Systematic exploratory QA of a web application in a real browser: plan the sitem
 
 This is the exploratory complement to `skillgrid:qa` (the gate) and `skillgrid:requesting-code-review` (the bug hunt on a diff): those verify a change, this one finds what nobody specified. A genuine correctness bug surfaced here is reported as a separate "found a bug" note — and may become a `skillgrid:structured-debugging` task — not folded into cleanup.
 
-Ported from the Hermes `dogfood` skill under MIT (see ADR-0015). Behavioral delta from upstream: Hermes `browser_*` tool names mapped to skillgrid browser tools (table below); output dir defaults to the skillgrid scratch zone.
+Browser tool names are mapped to skillgrid browser tools (table below); output dir defaults to the skillgrid scratch zone.
 
 ## When to Use
 
@@ -33,9 +33,9 @@ Ported from the Hermes `dogfood` skill under MIT (see ADR-0015). Behavioral delt
 - Browser tooling available (agent-browser `agent-browser_*` or Playwright `playwright-browser_*`). Confirm before Phase 1 — the whole skill is browser-driven.
 - From the user: **target URL**, **scope** (areas/flows, or "full site"), optional **output dir** (default `.skillgrid/sdd/dogfood-output/`, gitignored).
 
-## Tool mapping (Hermes → skillgrid)
+## Tool mapping
 
-| Hermes (upstream wording) | skillgrid |
+| Upstream wording | skillgrid |
 |---|---|
 | `browser_navigate` | navigate to URL (`agent-browser open` / `playwright navigate`) |
 | `browser_snapshot` | accessibility snapshot |

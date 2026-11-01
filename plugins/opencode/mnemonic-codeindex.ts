@@ -1,15 +1,24 @@
 // @ts-nocheck
-// Dual-compatible: v1 uses the named `MnemonicCodeIndex` export; v2 (opencode
-// >= 2.0) loads `default` and validates { id, effect|setup }. `define` is a
-// no-op identity helper so the default export is schema-valid without pulling
-// the effect runtime into module eval.
-import { tool } from "@opencode-ai/plugin"
-import { define } from "@opencode-ai/plugin/v2/promise"
+// v2 (opencode >= 2.0, `@opencode/cli` host): the default export is
+// { id, setup }, validated by PluginModule.load. The host resolves
+// `@opencode/plugin` (and its workspace deps) for discovery-loaded local
+// plugins, so no node_modules is needed beside the file (OpenCode #50434
+// — the legacy `@opencode-ai/plugin` npm specifier is NOT host-provided).
+// The code_* tools are also exposed via the mnemonic MCP server (the working
+// path, TASK-081); this keeps the plugin loadable in every v2 build.
+import { Plugin } from "@opencode/plugin"
 
 const BASE_URL =
   process.env.SKILLGRID_CHECKPOINT_URL ||
   process.env.SKILLGRID_MNEMONIC_HTTP_URL ||
   "http://127.0.0.1:7438"
+
+// v1 `tool()` arg-schema shim. The v2 API dropped the root `tool` export
+// (tools register via ctx.tool.transform with effect Schema), so these named
+// v1 tool objects — kept for tooling parity / the mnemonic MCP server — need
+// only their `description` and `execute`; the `args` schemas below are inert
+// strings here (only the v1 `tool()` factory read them, and it no longer runs).
+const tool = { schema: { string: () => ({ optional: () => ({ describe: () => "" }), describe: () => "" }), number: () => ({ optional: () => ({ describe: () => "" }), describe: () => "" }), boolean: () => ({ optional: () => ({ describe: () => "" }), describe: () => "" }) } }
 
 async function api(method, path, body) {
   const res = await fetch(BASE_URL + path, {
@@ -133,20 +142,7 @@ const codeFiles = {
   },
 }
 
-export const MnemonicCodeIndex = async () => ({
-  tool: {
-    code_status: tool(codeStatus),
-    code_index: tool(codeIndex),
-    code_search: tool(codeSearch),
-    code_read: tool(codeRead),
-    code_files: tool(codeFiles),
-  },
-})
-
-// v2 entry point: schema-valid { id, setup }. The code_* tools are also exposed
-// via the mnemonic MCP server (the working v2 path); this keeps the plugin
-// loadable in every v2 build. Native v2 tool registration is a follow-up.
-export default define({
+export default Plugin.define({
   id: "skillgrid-mnemonic-codeindex",
   setup: async (_ctx) => {
     // fail-open no-op; tools available via mnemonic MCP (TASK-081)

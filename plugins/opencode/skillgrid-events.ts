@@ -1,9 +1,9 @@
 // @ts-nocheck
-// Dual-compatible: the v1 API uses the named `SkillgridEvents` export below; the
-// v2 API (opencode >= 2.0) loads `default` and validates { id, effect|setup }.
-// `define` is a no-op identity helper, so the default export is schema-valid
-// without pulling the effect runtime into module eval.
-import { define } from "@opencode-ai/plugin/v2/promise"
+// v2 (opencode >= 2.0, `@opencode/cli` host) only: default export { id, setup }
+// via Plugin.define from `@opencode/plugin`, which the host resolves for
+// discovery-loaded local plugins (no node_modules beside the file). The named
+// `SkillgridEvents` export is retained for tooling parity only.
+import { Plugin } from "@opencode/plugin"
 import * as crypto from "node:crypto"
 
 const BASE_URL =
@@ -179,7 +179,7 @@ export const SkillgridEvents = async () => ({
 // subscribes and posts each tool call/result to /memory/session-events, mirroring
 // handleToolAfter. usage tokens are not present on these events (v2 gap) and are
 // omitted; result preview is derived from the success/failed content.
-export default define({
+export default Plugin.define({
   id: "skillgrid-events",
   setup: async (_ctx) => {
     const ctrl = new AbortController()

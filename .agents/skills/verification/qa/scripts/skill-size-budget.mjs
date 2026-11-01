@@ -36,7 +36,7 @@ function findSkillsDir(root) {
 function listSkillFiles(skillsDir) {
   const results = [];
   if (!existsSync(skillsDir)) return results;
-  // Skills may be flat or nested in group dirs (DESCRIPTION.md, Hermes-style);
+  // Skills may be flat or nested in group dirs (DESCRIPTION.md);
   // groups may themselves nest (e.g. craft/craft-refactor/), so recurse.
   function walk(dir) {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

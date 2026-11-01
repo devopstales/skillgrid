@@ -23,7 +23,7 @@ type: feature
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Track implementation of the approved SDD plan for change 006-structured-session-handoff (Cleave-style Session Relay). Continuity across context fill / session end without Hermes facts/skills or 003 tiered/semantic/commit/trail cores.
+Track implementation of the approved SDD plan for change 006-structured-session-handoff (Cleave-style Session Relay). Continuity across context fill / session end without facts/skills or 003 tiered/semantic/commit/trail cores.
 
 **Current State:**
 - Intent approved; plan authored at .skillgrid/archive/2026-09-10-structured-session-handoff/briefing.md

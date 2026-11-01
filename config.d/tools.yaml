@@ -1,6 +1,6 @@
 agents:
   - "@kilocode/cli"
-  - "opencode-ai"
+  - "@opencode/cli"
   - "opencode-yaml-hooks"
 
 mcp:

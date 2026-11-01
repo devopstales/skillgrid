@@ -56,7 +56,7 @@ skillgrid install
 
 `install` reuses the same code path: `skillgrid install` will
 clone-or-sync the hub repo, check Node, install the selected agents
-(`opencode-ai`, `@kilocode/cli`, etc.) and the shared tools, then
+(`@opencode/cli`, `@kilocode/cli`, etc.) and the shared tools, then
 copy `.agents/` into `~/.agents/`.
 
 ### Layout

@@ -3,7 +3,7 @@ name: codebase-inspection
 description: "Measure a codebase with pygount: LOC, language breakdown, file counts, and code-vs-comment ratios. Use when sizing a repo, enrolling a brownfield project, or answering how big something is."
 license: MIT
 metadata:
-  author: Hermes Agent (ported; see ADR-0015)
+  author: devopstales
   version: "1.0"
   part-of: skillgrid
 ---
@@ -16,7 +16,7 @@ metadata:
 
 Answers "how big is this repo and what is it made of" with measured numbers — lines of code, language breakdown, file counts, code-vs-comment ratios — using `pygount`. This is the quantitative complement to reading code: run it first when enrolling a brownfield project (`skillgrid:onboarding` Step 1.5), before slicing work on unfamiliar code, or whenever someone asks about codebase size or composition.
 
-Ported from the Hermes `codebase-inspection` skill under MIT (see ADR-0015). Behavioral delta from upstream: scope selection prefers the repo's own ignore files where noted; findings feed skillgrid enrollment (`existing` capabilities) instead of a chat answer.
+Scope selection prefers the repo's own ignore files where noted; findings feed skillgrid enrollment (`existing` capabilities) instead of a chat answer.
 
 ## When to Use
 

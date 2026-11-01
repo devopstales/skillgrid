@@ -177,7 +177,6 @@ If your harness appears here, read its reference file for special instructions:
 - Pi: `references/pi-tools.md`
 - OpenCode: `references/opencode-tools.md`
 - Antigravity: `references/antigravity-tools.md`
-- Hermes Agent: `references/hermes-tools.md`
 
 ## User Instructions
 

@@ -1,7 +1,7 @@
 // @ts-nocheck
 // Generated from plugins/opencode/skillgrid-squad.ts (squad_submit_review) for the OpenCode v2 tools/
 // loader (one file per tool; filename = tool name). Loads under both v1 and v2.
-import { tool } from "@opencode-ai/plugin"
+import { tool } from "@opencode/plugin"
 
 const BASE_URL =
   process.env.SKILLGRID_CHECKPOINT_URL ||

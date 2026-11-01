@@ -19,7 +19,7 @@ Priority: `using-skillgrid` → workflow stage → the general skills that stage
 
 | Skill | Role |
 |-------|------|
-| `using-skillgrid` | Invoke the relevant skill before ANY response. Config/resume/domain-model checks, context discipline, skill priority, platform adaptation. Carries per-platform tool references (`codex`, `pi`, `antigravity`, `hermes`, `gemini`). |
+| `using-skillgrid` | Invoke the relevant skill before ANY response. Config/resume/domain-model checks, context discipline, skill priority, platform adaptation. Carries per-platform tool references (`codex`, `pi`, `antigravity`, `gemini`). |
 
 ## Workflow stages
 

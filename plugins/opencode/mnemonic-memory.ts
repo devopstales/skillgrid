@@ -1,10 +1,9 @@
 // @ts-nocheck
-// Dual-compatible: v1 uses the named `MnemonicMemory` export; v2 (opencode >=
-// 2.0) loads `default` and validates { id, effect|setup }. `define` is a no-op
-// identity helper so the default export is schema-valid without pulling the
-// effect runtime into module eval.
-import { tool } from "@opencode-ai/plugin"
-import { define } from "@opencode-ai/plugin/v2/promise"
+// v2 (opencode >= 2.0, `@opencode/cli` host) only: default export { id, setup }
+// via Plugin.define from `@opencode/plugin`, which the host resolves for
+// discovery-loaded local plugins (no node_modules beside the file). The named
+// `MnemonicMemory` export is retained for tooling parity only.
+import { Plugin } from "@opencode/plugin"
 
 const BASE_URL =
   process.env.SKILLGRID_CHECKPOINT_URL ||
@@ -12,6 +11,12 @@ const BASE_URL =
   "http://127.0.0.1:7438"
 
 const AGENT = process.env.SKILLGRID_AGENT || "opencode"
+// v1 `tool()` arg-schema shim. The v2 API dropped the root `tool` export
+// (tools register via ctx.tool.transform with effect Schema), so these named
+// v1 tool objects — kept for tooling parity / the mnemonic MCP server — need
+// only their `description` and `execute`; the `args` schemas below are inert
+// strings here (only the v1 `tool()` factory read them, and it no longer runs).
+const tool = { schema: { string: () => ({ optional: () => ({ describe: () => "" }), describe: () => "" }), number: () => ({ optional: () => ({ describe: () => "" }), describe: () => "" }), boolean: () => ({ optional: () => ({ describe: () => "" }), describe: () => "" }) } }
 
 async function api(method, path, body) {
   const res = await fetch(BASE_URL + path, {
@@ -355,7 +360,7 @@ export const MnemonicMemory = async () => ({
 // v2 entry point: schema-valid { id, setup }. The mem_* tools are also exposed
 // via the mnemonic MCP server (the working v2 path); this keeps the plugin
 // loadable in every v2 build. Native v2 tool registration is a follow-up.
-export default define({
+export default Plugin.define({
   id: "skillgrid-mnemonic-memory",
   setup: async (_ctx) => {
     // fail-open no-op; tools available via mnemonic MCP (TASK-081)

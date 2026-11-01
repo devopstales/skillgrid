@@ -1,6 +1,6 @@
 # Memory and indexing
 
-**Mnemonic** is the second brain of your project — Skillgrid's local-first store of durable knowledge, not a scratchpad for chat. It is a single SQLite store embedded in the `skillgrid` CLI, exposed to agents over MCP (`skillgrid mcp`), over HTTP + a web dashboard (`skillgrid serve`), and as direct CLI commands (`skillgrid mem fs`, `skillgrid index`, `skillgrid search`). A chat window is a working set: it fills, compacts, and dies. Mnemonic is what survives — the decisions, a live map of the code, the research, and a record of what each agent session did — so a fresh session opens already oriented instead of blind.
+**Mnemonic** is the persistent brain of your project — Skillgrid's local-first store of durable knowledge, not a scratchpad for chat. It is a single SQLite store embedded in the `skillgrid` CLI, exposed to agents over MCP (`skillgrid mcp`), over HTTP + a web dashboard (`skillgrid serve`), and as direct CLI commands (`skillgrid mem fs`, `skillgrid index`, `skillgrid search`). A chat window is a working set: it fills, compacts, and dies. Mnemonic is what survives — the decisions, a live map of the code, the research, and a record of what each agent session did — so a fresh session opens already oriented instead of blind.
 
 **Storage stack:** the database is provided by [`modernc.org/sqlite`](https://modernc.org/sqlite) (pure-Go build of SQLite, **cgo-free**) — the only extensions in use are **FTS5** (compiled into the driver) and **vec0** (cgo-free vector index from `modernc.org/sqlite/vec`, migration 042). No `json1`, `rtree`, or loadable extensions. JSON payloads are stored as TEXT and parsed in Go.
 
@@ -13,7 +13,6 @@ Mnemonic has **six major functions**, documented below — one `##` section each
 | [**Memory**](#memory) | Durable observations, layered L0–L3 distillation, governance, Fact Memory, Agent Skills, hybrid/semantic recall |
 | [**Code index**](#code-index) | Incremental AST graph + BM25/hybrid/semantic search, impact, communities, PDG/taint |
 | [**Web cache**](#web-cache) | TTL-cached remote research snapshots (Context7 / Exa / DeepWiki / WebFetch) |
-| [**Second brain**](#second-brain) | Commit-driven durable memory: lesson capture → fact extraction → auto-skill registration |
 | [**Agent Observation**](#agent-observation) | Session events layer (per-tool-call audit stream) and session handoff via git |
 | [**Memfs**](#memfs) | OpenViking-style `memfs://` share interface: walk the indexed repo tree as a virtual filesystem |
 
@@ -459,76 +458,6 @@ Default TTLs: context7 30d, exa/fetch 7d, deepwiki 14d, manual never. An entry p
 
 ---
 
-## Second brain
-
-The commit-driven durable-memory loop: at the end of work, lessons are committed into L2 durable memory, each lesson bullet is extracted as a Fact Memory row, and a lesson that states a reusable pattern is auto-registered as an Agent Skill. This is what turns one session's learnings into the project's standing knowledge — the "second brain" that a future session recalls without being told.
-
-### Function
-
-The entry point is `mnemonic_commit`, called when work is done (not on session end, not on task complete by default):
-
-1. **Commit to L2** — the lesson body (or explicit L2 markdown) becomes a durable `long_term_memories` row (linked to `tiered_contents`), with an optional `source_link` and `task_id` (future 001 hook). L0/L1 layers remain async — the distill/dream passes still run on their own schedule.
-2. **Fact extraction** — each bullet in `lessons_learned` is stored as a `facts` row (AKL importance), attributed to the session. A missing `session_id` skips fact extraction but the commit still succeeds.
-3. **Auto-skill registration** — a lesson with a `[language]` prefix (e.g. `[python] use dataclasses here`) is written as an Agent Skill (`skills` row + code file) so the pattern is reusable, not just recalled.
-4. **Passive capture** — `mem_capture_passive` is the complementary entry: it scans pasted text (a finished task transcript) for `Key Learnings:` / Lesson / Discovery lines and stores each as a passive observation. It is idempotent — re-capturing the same text doesn't duplicate rows. The server extracts these sections automatically from subagent/Task output, so a `## Key Learnings:` section in task output is captured without a manual `mem_save`.
-
-The recall side is the [Memory](#memory) hybrid/semantic channel (`hybrid_search`, `semantic_search`, `mem_inject_session`) plus `fact_search` over the extracted facts.
-
-### MCP tools
-
-| Tool | Role |
-|------|------|
-| `mnemonic_commit` | Commit lessons into L2 durable (L0/L1 async) + fact extraction + auto-skill. Args: `title`, `lessons_learned`, `content`, `source_link`, `task_id`, `project`, `session_id`. |
-| `mem_capture_passive` | Extract structured learnings from pasted text (`Key Learnings:` / labelled Lesson/Discovery lines); idempotent. `source` provenance label, `session_id` attribution. |
-| `mem_save` | The manual equivalent for single curated observations (see [Memory](#memory)). |
-| `fact_add` / `fact_search` | Direct fact-store write/recall (the same `facts` table commit extracts into). |
-| `write_skill` / `list_skills` / `search_skills` / `use_skill` | The skill registry the auto-registration writes to (see [Memory](#memory)). |
-
-### HTTP / API interface
-
-The second-brain write path is MCP-first (`mnemonic_commit`, `mem_capture_passive`). The HTTP surface serves the same store for the dashboard and plugins:
-
-| Route | Method | Purpose |
-|-------|--------|---------|
-| `/observations` | POST | Save an observation (the manual `mem_save` path) |
-| `/observations/passive` | POST | Passive capture (the `mem_capture_passive` path) |
-| `/search` | GET | Cross-corpus recall (mem + code) |
-| `/context` · `/context/compaction` | GET | Context-injection block / compaction payload built from durable memory |
-| `/memory/status` · `/memory/last-save-at` | GET | Durable-memory health |
-
-### SQLite tables
-
-Second brain reuses the [Memory](#memory) tables — no dedicated tables of its own:
-
-| Table | Role in the second-brain loop |
-|-------|------------------------------|
-| `long_term_memories` + `tiered_contents` | The L2 durable commit target of `mnemonic_commit`. |
-| `facts` / `facts_fts` | The extracted lesson bullets (AKL importance/decay). |
-| `skills` / `skills_fts` + `.skillgrid/files/skills/{name}.{ext}` | The auto-registered pattern skills. |
-| `session_events` | The attribution trail (commit + capture are recorded events; see [Agent Observation](#agent-observation)). |
-| `prompts` / `prompts_fts` | `mem_save_prompt` captures the user prompt so future sessions can recall *what was asked*. |
-
-### Dataflow
-
-```mermaid
-flowchart TD
-  DONE["work finished<br/>(task output has ## Key Learnings:)"] --> CP["mem_capture_passive /<br/>server auto-extract (idempotent)"]
-  DONE --> MC["mnemonic_commit<br/>(title, lessons_learned, content, source_link)"]
-
-  CP --> O["observations (L0) + observations_fts"]
-  MC --> L2["long_term_memories + tiered_contents (L2 durable)"]
-  MC -->|each lesson bullet| F["facts + facts_fts (AKL)"]
-  MC -->|[language] prefix lesson| SK["skills + skills_fts +<br/>.skillgrid/files/skills/{name}.{ext}"]
-
-  O --> R1["mem_search / mem_context"]
-  L2 --> R2["semantic_search → L1 overview → load_full_details"]
-  F --> R3["fact_search / hybrid_search"]
-  SK --> R4["list_skills / search_skills / use_skill"]
-
-  R1 & R2 & R3 & R4 --> INJ["mem_inject_session<br/>(token-budgeted context block)"]
-```
-
----
 
 ## Agent Observation
 
