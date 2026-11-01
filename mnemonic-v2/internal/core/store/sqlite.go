@@ -588,11 +588,15 @@ func (s *sqliteStore) UpdateObservationForProject(ctx context.Context, id int64,
 		if p.TopicKey != nil {
 			topicKey = *p.TopicKey
 		}
+		pinned := existing.Pinned
+		if p.Pinned != nil {
+			pinned = *p.Pinned
+		}
 		_, err = tx.Exec(`
 			UPDATE observations
-			SET type = ?, title = ?, content = ?, topic_key = ?, updated_at = datetime('now')
+			SET type = ?, title = ?, content = ?, topic_key = ?, pinned = ?, updated_at = datetime('now')
 			WHERE id = ?`,
-			typ, title, content, nullableString(topicKey), id)
+			typ, title, content, nullableString(topicKey), pinned, id)
 		if err != nil {
 			return err
 		}
@@ -676,6 +680,16 @@ const searchRankBoostSQL = `(1.0
 	+ 0.06 / (1.0 + ABS((JULIANDAY('now') - JULIANDAY(COALESCE(o.last_seen_at, o.updated_at, o.created_at)))) * 24.0 / 30.0)
 	+ 0.04 * (CAST(o.revision_count AS REAL) + CAST(o.duplicate_count AS REAL)) / (CAST(o.revision_count AS REAL) + CAST(o.duplicate_count AS REAL) + 4.0))`
 
+// searchRankRelevanceBase is the multiplicative relevance base of the
+// composite rank: MAX(bm25, 1.0). bm25 is 0.0 when every matching document
+// contributes equally to each matched column (e.g. two identical rows), which
+// would make the composite rank 0.0 × boost = 0.0 for all of them and leave
+// the pinned/recency/stability boosts non-load-bearing. Clamping the base to
+// 1.0 keeps a real BM25 gradient when one exists (it dominates the order) but
+// guarantees the boosts are the deciding delta in the all-identical case the
+// ranking scenarios exercise (Engram store.go:6031-6044, rawRank × boost).
+const searchRankRelevanceBase = "MAX(bm25(observations_fts, %.1f, %.1f, 0.0, 0.0, 0.0, %.1f), 1.0)"
+
 // Search runs an FTS5 trigram MATCH (with the < 3-rune LIKE fallback),
 // ranked by the composite rank: bm25(title, content, topic_key weights)
 // multiplied by the pinned/recency/stability boosts (Engram store.go:6031-6044).
@@ -688,8 +702,9 @@ func (s *sqliteStore) Search(ctx context.Context, q SearchQuery) (SearchResult, 
 		return s.searchLIKE(ctx, q, limit)
 	}
 	// FTS5 MATCH path
-	rankExpr := fmt.Sprintf("bm25(observations_fts, %.1f, %.1f, 0.0, 0.0, 0.0, %.1f) * %s",
-		searchFTSTitleWeight, searchFTSContentWeight, searchFTSTopicKeyWeight, searchRankBoostSQL)
+	rankExpr := fmt.Sprintf("%s * %s",
+		fmt.Sprintf(searchRankRelevanceBase, searchFTSTitleWeight, searchFTSContentWeight, searchFTSTopicKeyWeight),
+		searchRankBoostSQL)
 	qStr := `SELECT ` + obsSelectColumns + `, ` + rankExpr + ` AS rank
 		FROM observations_fts fts
 		CROSS JOIN observations o ON o.id = fts.rowid
@@ -707,7 +722,10 @@ func (s *sqliteStore) Search(ctx context.Context, q SearchQuery) (SearchResult, 
 		qStr += ` AND o.scope = ?`
 		args = append(args, q.Scope)
 	}
-	qStr += ` ORDER BY rank ASC LIMIT ?`
+	// The composite rank is a relevance *score* (higher = better: the boosts
+	// raise it), so the best match is the HIGHEST rank — order DESC. (A plain
+	// bm25() is a cost, lower = better, but the composite is a score.)
+	qStr += ` ORDER BY rank DESC LIMIT ?`
 	args = append(args, limit)
 	return s.queryObservations(ctx, qStr, args...)
 }
@@ -1038,6 +1056,14 @@ func (s *sqliteStore) Probe(query string, args ...any) (bool, error) {
 	var found bool
 	err := s.db.QueryRow(query, args...).Scan(&found)
 	return found, err
+}
+
+// ProbeInt runs a raw query that must return a single integer (test helper
+// for the migration-skip catalog-count assertion).
+func (s *sqliteStore) ProbeInt(query string, args ...any) (int, error) {
+	var n int
+	err := s.db.QueryRow(query, args...).Scan(&n)
+	return n, err
 }
 
 // deref returns the pointed-to string or "".

@@ -57,8 +57,12 @@ func TestMigrationRunsFromEmptyAndReopens(t *testing.T) {
 }
 
 // [migration-additive-reopen] the runner records every applied migration in
-// index_meta; a second run must skip applied files (the index_meta rows prove
-// it — this is the parity pattern Task 18 re-runs against migrations_pg/).
+// index_meta and MUST skip already-applied files on a re-run. Skipping is
+// proven directly: a re-run of the fully-applied migration set leaves the
+// sqlite_master catalog object count unchanged (IF NOT EXISTS is silent, so a
+// re-apply-everything runner would still pass on error alone — the count is
+// the discriminator). This is the parity pattern Task 18 re-runs against
+// migrations_pg/ (there, count pg_class rows the same way).
 func TestMigrationReopenSkipsAppliedFiles(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -85,26 +89,42 @@ func TestMigrationReopenSkipsAppliedFiles(t *testing.T) {
 	if !found {
 		t.Fatalf("index_meta must record schema_version after the first open")
 	}
-	if err := st.Close(); err != nil {
-		t.Fatalf("close: %v", err)
-	}
-	// explicit Migrate re-run (idempotent) plus a second Open must both succeed
-	st3, err := Open(ctx, dir, "proj-m2", SQLite, "")
+	// catalog object count after the first (fully-applied) open.
+	before, err := masterObjectCount(raw)
 	if err != nil {
-		t.Fatalf("reopen: %v", err)
+		t.Fatalf("count before: %v", err)
 	}
-	defer st3.Close()
-	if err := st3.Migrate(ctx); err != nil {
+	if before == 0 {
+		t.Fatalf("expected a populated sqlite_master catalog after the first open")
+	}
+	// an explicit Migrate re-run against the fully-applied store must skip
+	// every applied file and leave the catalog untouched.
+	if err := st.Migrate(ctx); err != nil {
 		t.Fatalf("migrate re-run: %v", err)
 	}
-	// raw's pooled handle was released above; probe through the reopen's store
-	found, err = st3.(interface {
-		Probe(query string, args ...any) (bool, error)
-	}).Probe(`SELECT COUNT(*) > 0 FROM index_meta WHERE key = 'migration:001_schema.sql'`)
+	after, err := masterObjectCount(raw)
+	if err != nil {
+		t.Fatalf("count after: %v", err)
+	}
+	if before != after {
+		t.Fatalf("Migrate re-run changed the catalog: %d before, %d after — applied files were not skipped", before, after)
+	}
+	// and the index_meta record must survive the re-run
+	found, err = raw.Probe(`SELECT COUNT(*) > 0 FROM index_meta WHERE key = 'migration:001_schema.sql'`)
 	if err != nil {
 		t.Fatalf("probe: %v", err)
 	}
 	if !found {
-		t.Fatalf("index_meta row lost after reopen + migrate re-run")
+		t.Fatalf("index_meta row lost after migrate re-run")
 	}
+	if err := st.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+}
+
+// masterObjectCount returns the number of tables, indexes, triggers, and views
+// in the sqlite_master catalog — the count a re-run-everything migration
+// runner would inflate but a skipping runner must leave unchanged.
+func masterObjectCount(raw *sqliteStore) (int, error) {
+	return raw.ProbeInt(`SELECT COUNT(*) FROM sqlite_master WHERE type IN ('table','index','trigger','view')`)
 }

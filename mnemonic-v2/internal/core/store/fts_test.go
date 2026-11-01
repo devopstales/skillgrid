@@ -50,7 +50,8 @@ func TestFTSStaysInSync(t *testing.T) {
 }
 
 // [short-term-like-fallback] a term below the trigram minimum (< 3 runes) must
-// still match via the bounded LIKE fallback over the FTS columns.
+// still match via the bounded LIKE fallback over the FTS columns, and the
+// fallback must be project-scoped (no cross-project leakage).
 func TestShortTermFallsBackToLIKE(t *testing.T) {
 	st := openTestStore(t)
 	ctx := context.Background()
@@ -68,13 +69,38 @@ func TestShortTermFallsBackToLIKE(t *testing.T) {
 	if len(r.Observations) != 1 || !strings.Contains(r.Observations[0].Title, "Go") {
 		t.Fatalf("short-term LIKE fallback broken (trigram needs >=3 runes): %+v", r)
 	}
+	// project-isolation: a LIKE fallback must not leak rows from other projects.
+	if _, err := st.AddObservation(ctx, AddObservationParams{
+		SessionID: "s", Type: "discovery", Title: "Go compiler notes",
+		Content: "Go compiler performance notes",
+		Project: "proj-b", Scope: "project",
+	}); err != nil {
+		t.Fatalf("add proj-b: %v", err)
+	}
+	// searching proj-a for "go" must not return the proj-b row
+	ra, err := st.Search(ctx, SearchQuery{Query: "go", Project: "proj-a", Limit: 10})
+	if err != nil {
+		t.Fatalf("search proj-a: %v", err)
+	}
+	for _, obs := range ra.Observations {
+		if obs.Project != nil && *obs.Project == "proj-b" {
+			t.Fatalf("LIKE fallback leaked proj-b row into proj-a search: %+v", obs)
+		}
+	}
+	// searching proj-b for "go" must find exactly the proj-b row
+	rb, err := st.Search(ctx, SearchQuery{Query: "go", Project: "proj-b", Limit: 10})
+	if err != nil {
+		t.Fatalf("search proj-b: %v", err)
+	}
+	if len(rb.Observations) != 1 {
+		t.Fatalf("LIKE fallback proj-b search expected 1 row, got %+v", rb.Observations)
+	}
 }
 
 // [search-ranking-recency-stability] the composite rank is
 // bm25 × (1 + 0.10·pinned + 0.06·1/(1+age_days/30) + 0.04·(rev+dups)/(rev+dups+4)).
 // Two otherwise-identical rows differ ONLY in last_seen_at / revision_count —
-// the fresher, more stable row must rank first. The pinned term is exercised
-// separately (the UpdateParams.Pinned path has no dedicated rank test yet).
+// the fresher, more stable row must rank first.
 func TestSearchRankingRecencyAndStability(t *testing.T) {
 	st := openTestStore(t)
 	ctx := context.Background()
@@ -95,35 +121,6 @@ func TestSearchRankingRecencyAndStability(t *testing.T) {
 	}
 	a := seed()
 	b := seed()
-	// [short-term-like-fallback] TRIANGULATE: the LIKE fallback must not leak
-	// rows from other projects, and must return multiple matching rows
-	// ordered by updated_at DESC (Engram store.go:6071-6146).
-	if _, err := st.AddObservation(ctx, AddObservationParams{
-		SessionID: "s", Type: "discovery", Title: "Go compiler notes",
-		Content: "Go compiler performance notes",
-		Project: "proj-b", Scope: "project",
-	}); err != nil {
-		t.Fatalf("add proj-b: %v", err)
-	}
-	// searching proj-a for "go" must not return the proj-b row
-	r2, err := st.Search(ctx, SearchQuery{Query: "go", Project: "proj-a", Limit: 10})
-	if err != nil {
-		t.Fatalf("search proj-a: %v", err)
-	}
-	for _, obs := range r2.Observations {
-		if obs.Project != nil && *obs.Project == "proj-b" {
-			t.Fatalf("LIKE fallback leaked proj-b row into proj-a search: %+v", obs)
-		}
-	}
-	// searching proj-b for "go" must find exactly the proj-b row
-	r3, err := st.Search(ctx, SearchQuery{Query: "go", Project: "proj-b", Limit: 10})
-	if err != nil {
-		t.Fatalf("search proj-b: %v", err)
-	}
-	if len(r3.Observations) != 1 {
-		t.Fatalf("LIKE fallback proj-b search expected 1 row, got %+v", r3.Observations)
-	}
-
 	// b is fresher (30 min in the future vs. "now") and more stable
 	// (3 revisions); a is 30 days stale. The ranking formula measures age
 	// with JULIANDAY('now'), so parseable absolute timestamps are required
@@ -144,5 +141,54 @@ func TestSearchRankingRecencyAndStability(t *testing.T) {
 	}
 	if r.Observations[0].ID != b {
 		t.Fatalf("recency/stability boosts must order b first: %+v", r.Observations)
+	}
+}
+
+// [search-ranking-boosts] the pinned term of the composite rank: a pinned row
+// must outrank an otherwise-identical unpinned row. The two rows are seeded
+// back-to-back and then given the SAME last_seen_at via TouchForTest, so the
+// recency term is equal for both and the ONLY ranking delta is the 0.10·pinned
+// boost. (Without the timestamp equalization the pin's own updated_at bump
+// would let the recency term carry the order, masking the pinned regression.)
+func TestSearchRankingPinnedBoost(t *testing.T) {
+	st := openTestStore(t)
+	ctx := context.Background()
+	raw, ok := st.(*sqliteStore)
+	if !ok {
+		t.Fatalf("expected *sqliteStore, got %T", st)
+	}
+	seed := func() int64 {
+		res, err := st.AddObservation(ctx, AddObservationParams{
+			SessionID: "s", Type: "decision", Title: "pinned boost check",
+			Content: "identical body for the pinned term",
+			Project: "proj-a", Scope: "project",
+		})
+		if err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		return res.ID
+	}
+	unpinned := seed()
+	pinned := seed()
+	// pin the second row via the UpdateParams.Pinned path.
+	p := true
+	if err := st.UpdateObservationForProject(ctx, pinned, "proj-a", UpdateParams{Pinned: &p}); err != nil {
+		t.Fatalf("pin: %v", err)
+	}
+	// equalize last_seen_at so the recency term is identical for both rows.
+	for _, id := range []int64{unpinned, pinned} {
+		if err := raw.TouchForTest(ctx, id, "2026-11-01 15:00:00", 0); err != nil {
+			t.Fatalf("touch %d: %v", id, err)
+		}
+	}
+	r, err := st.Search(ctx, SearchQuery{Query: "pinned boost", Project: "proj-a", Limit: 10})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(r.Observations) != 2 {
+		t.Fatalf("expected both rows, got %+v", r.Observations)
+	}
+	if r.Observations[0].ID != pinned {
+		t.Fatalf("pinned boost must order the pinned row first: %+v", r.Observations)
 	}
 }
