@@ -560,6 +560,58 @@ func (s *sqliteStore) AddObservation(ctx context.Context, p AddObservationParams
 	return AddObservationResult{ID: id, SyncID: syncID}, nil
 }
 
+// AddPulledObservation inserts a pulled observation with the caller's
+// (source's) sync_id — the sync apply seam (Task 15). It runs the SAME
+// write path AddObservation does (session auto-register, project resolve,
+// the observations INSERT whose FTS trigger fires — INV-4: no special
+// remote path), but does NOT mint a fresh sync_id (the peer already
+// knows the row by the id its journal carried) and does NOT enqueue a
+// sync mutation (the journal is the outbox for local writes only).
+func (s *sqliteStore) AddPulledObservation(ctx context.Context, p AddObservationParams, syncID string) (AddObservationResult, error) {
+	now := nowStamp()
+	prov := Provenance{SessionID: p.SessionID, CreatedAt: now}
+	provJSON, _ := json.Marshal(prov)
+	hash := hashNormalized(p.Content)
+
+	var id int64
+	err := s.withWriteRetry(func() error {
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+
+		if err := s.ensureSessionTx(tx, p.SessionID, p.Project); err != nil {
+			return err
+		}
+		project := s.resolveProjectTx(tx, p.SessionID, p.Project)
+
+		res, err := tx.Exec(`
+			INSERT INTO observations (
+				sync_id, session_id, type, title, content, tool_name, project, scope,
+				topic_key, normalized_hash,
+				last_seen_at, importance, retrieval_usage, provenance, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), 0.5, 0, ?, ?, ?)`,
+			syncID, p.SessionID, p.Type, p.Title, p.Content,
+			nullableString(p.ToolName), nullableString(project),
+			scopeOrDefault(p.Scope), nullableString(p.TopicKey), hash,
+			provJSON, now, now,
+		)
+		if err != nil {
+			return err
+		}
+		id, err = res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		return tx.Commit()
+	})
+	if err != nil {
+		return AddObservationResult{}, err
+	}
+	return AddObservationResult{ID: id, SyncID: syncID}, nil
+}
+
 func scopeOrDefault(scope string) string {
 	s := strings.TrimSpace(scope)
 	if s == "" {
@@ -712,6 +764,47 @@ func (s *sqliteStore) AddRelation(ctx context.Context, p AddRelationParams) (Rel
 		// is complete — reason/evidence/session_id are stored and the "returns
 		// the stored row" contract holds (a caller that round-trips the row
 		// sees what is in the table, not what was asked for).
+		var reason, evidence, sessionID sql.NullString
+		var createdAt string
+		if err := s.db.QueryRowContext(ctx,
+			`SELECT judgment_status, ifnull(reason,''), ifnull(evidence,''), ifnull(session_id,''), created_at
+			 FROM memory_relations WHERE id = ?`, id).
+			Scan(&rel.JudgmentStatus, &reason, &evidence, &sessionID, &createdAt); err != nil {
+			return err
+		}
+		rel.ID = id
+		rel.SyncID = syncID
+		rel.SourceID = p.SourceID
+		rel.TargetID = p.TargetID
+		rel.Relation = p.Relation
+		rel.Reason = reason.String
+		rel.Evidence = evidence.String
+		rel.SessionID = sessionID.String
+		rel.CreatedAt = createdAt
+		return nil
+	})
+	return rel, err
+}
+
+// AddPulledRelation inserts a pulled relation with the caller's (source's)
+// sync_id — the sync apply seam for relations (Task 15, the AddPulledObservation
+// pattern). Same INSERT as AddRelation, but the sync_id is the peer's (the
+// identity the source journaled), not a fresh mint. No journal row (the
+// journal is the outbox for local writes only).
+func (s *sqliteStore) AddPulledRelation(ctx context.Context, p AddRelationParams, syncID string) (Relation, error) {
+	var rel Relation
+	err := s.withWriteRetry(func() error {
+		res, err := s.db.ExecContext(ctx, `
+			INSERT INTO memory_relations (sync_id, source_id, target_id, relation, reason, evidence, session_id)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			syncID, p.SourceID, p.TargetID, p.Relation, nullableString(p.Reason), nullableString(p.Evidence), nullableString(p.SessionID))
+		if err != nil {
+			return err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
 		var reason, evidence, sessionID sql.NullString
 		var createdAt string
 		if err := s.db.QueryRowContext(ctx,
@@ -951,9 +1044,41 @@ func (s *sqliteStore) ListPendingMutations(ctx context.Context, cursor int64, li
 	return out, rows.Err()
 }
 
-// ApplyPulledMutation is stubbed until Task 17.
+// ApplyPulledMutation applies one pulled mutation through the store's local
+// write path (INV-4 — spec 006 §6; the memory package's SyncService.ApplyPulled
+// is the same behavior plus the sync_state cursor). The memory package owns
+// the dispatch logic (sync.go) and exposes it as an exported hook so the
+// store's interface method and the service share one implementation — the
+// store never imports memory (dependency direction: memory → store).
+// applyPulledMutationHook is the one-way wire from the memory package's
+// apply dispatch (the dependency direction memory → store forbids the store
+// from importing it; the pipeline's beginSaveTxn type-assertion pattern,
+// inverted). Registered by memory.init.
+var applyPulledMutationHook func(ctx context.Context, st Store, m Mutation) error
+
+// SetApplyPulledMutationHook registers the apply dispatch (memory.init).
+func SetApplyPulledMutationHook(fn func(ctx context.Context, st Store, m Mutation) error) {
+	applyPulledMutationHook = fn
+}
+
 func (s *sqliteStore) ApplyPulledMutation(ctx context.Context, m Mutation) error {
-	return ErrNotImplemented{Method: "ApplyPulledMutation"}
+	if applyPulledMutationHook != nil {
+		return applyPulledMutationHook(ctx, s, m)
+	}
+	return ErrNotImplemented{Method: "ApplyPulledMutation (register the hook — memory.init)"}
+}
+
+// SetEnrolledForTest enrolls (or, with unenroll=true, removes) a project in
+// sync_enrolled_projects — a test-only seam for the memory package's
+// enrollment-gate assertions (the SaveTXN's EnrollProject is the
+// in-transaction path; this one is the out-of-transaction fixture).
+func (s *sqliteStore) SetEnrolledForTest(project string) error {
+	return s.withWriteRetry(func() error {
+		_, err := s.db.Exec(`
+			INSERT INTO sync_enrolled_projects (project) VALUES (?)
+			ON CONFLICT(project) DO NOTHING`, project)
+		return err
+	})
 }
 
 // Tombstone records a delete tombstone.

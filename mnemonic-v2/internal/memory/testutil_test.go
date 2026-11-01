@@ -325,9 +325,13 @@ func makeMutations(n int) []store.Mutation {
 	return out
 }
 
+// upsertMutation builds a canonical observation upsert mutation for key
+// (the FULL canonical payload — spec 006 §4: the payload is the canonical
+// entity, not just the key; the apply path resolves the session FK from
+// session_id. Task 15's apply tests need this; makeMutations reuses it.)
 func upsertMutation(key string) store.Mutation {
 	return store.Mutation{TargetKey: "local", Entity: "observation", EntityKey: key, Op: "upsert",
-		Payload: `{"sync_id":"` + key + `"}`, Source: "local", Project: "p"}
+		Payload: pulledObsPayload(key, "s", "T "+key, "content "+key), Source: "local", Project: "p"}
 }
 
 func deleteMutation(key string) store.Mutation {

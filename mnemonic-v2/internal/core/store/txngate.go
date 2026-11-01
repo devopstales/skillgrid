@@ -62,11 +62,11 @@ type SaveTXN interface {
 // GateInsert is the gate's insert/revise input.
 type GateInsert struct {
 	SessionID, Type, Title, Content, ToolName, Project, Scope, TopicKey, OperationID string
-	SyncID                string
-	NormalizedHash        string
-	ReviewAfter           *string
-	Importance            float64
-	PromptContent         string
+	SyncID                                                                           string
+	NormalizedHash                                                                   string
+	ReviewAfter                                                                      *string
+	Importance                                                                       float64
+	PromptContent                                                                    string
 }
 
 // saveTXN implements SaveTXN on a *sql.Tx.
@@ -285,12 +285,57 @@ func (t *saveTXN) enrolled(project string) bool {
 	return n > 0
 }
 
+// enqueueUpsert journals the observation upsert with the CANONICAL payload
+// (spec 006 §4 — the project-canonicalized entity: sync_id + the fields the
+// peer's apply path needs to reconstruct the row, including session_id so
+// the peer's FK resolves). The gate builds it inside the save transaction.
 func (t *saveTXN) enqueueUpsert(project, syncID string) error {
+	var sessionID, typ, title, content string
+	if err := t.tx.QueryRow(
+		`SELECT ifnull(session_id,''), ifnull(type,''), ifnull(title,''), ifnull(content,'')
+		 FROM observations WHERE sync_id = ?`, syncID).
+		Scan(&sessionID, &typ, &title, &content); err != nil {
+		return fmt.Errorf("store: journal payload read: %w", err)
+	}
+	// The canonical payload is a compact JSON object. The content may
+	// contain quotes/backslashes — escape for JSON (the apply path
+	// json.Unmarshals it).
+	payload := `{"sync_id":"` + jsonEscape(syncID) +
+		`","session_id":"` + jsonEscape(sessionID) +
+		`","type":"` + jsonEscape(typ) +
+		`","title":"` + jsonEscape(title) +
+		`","content":"` + jsonEscape(content) +
+		`","project":"` + jsonEscape(project) +
+		`","scope":"project"}`
 	_, err := t.tx.Exec(`
 		INSERT INTO sync_mutations (target_key, entity, entity_key, op, payload, source, project)
 		VALUES ('local', 'observation', ?, 'upsert', ?, 'local', ?)`,
-		syncID, `{"sync_id":"`+syncID+`"}`, project)
+		syncID, payload, project)
 	return err
+}
+
+// jsonEscape escapes a string for embedding in a JSON object literal (the
+// journal payload is built as a compact literal inside the gate — the
+// apply path json.Unmarshals it).
+func jsonEscape(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '"':
+			b.WriteString(`\"`)
+		case '\\':
+			b.WriteString(`\\`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // syncEnabled reports whether the store's owning config has sync enabled

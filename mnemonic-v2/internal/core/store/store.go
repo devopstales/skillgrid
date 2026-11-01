@@ -2,6 +2,19 @@ package store
 
 import "context"
 
+// SyncSeam are the sync-core test hooks (Task 15). The SQLite adapter
+// implements them; the memory package type-asserts (the pipeline's Probe
+// pattern — Go's export data carries unexported methods only within a
+// package). Production code never calls these: SetSyncEnabled is wired by
+// the transport layer (Task 13) from cfg.Sync.Enabled at startup, and
+// SetEnrolledForTest is a test-only enrollment fixture for the memory
+// package's gate assertions. The Postgres adapter (Task 18) adopts the same
+// seam shape.
+type SyncSeam interface {
+	SetSyncEnabled(on bool)
+	SetEnrolledForTest(project string) error
+}
+
 // Dialect selects the physical backend (spec 001-storage §2).
 type Dialect int
 
