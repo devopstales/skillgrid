@@ -46,6 +46,7 @@ Chain strategy: stacked-to-main
 > **Precondition (all tickets):** T0 checklist is complete and committed — `acceptance.feature`, ADR-0040/0041, spec amendments, `state.yaml` repoint, and the `mnemonic/` → `mnemonic_back/` archive commit (commits `ae57d7e3`, `f493f3c8`, `5ee9017f`). Task 1's code commit must not include any spec-zone file (pre-commit zone guard, per AGENTS.md § Rules).
 
 ### TICKET-01 — Module skeleton + Store interface + SQLite store (door check)
+- **Tracker ID:** TASK-084  (milestone 2026-10-31-mnemonic-v2-memory)
 
 - **Scope:** Fresh module `mnemonic-v2/` (module path `github.com/devopstales/skillgrid/mnemonic-v2`, Go 1.26, cgo-free); the full `Store` interface (spec `001-storage` §7 + additive `MarkReviewed`/`BumpRetrievalUsage`/`SearchPrompts`/`TouchForTest`/`SetTxnHook`); `SQLiteStore` with WAL DSN + write-retry wrapper; `syncid.NewSyncID`; initial `migrations/001_schema.sql` + FTS5 trigram tables; refcounted handle pool. This is the door check — if FTS5 trigram retrieval through the Store fails, stop: the blueprint is invalidated.
 - **Acceptance:** `go test ./internal/core/...` passes: per-project file opens, add/get round-trip with `obs-` sync-id + provenance, `TestDoorCheckFTSRoundTrip` finds the saved row by trigram AND the <3-rune path goes through LIKE, ledger FK survives hard-delete with `observation_id` NULL, sync-id format `^(obs|rel|ses|prm)-[0-9a-f]{16}$`.
@@ -59,6 +60,7 @@ Chain strategy: stacked-to-main
 - **Fails-when:** `go test ./internal/core/...` exits non-zero, OR `TestDoorCheckFTSRoundTrip` does not return exactly the seeded row for the trigram query.
 
 ### TICKET-02 — Migration suite + FTS5 trigger parity (both-dialects-from-empty regression)
+- **Tracker ID:** TASK-085  (milestone 2026-10-31-mnemonic-v2-memory)
 
 - **Scope:** Full migration set runs from an empty DB; re-open after migration is a no-op (additive); FTS triggers keep `observations_fts`/`prompts_fts` in sync on insert/update/delete; <3-rune terms fall back to LIKE; BM25 weights (title 5.0, content 1.0, topic_key 3.0) + boosts (pinned +0.10, recency, stability) produce the spec-ordered ranking.
 - **Acceptance:** `go test ./internal/core/store/... -run 'TestMigration|TestFts|TestSearch'` passes: from-empty migration applies every file exactly once, re-open runs zero statements, trigger-sync assertion (delete a row, FTS count drops), LIKE fallback returns the seeded short-term row, ranking test with pinned/stale/identical rows returns spec order.
@@ -69,6 +71,7 @@ Chain strategy: stacked-to-main
 - **Blocked by:** TICKET-01
 
 ### TICKET-03 — Intelligence seams (LLM + Embedder + degradation policy)
+- **Tracker ID:** TASK-086  (milestone 2026-10-31-mnemonic-v2-memory)
 
 - **Scope:** `LLM` seam interface (4-way `Classify` → `DedupDecision`, `Judge`, `SuggestCandidates`), `Embedder` seam, OpenAI-compatible provider over one base URL (chat + embeddings), `degrade` package: ≤1 bounded retry, explicit `degraded: true` flag + reason, log line, never a silent floor.
 - **Acceptance:** `go test ./internal/intelligence/...` passes: httptest OpenAI-compat server serves a 4-way classify payload and the seam returns the typed decision; nil seam → zero-value decision + `degraded: true`; failing seam (500) → one retry then the same floor with reason; embedder round-trip returns fixed-dim vectors; null embedder → `degraded`.
@@ -79,6 +82,7 @@ Chain strategy: stacked-to-main
 - **Blocked by:** TICKET-01
 
 ### TICKET-04 — Config + project detection
+- **Tracker ID:** TASK-087  (milestone 2026-10-31-mnemonic-v2-memory)
 
 - **Scope:** YAML + env resolution (flag > env > file > default) per spec `006-config`; validation with actionable errors; project detection chain (explicit → `MNEMONIC_PROJECT` → cwd → git binding → basename) + `--all` semantics.
 - **Acceptance:** `go test ./internal/core/config/... ./internal/core/project/...` passes: precedence matrix (flag beats env beats file beats default) for `data_dir`, `sync.dsn`, embedder config; invalid YAML → error naming the file+line; project resolution returns the right project for each selector case, `--all` lists every enrolled project file.
@@ -89,6 +93,7 @@ Chain strategy: stacked-to-main
 - **Blocked by:** TICKET-01, TICKET-03
 
 ### TICKET-05 — Save pipeline core (validate → resolve → redact → hash floor → upsert → enqueue → commit)
+- **Tracker ID:** TASK-088  (milestone 2026-10-31-mnemonic-v2-memory)
 
 - **Scope:** `memory/pipeline.go` implementing the 10-step `mem_save` contract; redaction + truncation; `normalized_hash` dedup floor (hash dedupe → bump `duplicate_count`/`last_seen_at`; same `topic_key` → in-place revision + `observation_versions` snapshot); result shape `{id, sync_id, revision_count, dedup{verdict,reason,merged_into_sync_id}}`; `eventbus.go` created (Publish wired by Task 7).
 - **Acceptance:** `go test ./internal/memory/... -run 'TestSave'` passes: save persists with valid sync-id + provenance; redact/truncate applied before hash; identical content → same id, `duplicate_count` bumped, no new row; same topic_key → `revision_count` incremented + history row; validation errors (empty title, bad type) reject before write; result JSON shape matches spec `001-observations` §3.
@@ -99,6 +104,7 @@ Chain strategy: stacked-to-main
 - **Blocked by:** TICKET-02, TICKET-04
 
 ### TICKET-06 — Replay-safe saves (operation idempotency ledger)
+- **Tracker ID:** TASK-089  (milestone 2026-10-31-mnemonic-v2-memory)
 
 - **Scope:** Ledger step (4.5) before dedup: `observation_save_operations` check — same `OperationID` + identical payload → return committed id (`replayed: true`); changed payload → 409 `operation_conflict`; target hard-deleted → 410 `operation_expired` (ledger row survived via SET NULL FK, Task 1).
 - **Acceptance:** `go test ./internal/memory/... -run 'TestReplay'` passes the three ledger scenarios above; a non-replayed save writes exactly one ledger row.
@@ -109,6 +115,7 @@ Chain strategy: stacked-to-main
 - **Blocked by:** TICKET-05
 
 ### TICKET-07 — Sessions (lifecycle, terminal semantics, resume, prompts) + event wiring
+- **Tracker ID:** TASK-090  (milestone 2026-10-31-mnemonic-v2-memory)
 
 - **Scope:** `memory/sessions.go`: `mem_session_start` (byte-exact id, `runtime_lease_expires_at` = now+30min, local-only), missing session → auto-register (S-3), ended session → 409 `session_already_ended`, resume continuation, `mem_session_finalize` atomic six-section `session_summary` + `ended_at` + enqueue + `session_finalizations` + `already_finalized` retry semantics; `user_prompts` capture (tri-state `capture_prompt`: absent→true) + `mem_search_prompts`; **wires the `bus.Publish(SaveEvent)` call site in the pipeline** (Task 5 created the bus).
 - **Acceptance:** `go test ./internal/memory/... -run 'TestSession|TestPrompt|TestSaveEvent'` passes: lease timestamp ≈ now+30min; ended session 409; unknown session auto-registered then save proceeds; finalize writes all six sections atomically, retry returns `already_finalized: true`; `capture_prompt` absent stores the redacted prompt, explicit false stores nothing, `SearchPrompts` finds it.
@@ -119,6 +126,7 @@ Chain strategy: stacked-to-main
 - **Blocked by:** TICKET-06
 
 ### TICKET-08 — Dedup LLM path (primary Classify + trust-but-verify)
+- **Tracker ID:** TASK-091  (milestone 2026-10-31-mnemonic-v2-memory)
 
 - **Scope:** Fill the non-nil-seam branch of `dedup.Run`: LLM `Classify` as primary, hash floor remains the degraded branch (one code path, `degraded` flag distinguishes); trust-but-verify: LLM's candidate id must exist and match the redacted-hash pre-filter set, else fall back to the hash verdict; noop is first-class (`verdict=noop`, no write).
 - **Acceptance:** `go test ./internal/memory/... -run 'TestDedup'` passes: fake LLM returns `update` → merged into target with `reason="llm"`; LLM returns a candidate id not in the pre-filter set → trust-but-verify rejects, hash floor verdict stands; LLM `noop` → first-class no-op; nil seam → `reason="hash"`.
@@ -129,6 +137,7 @@ Chain strategy: stacked-to-main
 - **Blocked by:** TICKET-03, TICKET-05
 
 ### TICKET-09 — Relations: conflict-candidate detection + relevance gate
+- **Tracker ID:** TASK-092  (milestone 2026-10-31-mnemonic-v2-memory)
 
 - **Scope:** After a committed save, detect conflict candidates (same project+scope, OR-FTS title pre-filter, relevance gate: shared `topic_key` OR ≥2 significant shared title terms); materialize as `pending` `memory_relations`; fill `SaveResult.Candidates` + `JudgmentRequired`.
 - **Acceptance:** `go test ./internal/memory/... -run 'TestRelation'` passes: a save whose title shares ≥2 significant terms with an existing row surfaces that row as `candidates[]` with `judgment_required: true`; a one-term overlap does not (gate fails → no candidate); a shared-topic_key candidate surfaces even with disjoint titles; candidates are persisted as `pending` relations, not in-memory only.
@@ -139,6 +148,7 @@ Chain strategy: stacked-to-main
 - **Blocked by:** TICKET-05
 
 ### TICKET-10 — Judgment + consolidate + scan
+- **Tracker ID:** TASK-093  (milestone 2026-10-31-mnemonic-v2-memory)
 
 - **Scope:** `mem_judge` (sets `judgment_status=judged` + provenance `marked_by_actor/kind/model`), `mem_judge_many` (1–32 batch, one queued write), `mem_compare` (direct judged relation, idempotent per pair), `mem_consolidate` (preview `plan.sources/survivor/project` + `Fingerprint`, confirm with stale fingerprint → `fingerprint_mismatch` + fresh plan, confirmed merge soft-deletes sources with `superseded_by_sync_id` + survivor `consolidated_from` footer), `mem_scan` re-surfacing.
 - **Acceptance:** `go test ./internal/memory/... -run 'TestJudge|TestConsolidate|TestScan'` passes all six scenarios; `judge_many` issues exactly one store write (asserted via `SetTxnHook` counter).
@@ -149,6 +159,7 @@ Chain strategy: stacked-to-main
 - **Blocked by:** TICKET-09
 
 ### TICKET-11 — Lookup ladder (context / search / get) + wiki-first `mem_lookup` + RRF + vector leg
+- **Tracker ID:** TASK-094  (milestone 2026-10-31-mnemonic-v2-memory)
 
 - **Scope:** `memory/lookup.go`: `mem_search` compact rows (300-char preview + `truncated`) with the full boost stack; `mem_lookup` (exact `topic_key` → single upserted row or none; id/sync_id → full row; phrase → ≤5 FTS rows, no boosts; never widens); `mem_context` byte budget; `Store.VectorSearch` real via vec0 leg + RRF fusion (`fts`/`vector`/`rrf` routes); trail writer records every retrieval (query, route, filters, ids, `degraded`); `BumpRetrievalUsage` on the trail path (feeds importance); `MarkReviewed` resets `review_after = now + type-months`.
 - **Acceptance:** `go test ./internal/memory/... -run 'TestLookup|TestSearch|TestTrail|TestReview'` + `go test ./internal/core/store/... -run 'TestVector|TestContext'` pass: search returns boosted ranking (Task 2) with compact rows; lookup by absent topic returns nothing (does not widen); vector leg with null embedder → `degraded: true` + FTS-only result; every search/lookup writes a trail row; a 10× retrieved row outranks an identical never-retrieved row under the importance formula; `MarkReviewed` on an overdue row returns it to `active`.
@@ -159,6 +170,7 @@ Chain strategy: stacked-to-main
 - **Blocked by:** TICKET-02, TICKET-05, TICKET-07 (trails need the session context that sessions.go provides)
 
 ### TICKET-12 — Save event emission (wiki handoff) + consumer isolation
+- **Tracker ID:** TASK-095  (milestone 2026-10-31-mnemonic-v2-memory)
 
 - **Scope:** Complete the `SaveEvent` payload (`Entity` + `Importance`); exactly-one publication after commit; consumer failure never fails the save; **memory must not import the wiki package** (import graph asserted by test); `internal/wiki_teststub/` no-dependency consumer proof.
 - **Acceptance:** `go test ./internal/memory/... -run 'TestSaveEvent|TestWiki'` passes: one save → exactly one `SaveEvent{SyncID, Project, Scope, Type, TopicKey, Entity, Importance, Degraded}`; a panicking/returning-error consumer is observed and the save still returns success; `go list -deps ./internal/memory` (run in test) contains no `internal/wiki`.
@@ -169,6 +181,7 @@ Chain strategy: stacked-to-main
 - **Blocked by:** TICKET-07
 
 ### TICKET-13 — Shared handler + MCP stdio server (agent profile, write queue, envelope)
+- **Tracker ID:** TASK-096  (milestone 2026-10-31-mnemonic-v2-memory)
 
 - **Scope:** `internal/transport/handler/handler.go` — the one shared handler set (MCP + CLI call it; never diverge); `internal/transport/mcp/server.go` + `tools_mem.go` — all 26 `mem_*` tools via `mark3labs/mcp-go`; `agent` profile = exactly the 20 agent rows, `all` profile adds the 6 admin rows (contract test pins both sets literally, K5); write queue serializes concurrent writes; response envelope carries `degraded`.
 - **Acceptance:** `go test ./internal/transport/...` passes: contract test asserts the literal 20-agent + 6-admin tool sets; two concurrent `mem_save` tool calls serialize (no interleaved writes, `SetTxnHook` counts 2 ordered transactions); failing store → envelope with `degraded: true` + reason; stdio round-trip: launch the MCP server, initialize, call `mem_save`, receive valid JSON-RPC result.
@@ -179,6 +192,7 @@ Chain strategy: stacked-to-main
 - **Blocked by:** TICKET-04, TICKET-07, TICKET-08, TICKET-10, TICKET-11, TICKET-12
 
 ### TICKET-14 — CLI surface (mem / sync / trail / doctor / mcp) + parity with MCP
+- **Tracker ID:** TASK-097  (milestone 2026-10-31-mnemonic-v2-memory)
 
 - **Scope:** `cmd/mnemonic/` dispatch (stdlib flag, v1 pattern): `mem` (save/get/search/lookup/context/judge/compare/consolidate/scan/update/delete/session/review/doctor/stats/timeline/merge-projects), `sync` (subcommands stubbed, real in TICKET-16), `trail recent|show`, `doctor`, `mcp`; **byte-identical JSON parity with MCP** (K6 — same handler, parity test); project selection from config/TICKET-04.
 - **Acceptance:** `go test ./... -run 'TestParity|TestCli|TestDoctor'` passes: `mem save` CLI output == `mem_save` MCP tool output byte-for-byte (parity test); `--project` selection honored; `doctor` reports config/FTS/vector/embed round-trip + sets `degraded` on any gap, `--strict` exits non-zero.
@@ -189,6 +203,7 @@ Chain strategy: stacked-to-main
 - **Blocked by:** TICKET-04, TICKET-13
 
 ### TICKET-15 — Sync core (journal apply, tombstones, deferred-apply, enrollment)
+- **Tracker ID:** TASK-098  (milestone 2026-10-31-mnemonic-v2-memory)
 
 - **Scope:** `memory/sync.go`: pulled mutations applied **through the same store methods** (INV-4 — no raw SQL bypass); tombstone floors (a late upsert after a delete cannot resurrect); `sync_apply_deferred` (missing-FK mutations deferred, 5-retry cap → dead); `sync_enrolled_projects` gates the journal (un-enrolled project → journal writes rejected).
 - **Acceptance:** `go test ./internal/memory/... -run 'TestSyncCore'` passes: a pulled upsert goes through `Store.ApplyPulledMutation` (asserted by test store call log, not raw SQL); tombstoned key + late upsert → row stays deleted; a missing-FK mutation defers, retries 5×, lands `dead`; saving on an un-enrolled project → journal write rejected with actionable error.
@@ -199,6 +214,7 @@ Chain strategy: stacked-to-main
 - **Blocked by:** TICKET-05
 
 ### TICKET-16 — Sync transport (PG push/pull + chunk export/import + CLI sync subcommands)
+- **Tracker ID:** TASK-099  (milestone 2026-10-31-mnemonic-v2-memory)
 
 - **Scope:** `memory/transport.go`: `push` inserts pending mutations (≤100/batch, ≤8 MiB) into `schema_<project>.mutations` in one transaction, acks `last_acked_seq`; `pull` scoped to `schema_<project>` (fail fast when the project schema cannot be resolved — no `public` fallback); `memory/chunkcodec.go`: chunk id = first 8 hex of SHA-256 of the canonical payload; `sync export` → `manifest.json` + `chunks/*.jsonl.gz`; `sync import` loads the archive dialect-neutrally; Task 14's CLI `sync` stubs become real. One code path, two callers (K4 — CLI + autosync).
 - **Acceptance:** `go test ./internal/memory/... -run 'TestSyncTransport|TestChunk|TestExport'` passes against a fake PG transport (httptest/fake DSN): push batches ≤100, acks seq monotonically; pull against a missing schema fails fast (error names the project); export→import round-trip reproduces the store state; chunk id stable across re-exports of the same payload.
@@ -209,6 +225,7 @@ Chain strategy: stacked-to-main
 - **Blocked by:** TICKET-14, TICKET-15
 
 ### TICKET-17 — Autosync manager (lease-guarded, debounced, off the write path)
+- **Tracker ID:** TASK-100  (milestone 2026-10-31-mnemonic-v2-memory)
 
 - **Scope:** `memory/autosync.go`: when `sync.auto=true`, debounce 500 ms, SQLite-backed lease (one worker at a time), network I/O off the SQLite write path (`onWrite` hook = buffered-1 channel); manager start/stop in `cmd/mnemonic/mcp.go`.
 - **Acceptance:** `go test ./internal/memory/... -run 'TestAutosync'` passes: two concurrent manager instances → one wins the lease, the other stands down (lease row asserted); 10 rapid saves → one debounced cycle after 500 ms; a save with a slow transport (500 ms) completes the write path in <50 ms (channel never blocks the commit).
@@ -219,6 +236,7 @@ Chain strategy: stacked-to-main
 - **Blocked by:** TICKET-16
 
 ### TICKET-18 — PostgresStore (the second dialect render)
+- **Tracker ID:** TASK-101  (milestone 2026-10-31-mnemonic-v2-memory)
 
 - **Scope:** `store/postgres.go`: `Open` dialect switch, `schema_<project>` scoping + fail fast; full PG render of the local schema (`migrations_pg/*.sql`, tsvector in place of FTS5, HNSW index for the vector leg per S-1 parity); `lib/pq` driver (ADR-0041).
 - **Acceptance:** With `MNEMONIC_PG_TEST_DSN` set: `go test ./internal/core/store/... -run PG` passes — `Store.Search`/`VectorSearch` return the same Go result shape on both dialects (parity test runs both against identical fixtures); full migration set runs from an empty PG database; no `MNEMONIC_PG_TEST_DSN` → tests skip (not fail). CI must provide the DSN (gate G15).
@@ -232,6 +250,7 @@ Chain strategy: stacked-to-main
 - **Fails-when:** any `TestPG*` test fails or reports non-skip with the DSN set, OR the dialect-parity fixture diff is non-empty.
 
 ### TICKET-19 — v1 → v2 seed migration (`mnemonic migrate`) + doctor completeness
+- **Tracker ID:** TASK-102  (milestone 2026-10-31-mnemonic-v2-memory)
 
 - **Scope:** `cmd/mnemonic/migrate.go` + `internal/migrate/migrate.go` (own package — opens the v1 file read-only, depends on `memory.Service`): read-only v1 export → v2 seed import; **v1 files stay untouched** (D4 — different schema philosophy, one-time seed, no auto-migration); `doctor` gains the completeness checks.
 - **Acceptance:** `go test ./internal/migrate/...` passes: a fixture v1 DB is seeded into a fresh v2 store with observations + sessions + sync-state preserved; the v1 fixture file's mtime+bytes are identical before/after (asserted); running `migrate` twice is idempotent (hash dedupe absorbs the reseed).
@@ -243,6 +262,7 @@ Chain strategy: stacked-to-main
 - **Reversibility:** one-way (D4 — choosing a different cutover later means re-importing on every machine)
 
 ### TICKET-20 — Concurrency backstop (two-process WAL) + full-suite gate
+- **Tracker ID:** TASK-103  (milestone 2026-10-31-mnemonic-v2-memory)
 
 - **Scope:** Two-process backstop: one process holds the store open while a second runs `mem_save` — both complete without corruption (WAL + busy timeout + retry backoff from Task 1); if it fails, the fix lands here and re-enters the retry wrapper. Full-suite gate: the entire `mnemonic-v2` test suite + `go vet` + build pass; gates G1–G16 from `acceptance.feature` are the checklist.
 - **Acceptance:** `TestConcurrentProcessWAL` passes (two real OS processes, same project file, temp dir); `cd mnemonic-v2 && go build ./... && go vet ./... && go test ./...` all pass; every gate command in `acceptance.feature` Gates G1–G16 is executable and its EVIDENCE is captured.
