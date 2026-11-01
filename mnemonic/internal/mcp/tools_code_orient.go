@@ -7,9 +7,9 @@ import (
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/process"
-	"github.com/devopstales/skillgrid/mnemonic/internal/search"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/process"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/search"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 // registerOrientTools registers the Tier-1 orientation MCP tools. They resolve

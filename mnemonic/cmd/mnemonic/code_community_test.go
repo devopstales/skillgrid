@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/community"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/community"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 func writeFileTo(root, name, content string) error {

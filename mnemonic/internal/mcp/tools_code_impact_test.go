@@ -9,8 +9,8 @@ import (
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/codeindex"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/codeindex"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 // impactMCPFixture indexes a small python project where `base` has a direct

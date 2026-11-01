@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 // pdgCLIFixture writes a go project with branch/loop/return structure, indexes

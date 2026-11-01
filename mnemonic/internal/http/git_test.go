@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 // gitRun runs a git command in dir, returning combined output (test helper).

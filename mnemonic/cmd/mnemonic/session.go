@@ -8,8 +8,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/project"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/project"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 // runSession handles `skillgrid session <id>`. It is the CLI read path for

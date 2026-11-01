@@ -14,14 +14,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/codeindex"
-	"github.com/devopstales/skillgrid/mnemonic/internal/config"
-	mnemonichttp "github.com/devopstales/skillgrid/mnemonic/internal/http"
-	"github.com/devopstales/skillgrid/mnemonic/internal/mcp"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
-	"github.com/devopstales/skillgrid/mnemonic/internal/setup"
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
-	"github.com/devopstales/skillgrid/mnemonic/internal/ui"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/codeindex"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/config"
+	mnemonichttp "github.com/devopstales/skillgrid/mnemonic_back/internal/http"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/mcp"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/setup"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/ui"
 )
 
 // runMCP starts the MCP stdio server.
@@ -170,7 +170,7 @@ func runServe(version string, args []string) {
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), "usage: skillgrid serve [flags]")
 		fmt.Fprintln(fs.Output(), "  Starts the Mnemonic HTTP API (default http://127.0.0.1:7438).")
-		fmt.Fprintln(fs.Output(), "  Opens the dashboard at / and Swagger UI at /swagger.")
+		fmt.Fprintln(fs.Output(), "  Serves the JSON API plus the read-only docs bridge at /docs.")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {

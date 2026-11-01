@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/codeindex"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/codeindex"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 // communityMCPFixture indexes a two-cluster go project (a dense A cluster and

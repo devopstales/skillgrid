@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
 )
 
 // DefaultOllamaBaseURL is the stock Ollama server endpoint.

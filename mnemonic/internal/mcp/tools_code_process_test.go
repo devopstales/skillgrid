@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/codeindex"
-	"github.com/devopstales/skillgrid/mnemonic/internal/process"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/codeindex"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/process"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 // processMCPFixture indexes a small web app (an Express route serving

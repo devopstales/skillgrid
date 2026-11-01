@@ -9,8 +9,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/scan"
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/scan"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
 )
 
 // SourceResult is one source that ran (or failed) during Collect.

@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
 )
 
 // LLM is the optional distiller for the L2 scenario and L3 persona delta. A

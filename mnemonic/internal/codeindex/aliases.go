@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/search"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/search"
 )
 
 func init() {

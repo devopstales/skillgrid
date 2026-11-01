@@ -9,9 +9,9 @@ import (
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/community"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/community"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
 )
 
 // registerCommunityTools registers the community-detection MCP tools

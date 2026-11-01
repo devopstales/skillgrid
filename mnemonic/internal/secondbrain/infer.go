@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
 )
 
 // InferType deterministically infers an observation type from the text. It

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 // timeNowRFC3339 is a thin test seam so seedNearDupeRows can stamp rows with a

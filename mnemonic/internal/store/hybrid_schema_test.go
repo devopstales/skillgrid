@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/search"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/search"
 )
 
 var hybridTables = []string{"symbols", "edges", "rationale", "symbol_fts", "embeddings", "embed_meta", "lsh_buckets", "index_freshness"}

@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 // warnings.go — _health_warnings (2026-09-30-mnemonic-second-brain Task 7):

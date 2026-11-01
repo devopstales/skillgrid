@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
-	"github.com/devopstales/skillgrid/mnemonic/internal/policy"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/policy"
 )
 
 // runPolicy handles `skillgrid policy init | validate | test` (ADR-0021).

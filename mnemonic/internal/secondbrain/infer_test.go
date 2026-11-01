@@ -3,7 +3,7 @@ package secondbrain
 import (
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
 )
 
 // TestInferType is the deterministic type-taxonomy floor for mem_save.infer.

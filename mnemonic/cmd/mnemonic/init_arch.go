@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/setup"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/setup"
 	"gopkg.in/yaml.v3"
 )
 

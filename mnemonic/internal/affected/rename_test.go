@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
 )
 
 // renameFixture seeds a store where base (src/base.go) is called by mid

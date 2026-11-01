@@ -7,8 +7,8 @@ import (
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/graph"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/graph"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 // registerGraphTools registers the Tier-2 graph MCP tools. They are part of

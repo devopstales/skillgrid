@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 func (s *Server) registerTeamsRoutes() {

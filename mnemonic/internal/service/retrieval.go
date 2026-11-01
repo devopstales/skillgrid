@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/config"
-	"github.com/devopstales/skillgrid/mnemonic/internal/embedder"
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
-	"github.com/devopstales/skillgrid/mnemonic/internal/tiered"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/config"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/embedder"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/tiered"
 )
 
 // CorpusLTM is the default semantic_search corpus (long-term memories only).

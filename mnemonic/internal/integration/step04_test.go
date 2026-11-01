@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"testing"
 
-	mnemonichttp "github.com/devopstales/skillgrid/mnemonic/internal/http"
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	mnemonichttp "github.com/devopstales/skillgrid/mnemonic_back/internal/http"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 // step04Server builds a dashboard HTTP handler backed by a seeded memory store,

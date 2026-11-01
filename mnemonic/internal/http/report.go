@@ -7,10 +7,10 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/report"
-	"github.com/devopstales/skillgrid/mnemonic/internal/report/emit"
-	"github.com/devopstales/skillgrid/mnemonic/internal/scan"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/report"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/report/emit"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/scan"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 // reportRunOverride replaces the report collector's scanner runner. Nil in

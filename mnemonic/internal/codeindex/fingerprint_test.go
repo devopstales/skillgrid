@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/embedder"
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/embedder"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
 )
 
 // TestFingerprintGate covers 03.7 (Scenario: Fingerprint gate re-indexes

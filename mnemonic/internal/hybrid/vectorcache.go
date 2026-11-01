@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
-	"github.com/devopstales/skillgrid/mnemonic/internal/vectorstore"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/vectorstore"
 )
 
 // vecEntry is one decoded vector ready for cosine scoring. A zero vector

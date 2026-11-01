@@ -5,7 +5,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 // memLayerFixture pins the project to a stable bucket so handlers that open the

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
 )
 
 // The LLM distillation pass is cached by the L0 source content-hash. Re-running

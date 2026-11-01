@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
-	"github.com/devopstales/skillgrid/mnemonic/internal/scan"
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/scan"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
 )
 
 // trivyHTTPFixture is the trivy report the /report tests run through the real

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/graph"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/graph"
 )
 
 // seedDocNode inserts a doc node and returns its id.

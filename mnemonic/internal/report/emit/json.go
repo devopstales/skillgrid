@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/report"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/report"
 )
 
 // findingJSON is the dashboard-facing wire shape of a scan finding

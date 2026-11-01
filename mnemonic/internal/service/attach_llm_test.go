@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/config"
-	"github.com/devopstales/skillgrid/mnemonic/internal/llm"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/config"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/llm"
 )
 
 // restoreLLMSeams snapshots the two process-level seams (the AskLLM package

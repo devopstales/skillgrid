@@ -10,7 +10,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
 )
 
 // ExternalConfig configures the OpenAI-compatible external embedder.

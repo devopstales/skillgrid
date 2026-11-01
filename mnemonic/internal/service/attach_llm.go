@@ -6,9 +6,9 @@ import (
 	"log"
 	"strings"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/config"
-	"github.com/devopstales/skillgrid/mnemonic/internal/llm"
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/config"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/llm"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
 )
 
 // AttachSharedLLM wires the single shared OpenAI-compatible LLM (ADR-0023)

@@ -7,9 +7,9 @@ import (
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/facts"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
-	"github.com/devopstales/skillgrid/mnemonic/internal/skills"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/facts"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/skills"
 )
 
 func registerCompactionTools(s *server.MCPServer) {

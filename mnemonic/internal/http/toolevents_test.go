@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
 )
 
 // seedToolEvents registers two harness sessions (cursor, opencode) through the

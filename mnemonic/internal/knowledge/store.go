@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/extract"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/extract"
 )
 
 // Store is the knowledge pass's persistence seam: it upserts knowledge nodes

@@ -3,7 +3,7 @@ package mcp
 import (
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 const (

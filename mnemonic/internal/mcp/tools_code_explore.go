@@ -11,8 +11,8 @@ import (
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/graph"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/graph"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 // CodeToolsEnvVar is the config knob that re-enables the narrow code_* menu

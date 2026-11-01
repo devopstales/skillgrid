@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/search"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/search"
 )
 
 var graphTables = []string{"symbols", "edges", "rationale", "symbol_fts", "embeddings", "embed_meta", "lsh_buckets", "index_freshness"}

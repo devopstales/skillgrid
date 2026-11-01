@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/config"
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/config"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
 )
 
 func TestDecide(t *testing.T) {

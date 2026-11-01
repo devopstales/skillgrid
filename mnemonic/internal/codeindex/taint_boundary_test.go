@@ -3,7 +3,7 @@ package codeindex
 import (
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/pdg"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/pdg"
 )
 
 // boundaryFixtureDir writes a fixture where a source (env var) reaches an

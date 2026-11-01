@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
 )
 
 // seedGraphForExport plants a file, three symbols, two edges (one with a

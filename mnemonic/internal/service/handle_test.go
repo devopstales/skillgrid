@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
-	"github.com/devopstales/skillgrid/mnemonic/internal/webcache"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/webcache"
 )
 
 // TestOpenEmptyProjectIDAborts guards the handle seam: an empty project id

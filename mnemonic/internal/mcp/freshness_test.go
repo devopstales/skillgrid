@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/codeindex"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/codeindex"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
 )
 
 // resetFresh isolates the package-level freshness state for a test (and restores

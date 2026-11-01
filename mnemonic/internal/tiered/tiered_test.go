@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
 )
 
 func openTierStore(t *testing.T) (*store.Store, *Store, string) {

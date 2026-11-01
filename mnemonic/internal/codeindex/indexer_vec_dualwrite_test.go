@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/embedder"
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
-	"github.com/devopstales/skillgrid/mnemonic/internal/vectorstore"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/embedder"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/vectorstore"
 )
 
 // TestEmbedPassDualWritesVecTables pins that after an embed pass with a

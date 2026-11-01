@@ -5,8 +5,8 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/project"
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/project"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
 )
 
 // sessionCLIFixture opens a fresh project store (the SAME store file the CLI

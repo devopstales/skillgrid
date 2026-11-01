@@ -1,0 +1,11 @@
+{
+  "report": "fixture",
+  "classes": [
+    {
+      "name": "com/x/Main",
+      "sourcefilename": "Main.java",
+      "package": "com/x",
+      "coverage": { "LINE": { "covered": 4, "missed": 1 } }
+    }
+  ]
+}

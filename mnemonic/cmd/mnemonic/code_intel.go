@@ -12,9 +12,9 @@ import (
 
 	"database/sql"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/community"
-	"github.com/devopstales/skillgrid/mnemonic/internal/graph"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/community"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/graph"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 // runCodeIntel handles the `skillgrid orient` and `skillgrid grep` subcommands

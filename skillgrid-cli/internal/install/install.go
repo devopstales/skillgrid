@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic"
+	"github.com/devopstales/skillgrid/mnemonic_back"
 )
 
 const installMcpPkg = "install-mcp"
@@ -318,7 +318,7 @@ func installAgents(c *Config) error {
 func npmInstallGlobalArgs(pkg string) []string {
 	args := []string{"install", "-g"}
 	switch pkg {
-	case "opencode-ai", "agent-browser":
+	case "@opencode/cli", "agent-browser":
 		args = append(args, "--allow-scripts="+pkg)
 	}
 	return append(args, pkg)

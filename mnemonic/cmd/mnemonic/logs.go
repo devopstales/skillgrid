@@ -18,7 +18,7 @@ import (
 	"syscall"
 	"time"
 
-	mnemonichttp "github.com/devopstales/skillgrid/mnemonic/internal/http"
+	mnemonichttp "github.com/devopstales/skillgrid/mnemonic_back/internal/http"
 )
 
 // logsFollowPoll is the store-poll interval when `logs --follow` cannot reach

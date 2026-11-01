@@ -9,7 +9,7 @@ import (
 
 	"net/http"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 // newPhase6PlansServer builds a server whose docsCwd points at a temp repo with

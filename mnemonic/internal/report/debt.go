@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/scan"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/scan"
 )
 
 // debtMarker is a TODO/FIXME/XXX marker at the start of a comment (or a

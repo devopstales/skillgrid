@@ -7,12 +7,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	mnemonichttp "github.com/devopstales/skillgrid/mnemonic/internal/http"
-	"github.com/devopstales/skillgrid/mnemonic/internal/codeindex"
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
-	"github.com/devopstales/skillgrid/mnemonic/internal/search"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
-	"github.com/devopstales/skillgrid/mnemonic/internal/webcache"
+	mnemonichttp "github.com/devopstales/skillgrid/mnemonic_back/internal/http"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/codeindex"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/search"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/webcache"
 )
 
 const seedProject = "seed-test"

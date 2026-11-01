@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/files"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/files"
 )
 
 func newTeamsTestService(t *testing.T) (*Service, string) {

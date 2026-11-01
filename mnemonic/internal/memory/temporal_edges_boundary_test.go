@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
 )
 
 // seedImporterEdgeWithWindow plants one importing file + its package symbol and

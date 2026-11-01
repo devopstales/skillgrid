@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
-	"github.com/devopstales/skillgrid/mnemonic/internal/tiered"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/tiered"
 )
 
 // ErrMissingCommitSources is returned when mnemonic_commit lacks required content.

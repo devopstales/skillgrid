@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/pdg"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/pdg"
 )
 
 // lspTaintFixtureGo is a Go repo where a source (env var read) reaches a sink

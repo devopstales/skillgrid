@@ -12,8 +12,8 @@ import (
 	"math"
 	"strings"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/config"
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/config"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
 )
 
 // Embedder produces embedding vectors (no CGo required for the default ONNX

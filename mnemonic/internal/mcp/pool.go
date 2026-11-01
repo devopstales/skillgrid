@@ -5,9 +5,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/project"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/project"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
 )
 
 // StorePool is the lazy per-project store pool for the MCP server: stores are

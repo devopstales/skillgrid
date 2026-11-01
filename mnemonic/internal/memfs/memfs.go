@@ -18,7 +18,7 @@ package memfs
 import (
 	"database/sql"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
 )
 
 // MemFS is the virtual filesystem handle bound to one project store.

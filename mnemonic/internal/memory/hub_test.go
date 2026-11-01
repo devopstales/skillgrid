@@ -5,7 +5,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
 )
 
 // openHubStore opens a fresh migrated store (all migrations applied, incl.

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/pdg"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/pdg"
 )
 
 // TestPdgMalformedCfgSkipsContinues covers @step-01 (01.8, Scenario: Malformed

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
 )
 
 // TestServiceFacadePathOpensOnce is the step-04 double-open regression guard.

@@ -8,10 +8,10 @@ import (
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/config"
-	"github.com/devopstales/skillgrid/mnemonic/internal/embedder"
-	"github.com/devopstales/skillgrid/mnemonic/internal/hybrid"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/config"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/embedder"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/hybrid"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 // openServiceForRepo opens the service + project for a request's optional

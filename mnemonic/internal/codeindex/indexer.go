@@ -17,17 +17,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/community"
-	"github.com/devopstales/skillgrid/mnemonic/internal/embedder"
-	"github.com/devopstales/skillgrid/mnemonic/internal/extract"
-	"github.com/devopstales/skillgrid/mnemonic/internal/hybrid"
-	"github.com/devopstales/skillgrid/mnemonic/internal/knowledge"
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
-	"github.com/devopstales/skillgrid/mnemonic/internal/pdg"
-	"github.com/devopstales/skillgrid/mnemonic/internal/process"
-	"github.com/devopstales/skillgrid/mnemonic/internal/route"
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
-	"github.com/devopstales/skillgrid/mnemonic/internal/vectorstore"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/community"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/embedder"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/extract"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/hybrid"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/knowledge"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/pdg"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/process"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/route"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/vectorstore"
 )
 
 // vecDim is the dimension the vec0 tables (migration 042) are pinned to

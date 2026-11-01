@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/checkpoint"
-	"github.com/devopstales/skillgrid/mnemonic/internal/config"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/checkpoint"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/config"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 type checkpointClaimResponse struct {

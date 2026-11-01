@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/extract"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/extract"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 type initResult struct {

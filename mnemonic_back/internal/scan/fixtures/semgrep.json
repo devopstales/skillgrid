@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "check_id": "python.lang.security.eval-used",
+      "extra": {"severity": "ERROR", "message": "Use of eval() detected"},
+      "path": "app/auth.py",
+      "start": {"line": 12}
+    },
+    {
+      "check_id": "python.lang.best-elites.print-statements",
+      "extra": {"severity": "WARNING", "message": "print statement found"},
+      "path": "app/utils.py",
+      "start": {"line": 40}
+    },
+    {
+      "check_id": "generic.secrets.detected.secret",
+      "extra": {"severity": "ERROR", "message": "Hardcoded API key detected"},
+      "path": "config/settings.py",
+      "start": {"line": 7}
+    },
+    {
+      "check_id": "python.correctness.compare-to-constant",
+      "extra": {"severity": "NOTE", "message": "Compare to a constant"},
+      "path": "app/models.py",
+      "start": {"line": 88}
+    }
+  ]
+}

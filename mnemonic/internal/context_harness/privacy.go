@@ -3,7 +3,7 @@ package context_harness
 import (
 	"strings"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
 )
 
 // Injectable reports whether a session event is safe to include in the

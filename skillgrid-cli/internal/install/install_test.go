@@ -13,7 +13,7 @@ func TestAvailableAgents(t *testing.T) {
 		t.Fatalf("want 3 agents, got %d", len(got))
 	}
 	want := map[string]struct{ npm, bin string }{
-		"opencode": {"opencode-ai", "opencode"},
+		"opencode": {"@opencode/cli", "opencode"},
 		"kilo":     {"@kilocode/cli", "kilo"},
 		"cursor":   {"", ""},
 	}
@@ -30,7 +30,7 @@ func TestNpmInstallGlobalArgs(t *testing.T) {
 		pkg  string
 		want []string
 	}{
-		{"opencode-ai", []string{"install", "-g", "--allow-scripts=opencode-ai", "opencode-ai"}},
+		{"@opencode/cli", []string{"install", "-g", "--allow-scripts=@opencode/cli", "@opencode/cli"}},
 		{"agent-browser", []string{"install", "-g", "--allow-scripts=agent-browser", "agent-browser"}},
 		{"@kilocode/cli", []string{"install", "-g", "@kilocode/cli"}},
 	}

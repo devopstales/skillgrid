@@ -68,7 +68,7 @@ type Agent struct {
 // AvailableAgents returns the installable agents (first cut: opencode, kilo, cursor).
 func AvailableAgents() []Agent {
 	return []Agent{
-		{Key: "opencode", Name: "OpenCode", NPM: "opencode-ai", Bin: "opencode", Hint: "npm: opencode-ai"},
+		{Key: "opencode", Name: "OpenCode", NPM: "@opencode/cli", Bin: "opencode", Hint: "npm: @opencode/cli"},
 		{Key: "kilo", Name: "Kilo", NPM: "@kilocode/cli", Bin: "kilo", Hint: "npm: @kilocode/cli"},
 		{Key: "cursor", Name: "Cursor", NPM: "", Bin: "", Hint: "app-side only"},
 	}

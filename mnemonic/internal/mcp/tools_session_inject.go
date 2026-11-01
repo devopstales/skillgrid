@@ -6,7 +6,7 @@ import (
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/context_harness"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/context_harness"
 )
 
 func registerSessionInjectTools(s *server.MCPServer) {

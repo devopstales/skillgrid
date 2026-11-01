@@ -14,12 +14,12 @@ import (
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/embedder"
-	"github.com/devopstales/skillgrid/mnemonic/internal/loop"
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
-	"github.com/devopstales/skillgrid/mnemonic/internal/project"
-	"github.com/devopstales/skillgrid/mnemonic/internal/secondbrain"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/embedder"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/loop"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/project"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/secondbrain"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 func registerMemoryTools(s *server.MCPServer) {

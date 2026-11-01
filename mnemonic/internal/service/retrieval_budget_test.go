@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory/layer"
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory/layer"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
 )
 
 // seedBudgetedStore opens a project store, creates a session, and saves n

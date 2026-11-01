@@ -3,8 +3,8 @@ package checkpoint
 import (
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/config"
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/config"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
 )
 
 // Event is a structured tool event for digest rendering (no tool output text).

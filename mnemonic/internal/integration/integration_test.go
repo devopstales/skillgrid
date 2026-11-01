@@ -11,10 +11,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	mnemonichttp "github.com/devopstales/skillgrid/mnemonic/internal/http"
-	"github.com/devopstales/skillgrid/mnemonic/internal/mcp"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
-	mnemonicstore "github.com/devopstales/skillgrid/mnemonic/internal/store"
+	mnemonichttp "github.com/devopstales/skillgrid/mnemonic_back/internal/http"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/mcp"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
+	mnemonicstore "github.com/devopstales/skillgrid/mnemonic_back/internal/store"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 )
 

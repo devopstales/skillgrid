@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 // Phase 5 — Mnemonic files / memories / sessions / audit / search. Serves the

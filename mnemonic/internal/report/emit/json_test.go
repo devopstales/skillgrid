@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/report"
-	"github.com/devopstales/skillgrid/mnemonic/internal/scan"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/report"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/scan"
 )
 
 // TestJSON_ReportShape asserts the dashboard-facing JSON shape: a static

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/embedder"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/embedder"
 )
 
 // resetFileFirstSymbol clears the package-level cache. The cache is a

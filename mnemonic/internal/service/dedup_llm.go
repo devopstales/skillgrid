@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
 )
 
 // dedupLLMFunc is the pluggable LLM completion for the pre-write

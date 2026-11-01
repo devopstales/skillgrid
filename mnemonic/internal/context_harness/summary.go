@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
 )
 
 // minEventsForSummary is the floor of events a session needs before a summary

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/checkpoint"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/checkpoint"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 func postCheckpointClaim(t *testing.T, s *Server, sid string) (*httptest.ResponseRecorder, map[string]any) {

@@ -3,7 +3,7 @@ package codeindex
 import (
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/pdg"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/pdg"
 )
 
 // TestTaintSourceToSink covers @step-02 (02.2, Scenario: Source to sink taint

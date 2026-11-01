@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/files"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/files"
 )
 
 // Sentinel errors for teams lifecycle.

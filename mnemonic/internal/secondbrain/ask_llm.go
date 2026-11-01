@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 // llmTimeout bounds the LLM synthesis call in mem_ask llm mode; on timeout

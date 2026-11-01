@@ -1,0 +1,25 @@
+{
+  "SchemaVersion": 2,
+  "Trivy": {
+    "Version": "0.50.1"
+  },
+  "CreatedAt": "2026-10-05T00:00:00Z",
+  "Results": [
+    {
+      "Target": "requirements.txt",
+      "Class": "spdx",
+      "PkgType": "python",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2024-1234",
+          "PkgName": "flask",
+          "InstalledVersion": "2.0.1",
+          "FixedVersion": "3.0.0",
+          "Severity": "HIGH",
+          "Title": "flask before 2.0.1 has an os command injection",
+          "VulnerabilityDescription": "flask before 2.0.1 has an os command injection"
+        }
+      ]
+    }
+  ]
+}

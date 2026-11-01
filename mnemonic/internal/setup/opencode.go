@@ -60,9 +60,12 @@ func SetupOpenCode(home, repoRoot string, mcpEntries []MCPServerConfig, privateT
 // path and double-registered each plugin, so it was dropped (see TASK-082).
 //
 // The set copied: the 5 plugin sources, the shared v2 SSE helper
-// (skillgrid-v2sse.ts, imported by the compaction/events plugins), and every
-// tool file under plugins/opencode/tools/ (one file per tool; filename = tool
-// name for the OpenCode tools/ loader).
+// (skillgrid-v2sse.ts, imported by the compaction/events plugins via the
+// relative "./skillgrid-v2sse" — so it is installed into plugins/ BESIDE them,
+// where it loads as a harmless no-op plugin; it exports a default {id, setup}
+// precisely so auto-discovery accepts it), and every tool file under
+// plugins/opencode/tools/ (one file per tool; filename = tool name for the
+// OpenCode tools/ loader).
 func installNativePlugins(home, repoRoot, cfgPath, harness string, dryRun bool) error {
 	pluginDir := filepath.Join(home, ".config", harness, "plugins")
 	toolDir := filepath.Join(home, ".config", harness, "tools")

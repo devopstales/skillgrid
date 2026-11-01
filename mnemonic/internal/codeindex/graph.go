@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
 )
 
 // Edge is one stored graph edge with its temporal window (change 014, step 10).

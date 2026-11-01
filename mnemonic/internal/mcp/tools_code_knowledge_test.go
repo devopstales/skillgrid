@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/codeindex"
-	"github.com/devopstales/skillgrid/mnemonic/internal/knowledge"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/codeindex"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/knowledge"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 // runKnowledgePasses runs the knowledge extractors over the files under root

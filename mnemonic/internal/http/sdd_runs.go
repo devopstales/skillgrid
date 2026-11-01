@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/http/docs"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/http/docs"
 )
 
 // handleTeamRuns serves GET /sdd/runs: the execution ledgers (ADR-0020) with

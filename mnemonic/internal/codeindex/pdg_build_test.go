@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/pdg"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/pdg"
 )
 
 // TestCfgPdgBuild covers @step-01 (Scenario: Opt-in index builds per-function

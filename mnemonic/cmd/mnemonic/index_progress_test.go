@@ -8,7 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/codeindex"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/codeindex"
 )
 
 // TestPhaseLabel: known slugs map to human labels; unknown slugs pass through.

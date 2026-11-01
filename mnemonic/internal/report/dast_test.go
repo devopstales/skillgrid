@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/scan"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/scan"
 )
 
 // dastDASTURL is the target the DAST tests point dast.url at.

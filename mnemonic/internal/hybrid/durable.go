@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
-	"github.com/devopstales/skillgrid/mnemonic/internal/vectorstore"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/vectorstore"
 )
 
 // DurableEnabled reports whether the durable in-SQL vector path (ADR-0009,

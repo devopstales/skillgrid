@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/extract"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/extract"
 )
 
 // TestChunkLinesAstCoalescesFunctions verifies AST chunking coalesces adjacent

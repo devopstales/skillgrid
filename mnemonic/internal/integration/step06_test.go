@@ -5,8 +5,8 @@ import (
 	stdhttp "net/http"
 	"testing"
 
-	mnemonichttp "github.com/devopstales/skillgrid/mnemonic/internal/http"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	mnemonichttp "github.com/devopstales/skillgrid/mnemonic_back/internal/http"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 // step06Server builds a dashboard HTTP handler backed by a seeded memory

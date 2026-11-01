@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/context_harness"
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/context_harness"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
 )
 
 type toolCallBody struct {

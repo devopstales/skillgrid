@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/scan"
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/scan"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
 )
 
 // trivyFixture is the trivy report the report package tests run through the

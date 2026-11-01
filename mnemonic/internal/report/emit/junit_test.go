@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/report"
-	"github.com/devopstales/skillgrid/mnemonic/internal/scan"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/report"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/scan"
 )
 
 // TestJUnit_PerToolTestSuite asserts one testsuite per source that ran, the

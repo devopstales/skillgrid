@@ -1,0 +1,1002 @@
+// Package config loads skillgrid's indexing/profile YAML configuration.
+package config
+
+import (
+	"log"
+	"os"
+	"path/filepath"
+	"strconv"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+// WebCache holds cached web research settings from indexing.yaml.
+type WebCache struct {
+	Enabled       bool
+	MaxEntryBytes int
+	TTL           map[string]time.Duration
+	Sources       []string
+}
+
+// MaxFileSizeDefault is the first-class size-skip threshold (bytes) for
+// generated bundles / vendored blobs. Files larger are skipped (counted in
+// stats), not an error, not a fallback.
+const MaxFileSizeDefault = 500 * 1024
+
+// EmbedderConfig is the mnemonic.embedder.* section of indexing.yaml. The
+// provider selects the embedder (onnx default | external | off); indexing and
+// query params are asymmetric (separate treatment of corpus vs. query).
+type EmbedderConfig struct {
+	Provider  string
+	Dimension int
+	Indexing  EmbedderParams
+	Query     EmbedderParams
+	// External / ollama-only.
+	BaseURL string
+	Model   string
+	APIKey  string
+	// Local-only: directory holding <Model>.onnx (default ~/.skillgrid/models/).
+	ModelDir string
+}
+
+// EmbedderParams is one side (corpus or query) of the asymmetric embedder.
+type EmbedderParams struct {
+	Instructions string
+	InputType    string
+	MaxTokens    int
+}
+
+// LLMConfig is the mnemonic.llm section (ADR-0023, TICKET-01): the
+// OpenAI-compatible HTTP chat Completer settings. Enabled defaults to false
+// (opt-in) so the deterministic ADR-0016 floors stay the production path
+// until an operator enables the LLM. BaseURL is the OpenAI-compatible root
+// (e.g. http://localhost:11434/v1 for Ollama or https://api.openai.com/v1);
+// the client POSTs {BaseURL}/chat/completions. APIKey is the bearer token —
+// resolved here from the explicit YAML key, then the SKILLGRID_LLM_API_KEY
+// env var (the loader owns the env fallback so the llm.Client stays pure).
+// Timeout is the per-request budget as a Go duration; zero is fine — the
+// client applies its own 60s default (do not invent one here). The loader is
+// permissive: an enabled block with a missing BaseURL still loads; the attach
+// step (Task 2) is where that is enforced (fail-open to the floor).
+type LLMConfig struct {
+	Enabled bool
+	BaseURL string
+	Model   string
+	APIKey  string
+	Timeout time.Duration
+}
+
+// RetrievalBudget is the tunable read budget (change 013, step 03): the
+// item-count cap, the per-snippet char budget, and the context timeout. A
+// zero field falls back to its default in memory.DefaultBudget.
+type RetrievalBudget struct {
+	Items     int
+	Chars     int
+	TimeoutNs int64
+}
+
+// DefaultMemoryTTL is the default soft expiry stamped on every saved
+// observation when the caller does not supply one (014 step 04). Operators can
+// override it via the mnemonic.ttl config key.
+const DefaultMemoryTTL = 7 * 24 * time.Hour
+
+// Extraction is the mnemonic.extraction section (014 step 05). The LLM
+// passive-extraction pass is OPT-IN: LLM defaults to false so passive capture
+// stays on the deterministic regex floor unless an operator enables it.
+type Extraction struct {
+	LLM bool
+}
+
+// Checkpoint is the mnemonic.checkpoint section (ADR-0022): host-agent
+// memory checkpoint gating (min events, cooldown, observation cap).
+type Checkpoint struct {
+	Enabled         bool
+	MinEvents       int
+	Cooldown        time.Duration
+	MaxObservations int
+}
+
+// Inject is the mnemonic.inject section: session-start Memory Index budgets.
+type Inject struct {
+	Summaries    int
+	Observations int
+	MaxTokens    int
+}
+
+// DefaultCheckpoint is the production default for mnemonic.checkpoint.
+func DefaultCheckpoint() Checkpoint {
+	return Checkpoint{
+		Enabled:         true,
+		MinEvents:       5,
+		Cooldown:        10 * time.Minute,
+		MaxObservations: 5,
+	}
+}
+
+// DefaultInject is the production default for mnemonic.inject.
+func DefaultInject() Inject {
+	return Inject{
+		Summaries:    5,
+		Observations: 20,
+		MaxTokens:    800,
+	}
+}
+
+// Dedup is the mnemonic.dedup section (TICKET-05). The LLM pre-write
+// semantic-dedup pass is OPT-IN: LLM defaults to false so saves stay on the
+// deterministic hash dedup floor unless an operator enables it. Mirrors the
+// mnemonic.extraction.llm opt-in pattern.
+type Dedup struct {
+	LLM bool
+}
+
+// Improvement is the mnemonic.improve section (014 step 08): the
+// self-improvement feedback loop (retrieval-usage boost/decay re-ranking in
+// mem_search). OPT-IN: Enabled defaults to false so the default search
+// behavior is byte-identical to the pre-improve SQL ordering. The rates are
+// tunable; zero fields fall back to the memory package defaults.
+type Improvement struct {
+	Enabled   bool
+	Threshold int
+	MaxUsage  int
+	BoostRate float64
+	DecayRate float64
+	Cooldown  time.Duration
+}
+
+// Decay is the mnemonic.decay section (ADR-0018): query-time reinforcement
+// decay on mem_search. Enabled defaults to true when the section is absent.
+// Zero half-life and immunity floors fall back to a 30-day half-life,
+// importance 4, and 3 accesses.
+type Decay struct {
+	Enabled               bool
+	HalfLifeDays          float64
+	ImmunityMinImportance float64
+	ImmunityMinAccess     int
+}
+
+// DefaultDecay is the production default: decay on, 30-day half-life.
+func DefaultDecay() Decay {
+	return Decay{
+		Enabled:               true,
+		HalfLifeDays:          30,
+		ImmunityMinImportance: 4,
+		ImmunityMinAccess:     3,
+	}
+}
+
+// Promotion is the mnemonic.promotion section (014 step 09): the quality
+// threshold for the session-close graph promotion. Zero fields fall back to
+// the memory package defaults (MinLength 100 runes, MinSections 1 heading).
+// The promotion itself is always on when a summary meets the threshold; the
+// config only tunes the bar.
+type Promotion struct {
+	MinLength   int
+	MinSections int
+}
+
+// Importance is the mnemonic.importance section (014 step 13): the AKL
+// importance scoring + recency decay. DecayRate is the per-day exponential
+// decay (default 0.05/day — a 30-day-old observation with 100 retrievals
+// scores ≈22.3); the TierThresholds are the maturity-tier age cutoffs in
+// days (default 7/30/14). Zero fields fall back to the memory package
+// defaults in SetImportance, so a malformed or absent section keeps the
+// production behavior.
+type Importance struct {
+	DecayRate      float64
+	TierThresholds TierThresholdsConfig
+}
+
+// Federated is the mnemonic.federated section (014 step 16): the merge
+// weights for the federated cross-store query. The composite score is
+// rank_weight*(1/(1+rank)) + importance_weight*(importance/max_importance);
+// zero (or malformed/negative) weights fall back to the defaults below (0.5 /
+// 0.5), so an absent section keeps the production balance.
+type Federated struct {
+	RankWeight       float64
+	ImportanceWeight float64
+}
+
+// DefaultFederated is the 014 step 16 default: rank and importance carry
+// equal weight in the federated composite score.
+func DefaultFederated() Federated {
+	return Federated{RankWeight: 0.5, ImportanceWeight: 0.5}
+}
+
+// DefaultRetentionDays is the mnemonic.retention_days default (2026-09-24
+// monitoring): session_events rows older than this window are pruned by the
+// retention pass. One-way: 90-day auto-deletion of the audit trail.
+const DefaultRetentionDays = 90
+
+// Hooks is the mnemonic.hooks section (014 step 24): the lifecycle hooks
+// (session-start / pre-edit / prompt-submit / session-stop). Enabled DEFAULTS
+// TO TRUE (2026-09-24 monitoring, one-way flip): observe-mode is safe — it
+// writes an audit row per tool call and never blocks — so a config without the
+// section has hooks on. An explicit enabled: false still opts out. Timeout is
+// the per-hook execution budget (default 30s); zero falls back to the memory
+// package default (DefaultHookTimeout) inside SetHooks.
+type Hooks struct {
+	Enabled bool
+	Timeout time.Duration
+}
+
+// TierThresholdsConfig is the mnemonic.importance.tier_thresholds section
+// (014 step 13.4): the maturity-tier age cutoffs, in days. Zero fields fall
+// back to the memory package defaults (MatureAgeDays 7, ArchivalAgeDays 30,
+// UnusedArchivalDays 14).
+type TierThresholdsConfig struct {
+	MatureAgeDays      int
+	ArchivalAgeDays    int
+	UnusedArchivalDays int
+}
+
+// Indexing holds code index settings from indexing.yaml mnemonic section.
+type Indexing struct {
+	Include      []string
+	Exclude      []string
+	ChunkLines   int
+	ChunkOverlap int
+	MaxFileSize  int
+	WebCache     WebCache
+	Embedder     EmbedderConfig
+	// LLM is the mnemonic.llm section (ADR-0023, TICKET-01): the
+	// OpenAI-compatible chat Completer settings. Zero value (Enabled false) is
+	// the default — not carried in DefaultIndexing, like Extraction/Dedup.
+	LLM LLMConfig
+	// RetrievalBudget is the tunable mem_* read budget (change 013, step 03).
+	// Zero fields fall back to the memory package defaults.
+	RetrievalBudget RetrievalBudget
+	// TTL is the default observation soft expiry (mnemonic.ttl, 014 step 04).
+	// Zero means "use DefaultMemoryTTL".
+	TTL time.Duration
+	// Extraction is the mnemonic.extraction section (014 step 05): LLM passive
+	// extraction is opt-in (LLM defaults to false → regex floor).
+	Extraction Extraction
+	// Dedup is the mnemonic.dedup section (TICKET-05): LLM pre-write
+	// semantic-dedup is opt-in (LLM defaults to false → hash floor).
+	Dedup Dedup
+	// Improvement is the mnemonic.improve section (014 step 08): the
+	// self-improvement feedback loop. OPT-IN (Enabled defaults to false).
+	Improvement Improvement
+	// Decay is the mnemonic.decay section (ADR-0018): query-time reinforcement
+	// decay. ON by default (Enabled true, 30-day half-life) when the section
+	// is absent; an explicit enabled: false opts out.
+	Decay Decay
+	// Promotion is the mnemonic.promotion section (014 step 09): the
+	// session-close graph promotion quality threshold.
+	Promotion Promotion
+	// Importance is the mnemonic.importance section (014 step 13): the AKL
+	// importance scoring decay rate + maturity-tier thresholds.
+	Importance Importance
+	// Federated is the mnemonic.federated section (014 step 16): the merge
+	// weights for the federated cross-store query composite score.
+	Federated Federated
+	// SnapshotRetention is the mnemonic.snapshot.retention key (014 step
+	// 20.3): the auto-prune retention for store snapshots (how many most
+	// recent snapshots to keep after each capture). Zero means "use the
+	// memory package default" (10).
+	SnapshotRetention int
+	// Hooks is the mnemonic.hooks section (014 step 24): the lifecycle hooks
+	// switch (defaults to TRUE — observe-mode, 2026-09-24 monitoring) +
+	// per-hook timeout.
+	Hooks Hooks
+	// RetentionDays is the mnemonic.retention_days key (2026-09-24
+	// monitoring): the audit-trail retention window — session_events rows
+	// older than this are pruned by the retention pass. Zero/negative means
+	// "use DefaultRetentionDays" (90).
+	RetentionDays int
+	// PrivateTools is the mnemonic.private_tools list (2026-09-24
+	// monitoring): the always-private allowlist — tool names whose captured
+	// output is always redacted (content_preview never stored). Empty by
+	// default. The installer mirrors this list into the plugin's
+	// SKILLGRID_MNEMONIC_PRIVATE_TOOLS env var.
+	PrivateTools []string
+	// Checkpoint is the mnemonic.checkpoint section (ADR-0022).
+	Checkpoint Checkpoint
+	// Inject is the mnemonic.inject section (session-start Memory Index).
+	Inject Inject
+}
+
+type indexingFile struct {
+	Profile  string          `yaml:"profile"`
+	Mnemonic mnemonicSection `yaml:"mnemonic"`
+}
+
+type mnemonicSection struct {
+	Include      []string        `yaml:"include"`
+	Exclude      []string        `yaml:"exclude"`
+	ChunkLines   int             `yaml:"chunk_lines"`
+	ChunkOverlap int             `yaml:"chunk_overlap"`
+	MaxFileSize  int             `yaml:"max_file_size"`
+	WebCache     webCacheSection `yaml:"web_cache"`
+	Embedder     embedderSection `yaml:"embedder"`
+	// LLM is the mnemonic.llm section (ADR-0023, TICKET-01): the
+	// OpenAI-compatible chat Completer settings. Enabled is a plain bool so an
+	// absent key is false (opt-in); timeout is a Go duration string, e.g. "30s".
+	LLM llmSection `yaml:"llm"`
+	// RetrievalBudget is the mnemonic.retrieval_budget section (change 013,
+	// step 03): item/char/timeout caps for every mem_* read path.
+	RetrievalBudget retrievalBudgetSection `yaml:"retrieval_budget"`
+	// TTL is the mnemonic.ttl key (014 step 04): a Go duration string, e.g.
+	// "168h" or "7d" is not supported — use hours/seconds. Zero/empty keeps
+	// the DefaultMemoryTTL fallback.
+	TTL string `yaml:"ttl"`
+	// Extraction is the mnemonic.extraction section (014 step 05): the LLM
+	// passive-extraction opt-in switch.
+	Extraction extractionSection `yaml:"extraction"`
+	// Dedup is the mnemonic.dedup section (TICKET-05): the LLM pre-write
+	// semantic-dedup opt-in switch.
+	Dedup dedupSection `yaml:"dedup"`
+	// Improvement is the mnemonic.improve section (014 step 08): the
+	// self-improvement feedback loop opt-in + tunable rates.
+	Improvement improvementSection `yaml:"improve"`
+	// Decay is the mnemonic.decay section (ADR-0018): query-time reinforcement
+	// decay. Enabled is a pointer so an absent key stays the default true
+	// while an explicit false opts out.
+	Decay decaySection `yaml:"decay"`
+	// Promotion is the mnemonic.promotion section (014 step 09): the
+	// session-close graph promotion quality threshold.
+	Promotion promotionSection `yaml:"promotion"`
+	// Importance is the mnemonic.importance section (014 step 13): the AKL
+	// importance scoring decay rate + maturity-tier thresholds.
+	Importance importanceSection `yaml:"importance"`
+	// Federated is the mnemonic.federated section (014 step 16): the merge
+	// weights for the federated cross-store query composite score.
+	Federated federatedSection `yaml:"federated"`
+	// Snapshot is the mnemonic.snapshot section (014 step 20.3): the auto-
+	// prune retention for store snapshots (how many most recent snapshots to
+	// keep after each capture).
+	Snapshot snapshotSection `yaml:"snapshot"`
+	// Hooks is the mnemonic.hooks section (014 step 24): the lifecycle hooks
+	// switch + per-hook timeout (a Go duration string, e.g. "30s"). Enabled is
+	// a pointer so "absent" (→ default true, observe-mode) is distinguishable
+	// from an explicit false (→ opt-out).
+	Hooks hooksSection `yaml:"hooks"`
+	// RetentionDays is the mnemonic.retention_days key (2026-09-24
+	// monitoring): the audit-trail retention window in days. Non-positive
+	// keeps DefaultRetentionDays (90).
+	RetentionDays int `yaml:"retention_days"`
+	// PrivateTools is the mnemonic.private_tools list (2026-09-24
+	// monitoring): the always-private allowlist of tool names.
+	PrivateTools []string `yaml:"private_tools"`
+	// Checkpoint is the mnemonic.checkpoint section (ADR-0022).
+	Checkpoint checkpointSection `yaml:"checkpoint"`
+	// Inject is the mnemonic.inject section (session-start Memory Index).
+	Inject injectSection `yaml:"inject"`
+}
+
+type retrievalBudgetSection struct {
+	Items   int    `yaml:"items"`
+	Chars   int    `yaml:"chars"`
+	Timeout string `yaml:"timeout"` // Go duration string, e.g. "3s"
+}
+
+// extractionSection is the mnemonic.extraction section (014 step 05). LLM
+// defaults to false: passive capture stays on the deterministic regex floor
+// unless an operator opts into the LLM pass.
+type extractionSection struct {
+	LLM bool `yaml:"llm"`
+}
+
+// checkpointSection is the mnemonic.checkpoint section (ADR-0022). Pointer
+// fields distinguish absent keys from explicit values; invalid values log a
+// warning and keep the merged defaults.
+type checkpointSection struct {
+	Enabled         *bool `yaml:"enabled"`
+	MinEvents       *int  `yaml:"min_events"`
+	CooldownMinutes *int  `yaml:"cooldown_minutes"`
+	MaxObservations *int  `yaml:"max_observations"`
+}
+
+// injectSection is the mnemonic.inject section (session-start Memory Index).
+type injectSection struct {
+	Summaries    *int `yaml:"summaries"`
+	Observations *int `yaml:"observations"`
+	MaxTokens    *int `yaml:"max_tokens"`
+}
+
+// mergeCheckpoint maps mnemonic.checkpoint YAML onto Checkpoint. Invalid
+// knobs warn and fall back to base defaults; Load never hard-fails.
+func mergeCheckpoint(base Checkpoint, section checkpointSection) Checkpoint {
+	out := base
+	if section.Enabled != nil {
+		out.Enabled = *section.Enabled
+	}
+	if section.MinEvents != nil {
+		if *section.MinEvents >= 1 {
+			out.MinEvents = *section.MinEvents
+		} else {
+			log.Printf("warning: mnemonic.checkpoint.min_events must be >= 1 (got %d), using default %d", *section.MinEvents, base.MinEvents)
+		}
+	}
+	if section.CooldownMinutes != nil {
+		if *section.CooldownMinutes > 0 {
+			out.Cooldown = time.Duration(*section.CooldownMinutes) * time.Minute
+		} else {
+			log.Printf("warning: mnemonic.checkpoint.cooldown_minutes must be > 0 (got %d), using default %s", *section.CooldownMinutes, base.Cooldown)
+		}
+	}
+	if section.MaxObservations != nil {
+		if *section.MaxObservations >= 1 {
+			out.MaxObservations = *section.MaxObservations
+		} else {
+			log.Printf("warning: mnemonic.checkpoint.max_observations must be >= 1 (got %d), using default %d", *section.MaxObservations, base.MaxObservations)
+		}
+	}
+	return out
+}
+
+// mergeInject maps mnemonic.inject YAML onto Inject. Invalid max_tokens warns
+// and falls back; summaries and observations allow zero when explicitly set.
+func mergeInject(base Inject, section injectSection) Inject {
+	out := base
+	if section.Summaries != nil {
+		if *section.Summaries >= 0 {
+			out.Summaries = *section.Summaries
+		} else {
+			log.Printf("warning: mnemonic.inject.summaries must be >= 0 (got %d), using default %d", *section.Summaries, base.Summaries)
+		}
+	}
+	if section.Observations != nil {
+		if *section.Observations >= 0 {
+			out.Observations = *section.Observations
+		} else {
+			log.Printf("warning: mnemonic.inject.observations must be >= 0 (got %d), using default %d", *section.Observations, base.Observations)
+		}
+	}
+	if section.MaxTokens != nil {
+		if *section.MaxTokens >= 100 {
+			out.MaxTokens = *section.MaxTokens
+		} else {
+			log.Printf("warning: mnemonic.inject.max_tokens must be >= 100 (got %d), using default %d", *section.MaxTokens, base.MaxTokens)
+		}
+	}
+	return out
+}
+
+// dedupSection is the mnemonic.dedup section (TICKET-05). LLM defaults to
+// false: saves stay on the deterministic hash dedup floor unless an operator
+// opts into the LLM 4-way pre-write semantic-dedup check.
+type dedupSection struct {
+	LLM bool `yaml:"llm"`
+}
+
+// improvementSection is the mnemonic.improve section (014 step 08). Enabled
+// defaults to false: the self-improvement feedback loop is opt-in, so the
+// default search behavior is byte-identical to the pre-improve SQL ordering.
+type improvementSection struct {
+	Enabled   bool   `yaml:"enabled"`
+	Threshold int    `yaml:"threshold"`
+	MaxUsage  int    `yaml:"max_usage"`
+	BoostRate string `yaml:"boost_rate"`
+	DecayRate string `yaml:"decay_rate"`
+	Cooldown  string `yaml:"cooldown"` // Go duration string, e.g. "60s"
+}
+
+// decaySection is the mnemonic.decay section (ADR-0018). Enabled is a pointer
+// so an absent key (nil) keeps the default true, while an explicit false opts
+// out. Non-positive half-life and immunity floors keep DefaultDecay.
+type decaySection struct {
+	Enabled               *bool   `yaml:"enabled"`
+	HalfLifeDays          float64 `yaml:"half_life_days"`
+	ImmunityMinImportance float64 `yaml:"immunity_min_importance"`
+	ImmunityMinAccess     int     `yaml:"immunity_min_access"`
+}
+
+type embedderSection struct {
+	Provider  string         `yaml:"provider"`
+	Dimension int            `yaml:"dimension"`
+	Indexing  embedderParams `yaml:"indexing_params"`
+	Query     embedderParams `yaml:"query_params"`
+	BaseURL   string         `yaml:"base_url"`
+	Model     string         `yaml:"model"`
+	APIKey    string         `yaml:"api_key"`
+	ModelDir  string         `yaml:"model_dir"` // local provider only
+}
+
+// llmSection is the mnemonic.llm section (ADR-0023, TICKET-01): the
+// OpenAI-compatible chat Completer settings. Enabled is a plain bool so an
+// absent key is false (opt-in); BaseURL/Model are empty until set; Timeout is
+// a Go duration string (e.g. "30s") — blank/malformed keeps the base value
+// (the client applies its own 60s default when it is still zero).
+type llmSection struct {
+	Enabled bool   `yaml:"enabled"`
+	BaseURL string `yaml:"base_url"`
+	Model   string `yaml:"model"`
+	APIKey  string `yaml:"api_key"`
+	Timeout string `yaml:"timeout"`
+}
+
+type embedderParams struct {
+	Instructions string `yaml:"instructions"`
+	InputType    string `yaml:"input_type"`
+	MaxTokens    int    `yaml:"max_tokens"`
+}
+
+type webCacheSection struct {
+	Enabled       *bool             `yaml:"enabled"`
+	MaxEntryBytes int               `yaml:"max_entry_bytes"`
+	TTL           map[string]string `yaml:"ttl"`
+	Sources       []string          `yaml:"sources"`
+}
+
+// DefaultWebCache returns TTL and size defaults matching .skillgrid/config.d/indexing.yaml.
+func DefaultWebCache() WebCache {
+	return WebCache{
+		Enabled:       true,
+		MaxEntryBytes: 262144,
+		TTL: map[string]time.Duration{
+			"context7": 720 * time.Hour,
+			"exa":      168 * time.Hour,
+			"deepwiki": 336 * time.Hour,
+			"fetch":    168 * time.Hour,
+			"manual":   0,
+		},
+		Sources: []string{"context7", "exa", "deepwiki", "fetch", "manual"},
+	}
+}
+
+// DefaultOnnxModel is the default ONNX embedder (nomic-embed-code, 768-dim).
+const DefaultOnnxModel = "nomic-embed-code"
+
+// DefaultOnnxDim is the default output dimension for the ONNX provider.
+const DefaultOnnxDim = 768
+
+// DefaultIndexing returns defaults matching .skillgrid/config.d/indexing.yaml.
+func DefaultIndexing() Indexing {
+	return Indexing{
+		Include: []string{
+			"**/*.go",
+			"**/*.ts",
+			"**/*.tsx",
+			"**/*.md",
+		},
+		Exclude: []string{
+			"**/node_modules/**",
+			"**/.git/**",
+			"**/dist/**",
+			"**/.skillgrid/**",
+		},
+		ChunkLines:   80,
+		ChunkOverlap: 10,
+		MaxFileSize:  MaxFileSizeDefault,
+		WebCache:     DefaultWebCache(),
+		Embedder:     DefaultEmbedder(),
+		TTL:          DefaultMemoryTTL,
+		Federated:    DefaultFederated(),
+		Decay:        DefaultDecay(),
+		Checkpoint:   DefaultCheckpoint(),
+		Inject:       DefaultInject(),
+	}
+}
+
+// DefaultEmbedder returns the default embedder config: ONNX nomic-embed-code
+// (768-dim), with separate indexing (corpus) and query param sets.
+func DefaultEmbedder() EmbedderConfig {
+	return EmbedderConfig{
+		Provider:  "onnx",
+		Dimension: DefaultOnnxDim,
+		Indexing:  EmbedderParams{InputType: "passage"},
+		Query:     EmbedderParams{InputType: "query"},
+		Model:     DefaultOnnxModel,
+	}
+}
+
+// Load returns indexing settings for startDir, walking up to find
+// .skillgrid/config.d/indexing.yaml.
+//
+// Precedence (lowest to highest): built-in defaults < home-local
+// (~/.skillgrid/config.d/indexing.yaml) < the first repo-local file found
+// walking up from startDir. The home-local file is a per-key fallback: it
+// supplies any key the repo-local file leaves unset (e.g. a machine-specific
+// mnemonic.embedder block) while the repo-local file keeps winning the keys it
+// does set. This is what lets an operator point mnemonic.embedder at a local
+// Ollama server without committing the machine-specific config to the repo.
+func Load(startDir string) Indexing {
+	defaults := DefaultIndexing()
+	var home mnemonicSection
+	if data, err := os.ReadFile(homeIndexingYAML()); err == nil {
+		var f indexingFile
+		if yaml.Unmarshal(data, &f) == nil {
+			home = f.Mnemonic
+		}
+	}
+	path, ok := findIndexingYAML(startDir)
+	if !ok {
+		return mergeIndexing(defaults, home)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return mergeIndexing(defaults, home)
+	}
+	var file indexingFile
+	if err := yaml.Unmarshal(data, &file); err != nil {
+		return mergeIndexing(defaults, home)
+	}
+	return mergeIndexing(mergeIndexing(defaults, home), file.Mnemonic)
+}
+
+// homeIndexingYAML is the machine-local config path (~/.skillgrid/config.d/
+// indexing.yaml). It is consulted only as a per-key fallback to the repo-local
+// file, so machine-specific settings (embedder endpoints, etc.) never need to
+// be committed.
+func homeIndexingYAML() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".skillgrid", "config.d", "indexing.yaml")
+}
+
+func findIndexingYAML(startDir string) (string, bool) {
+	dir, err := filepath.Abs(startDir)
+	if err != nil {
+		return "", false
+	}
+	for {
+		candidate := filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", false
+}
+
+func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
+	out := defaults
+	if len(section.Include) > 0 {
+		out.Include = append([]string(nil), section.Include...)
+	}
+	if len(section.Exclude) > 0 {
+		out.Exclude = append([]string(nil), section.Exclude...)
+	}
+	if section.ChunkLines > 0 {
+		out.ChunkLines = section.ChunkLines
+	}
+	if section.ChunkOverlap > 0 {
+		out.ChunkOverlap = section.ChunkOverlap
+	}
+	if section.MaxFileSize > 0 {
+		out.MaxFileSize = section.MaxFileSize
+	}
+	out.WebCache = mergeWebCache(defaults.WebCache, section.WebCache)
+	out.Embedder = mergeEmbedder(defaults.Embedder, section.Embedder)
+	// LLM (ADR-0023, TICKET-01): the OpenAI-compatible chat Completer settings.
+	// Enabled is applied as-is (absent → false, opt-in). BaseURL/Model apply
+	// when set; api_key falls back to SKILLGRID_LLM_API_KEY when the YAML key is
+	// absent (explicit YAML > env > base). A malformed timeout warns and keeps
+	// the base value (the client defaults to 60s when it stays zero).
+	out.LLM = mergeLLM(defaults.LLM, section.LLM)
+	out.RetrievalBudget = mergeRetrievalBudget(defaults.RetrievalBudget, section.RetrievalBudget)
+	// TTL (014 step 04): a mnemonic.ttl duration overrides the default; a blank
+	// or malformed value keeps the fallback so a bad key never disables expiry.
+	if section.TTL != "" {
+		if d, err := time.ParseDuration(section.TTL); err == nil && d > 0 {
+			out.TTL = d
+		}
+	}
+	// Extraction (014 step 05): the LLM opt-in switch. The section has no
+	// non-zero default, so the YAML value applies as-is (absent → false).
+	out.Extraction = Extraction{LLM: section.Extraction.LLM}
+	// Dedup (TICKET-05): the LLM pre-write semantic-dedup opt-in switch. The
+	// section has no non-zero default, so the YAML value applies as-is
+	// (absent → false, the deterministic hash floor).
+	out.Dedup = Dedup{LLM: section.Dedup.LLM}
+	// Improvement (014 step 08): the self-improvement feedback loop. OPT-IN —
+	// Enabled defaults to false (absent → byte-identical search). Zero rate
+	// fields fall back to the memory package defaults in SetImprove.
+	out.Improvement = mergeImprovement(section.Improvement)
+	// Decay (ADR-0018): query-time reinforcement decay. ON when the section is
+	// absent (Enabled true, 30-day half-life). An explicit enabled: false stays
+	// false. An omitted section keeps the already-merged base (home opt-out
+	// survives a repo file without a decay key). Non-positive knobs keep it too.
+	out.Decay = mergeDecay(defaults.Decay, section.Decay)
+	// Promotion (014 step 09): the session-close graph promotion threshold.
+	// Zero fields fall back to the memory package defaults in SetPromotion.
+	out.Promotion = mergePromotion(section.Promotion)
+	// Importance (014 step 13): the AKL importance scoring decay rate + tier
+	// thresholds. Zero/malformed fields fall back to the memory package
+	// defaults in SetImportance, so a malformed section never changes the
+	// production scoring.
+	out.Importance = mergeImportance(section.Importance)
+	// Federated (014 step 16): the federated merge weights. Malformed or
+	// non-positive values fall back to the 0.5/0.5 defaults, so a bad key
+	// never skews the composite.
+	out.Federated = mergeFederated(section.Federated)
+	// Snapshot retention (014 step 20.3): a non-positive value is left zero so
+	// SetSnapshotRetention applies the memory package default (10).
+	out.SnapshotRetention = section.Snapshot.Retention
+	// Hooks (014 step 24): Enabled defaults to TRUE when absent (observe-mode
+	// one-way flip, 2026-09-24 monitoring); an explicit value wins. A blank
+	// or malformed timeout is left zero so SetHooks applies the memory
+	// package default (30s).
+	out.Hooks = mergeHooks(section.Hooks)
+	// Retention window (2026-09-24 monitoring): non-positive keeps the 90-day
+	// default so a malformed key never widens the auto-deletion window.
+	if section.RetentionDays <= 0 {
+		out.RetentionDays = DefaultRetentionDays
+	} else {
+		out.RetentionDays = section.RetentionDays
+	}
+	// Always-private allowlist (2026-09-24 monitoring): applied as-is; absent
+	// → empty (no always-redacted tools).
+	if len(section.PrivateTools) > 0 {
+		out.PrivateTools = append([]string(nil), section.PrivateTools...)
+	}
+	out.Checkpoint = mergeCheckpoint(defaults.Checkpoint, section.Checkpoint)
+	out.Inject = mergeInject(defaults.Inject, section.Inject)
+	return out
+}
+
+// mergeHooks maps the mnemonic.hooks YAML section (014 step 24) to the Hooks
+// struct. Enabled defaults to TRUE when the key is absent (nil pointer —
+// observe-mode one-way flip); an explicit false opts out. A non-positive
+// parsed timeout is left zero so SetHooks applies its default.
+func mergeHooks(section hooksSection) Hooks {
+	enabled := true
+	if section.Enabled != nil {
+		enabled = *section.Enabled
+	}
+	out := Hooks{Enabled: enabled}
+	if section.Timeout != "" {
+		if d, err := time.ParseDuration(section.Timeout); err == nil && d > 0 {
+			out.Timeout = d
+		}
+	}
+	return out
+}
+
+// mergeFederated maps the mnemonic.federated YAML section (014 step 16) to the
+// Federated struct. Weights are float strings (YAML mirrors the importance
+// section's pattern); absent or malformed values are left zero so the
+// DefaultFederated fallback applies.
+func mergeFederated(section federatedSection) Federated {
+	out := DefaultFederated()
+	if f, err := strconv.ParseFloat(section.RankWeight, 64); err == nil && f > 0 {
+		out.RankWeight = f
+	}
+	if f, err := strconv.ParseFloat(section.ImportanceWeight, 64); err == nil && f > 0 {
+		out.ImportanceWeight = f
+	}
+	return out
+}
+
+// mergeImportance maps the mnemonic.importance YAML section (014 step 13) to
+// the Importance struct. The decay rate is a float string; absent or
+// malformed values are left zero so SetImportance applies the 0.05/day
+// default. Negative values are rejected the same way (the default applies).
+func mergeImportance(section importanceSection) Importance {
+	out := Importance{
+		TierThresholds: TierThresholdsConfig{
+			MatureAgeDays:      section.TierThresholds.MatureAgeDays,
+			ArchivalAgeDays:    section.TierThresholds.ArchivalAgeDays,
+			UnusedArchivalDays: section.TierThresholds.UnusedArchivalDays,
+		},
+	}
+	if f, err := strconv.ParseFloat(section.DecayRate, 64); err == nil && f > 0 {
+		out.DecayRate = f
+	}
+	return out
+}
+
+// mergeImprovement maps the mnemonic.improve YAML section to the Improvement
+// struct. Enabled is applied as-is (absent → false = opt-in off). Rate fields
+// are parsed as floats/durations; a missing or malformed value leaves the
+// field zero so SetImprove applies its default.
+func mergeImprovement(section improvementSection) Improvement {
+	out := Improvement{Enabled: section.Enabled, Threshold: section.Threshold, MaxUsage: section.MaxUsage}
+	if f, err := strconv.ParseFloat(section.BoostRate, 64); err == nil && f > 0 {
+		out.BoostRate = f
+	}
+	if f, err := strconv.ParseFloat(section.DecayRate, 64); err == nil && f > 0 {
+		out.DecayRate = f
+	}
+	if section.Cooldown != "" {
+		if d, err := time.ParseDuration(section.Cooldown); err == nil && d > 0 {
+			out.Cooldown = d
+		}
+	}
+	return out
+}
+
+// mergeDecay layers the mnemonic.decay YAML section over the already-merged
+// base Decay (defaults, then home, then repo). An omitted section or key keeps
+// the base value, so a home-level opt-out survives a repo file that does not
+// mention decay. An explicit enabled value (true or false) wins. Non-positive
+// half-life and immunity floors keep the base so a blank key never disables
+// the ranker knobs.
+func mergeDecay(base Decay, section decaySection) Decay {
+	out := base
+	if section.Enabled != nil {
+		out.Enabled = *section.Enabled
+	}
+	if section.HalfLifeDays > 0 {
+		out.HalfLifeDays = section.HalfLifeDays
+	}
+	if section.ImmunityMinImportance > 0 {
+		out.ImmunityMinImportance = section.ImmunityMinImportance
+	}
+	if section.ImmunityMinAccess > 0 {
+		out.ImmunityMinAccess = section.ImmunityMinAccess
+	}
+	return out
+}
+
+// promotionSection is the mnemonic.promotion section (014 step 09). Zero
+// fields fall back to the memory package defaults in SetPromotion.
+type promotionSection struct {
+	MinLength   int `yaml:"min_length"`
+	MinSections int `yaml:"min_sections"`
+}
+
+// importanceSection is the mnemonic.importance section (014 step 13). The
+// decay rate is parsed as a float (absent/malformed → 0, so SetImportance
+// applies the 0.05/day default); the tier thresholds are day counts (absent
+// → 0, so SetImportance applies the 7/30/14-day defaults).
+type importanceSection struct {
+	DecayRate      string                `yaml:"decay"`
+	TierThresholds tierThresholdsSection `yaml:"tier_thresholds"`
+}
+
+// federatedSection is the mnemonic.federated section (014 step 16). Weights
+// are parsed as floats (absent/malformed → the 0.5/0.5 defaults).
+type federatedSection struct {
+	RankWeight       string `yaml:"rank_weight"`
+	ImportanceWeight string `yaml:"importance_weight"`
+}
+
+// snapshotSection is the mnemonic.snapshot section (014 step 20.3): the auto-
+// prune retention for store snapshots (Retention = how many most recent
+// snapshots to keep after each capture). Zero means "use the memory package
+// default" (10) — SetSnapshotRetention falls back to defaultSnapshotRetention
+// when the value is non-positive.
+type snapshotSection struct {
+	Retention int `yaml:"retention"`
+}
+
+// hooksSection is the mnemonic.hooks section (014 step 24): the lifecycle
+// hooks switch + per-hook timeout (a Go duration string, e.g. "30s";
+// blank/malformed keeps the memory package default of 30s). Enabled is a
+// pointer: nil means "absent" → default true (observe-mode, 2026-09-24
+// monitoring one-way flip); a non-nil value is the operator's explicit choice.
+type hooksSection struct {
+	Enabled *bool  `yaml:"enabled"`
+	Timeout string `yaml:"timeout"`
+}
+
+// tierThresholdsSection is the mnemonic.importance.tier_thresholds section
+// (014 step 13.4): maturity-tier age cutoffs, in days.
+type tierThresholdsSection struct {
+	MatureAgeDays      int `yaml:"mature_age_days"`
+	ArchivalAgeDays    int `yaml:"archival_age_days"`
+	UnusedArchivalDays int `yaml:"unused_archival_days"`
+}
+
+// mergePromotion maps the mnemonic.promotion YAML section to the Promotion
+// struct. Zero fields are left zero so SetPromotion applies its defaults.
+func mergePromotion(section promotionSection) Promotion {
+	return Promotion{MinLength: section.MinLength, MinSections: section.MinSections}
+}
+
+// mergeRetrievalBudget merges the mnemonic.retrieval_budget section over the
+// defaults. Each field is applied independently when present (a partial budget
+// only overrides the knobs it sets).
+func mergeRetrievalBudget(defaults RetrievalBudget, section retrievalBudgetSection) RetrievalBudget {
+	out := defaults
+	if section.Items > 0 {
+		out.Items = section.Items
+	}
+	if section.Chars > 0 {
+		out.Chars = section.Chars
+	}
+	if section.Timeout != "" {
+		if d, err := time.ParseDuration(section.Timeout); err == nil {
+			out.TimeoutNs = int64(d)
+		}
+	}
+	return out
+}
+
+func mergeEmbedder(defaults EmbedderConfig, section embedderSection) EmbedderConfig {
+	out := defaults
+	if section.Provider != "" {
+		out.Provider = section.Provider
+	}
+	if section.Dimension > 0 {
+		out.Dimension = section.Dimension
+	}
+	if section.BaseURL != "" {
+		out.BaseURL = section.BaseURL
+	}
+	if section.Model != "" {
+		out.Model = section.Model
+	}
+	if section.APIKey != "" {
+		out.APIKey = section.APIKey
+	}
+	if section.ModelDir != "" {
+		out.ModelDir = section.ModelDir
+	}
+	if section.Indexing.Instructions != "" || section.Indexing.InputType != "" || section.Indexing.MaxTokens > 0 {
+		out.Indexing = EmbedderParams{
+			Instructions: section.Indexing.Instructions,
+			InputType:    section.Indexing.InputType,
+			MaxTokens:    section.Indexing.MaxTokens,
+		}
+	}
+	if section.Query.Instructions != "" || section.Query.InputType != "" || section.Query.MaxTokens > 0 {
+		out.Query = EmbedderParams{
+			Instructions: section.Query.Instructions,
+			InputType:    section.Query.InputType,
+			MaxTokens:    section.Query.MaxTokens,
+		}
+	}
+	return out
+}
+
+// mergeLLM maps the mnemonic.llm YAML section (ADR-0023, TICKET-01) to the
+// LLMConfig struct. Enabled is applied as-is (absent → false, opt-in).
+// BaseURL/Model apply when non-empty. The api_key precedence is: explicit
+// YAML key > SKILLGRID_LLM_API_KEY env var > the base value (empty by
+// default) — the loader owns the env fallback so the llm.Client stays pure.
+// A non-empty malformed timeout logs a warning and keeps the base value (the
+// client applies its own 60s default when it stays zero); a blank timeout
+// keeps the base silently.
+func mergeLLM(base LLMConfig, section llmSection) LLMConfig {
+	out := base
+	out.Enabled = section.Enabled
+	if section.BaseURL != "" {
+		out.BaseURL = section.BaseURL
+	}
+	if section.Model != "" {
+		out.Model = section.Model
+	}
+	// api_key precedence: explicit YAML key > SKILLGRID_LLM_API_KEY env > base.
+	switch {
+	case section.APIKey != "":
+		out.APIKey = section.APIKey
+	case os.Getenv("SKILLGRID_LLM_API_KEY") != "":
+		out.APIKey = os.Getenv("SKILLGRID_LLM_API_KEY")
+	}
+	if section.Timeout != "" {
+		if d, err := time.ParseDuration(section.Timeout); err == nil && d > 0 {
+			out.Timeout = d
+		} else {
+			log.Printf("warning: mnemonic.llm.timeout must be a positive duration (got %q), using default %s", section.Timeout, out.Timeout)
+		}
+	}
+	return out
+}
+
+func mergeWebCache(defaults WebCache, section webCacheSection) WebCache {
+	out := defaults
+	if section.Enabled != nil {
+		out.Enabled = *section.Enabled
+	}
+	if section.MaxEntryBytes > 0 {
+		out.MaxEntryBytes = section.MaxEntryBytes
+	}
+	if len(section.Sources) > 0 {
+		out.Sources = append([]string(nil), section.Sources...)
+	}
+	if len(section.TTL) > 0 {
+		out.TTL = make(map[string]time.Duration, len(section.TTL))
+		for source, raw := range section.TTL {
+			d, err := time.ParseDuration(raw)
+			if err != nil {
+				if fallback, ok := defaults.TTL[source]; ok {
+					out.TTL[source] = fallback
+				}
+				continue
+			}
+			out.TTL[source] = d
+		}
+	}
+	return out
+}

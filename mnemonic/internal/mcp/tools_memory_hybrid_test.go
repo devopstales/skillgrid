@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
-	"github.com/devopstales/skillgrid/mnemonic/internal/skills"
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/skills"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
 )
 
 // TestHybridSearchRegistered covers @step-04: hybrid_search is listed

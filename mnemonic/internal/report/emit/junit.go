@@ -8,7 +8,7 @@ import (
 	"encoding/xml"
 	"fmt"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/report"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/report"
 )
 
 type junitTestSuite struct {

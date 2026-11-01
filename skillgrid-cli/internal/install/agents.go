@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/tidwall/gjson"
@@ -43,8 +44,20 @@ func nativePluginRels() []string {
 const (
 	cursorPluginRel = ".cursor-plugin/plugin.json"
 	cursorRuleRel   = "rules/mnemonic.mdc"
-	opencodeLogoRel = "plugins/opencode/skillgrid-logo.tsx"
+	// opencodeLogoRel is the PRE-BUILT ESM bundle (JSX already compiled to
+	// @opentui/solid calls by tsup + esbuild-plugin-solid). OpenCode never
+	// transpiles raw TSX, so the committed .js is the only artifact the
+	// installer ships (mirrors Gentle-AI PR #5409 / issue #5364).
+	opencodeLogoRel = "plugins/opencode/skillgrid-logo.js"
 	kiloLogoRel     = "plugins/kilo/skillgrid-logo.tsx"
+)
+
+// skillgrid-logo TUI bridge: the V2 host loads cli.json (V2 "plugins" key) and
+// the managed opencode.jsonc; a relative bridge-dir package entry resolves the
+// tui subpath via the bridge's package.json. The .tsx is retired.
+const (
+	logoBridgeRel   = "plugins/opencode/skillgrid-logo" // bridge dir in repo (committed)
+	logoBridgeEntry = "./tui-plugins/skillgrid-logo"   // relative entry in V2 cli.json/opencode.jsonc
 )
 
 // findRepoRoot walks upward from start (or cwd when empty) for a marker asset,
@@ -336,21 +349,18 @@ func installAgentConfig(c *Config, agent string) error {
 	switch agent {
 	case "opencode":
 		dir := filepath.Join(home, ".config", "opencode")
-		tuiPath := filepath.Join(dir, "tui.json")
-		if err := ensureConfigFile(tuiPath, dry); err != nil {
+		// V2 logo: pre-built ESM bundle + bridge-dir package (OpenCode never
+		// transpiles raw TSX — see opencodeLogoRel). Registered via the
+		// relative bridge-dir entry in the V2 "plugins" array (cli.json) and
+		// the managed opencode.jsonc. The stale absolute .tsx entry (written
+		// by older installers) is retired.
+		if err := installOpenCodeLogo(repoRoot, dir, dry); err != nil {
 			return err
 		}
-		logoDst := filepath.Join(dir, "tui-plugins", "skillgrid-logo.tsx")
-		if err := copyAsset(repoRoot, opencodeLogoRel, logoDst, dry); err != nil {
+		if err := setJSON(filepath.Join(dir, "tui.json"), "theme", "tokyonight", dry); err != nil {
 			return err
 		}
-		if err := setJSON(tuiPath, "theme", "tokyonight", dry); err != nil {
-			return err
-		}
-		if err := appendJSONArrayUnique(tuiPath, "plugin", "opencode-subagent-statusline", dry); err != nil {
-			return err
-		}
-		return appendJSONArrayUnique(tuiPath, "plugin", logoDst, dry)
+		return appendJSONArrayUnique(filepath.Join(dir, "tui.json"), "plugin", "opencode-subagent-statusline", dry)
 	case "kilo":
 		dir := filepath.Join(home, ".config", "kilo")
 		tuiPath := filepath.Join(dir, "tui.json")
@@ -379,4 +389,122 @@ func installAgentConfig(c *Config, agent string) error {
 	default:
 		return nil
 	}
+}
+
+// installOpenCodeLogo ships the pre-built SkillGrid TUI logo bundle and
+// registers it with the OpenCode V2 host (mirrors Gentle-AI PR #5409 /
+// issue #5364). OpenCode never transpiles raw TSX, so the committed ESM
+// bundle (skillgrid-logo.js) is the payload; a bridge-dir package lets the V2
+// "plugins" array reference a relative directory and resolve the tui subpath.
+// The stale absolute .tsx entry older installers wrote is retired from both
+// the V2 cli.json and the managed opencode.jsonc.
+func installOpenCodeLogo(repoRoot, dir string, dryRun bool) error {
+	pluginDir := filepath.Join(dir, "tui-plugins")
+	if dryRun {
+		Out("      [dry-run] mkdir -p", pluginDir)
+	} else if err := os.MkdirAll(pluginDir, 0o755); err != nil {
+		return err
+	}
+
+	// 1. Pre-built ESM bundle (the actual plugin payload).
+	bundleDst := filepath.Join(pluginDir, "skillgrid-logo.js")
+	if err := copyAsset(repoRoot, opencodeLogoRel, bundleDst, dryRun); err != nil {
+		return err
+	}
+
+	// 2. Bridge-dir package: tui.js re-exports the bundle; package.json maps
+	//    "." and "./tui" to it so the relative dir entry resolves.
+	bridgeDir := filepath.Join(pluginDir, "skillgrid-logo")
+	if dryRun {
+		Out("      [dry-run] mkdir -p", bridgeDir)
+	} else if err := os.MkdirAll(bridgeDir, 0o755); err != nil {
+		return err
+	}
+	tuiBridge := `// OpenCode v2 directory bridge for the skillgrid-logo TUI plugin
+export * from "../skillgrid-logo.js";
+export { default } from "../skillgrid-logo.js";
+`
+	manifest := `{"name":"skillgrid-logo-tui","private":true,"type":"module","exports":{".":"./tui.js","./tui":"./tui.js"}}
+`
+	for rel, content := range map[string]string{
+		"tui.js":       tuiBridge,
+		"package.json": manifest,
+	} {
+		dst := filepath.Join(bridgeDir, rel)
+		if _, err := os.Stat(dst); err == nil {
+			continue // idempotent: leave an existing bridge file alone
+		}
+		if dryRun {
+			Out("      [dry-run] write", dst)
+			continue
+		}
+		if err := os.WriteFile(dst, []byte(content), 0o644); err != nil {
+			return err
+		}
+	}
+
+	// 3. Retire the stale absolute .tsx entry older installers registered.
+	stale := filepath.Join(pluginDir, "skillgrid-logo.tsx")
+	if dryRun {
+		Out("      [dry-run] rm (if present)", stale)
+	} else if _, err := os.Stat(stale); err == nil {
+		if err := os.Remove(stale); err != nil {
+			return err
+		}
+	}
+
+	// 4. Register the relative bridge-dir entry in the V2 config(s). The V2
+	//    host reads cli.json (and the managed opencode.jsonc); tui.json is a
+	//    V1 artifact the V2 host ignores, so it is not written here.
+	for _, cfg := range []string{"cli.json", "opencode.jsonc", "opencode.json"} {
+		p := filepath.Join(dir, cfg)
+		if _, err := os.Stat(p); err != nil {
+			continue
+		}
+		if err := dropRetiredLogoEntry(p, dryRun); err != nil {
+			return err
+		}
+		if err := appendJSONArrayUnique(p, "plugins", logoBridgeEntry, dryRun); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// dropRetiredLogoEntry removes the stale absolute .tsx registration (written
+// by pre-#5364 installers) from a config's "plugins" array, keeping every
+// other entry.
+func dropRetiredLogoEntry(cfgPath string, dryRun bool) error {
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return err
+	}
+	arr := gjson.Parse(string(data)).Get("plugins").Array()
+	if len(arr) == 0 {
+		return nil
+	}
+	kept := make([]string, 0, len(arr))
+	dropped := false
+	for _, v := range arr {
+		s := v.String()
+		if strings.HasSuffix(s, "tui-plugins/skillgrid-logo.tsx") {
+			dropped = true
+			continue
+		}
+		if s != "" {
+			kept = append(kept, s)
+		}
+	}
+	if !dropped {
+		return nil
+	}
+	updated, err := sjson.Set(string(data), "plugins", kept)
+	if err != nil {
+		return err
+	}
+	if dryRun {
+		Out("      [dry-run] retire stale skillgrid-logo.tsx entry in", cfgPath)
+		return nil
+	}
+	return os.WriteFile(cfgPath, []byte(updated), 0o644)
 }

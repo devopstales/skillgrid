@@ -17,15 +17,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/codeindex"
-	"github.com/devopstales/skillgrid/mnemonic/internal/config"
-	"github.com/devopstales/skillgrid/mnemonic/internal/embedder"
-	"github.com/devopstales/skillgrid/mnemonic/internal/http/docs"
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
-	"github.com/devopstales/skillgrid/mnemonic/internal/project"
-	"github.com/devopstales/skillgrid/mnemonic/internal/search"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
-	"github.com/devopstales/skillgrid/mnemonic/internal/webcache"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/codeindex"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/config"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/embedder"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/http/docs"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/project"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/search"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/webcache"
 )
 
 const serverVersion = "0.1.0"
@@ -242,17 +242,10 @@ func (s *Server) registerGraphRoutes() {
 	// the SPA fallback can't swallow it.
 	s.mux.HandleFunc("GET /prototype/{id...}", s.handlePrototypeDecision)
 
-	// The SPA shell uses base './', so on a /mnemonic/... path its module
-	// script is requested at /mnemonic/assets/... — serve the embedded build
-	// assets there (the root /assets/ route covers the top-level roots).
-	s.mux.HandleFunc("GET /mnemonic/assets/{rest...}", s.handleUIAsset)
-	// Deep SPA routes (base './') request ./assets from their own path.
-	for _, prefix := range []string{"/observe", "/project", "/system"} {
-		s.mux.HandleFunc("GET "+prefix+"/assets/{rest...}", s.handleUIAsset)
-	}
-	// The bare client paths stay SPA shells for the client router. The Phase 5
-	// API routes above own the exact /mnemonic/{memories,sessions,search}
-	// paths, so only the paths without an API handler keep an explicit shell.
+	// The bare client paths stay shells for the (removed) client router. The
+	// Phase 5 API routes above own the exact /mnemonic/{memories,sessions,
+	// search} paths, so only the paths without an API handler keep an
+	// explicit shell.
 	for _, p := range []string{"/mnemonic/graph", "/mnemonic/files"} {
 		p := p
 		s.mux.HandleFunc("GET "+p, s.handleShellPage)

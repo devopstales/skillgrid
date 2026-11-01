@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/extract"
-	"github.com/devopstales/skillgrid/mnemonic/internal/search"
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/extract"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/search"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
 )
 
 // TestEntityAliasLookup resolves a case-insensitive alias to its qualified

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/extract"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/extract"
 )
 
 // TestDynamicImportEdgeKind covers 035's dynamic_import kind at the extractor

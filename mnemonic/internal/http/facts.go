@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/facts"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/facts"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 // registerFactsRoutes mounts the Fact Memory routes. The five routes wrap the

@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/codeindex"
-	"github.com/devopstales/skillgrid/mnemonic/internal/community"
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/codeindex"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/community"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
 )
 
 // Phase 4 — Mnemonic vector graph. Serves the code/memory graph (symbols +

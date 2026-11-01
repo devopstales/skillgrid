@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/embedder"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/embedder"
 )
 
 // osMkdirConfigD creates dir/.skillgrid/config.d (idempotent).

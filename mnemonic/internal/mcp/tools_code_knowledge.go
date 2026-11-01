@@ -8,7 +8,7 @@ import (
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/knowledge"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/knowledge"
 )
 
 // registerKnowledgeTools registers the knowledge-graph query MCP tools

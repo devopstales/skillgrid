@@ -7,7 +7,7 @@ import (
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/facts"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/facts"
 )
 
 func registerFactTools(s *server.MCPServer) {

@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/http/tracker"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/http/tracker"
 )
 
 // lookPath resolves a CLI binary on PATH (thin wrapper so tests can stub it).

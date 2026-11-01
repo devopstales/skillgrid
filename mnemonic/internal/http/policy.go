@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
-	"github.com/devopstales/skillgrid/mnemonic/internal/policy"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/policy"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/service"
 )
 
 type policyEvalBody struct {

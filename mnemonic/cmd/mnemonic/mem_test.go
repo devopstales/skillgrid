@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory/layer"
-	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory/layer"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/store"
 )
 
 // seedMemCLIPeriod creates a project store with a session, a saved observation,

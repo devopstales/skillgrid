@@ -13,7 +13,7 @@ import (
 	"github.com/tidwall/sjson"
 	"gopkg.in/yaml.v3"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/config"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/config"
 )
 
 const (

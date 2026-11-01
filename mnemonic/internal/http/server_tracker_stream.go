@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/devopstales/skillgrid/mnemonic/internal/http/tracker"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/http/tracker"
 )
 
 // trackerStreamClient is one subscribed SSE client. The buffered channel lets

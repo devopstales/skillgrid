@@ -1,7 +1,7 @@
 package mnemonic
 
 import (
-	"github.com/devopstales/skillgrid/mnemonic/internal/ui"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/ui"
 )
 
 type Option = ui.Option

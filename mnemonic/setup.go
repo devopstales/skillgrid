@@ -1,7 +1,7 @@
 package mnemonic
 
 import (
-	"github.com/devopstales/skillgrid/mnemonic/internal/setup"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/setup"
 )
 
 type MCPServerConfig = setup.MCPServerConfig

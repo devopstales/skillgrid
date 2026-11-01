@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/config"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/config"
 )
 
 // writeIndexing writes an indexing.yaml (mnemonic.embedder section) into a

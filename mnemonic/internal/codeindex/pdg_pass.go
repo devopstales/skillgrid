@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/pdg"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/pdg"
 )
 
 // pdgPass runs the opt-in per-function CFG + PDG pass over the indexed graph,

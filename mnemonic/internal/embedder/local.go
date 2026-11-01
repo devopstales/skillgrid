@@ -10,7 +10,7 @@ import (
 	"sync"
 
 	"github.com/benedoc-inc/onnxer/onnxruntime"
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
 )
 
 // ErrRuntimeUnavailable is returned (from Load) when the onnxer ONNX Runtime

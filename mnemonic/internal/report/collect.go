@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/scan"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/scan"
 )
 
 // staticScanTools are the scanner-backed static sources, run through the

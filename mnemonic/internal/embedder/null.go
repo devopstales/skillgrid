@@ -3,7 +3,7 @@ package embedder
 import (
 	"context"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic_back/internal/memory"
 )
 
 // NullEmbedder is the "off" provider: a Null Adapter with no vector leg.
