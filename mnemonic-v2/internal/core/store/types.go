@@ -85,10 +85,18 @@ type UpdateParams struct {
 	Pinned   *bool
 }
 
-// ConsolidateParams is the input for ConsolidateObservations.
+// ConsolidateParams is the input for ConsolidateObservations (a confirmed
+// consolidation — the memory service owns the preview/fingerprint/merge
+// semantics; the store owns the transactional effect).
 type ConsolidateParams struct {
 	SourceIDs     []int64
 	TargetProject string
+	// SurvivorID is the local id of the merged observation row (the caller
+	// inserted it first; it is excluded from the sources' soft-delete).
+	SurvivorID int64
+	// SurvivorSyncID is the survivor's sync_id — the value stamped on every
+	// source's superseded_by_sync_id (structured supersession provenance).
+	SurvivorSyncID string
 }
 
 // ConsolidateResult is returned by ConsolidateObservations.
@@ -162,7 +170,13 @@ type Relation struct {
 	Evidence       string
 	SessionID      string
 	JudgmentStatus string
-	CreatedAt      string
+	// Verdict + provenance (spec 002-schema §2.5, INV-1 on judged rows).
+	// Confidence is 0 for rows judged without a numeric value (NULL).
+	Confidence    float64
+	MarkedByActor string
+	MarkedByKind  string
+	MarkedByModel string
+	CreatedAt     string
 }
 
 // AddRelationParams is the input for AddRelation.
@@ -184,6 +198,17 @@ type JudgeParams struct {
 	MarkedByActor string
 	MarkedByKind  string
 	MarkedByModel string
+}
+
+// JudgeRequest is one verdict in a JudgeMany batch (the store-level twin
+// of the memory service's JudgeRequest — the store owns the row, the
+// service owns the tooling shape; the service maps between them).
+type JudgeRequest struct {
+	JudgmentID int64
+	Relation   string
+	Reason     string
+	Evidence   string
+	Confidence float64
 }
 
 // PromptSearchQuery is the input for SearchPrompts.

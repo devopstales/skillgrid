@@ -330,11 +330,11 @@ func (t *saveTXN) enrolled(project string) bool {
 // peer's apply path needs to reconstruct the row, including session_id so
 // the peer's FK resolves). The gate builds it inside the save transaction.
 func (t *saveTXN) enqueueUpsert(project, syncID string) error {
-	var sessionID, typ, title, content string
+	var sessionID, scope, typ, title, content string
 	if err := t.tx.QueryRow(
-		`SELECT ifnull(session_id,''), ifnull(type,''), ifnull(title,''), ifnull(content,'')
+		`SELECT ifnull(session_id,''), ifnull(scope,''), ifnull(type,''), ifnull(title,''), ifnull(content,'')
 		 FROM observations WHERE sync_id = ?`, syncID).
-		Scan(&sessionID, &typ, &title, &content); err != nil {
+		Scan(&sessionID, &scope, &typ, &title, &content); err != nil {
 		return fmt.Errorf("store: journal payload read: %w", err)
 	}
 	// The canonical payload is a compact JSON object. The content may
@@ -346,7 +346,7 @@ func (t *saveTXN) enqueueUpsert(project, syncID string) error {
 		`","title":"` + jsonEscape(title) +
 		`","content":"` + jsonEscape(content) +
 		`","project":"` + jsonEscape(project) +
-		`","scope":"project"}`
+		`","scope":"` + jsonEscape(scope) + `"}`
 	_, err := t.tx.Exec(`
 		INSERT INTO sync_mutations (target_key, entity, entity_key, op, payload, source, project)
 		VALUES ('local', 'observation', ?, 'upsert', ?, 'local', ?)`,

@@ -54,16 +54,30 @@ func newTestService(t *testing.T) *Service {
 }
 
 // stubLLM is the LLM seam test fake. Verdicts are set per test; the Call
-// adapter forwards the Classify decision to degrade.Run's seam path.
+// adapter forwards the Classify decision to degrade.Run's seam path (the
+// service's compare seam adapts llm.LLM.Compare to degrade.Seam directly,
+// so the stub's Compare method is invoked on the seam path without Call).
 type stubLLM struct {
 	classify func(ctx context.Context, newContent string, candidates []string) (llm.DedupDecision, error)
-	// Task 8: judge/compare/extract land here.
+	compare  func(ctx context.Context, a, b llm.Observation) (llm.Judgment, error)
 }
 
 // setClassify sets the Classify verdict (the degrade.Seam Call adapter
 // invokes it with the pre-filtered candidate contents).
 func (s *stubLLM) setClassify(fn func(ctx context.Context, newContent string, candidates []string) (llm.DedupDecision, error)) {
 	s.classify = fn
+}
+
+// setCompare sets the Compare verdict (the brief's shape: a fixed
+// llm.Judgment returned on every compare call — the compare seam's
+// deterministic test input).
+func (s *stubLLM) setCompare(j llm.Judgment) {
+	s.compare = func(ctx context.Context, a, b llm.Observation) (llm.Judgment, error) {
+		_ = ctx
+		_ = a
+		_ = b
+		return j, nil
+	}
 }
 
 func (s *stubLLM) Classify(ctx context.Context, newContent string, candidates []string) (llm.DedupDecision, error) {
@@ -73,14 +87,14 @@ func (s *stubLLM) Judge(ctx context.Context, source, target llm.Observation, rel
 	return llm.Judgment{}, nil // Task 9
 }
 func (s *stubLLM) Compare(ctx context.Context, a, b llm.Observation) (llm.Judgment, error) {
-	return llm.Judgment{}, nil // Task 9
+	return s.compare(ctx, a, b)
 }
 func (s *stubLLM) Extract(ctx context.Context, text string) ([]llm.CandidateObservation, error) {
 	return nil, nil // Task 11
 }
 
-// Call is the degrade.Seam adapter: the (a, b) arguments are
-// (newContent string, candidates []string) from the dedup call site.
+// Call is the degrade.Seam adapter for the dedup call site: the (a, b)
+// arguments are (newContent string, candidates []string).
 func (s *stubLLM) Call(ctx context.Context, a, b any) (any, error) {
 	d, err := s.Classify(ctx, a.(string), b.([]string))
 	if err != nil {
@@ -405,4 +419,17 @@ func deferredCount(t *testing.T, st store.Store) int {
 		t.Fatalf("count deferred: %v", err)
 	}
 	return n
+}
+
+// rawQueryRows is the t-aware RawQuery seam for test assertions (the
+// production read seam's t-less twin lives in sync.go — `query`).
+func rawQueryRows(t *testing.T, st store.Store, q string, args []any) ([][]any, error) {
+	t.Helper()
+	rq, ok := st.(interface {
+		RawQuery(query string, args ...any) ([][]any, error)
+	})
+	if !ok {
+		t.Fatal("store does not expose the RawQuery test seam")
+	}
+	return rq.RawQuery(q, args...)
 }

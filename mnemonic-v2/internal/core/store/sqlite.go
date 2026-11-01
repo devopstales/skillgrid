@@ -740,9 +740,97 @@ func (s *sqliteStore) DeleteObservationForProject(ctx context.Context, id int64,
 	})
 }
 
-// ConsolidateObservations is not implemented yet (later task).
+// ConsolidateObservations executes a confirmed consolidation (spec
+// 002-schema §2.5 / 003-facts-relations §5): the sources are soft-deleted
+// with superseded_by_sync_id → the survivor's sync_id, and the sync journal
+// rides in the same transaction (enrollment-gated, the save gate's step-7
+// pattern — upsert for the survivor, delete for each source). The survivor
+// row itself is the caller's: the memory service inserts it (its merge
+// semantics own the row's identity and content), and this call soft-deletes
+// the sources around it. One local transaction; any failure rolls back.
 func (s *sqliteStore) ConsolidateObservations(ctx context.Context, p ConsolidateParams) (ConsolidateResult, error) {
-	return ConsolidateResult{}, ErrNotImplemented{Method: "ConsolidateObservations"}
+	res := ConsolidateResult{SurvivorID: p.SurvivorID, DeletedIDs: p.SourceIDs}
+	err := s.withWriteRetry(func() error {
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		if err := s.consolidateTxn(ctx, tx, p); err != nil {
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		if s.txnHook != nil {
+			s.txnHook()
+		}
+		return nil
+	})
+	if err != nil {
+		return ConsolidateResult{}, err
+	}
+	return res, nil
+}
+
+func (s *sqliteStore) consolidateTxn(ctx context.Context, tx *sql.Tx, p ConsolidateParams) error {
+	// the survivor's journal payload (read inside the txn so the payload is
+	// the committed row, not a pre-txn read; the shape mirrors the save
+	// gate's enqueueUpsert payload, including the scope read from the row
+	// rather than the caller's value)
+	var sess, scope, typ, title, content string
+	if err := tx.QueryRowContext(ctx,
+		`SELECT ifnull(session_id,''), ifnull(scope,''), ifnull(type,''), ifnull(title,''), ifnull(content,'')
+		 FROM observations WHERE id = ?`, p.SurvivorID).
+		Scan(&sess, &scope, &typ, &title, &content); err != nil {
+		return fmt.Errorf("store: consolidate survivor read: %w", err)
+	}
+	payload := `{"sync_id":"` + jsonEscape(p.SurvivorSyncID) +
+		`","session_id":"` + jsonEscape(sess) +
+		`","type":"` + jsonEscape(typ) +
+		`","title":"` + jsonEscape(title) +
+		`","content":"` + jsonEscape(content) +
+		`","project":"` + jsonEscape(p.TargetProject) +
+		`","scope":"` + jsonEscape(scope) + `"}`
+	for _, id := range p.SourceIDs {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE observations
+			 SET deleted_at = datetime('now'), superseded_by_sync_id = ?, updated_at = datetime('now')
+			 WHERE id = ? AND deleted_at IS NULL`, p.SurvivorSyncID, id); err != nil {
+			return fmt.Errorf("store: consolidate supersede source: %w", err)
+		}
+		// step 7: the source delete journals with the source's sync_id as
+		// the entity key (the apply path resolves sync_id → row)
+		if s.syncEnabled() && s.enrolledInTx(ctx, tx, p.TargetProject) {
+			var srcSyncID string
+			if err := tx.QueryRowContext(ctx, `SELECT sync_id FROM observations WHERE id = ?`, id).Scan(&srcSyncID); err != nil {
+				return fmt.Errorf("store: consolidate source sync id: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO sync_mutations (target_key, entity, entity_key, op, payload, source, project)
+				VALUES ('local', 'observation', ?, 'delete', '{}', 'local', ?)`,
+				srcSyncID, p.TargetProject); err != nil {
+				return fmt.Errorf("store: consolidate source journal: %w", err)
+			}
+		}
+	}
+	if s.syncEnabled() && s.enrolledInTx(ctx, tx, p.TargetProject) {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO sync_mutations (target_key, entity, entity_key, op, payload, source, project)
+			VALUES ('local', 'observation', ?, 'upsert', ?, 'local', ?)`,
+			p.SurvivorSyncID, payload, p.TargetProject); err != nil {
+			return fmt.Errorf("store: consolidate survivor journal: %w", err)
+		}
+	}
+	return nil
+}
+
+// enrolledInTx is the in-transaction enrollment check (the save gate's
+// enrolled(), over an arbitrary *sql.Tx).
+func (s *sqliteStore) enrolledInTx(ctx context.Context, tx *sql.Tx, project string) bool {
+	var n int
+	_ = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sync_enrolled_projects WHERE project = ?`, project).Scan(&n)
+	return n > 0
 }
 
 // ── relations ───────────────────────────────────────────────────────────────
@@ -833,9 +921,163 @@ func (s *sqliteStore) AddPulledRelation(ctx context.Context, p AddRelationParams
 	return rel, err
 }
 
-// JudgeRelation is not implemented yet (later task).
+// JudgeRelation records a verdict on a pending candidate (spec
+// 002-schema §2.5): the relation/reason/evidence/confidence + the agent's
+// provenance (marked_by_*) are stored, judgment_status → 'judged'. The
+// UPDATE is guarded on judgment_status='pending' (a row that was judged
+// between the caller's read and this write is left untouched — the caller
+// re-reads and returns the existing row, the idempotent no-op).
 func (s *sqliteStore) JudgeRelation(ctx context.Context, id int64, p JudgeParams) error {
-	return ErrNotImplemented{Method: "JudgeRelation"}
+	conf := any(nil)
+	if p.Confidence != nil {
+		conf = *p.Confidence
+	}
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE memory_relations
+		 SET relation = ?, reason = ?, evidence = ?, confidence = ?,
+		     judgment_status = 'judged',
+		     marked_by_actor = ?, marked_by_kind = ?, marked_by_model = ?,
+		     updated_at = datetime('now')
+		 WHERE id = ? AND judgment_status = 'pending'`,
+		p.Relation, nullableString(p.Reason), nullableString(p.Evidence), conf,
+		p.MarkedByActor, p.MarkedByKind, nullableString(p.MarkedByModel), id)
+	return err
+}
+
+// judgeRelationTxn is JudgeRelation's in-transaction twin (the JudgeMany
+// batch path — one transaction for every verdict, spec 004-transport-mcp
+// mem_judge_many: "1–32 judgments in one queued write").
+func (s *sqliteStore) judgeRelationTxn(ctx context.Context, tx *sql.Tx, id int64, p JudgeParams) error {
+	conf := any(nil)
+	if p.Confidence != nil {
+		conf = *p.Confidence
+	}
+	_, err := tx.ExecContext(ctx, `
+		UPDATE memory_relations
+		 SET relation = ?, reason = ?, evidence = ?, confidence = ?,
+		     judgment_status = 'judged',
+		     marked_by_actor = ?, marked_by_kind = ?, marked_by_model = ?,
+		     updated_at = datetime('now')
+		 WHERE id = ? AND judgment_status = 'pending'`,
+		p.Relation, nullableString(p.Reason), nullableString(p.Evidence), conf,
+		p.MarkedByActor, p.MarkedByKind, nullableString(p.MarkedByModel), id)
+	return err
+}
+
+// GetRelation reads one memory_relations row by id (ErrNoRows when absent).
+func (s *sqliteStore) GetRelation(ctx context.Context, id int64) (Relation, error) {
+	var rel Relation
+	var reason, evidence, sessionID sql.NullString
+	var confidence sql.NullFloat64
+	var actor, kind, model sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, ifnull(sync_id,''), source_id, target_id, relation,
+		       ifnull(reason,''), ifnull(evidence,''), ifnull(session_id,''),
+		       judgment_status, confidence,
+		       ifnull(marked_by_actor,''), ifnull(marked_by_kind,''), ifnull(marked_by_model,''),
+		       created_at
+		 FROM memory_relations WHERE id = ?`, id).
+		Scan(&rel.ID, &rel.SyncID, &rel.SourceID, &rel.TargetID, &rel.Relation,
+			&reason, &evidence, &sessionID, &rel.JudgmentStatus, &confidence,
+			&actor, &kind, &model, &rel.CreatedAt)
+	if err != nil {
+		return rel, err
+	}
+	rel.Reason = reason.String
+	rel.Evidence = evidence.String
+	rel.SessionID = sessionID.String
+	if confidence.Valid {
+		rel.Confidence = confidence.Float64
+	}
+	rel.MarkedByActor = actor.String
+	rel.MarkedByKind = kind.String
+	rel.MarkedByModel = model.String
+	return rel, nil
+}
+
+// JudgeMany records a batch of verdicts in ONE transaction (the
+// mem_judge_many seam — spec 004-transport-mcp: "1–32 judgments in one
+// queued write"; the memory service validates the 1–32 bound and the
+// base provenance: actor/kind, with per-request relation/reason/evidence/
+// confidence). One committed transaction for the whole batch; any error
+// rolls back all of it. An id that is missing is an error; an id already
+// judged is an idempotent no-op (returned as-is).
+func (s *sqliteStore) JudgeMany(ctx context.Context, rs []JudgeRequest, base JudgeParams) ([]Relation, error) {
+	var out []Relation
+	err := s.withWriteRetry(func() error {
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		for _, r := range rs {
+			rel, err := s.GetRelationTxn(ctx, tx, r.JudgmentID)
+			if err != nil {
+				return fmt.Errorf("store: judge_many relation %d: %w", r.JudgmentID, err)
+			}
+			if rel.JudgmentStatus == "judged" {
+				out = append(out, rel)
+				continue
+			}
+			conf := r.Confidence
+			p := base
+			p.Relation = r.Relation
+			p.Reason = r.Reason
+			p.Evidence = r.Evidence
+			p.Confidence = &conf
+			if err := s.judgeRelationTxn(ctx, tx, r.JudgmentID, p); err != nil {
+				return err
+			}
+			rel, err = s.GetRelationTxn(ctx, tx, r.JudgmentID)
+			if err != nil {
+				return err
+			}
+			out = append(out, rel)
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if s.txnHook != nil {
+		s.txnHook()
+	}
+	return out, nil
+}
+
+// GetRelationTxn is GetRelation's in-transaction twin (the JudgeMany batch
+// path re-reads its rows inside the one transaction).
+func (s *sqliteStore) GetRelationTxn(ctx context.Context, tx *sql.Tx, id int64) (Relation, error) {
+	var rel Relation
+	var reason, evidence, sessionID sql.NullString
+	var confidence sql.NullFloat64
+	var actor, kind, model sql.NullString
+	err := tx.QueryRowContext(ctx, `
+		SELECT id, ifnull(sync_id,''), source_id, target_id, relation,
+		       ifnull(reason,''), ifnull(evidence,''), ifnull(session_id,''),
+		       judgment_status, confidence,
+		       ifnull(marked_by_actor,''), ifnull(marked_by_kind,''), ifnull(marked_by_model,''),
+		       created_at
+		 FROM memory_relations WHERE id = ?`, id).
+		Scan(&rel.ID, &rel.SyncID, &rel.SourceID, &rel.TargetID, &rel.Relation,
+			&reason, &evidence, &sessionID, &rel.JudgmentStatus, &confidence,
+			&actor, &kind, &model, &rel.CreatedAt)
+	if err != nil {
+		return rel, err
+	}
+	rel.Reason = reason.String
+	rel.Evidence = evidence.String
+	rel.SessionID = sessionID.String
+	if confidence.Valid {
+		rel.Confidence = confidence.Float64
+	}
+	rel.MarkedByActor = actor.String
+	rel.MarkedByKind = kind.String
+	rel.MarkedByModel = model.String
+	return rel, nil
 }
 
 // ── retrieval ───────────────────────────────────────────────────────────────
