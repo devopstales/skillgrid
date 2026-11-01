@@ -78,12 +78,44 @@ type chatResponse struct {
 	} `json:"choices"`
 }
 
-// complete POSTs the system+user turn to {base}/chat/completions and returns
-// choices[0].message.content. It never panics: a non-2xx response (folding up
-// to 1KB of the body), a malformed body, or a network/timeout error all
-// surface as a descriptive error return (the seam is "failing" — the caller's
+// doJSON is the shared OpenAI-compatible HTTP call: POST {base}{path} with the
+// marshalled payload, send the Authorization header only when apiKey is set,
+// and return the response body. It never panics: a non-2xx response (folding
+// up to 1KB of the body), a network/timeout error, or a read error all surface
+// as a descriptive error return (the seam is "failing" — the caller's
 // degrade.Run retries once, then the floor). The given ctx bounds the whole
 // call in addition to the client's Timeout, so a caller can also cancel early.
+// The error prefix (e.g. "llm", "embed") keeps the caller's domain in the
+// message; the path is the endpoint (e.g. "/chat/completions").
+func (c *Client) doJSON(ctx context.Context, prefix, path string, payload []byte) ([]byte, error) {
+	url := c.baseURL + path
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("%s: new request: %w", prefix, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		// Network error or the client Timeout firing — both are normal error
+		// returns (the seam is failing), never a panic or hang.
+		return nil, fmt.Errorf("%s: post %s: %w", prefix, url, err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("%s: read response: %w", prefix, err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("%s: %s returned %s: %s", prefix, url, resp.Status, truncateErrorBody(body))
+	}
+	return body, nil
+}
+
+// complete POSTs the system+user turn to {base}/chat/completions and returns
+// choices[0].message.content over doJSON.
 func (c *Client) complete(ctx context.Context, system, user string) (string, error) {
 	payload, err := json.Marshal(chatRequest{
 		Model: c.model,
@@ -95,28 +127,9 @@ func (c *Client) complete(ctx context.Context, system, user string) (string, err
 	if err != nil {
 		return "", fmt.Errorf("llm: encode request: %w", err)
 	}
-	url := c.baseURL + "/chat/completions"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	body, err := c.doJSON(ctx, "llm", "/chat/completions", payload)
 	if err != nil {
-		return "", fmt.Errorf("llm: new request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if c.apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	}
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		// Network error or the client Timeout firing — both are normal error
-		// returns (the seam is failing), never a panic or hang.
-		return "", fmt.Errorf("llm: post %s: %w", url, err)
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("llm: read response: %w", err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("llm: %s returned %s: %s", url, resp.Status, truncateErrorBody(body))
+		return "", err
 	}
 	var parsed chatResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {
@@ -322,26 +335,9 @@ func (c *Client) Embed(ctx context.Context, texts []string) ([][]float32, error)
 	if err != nil {
 		return nil, fmt.Errorf("embed: encode request: %w", err)
 	}
-	url := c.baseURL + "/embeddings"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	body, err := c.doJSON(ctx, "embed", "/embeddings", payload)
 	if err != nil {
-		return nil, fmt.Errorf("embed: new request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if c.apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	}
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("embed: post %s: %w", url, err)
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("embed: read response: %w", err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("embed: %s returned %s: %s", url, resp.Status, truncateErrorBody(body))
+		return nil, err
 	}
 	var parsed struct {
 		Data []struct {
@@ -382,17 +378,11 @@ func (c *Client) Model() string { return c.model }
 
 // Dimensions implements Embedder.Dimensions. The OpenAI-compatible endpoint
 // does not advertise its embedding dimension, so the client infers it from the
-// first round-trip and caches it; a later call whose vector length disagrees
-// is an error (mismatch → error at first write, never silent truncation).
+// first Embed round-trip and caches it (0 until then); a later vector whose
+// length disagrees is an error (mismatch → error at first write, never silent
+// truncation).
 func (c *Client) Dimensions() int {
 	c.dimMu.Lock()
 	defer c.dimMu.Unlock()
-	if c.dims == 0 {
-		// No round-trip yet: infer from the model-name suffix (the convention
-		// for embedding models, e.g. "nomic-embed-text" → unknown → 0 until a
-		// real Embed call fixes it). A 0 here means "not yet known"; the first
-		// Embed call pins it and a later mismatch errors (never truncates).
-		_ = c.model
-	}
 	return c.dims
 }

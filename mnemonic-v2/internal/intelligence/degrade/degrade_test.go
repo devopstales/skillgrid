@@ -24,7 +24,7 @@ func (s stub) Call(ctx context.Context, a, b any) (any, error) { return s.f(ctx,
 func TestRunNilSeam(t *testing.T) {
 	var s testSeam // nil
 	calls := 0
-	out, degraded := degrade.Run(s, func() any {
+	out, degraded := degrade.Run(context.Background(), s, func() any {
 		calls++
 		return "floor"
 	}, "op")
@@ -42,7 +42,7 @@ func TestRunFailingSeamRetriesOnce(t *testing.T) {
 		calls++
 		return nil, errors.New("boom")
 	}}
-	outAny, degraded := degrade.Run(s, func() any { return "floor" }, "op")
+	outAny, degraded := degrade.Run(context.Background(), s, func() any { return "floor" }, "op")
 	out, ok := outAny.(string)
 	if !ok {
 		t.Fatalf("out type = %T, want string", outAny)
@@ -59,7 +59,7 @@ func TestRunFailingSeamRetriesOnce(t *testing.T) {
 func TestRunSuccessNotDegraded(t *testing.T) {
 	s := stub{f: func(ctx context.Context, a, b any) (any, error) { return "seam-result", nil }}
 	floorRan := false
-	outAny, degraded := degrade.Run(s, func() any {
+	outAny, degraded := degrade.Run(context.Background(), s, func() any {
 		floorRan = true
 		return "floor"
 	}, "op")
@@ -84,7 +84,7 @@ func TestRunSeamRecoversOnRetry(t *testing.T) {
 		}
 		return "recovered", nil
 	}}
-	outAny, degraded := degrade.Run(s, func() any { return "floor" }, "op")
+	outAny, degraded := degrade.Run(context.Background(), s, func() any { return "floor" }, "op")
 	out, ok := outAny.(string)
 	if !ok {
 		t.Fatalf("out type = %T, want string", outAny)
@@ -94,5 +94,30 @@ func TestRunSeamRecoversOnRetry(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Fatalf("calls = %d, want 2", calls)
+	}
+}
+
+// The caller's context is passed through to EVERY seam call (initial + retry),
+// not a fresh context.Background() inside Run — a cancelled ctx reaches each
+// attempt.
+func TestRunPropagatesCallerContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	calls := 0
+	s := stub{f: func(c context.Context, a, b any) (any, error) {
+		calls++
+		select {
+		case <-c.Done():
+		default:
+			t.Fatalf("attempt %d: seam did not receive the caller's cancelled context", calls)
+		}
+		return nil, errors.New("boom")
+	}}
+	_, degraded := degrade.Run(ctx, s, func() any { return "floor" }, "op")
+	if !degraded {
+		t.Fatal("want degraded (seam always errors)")
+	}
+	if calls != 2 {
+		t.Fatalf("calls = %d, want 2 (initial + one bounded retry)", calls)
 	}
 }

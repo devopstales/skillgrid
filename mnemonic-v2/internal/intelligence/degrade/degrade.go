@@ -23,16 +23,14 @@ import (
 // a value of the same concrete type.
 //
 // ponytail: the brief's sketch `Run[T any](seam T, floor func() T, name
-// string)` cannot be implemented for interface-typed seams — an empty
-// interface constraint accepts a nil interface value, but a typed constraint
-// (T interface{...}) does not, so a nil llm.LLM could not be passed. This
-// interface + interface-parameter form keeps the same call shape at the 4
-// memory call sites (T05/T08/T10/T11) and is the only form that can nil-check
-// a seam. The result is any because the caller passes floor as func() T and
-// receives the same T back via the concrete value. Upgrade path: a per-seam
-// typed helper (RunClassify(llm.LLM, ...)) if the any-typed result ever
-// bothers a caller — it does not, because the floor and the seam return the
-// same concrete type.
+// string)` compiles fine for a nil interface seam (with T constrained to `any`
+// a nil llm.LLM is assignable, and `seam == nil` works) — the real tradeoff is
+// the RESULT: this any-typed form returns `any`, so every call site must
+// type-assert the result back to the floor's concrete type, whereas the
+// generic form returns T directly and the assert is impossible. The controller
+// kept the any form (T08+ standardizes on it). Upgrade path: a per-seam typed
+// helper (RunClassify(ctx, llm.LLM, func() llm.DedupDecision, name)) that
+// returns T directly, if the call-site type-asserts ever bother.
 type Seam interface {
 	Call(ctx context.Context, a, b any) (any, error)
 }
@@ -44,15 +42,17 @@ type Seam interface {
 //   - seam recovers on the retry  → recovered result, degraded=false
 //   - seam succeeds on the first  → result, degraded=false
 //
-// A degraded call logs exactly one line: `degraded <name>: <reason>`. name is
-// the call site label (e.g. "dedup-classify", "embed"). floor must be the
-// deterministic fallback for that call (hash dedup, no vector, ...). floor
-// returns any, but the concrete value it returns must be the same type the
-// seam returns (the caller types both, so a mismatch is a compile-time error
-// at the call site — write the floor as `func() any { return llm.DedupDecision{...} }`).
-// The result is that same concrete value, wrapped in any; the caller
+// ctx is the caller's context and is passed through to the seam call(s), so a
+// cancelled or deadline-bound ctx propagates to the provider. A degraded call
+// logs exactly one line: `degraded <name>: <reason>`. name is the call site
+// label (e.g. "dedup-classify", "embed"). floor must be the deterministic
+// fallback for that call (hash dedup, no vector, ...). floor returns any, but
+// the concrete value it returns must be the same type the seam returns (the
+// caller types both, so a mismatch is a compile-time error at the call site —
+// write the floor as `func() any { return llm.DedupDecision{...} }`). The
+// result is that same concrete value, wrapped in any; the caller
 // type-asserts it back.
-func Run(seam any, floor func() any, name string) (result any, degraded bool) {
+func Run(ctx context.Context, seam any, floor func() any, name string) (result any, degraded bool) {
 	if seam == nil {
 		result = floor()
 		log.Printf("degraded %s: seam absent (no provider configured)", name)
@@ -68,9 +68,9 @@ func Run(seam any, floor func() any, name string) (result any, degraded bool) {
 	}
 	// First attempt + one bounded retry. The retry is the whole budget —
 	// never a loop (spec 003-intelligence §4: bounded retry, ≤1).
-	res, err := s.Call(context.Background(), nil, nil)
+	res, err := s.Call(ctx, nil, nil)
 	if err != nil {
-		res, err = s.Call(context.Background(), nil, nil)
+		res, err = s.Call(ctx, nil, nil)
 	}
 	if err != nil {
 		result = floor()

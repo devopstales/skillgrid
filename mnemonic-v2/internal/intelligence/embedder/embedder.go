@@ -24,8 +24,9 @@ type Embedder interface {
 }
 
 // Null is the "off" adapter (provider "none"): an absent seam, not a failing
-// one. Embed never does I/O and never errors — the vector leg simply does not
-// run, so callers degrade to the FTS + signals floor and flag the result.
+// one. Embed IS called (it is a present adapter) but does no I/O — it returns
+// one zero-value vector per input text and never errors — so no vector is ever
+// written and callers degrade to the FTS + signals floor, flagging the result.
 type Null struct{}
 
 // NewNull returns the Null adapter (the "absent" embedder).
@@ -34,7 +35,7 @@ func NewNull() Null { return Null{} }
 func (Null) Model() string   { return "" }
 func (Null) Dimensions() int { return 0 }
 func (Null) Embed(ctx context.Context, texts []string) ([][]float32, error) {
-	// Absent, not failing: return one empty vector per text (no I/O, no
-	// error). The caller's floor (no vector written) owns the actual result.
+	// Absent, not failing: one zero-value vector per input text, no I/O, no
+	// error. The caller's floor (no vector written) owns the actual result.
 	return make([][]float32, len(texts)), nil
 }

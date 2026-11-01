@@ -47,7 +47,7 @@ func TestClassifyReturnsFourWayVerdict(t *testing.T) {
 func TestDegradeNilSeamRunsFloorExplicitly(t *testing.T) {
 	var l llm.LLM // nil
 	var ranFloor bool
-	res, degraded := degrade.Run(l, func() any {
+	res, degraded := degrade.Run(context.Background(), l, func() any {
 		ranFloor = true
 		return llm.DedupDecision{Verdict: llm.VerdictAdd, Reason: "hash"}
 	}, "classify")
@@ -71,7 +71,7 @@ func TestDegradeErroredSeamRetriesOnceThenFloor(t *testing.T) {
 		calls++
 		return llm.DedupDecision{}, errors.New("boom")
 	}}
-	res, degraded := degrade.Run(seam, func() any {
+	res, degraded := degrade.Run(context.Background(), seam, func() any {
 		return llm.DedupDecision{Verdict: llm.VerdictAdd, Reason: "hash"}
 	}, "classify")
 	if _, ok := res.(llm.DedupDecision); !ok {

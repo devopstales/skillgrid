@@ -27,7 +27,7 @@ func TestNullAdapterIsAbsentNotFailing(t *testing.T) {
 // floor and flags the result degraded.
 func TestDegradeNilEmbedderRunsFloor(t *testing.T) {
 	var e embedder.Embedder // nil
-	res, degraded := degrade.Run(e, func() any {
+	res, degraded := degrade.Run(context.Background(), e, func() any {
 		return [][]float32(nil) // floor: no vector written
 	}, "embed")
 	got, ok := res.([][]float32)
@@ -51,7 +51,7 @@ func TestDegradeFailingEmbedderRetriesOnce(t *testing.T) {
 		calls++
 		return nil, errBoom
 	}}
-	res, degraded := degrade.Run(emb, func() any { return [][]float32(nil) }, "embed")
+	res, degraded := degrade.Run(context.Background(), emb, func() any { return [][]float32(nil) }, "embed")
 	if _, ok := res.([][]float32); !ok {
 		t.Fatalf("floor result type = %T, want [][]float32", res)
 	}
@@ -69,7 +69,7 @@ func TestDegradeSuccessfulSeamNotDegraded(t *testing.T) {
 		return [][]float32{{0.1, 0.2}}, nil
 	}}
 	floorRan := false
-	res, degraded := degrade.Run(emb, func() any {
+	res, degraded := degrade.Run(context.Background(), emb, func() any {
 		floorRan = true
 		return nil
 	}, "embed")
