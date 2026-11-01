@@ -9,6 +9,15 @@ import (
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/config"
 )
 
+// anyLLMModel reports a seam's Model() for test failure messages ("" when the
+// seam has no Model accessor or is nil).
+func anyLLMModel(seam interface{}) string {
+	if m, ok := seam.(interface{ Model() string }); ok {
+		return m.Model()
+	}
+	return ""
+}
+
 // clearMnemonicEnv resets every env var the loader consults so each test's
 // Setenv set is the only env input (t.Setenv restores after the test).
 func clearMnemonicEnv(t *testing.T) {
@@ -133,7 +142,7 @@ func TestConfigBuildSeams(t *testing.T) {
 	}{
 		{"", "", true, true}, // no provider set: both seams absent
 		{"mnemonic:\n  llm:\n    provider: openai-compat\n    base_url: http://127.0.0.1:9\n", "", false, true},
-		{"mnemonic:\n  llm:\n    provider: local\n    local:\n      base_url: http://127.0.0.1:11434\n", "MNEMONIC_LLM_API_KEY", false, true},
+		{"mnemonic:\n  llm:\n    provider: local\n    local:\n      base_url: http://127.0.0.1:11434\n      model: ollama-model\n", "MNEMONIC_LLM_API_KEY", false, true},
 		{"mnemonic:\n  embedder:\n    provider: openai-compat\n    base_url: http://127.0.0.1:9\n", "", true, false},
 		{"mnemonic:\n  embedder:\n    provider: local\n    base_url: http://127.0.0.1:9\n", "", true, false},
 		{"mnemonic:\n  embedder:\n    provider: none\n", "", true, false}, // "none" is present-and-absent: Null adapter, not a nil seam
@@ -159,6 +168,23 @@ func TestConfigBuildSeams(t *testing.T) {
 		}
 		if (emb == nil) != tc.wantEmbNil {
 			t.Fatalf("case %d: BuildEmbedder nil = %v, want %v", i, emb == nil, tc.wantEmbNil)
+		}
+		// Assert on a constructed field, not just nil-ness: the local LLM
+		// case must carry the configured local.base_url + model (BuildLLM
+		// resolves per-provider), and the Null embedder must report its
+		// absent identity.
+		if i == 2 {
+			// Assert on a constructed field, not just nil-ness: the local
+			// provider must resolve local.model onto the client (the
+			// OpenAI-compatible client exposes Model() on the seam).
+			if got := anyLLMModel(llm); got != "ollama-model" {
+				t.Fatalf("case %d: LLM seam Model() = %q, want %q (local.model must win)", i, got, "ollama-model")
+			}
+		}
+		if i == 5 {
+			if m := emb.Model(); m != "" {
+				t.Fatalf("case %d: Null embedder Model() = %q, want empty", i, m)
+			}
 		}
 	}
 }

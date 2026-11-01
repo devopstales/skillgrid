@@ -486,6 +486,10 @@ func (c Config) BuildEmbedder() (embedder.Embedder, error) {
 	if strings.TrimSpace(base) == "" {
 		return nil, fmt.Errorf("config: embedder.provider=%s requires embedder.base_url", c.Embedder.Provider)
 	}
+	// The LLM timeout is the shared HTTP timeout: the OpenAI-compatible
+	// client serves both chat and embeddings, and EmbedderCfg has no timeout
+	// field of its own (brief's struct), so c.LLM.TimeoutMs bounds the
+	// embedder calls too.
 	client, err := llm.NewClient(base, c.Embedder.Model, os.Getenv(EnvLLMAPIKey), time.Duration(c.LLM.TimeoutMs)*time.Millisecond)
 	if err != nil {
 		return nil, fmt.Errorf("config: build embedder: %w", err)
