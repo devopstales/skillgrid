@@ -41,6 +41,9 @@ var _ Store = (*sqliteStore)(nil)
 // runs its migrations. Refcounted through the handle pool: a second Open for
 // the same path returns the shared handle (same *sql.DB). Set
 // MNEMONIC_DISABLE_CACHE=1 to bypass the pool.
+//
+// dsn is reserved for the Postgres dialect; the SQLite dialect derives its DSN
+// from dataDir/project (the WAL pragmas + _txlock) and ignores dsn.
 func Open(ctx context.Context, dataDir, project string, dialect Dialect, dsn string) (Store, error) {
 	if dialect != SQLite {
 		return nil, fmt.Errorf("store.Open: dialect %v not implemented yet (SQLite only in Task 1)", dialect)
@@ -476,12 +479,16 @@ func (s *sqliteStore) AddObservation(ctx context.Context, p AddObservationParams
 		}
 		project := s.resolveProjectTx(tx, p.SessionID, p.Project)
 
+		// revision_count / duplicate_count are omitted on purpose: the store
+		// inserts the schema defaults (0/0). The save pipeline
+		// (01-memory/001-observations §2 step 6) owns the first-save counters
+		// and increments them on upserts / exact-dedupe hits.
 		res, err := tx.Exec(`
 			INSERT INTO observations (
 				sync_id, session_id, type, title, content, tool_name, project, scope,
-				topic_key, normalized_hash, revision_count, duplicate_count,
+				topic_key, normalized_hash,
 				last_seen_at, importance, retrieval_usage, provenance, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, datetime('now'), 0.5, 0, ?, ?, ?)`,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), 0.5, 0, ?, ?, ?)`,
 			syncID, p.SessionID, p.Type, p.Title, p.Content,
 			nullableString(p.ToolName), nullableString(project),
 			scopeOrDefault(p.Scope), nullableString(p.TopicKey), hash,
@@ -862,11 +869,11 @@ func (s *sqliteStore) MarkReviewed(ctx context.Context, id int64) error {
 	var ra string
 	if months > 0 {
 		ra = time.Now().UTC().AddDate(0, months, 0).Format("2006-01-02 15:04:05")
-	} else {
-		ra = ""
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE observations SET review_after = ?, updated_at = datetime('now') WHERE id = ?`, nullableString(ra), id)
-	return err
+	return s.withWriteRetry(func() error {
+		_, err := s.db.ExecContext(ctx, `UPDATE observations SET review_after = ?, updated_at = datetime('now') WHERE id = ?`, nullableString(ra), id)
+		return err
+	})
 }
 
 // decayMonths maps observation type → review-after month offset (Engram
@@ -896,17 +903,20 @@ func (s *sqliteStore) BumpRetrievalUsage(ctx context.Context, ids []int64) error
 		args = append(args, id)
 	}
 	query := `UPDATE observations SET retrieval_usage = retrieval_usage + 1, updated_at = datetime('now') WHERE id IN (` + strings.Join(placeholders, ",") + `)`
-	_, err := s.db.ExecContext(ctx, query, args...)
-	return err
+	return s.withWriteRetry(func() error {
+		_, err := s.db.ExecContext(ctx, query, args...)
+		return err
+	})
 }
 
-// SearchPrompts searches prompts_fts over (content, project).
+// SearchPrompts searches prompts_fts over (content, project) and returns each
+// hit with its full identity (PromptRow).
 func (s *sqliteStore) SearchPrompts(ctx context.Context, q PromptSearchQuery) (PromptSearchResult, error) {
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 10
 	}
-	qStr := `SELECT p.id, ifnull(p.sync_id,''), p.session_id, p.content, ifnull(p.project,''), p.created_at
+	qStr := `SELECT p.id, ifnull(p.sync_id,''), p.session_id, ifnull(p.project,''), p.content, p.created_at
 		FROM prompts_fts fts
 		CROSS JOIN user_prompts p ON p.id = fts.rowid
 		WHERE prompts_fts MATCH ?`
@@ -924,18 +934,11 @@ func (s *sqliteStore) SearchPrompts(ctx context.Context, q PromptSearchQuery) (P
 	defer rows.Close()
 	var res PromptSearchResult
 	for rows.Next() {
-		var (
-			id        int64
-			syncID    string
-			sessionID string
-			content   string
-			project   string
-			createdAt string
-		)
-		if err := rows.Scan(&id, &syncID, &sessionID, &content, &project, &createdAt); err != nil {
+		var row PromptRow
+		if err := rows.Scan(&row.ID, &row.SyncID, &row.SessionID, &row.Project, &row.Content, &row.CreatedAt); err != nil {
 			return PromptSearchResult{Degraded: true}, err
 		}
-		res.Prompts = append(res.Prompts, content)
+		res.Prompts = append(res.Prompts, row)
 	}
 	return res, rows.Err()
 }
@@ -943,8 +946,44 @@ func (s *sqliteStore) SearchPrompts(ctx context.Context, q PromptSearchQuery) (P
 // TouchForTest sets last_seen_at and revision_count on an observation
 // (test-only hook for the ranking boosts).
 func (s *sqliteStore) TouchForTest(ctx context.Context, id int64, lastSeenAt string, revisionCount int) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE observations SET last_seen_at = ?, revision_count = ? WHERE id = ?`, lastSeenAt, revisionCount, id)
-	return err
+	return s.withWriteRetry(func() error {
+		_, err := s.db.ExecContext(ctx, `UPDATE observations SET last_seen_at = ?, revision_count = ? WHERE id = ?`, lastSeenAt, revisionCount, id)
+		return err
+	})
+}
+
+// InsertPrompt is a test-only seam (TouchForTest pattern) that inserts a row
+// into user_prompts directly, so SearchPrompts can be exercised end-to-end
+// without the full save pipeline (Task 3/4 owns the real capture path). It
+// mints a prm- sync id and relies on the prompts_fts insert trigger to index
+// the row. Returns the prompt's local id.
+func (s *sqliteStore) InsertPrompt(ctx context.Context, sessionID, content, project string) (int64, error) {
+	syncID := syncid.NewSyncID("prm")
+	var id int64
+	err := s.withWriteRetry(func() error {
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		if err := s.ensureSessionTx(tx, sessionID, project); err != nil {
+			return err
+		}
+		res, err := tx.Exec(`
+			INSERT INTO user_prompts (sync_id, session_id, content, project)
+			VALUES (?, ?, ?, ?)`,
+			syncID, sessionID, content, nullableString(project),
+		)
+		if err != nil {
+			return err
+		}
+		id, err = res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		return tx.Commit()
+	})
+	return id, err
 }
 
 // SetTxnHook sets the committed-transaction counter (Task 10 seam).

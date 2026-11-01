@@ -233,3 +233,41 @@ func TestNewSyncIDFormatViaObservation(t *testing.T) {
 		prev = res.SyncID
 	}
 }
+
+// TestSearchPromptsReturnsFullRow asserts SearchPrompts returns the captured
+// prompt with its full identity (id, sync_id, session_id, project, content,
+// created_at), not just the content string. Covers the PromptRow contract fix.
+func TestSearchPromptsReturnsFullRow(t *testing.T) {
+	st := openTestStore(t)
+	raw, ok := st.(*sqliteStore)
+	if !ok {
+		t.Fatalf("expected *sqliteStore, got %T", st)
+	}
+	id, err := raw.InsertPrompt(context.Background(), "ses-p", "the deployment runs on port 7431", "proj-a")
+	if err != nil {
+		t.Fatalf("insert prompt: %v", err)
+	}
+	if id == 0 {
+		t.Fatalf("expected non-zero prompt id")
+	}
+	r, err := st.SearchPrompts(context.Background(), PromptSearchQuery{Query: "deployment", Project: "proj-a", Limit: 10})
+	if err != nil {
+		t.Fatalf("search prompts: %v", err)
+	}
+	if len(r.Prompts) != 1 {
+		t.Fatalf("expected exactly 1 prompt hit, got %+v", r.Prompts)
+	}
+	row := r.Prompts[0]
+	if row.ID != id {
+		t.Fatalf("bad id: got %d want %d", row.ID, id)
+	}
+	if row.SyncID == "" || row.SessionID != "ses-p" || row.Project != "proj-a" {
+		t.Fatalf("identity fields not populated: %+v", row)
+	}
+	if row.Content != "the deployment runs on port 7431" {
+		t.Fatalf("bad content: %q", row.Content)
+	}
+	if row.CreatedAt == "" {
+		t.Fatalf("created_at not populated: %+v", row)
+	}
+}

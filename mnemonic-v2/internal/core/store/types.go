@@ -190,9 +190,21 @@ type PromptSearchQuery struct {
 	Limit   int
 }
 
+// PromptRow is a single captured-prompt hit with its identity (spec 002-schema
+// §2.4). Later tasks build prompt identity on these fields, so they are part of
+// the contract (not just the content).
+type PromptRow struct {
+	ID        int64
+	SyncID    string
+	SessionID string
+	Project   string
+	Content   string
+	CreatedAt string
+}
+
 // PromptSearchResult is returned by SearchPrompts.
 type PromptSearchResult struct {
-	Prompts  []string
+	Prompts  []PromptRow
 	Degraded bool
 }
 
