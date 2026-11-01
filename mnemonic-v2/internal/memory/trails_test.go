@@ -28,8 +28,11 @@ func TestSavePublishesEvent(t *testing.T) {
 	if e.Importance <= 0 {
 		t.Fatalf("importance must be the positive step-6 value, got %v", e.Importance)
 	}
-	if e.Entity != "" {
-		t.Fatalf("entity is filled in Task 12; this task must leave it empty, got %q", e.Entity)
+	// Task 12: the Entity is the wiki-handoff payload (the committed row's
+	// content); a save with no topic_key and no title-derived entity falls
+	// back to the title, which is always set (step 1 makes it required).
+	if e.Entity == "" {
+		t.Fatalf("entity must carry the wiki-handoff payload, got empty")
 	}
 	// nil LLM → the save degraded (INV-3), the event carries the flag.
 	if !e.Degraded || !r.Degraded {

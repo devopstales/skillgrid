@@ -257,16 +257,17 @@ func (s *Service) Save(ctx context.Context, req SaveRequest) (SaveResult, error)
 	// 10. PUBLISH (spec 01-memory/001 §5) — exactly one SaveEvent per
 	// committed save that wrote a new observation, after the commit. The
 	// event carries the sync_id, session_id (the trail's provenance anchor),
-	// project, scope, type, topic_key, importance (the step-6 value), and
-	// degraded. Entity is left "" until Task 12 (the payload-completion task)
-	// fills it. The bus fans out to the trail consumer (subscribed in
-	// NewService) and any wiki consumer; a consumer failure never fails the
-	// save. The non-publishing paths are the ones that write no new
-	// observation: a validation error (nothing committed), the replay-identical
-	// early return (step 4.5), and the dedup-noop (step 6a — the hash-floor
-	// VerdictNoop branch marks the existing row a duplicate and commits no new
-	// row). A dedup-noop is not a new save, so "exactly once per committed
-	// save" is "exactly once per new observation."
+	// project, scope, type, topic_key, the Entity (the wiki-handoff payload,
+	// derived per spec 004-transport-mcp §5 "from topic_key family /
+	// title"), the importance (the step-6 value), and degraded. The bus fans
+	// out to the trail consumer (subscribed in NewService) and any wiki
+	// consumer; a consumer failure never fails the save. The non-publishing
+	// paths are the ones that write no new observation: a validation error
+	// (nothing committed), the replay-identical early return (step 4.5), and
+	// the dedup-noop (step 6a — the hash-floor VerdictNoop branch marks the
+	// existing row a duplicate and commits no new row). A dedup-noop is not a
+	// new save, so "exactly once per committed save" is "exactly once per
+	// new observation."
 	if !row.replayed {
 		s.bus.Publish(SaveEvent{
 			SyncID:           row.syncID,
@@ -275,6 +276,13 @@ func (s *Service) Save(ctx context.Context, req SaveRequest) (SaveResult, error)
 			Scope:            scope,
 			Type:             req.Type,
 			TopicKey:         req.TopicKey,
+			// ponytail: the Entity is the wiki-handoff target, not the row's
+			// content: the wiki regenerates pages keyed by entity, so it
+			// re-reads the row through the store's read seam (the wiki
+			// consumer's own dependency) using SyncID. Upgrading the payload
+			// to carry the full row (title+content) is a one-field change if
+			// the wiki's page key ever diverges from the Entity target.
+			Entity:           EntityFor(req.TopicKey, req.Title),
 			Importance:       Importance(0, 0, req.Type),
 			Degraded:         degraded,
 			SupersededSyncID: row.mergedInto,

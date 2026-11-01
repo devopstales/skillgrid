@@ -2,6 +2,7 @@ package memory
 
 import (
 	"log"
+	"strings"
 	"sync"
 )
 
@@ -14,7 +15,9 @@ import (
 // consumers (a wiki failure never fails a save).
 //
 // Task 5 creates the bus; the pipeline's step-10 Publish call site is wired
-// in Task 7.
+// in Task 7; Task 12 completes the SaveEvent payload (Entity + the
+// wiki-handoff contract) and proves the boundary for a consumer that does
+// not live in internal/memory (internal/wiki_teststub).
 
 // SaveEvent is the committed-save handoff (spec 004-transport-mcp §5):
 // enough for the wiki to do entity-targeted regeneration. SessionID is the
@@ -56,10 +59,13 @@ func (b *EventBus) Subscribe(fn func(SaveEvent)) {
 	b.subs = append(b.subs, fn)
 }
 
-// Publish fans ev out to every subscriber, in order. A consumer that returns
-// an error or panics is logged (with the event's sync id for traceability)
-// and the fan-out continues — the publisher never sees a failure (spec
-// 01-memory/001 §5: failure isolation).
+// Publish fans ev out to every subscriber, in order. A consumer that panics
+// is recovered and logged (with the event's sync id for traceability) and
+// the fan-out continues — the publisher never sees a failure (spec
+// 01-memory/001 §5: failure isolation). The consumer signature is a bare
+// func (an error-returning consumer cannot fail the publisher either way);
+// a consumer with write side effects that must survive a partial failure
+// reports it by panicking (the trail consumer does — trails.go).
 func (b *EventBus) Publish(ev SaveEvent) {
 	if b == nil {
 		return
@@ -78,4 +84,29 @@ func (b *EventBus) Publish(ev SaveEvent) {
 			fn(ev)
 		}()
 	}
+}
+
+// EntityFor derives the SaveEvent's Entity from a committed save (spec
+// 004-transport-mcp §5 "from topic_key family / title"): the topic_key's
+// family head (first path segment) when a topic_key is set, else the
+// title's first significant term (best-effort: the first word — a title
+// that is only punctuation falls through to the whole trimmed title). The
+// pipeline calls this at step 10 so the event carries the same value the
+// wiki handoff targets; it is pure so the derivation is unit-testable
+// without a store.
+func EntityFor(topicKey, title string) string {
+	if i := strings.IndexByte(topicKey, '/'); i >= 0 {
+		if head := topicKey[:i]; head != "" {
+			return head
+		}
+	}
+	if topicKey != "" {
+		return topicKey
+	}
+	for _, w := range strings.Fields(title) {
+		if term := strings.Trim(w, ".,;:!?()[]{}\"'`-"); term != "" {
+			return term
+		}
+	}
+	return strings.TrimSpace(title)
 }

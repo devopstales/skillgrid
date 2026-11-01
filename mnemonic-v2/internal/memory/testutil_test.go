@@ -343,6 +343,18 @@ func retrievalTrailCount(t *testing.T, st store.Store) int {
 	return n
 }
 
+// trailCount counts session_trail rows for a session (the trail consumer's
+// side-effect assertion surface — a consumer that runs appends exactly one
+// row per committed save).
+func trailCount(t *testing.T, st store.Store, sessionID string) int {
+	t.Helper()
+	n, err := probeStore(t, st).ProbeInt(`SELECT COUNT(*) FROM session_trails WHERE session_id = ?`, sessionID)
+	if err != nil {
+		t.Fatalf("trail count: %v", err)
+	}
+	return n
+}
+
 // sizeOf returns an observation's content byte length.
 func sizeOf(t *testing.T, st store.Store, id int64) int {
 	t.Helper()
