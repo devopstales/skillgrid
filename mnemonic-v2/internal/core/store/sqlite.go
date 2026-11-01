@@ -46,6 +46,35 @@ func (s *sqliteStore) RawExec(query string, args ...any) error {
 	return err
 }
 
+// RawQuery runs a raw SELECT and returns every row (a read seam alongside
+// Probe/ProbeInt — the conflict pre-filter's FTS MATCH + JOIN needs a
+// multi-row, multi-column read surface, which Probe/ProbeInt's
+// single-value shape cannot carry).
+func (s *sqliteStore) RawQuery(query string, args ...any) ([][]any, error) {
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+	var out [][]any
+	for rows.Next() {
+		vals := make([]any, len(cols))
+		ptrs := make([]any, len(cols))
+		for i := range vals {
+			ptrs[i] = &vals[i]
+		}
+		if err := rows.Scan(ptrs...); err != nil {
+			return nil, err
+		}
+		out = append(out, vals)
+	}
+	return out, rows.Err()
+}
+
 var _ Store = (*sqliteStore)(nil)
 
 // Open opens or creates the SQLite database for project under dataDir and
@@ -660,9 +689,39 @@ func (s *sqliteStore) ConsolidateObservations(ctx context.Context, p Consolidate
 
 // ── relations ───────────────────────────────────────────────────────────────
 
-// AddRelation is not implemented yet (later task).
+// AddRelation inserts a memory_relations row (spec 002-schema §2.5) and
+// returns the stored row. sync_id is minted here (prefix "rel", INV-6);
+// judgment_status defaults to 'pending' — a fresh relation is a candidate
+// for judgment, not a verdict.
 func (s *sqliteStore) AddRelation(ctx context.Context, p AddRelationParams) (Relation, error) {
-	return Relation{}, ErrNotImplemented{Method: "AddRelation"}
+	var rel Relation
+	err := s.withWriteRetry(func() error {
+		syncID := syncid.NewSyncID("rel")
+		res, err := s.db.ExecContext(ctx, `
+			INSERT INTO memory_relations (sync_id, source_id, target_id, relation, reason, evidence, session_id)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			syncID, p.SourceID, p.TargetID, p.Relation, nullableString(p.Reason), nullableString(p.Evidence), nullableString(p.SessionID))
+		if err != nil {
+			return err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		var createdAt string
+		if err := s.db.QueryRowContext(ctx,
+			`SELECT judgment_status, created_at FROM memory_relations WHERE id = ?`, id).Scan(&rel.JudgmentStatus, &createdAt); err != nil {
+			return err
+		}
+		rel.ID = id
+		rel.SyncID = syncID
+		rel.SourceID = p.SourceID
+		rel.TargetID = p.TargetID
+		rel.Relation = p.Relation
+		rel.CreatedAt = createdAt
+		return nil
+	})
+	return rel, err
 }
 
 // JudgeRelation is not implemented yet (later task).

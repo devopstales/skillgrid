@@ -24,14 +24,17 @@ import (
 // single entry point for every save surface (MCP/CLI/HTTP funnel here).
 //
 // Steps implemented here: 1 VALIDATE, 2 RESOLVE (project + session policy),
-// 3 REDACT (strip private spans + truncate), 4.5 REPLAY LEDGER (the
+// 3 REDACT (strip private spans + truncate), 4 CONFLICT PRE-FILTER (the
+// title FTS + relevance gate — Task 9; detection only, the materialization
+// is step 7.5 after the commit), 4.5 REPLAY LEDGER (the
 // operation-idempotency check — Task 6), 5 DEDUP (the hash floor; the LLM
 // path's internals land in Task 8 — the call site is final), 6 UPSERT/INSERT
 // (topic-key revision with observation_versions snapshot, fresh insert with
 // review_after + importance), 7 ENQUEUE (sync journal, enrollment-gated),
-// 8 COMMIT (one local transaction).
+// 7.5 MATERIALIZE CANDIDATES (pending relations — Task 9), 8 COMMIT (one
+// local transaction).
 //
-// Step 4 (conflict pre-filter) is Task 9; step 10 (Publish) is Task 7.
+// Step 10 (Publish) is Task 7.
 
 // ErrSessionEnded is the terminal 409: the session row exists and has
 // ended. The gate (core/store) returns store.ErrSessionEnded; the pipeline
@@ -103,8 +106,8 @@ type SaveRequest struct {
 	SessionID, Type, Title, Content, ToolName, Project, Scope, TopicKey, OperationID string
 	// CapturePrompt is tri-state (spec 004-transport-mcp mem_save row,
 	// amended): nil → true (the MCP "absent" default), explicit false → off.
-	CapturePrompt   *bool
-	CurrentPrompt   string // the current turn's prompt, when capture is on
+	CapturePrompt *bool
+	CurrentPrompt string // the current turn's prompt, when capture is on
 }
 
 // SaveResult is the save's return shape (spec 01-memory/001 §2 step 9).
@@ -115,12 +118,12 @@ type SaveResult struct {
 	RevisionCount int
 	Replayed      bool
 	Dedup         struct {
-		Verdict, Reason          string
-		MergedIntoSyncID         *string
+		Verdict, Reason  string
+		MergedIntoSyncID *string
 	}
-	Candidates         []store.Relation // conflict candidates (Task 9 fills; empty until then)
-	JudgmentRequired   bool
-	Degraded           bool
+	Candidates       []store.Relation // conflict candidates (Task 9 fills; empty until then)
+	JudgmentRequired bool
+	Degraded         bool
 }
 
 // Save runs the save pipeline. It calls only the store.Store interface and
@@ -159,12 +162,36 @@ func (s *Service) Save(ctx context.Context, req SaveRequest) (SaveResult, error)
 		}
 	}
 
-	// 5. DEDUP — final call site. Task 8 changes only the interior of
-	// runDedup when the seam is non-nil; the pipeline never changes again.
+	// 4. CONFLICT PRE-FILTER (spec 01-memory/003 §3 step 1) — the OR-based
+	// title FTS within the same project+scope, then the deterministic
+	// relevance gate. Detection only: the survivors are materialized as
+	// pending relations at step 7.5, after the commit. Runs on the add
+	// path only — a hash-noop replay and an identical replay neither
+	// writes a new observation, so neither surfaces candidates (the
+	// judgment contract is per new save, spec 004-transport-mcp §3
+	// mem_save row). A save with no resolvable project (project "" with
+	// detection off) skips the pre-filter: same project+scope means
+	// nothing to search.
 	scope := strings.TrimSpace(req.Scope)
 	if scope == "" {
 		scope = "project"
 	}
+	var gatePassing []store.Observation
+	if strings.TrimSpace(req.Project) != "" {
+		for _, c := range s.conflictPreFilter(ctx, req.Project, scope, req.Title) {
+			tk := ""
+			if c.TopicKey != nil {
+				tk = *c.TopicKey
+			}
+			if candidateGate(titleTopic{Title: req.Title, TopicKey: req.TopicKey},
+				titleTopic{Title: c.Title, TopicKey: tk}) {
+				gatePassing = append(gatePassing, c)
+			}
+		}
+	}
+
+	// 5. DEDUP — final call site. Task 8 changes only the interior of
+	// runDedup when the seam is non-nil; the pipeline never changes again.
 	decision, degraded := runDedup(ctx, s.llm, s.st, req.Project, scope, content, req.Type, req.Title)
 
 	// 6. UPSERT/INSERT (+ 7 ENQUEUE + 8 COMMIT) in one local transaction.
@@ -182,13 +209,27 @@ func (s *Service) Save(ctx context.Context, req SaveRequest) (SaveResult, error)
 	// 7/8 happened inside commitSave: the sync mutation (enrollment-gated)
 	// rows in the same transaction as the observation + versions.
 
+	// 7.5. MATERIALIZE CANDIDATES (spec 01-memory/003 §3 step 3) — the
+	// gate's survivors become pending memory_relations rows (source = the
+	// new save's sync_id, target = the candidate's), bounded to
+	// candidateBound per source. After the commit: the save's own
+	// transaction is done, and a relation write failure must not undo it.
+	// Skipped on the add-noop path (a noop replay wrote no new observation
+	// to be a source).
+	var candidates []store.Relation
+	if !row.replayed && len(gatePassing) > 0 {
+		candidates = s.materializeCandidates(ctx, row.syncID, req.SessionID, gatePassing)
+	}
+
 	// 9. RESULT
 	res := SaveResult{
-		ID:            row.id,
-		SyncID:        row.syncID,
-		RevisionCount: row.revisionCount,
-		Replayed:      row.replayed,
-		Degraded:      degraded,
+		ID:               row.id,
+		SyncID:           row.syncID,
+		RevisionCount:    row.revisionCount,
+		Replayed:         row.replayed,
+		Degraded:         degraded,
+		Candidates:       candidates,
+		JudgmentRequired: len(candidates) > 0,
 	}
 	res.Dedup.Verdict = string(decision.Verdict)
 	res.Dedup.Reason = decision.Reason
