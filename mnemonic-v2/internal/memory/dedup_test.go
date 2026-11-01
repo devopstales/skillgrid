@@ -11,7 +11,7 @@ import (
 // The hash floor: nil seam → floor runs, no retry, degraded.
 func TestDedupRunNilSeamRunsHashFloor(t *testing.T) {
 	st := openTestStore(t)
-	d, degraded := dedup.Run(ctx, nil, st, "p", "project", "hello world", "T")
+	d, degraded := runDedup(ctx, nil, st, "p", "project", "hello world", "decision", "T")
 	if !degraded {
 		t.Fatal("nil seam must flag degraded")
 	}
@@ -20,7 +20,7 @@ func TestDedupRunNilSeamRunsHashFloor(t *testing.T) {
 	}
 	// seed the exact row; a second run must land on noop with the same identity
 	seedObservation(t, st, "p", "decision", "T", "hello world", "")
-	d2, degraded2 := dedup.Run(ctx, nil, st, "p", "project", "hello world", "T")
+	d2, degraded2 := runDedup(ctx, nil, st, "p", "project", "hello world", "decision", "T")
 	if !degraded2 || d2.Reason != "hash" || d2.Verdict != llm.VerdictNoop {
 		t.Fatalf("exact row must hash-floor to noop: %+v (degraded=%v)", d2, degraded2)
 	}
@@ -36,7 +36,7 @@ func TestHashFloorNormalizationMatchesStoredHash(t *testing.T) {
 	st := openTestStore(t)
 	o := seedObservation(t, st, "p", "decision", "T", "hello world", "")
 	_ = o
-	d, _ := dedup.Run(ctx, nil, st, "p", "project", "HELLO    world", "T")
+	d, _ := runDedup(ctx, nil, st, "p", "project", "HELLO    world", "decision", "T")
 	if d.Verdict != llm.VerdictNoop {
 		t.Fatalf("case/whitespace-variant content must hash-equal the stored row: %+v", d)
 	}
@@ -49,7 +49,7 @@ func TestHashFloorNormalizationMatchesStoredHash(t *testing.T) {
 func TestHashFloorDoesNotCrossProjects(t *testing.T) {
 	st := openTestStore(t)
 	seedObservation(t, st, "p", "decision", "T", "hello world", "")
-	d, _ := dedup.Run(ctx, nil, st, "q", "project", "hello world", "T")
+	d, _ := runDedup(ctx, nil, st, "q", "project", "hello world", "decision", "T")
 	if d.Verdict != llm.VerdictAdd {
 		t.Fatalf("identical content in another project must not match: %+v", d)
 	}
@@ -67,7 +67,7 @@ func TestHashFloorDoesNotCrossScopes(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed personal: %v", err)
 	}
-	d, _ := dedup.Run(ctx, nil, st, "p", "personal", "hello world", "T")
+	d, _ := runDedup(ctx, nil, st, "p", "personal", "hello world", "decision", "T")
 	if d.Verdict != llm.VerdictNoop {
 		t.Fatalf("same project+scope+type+title+hash must match: %+v", d)
 	}
@@ -81,7 +81,7 @@ func TestDedupRunSeamPresentStillHashFloorInTask5(t *testing.T) {
 	stub.setClassify(func(ctx context.Context, newContent string, candidates []string) (llm.DedupDecision, error) {
 		return llm.DedupDecision{Verdict: llm.VerdictAdd, Reason: "llm"}, nil
 	})
-	d, degraded := dedup.Run(ctx, stub, st, "p", "project", "brand new", "T")
+	d, degraded := runDedup(ctx, stub, st, "p", "project", "brand new", "decision", "T")
 	// Task 5: the seam is plumbed but not yet consulted → floor verdict.
 	if d.Reason != "hash" {
 		t.Fatalf("Task 5 dedup.Run must return the hash-floor verdict: %+v", d)

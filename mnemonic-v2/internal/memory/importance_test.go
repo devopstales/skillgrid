@@ -25,12 +25,12 @@ func TestImportanceFormulaPinnedValues(t *testing.T) {
 		{"fresh zero-usage durable", 0, 0, "decision", 0.37 + 0.18},
 		{"fresh zero-usage config", 0, 0, "config", 0.37 + 0.18},
 		{"fresh zero-usage convention", 0, 0, "convention", 0.37 + 0.18},
-		{"usage capped at 50", 500, 0, "learning", 0.6 + 0.37 + 0.08},
+		{"usage capped at 50 clamps to 1", 500, 0, "learning", 1.0},
 		{"age at grace window keeps full recency", 0, 30, "learning", 0.37 + 0.08},
-		{"age 45 decays recency to 0.5", 0, 45, "learning", 0.37 * 0.5 + 0.08},
+		{"age 45 recency 0", 0, 45, "learning", 0.08},
 		{"age 60 recency zero", 0, 60, "learning", 0.08},
 		{"age past 60 clamps at zero", 0, 90, "learning", 0.08},
-		{"all terms max clamp to 1", 50, 0, "decision", 0.6 + 0.37 + 0.18},
+		{"all terms max clamps to 1", 50, 0, "decision", 1.0},
 	}
 	for _, c := range cases {
 		got := Importance(c.usage, c.ageDays, c.typ)

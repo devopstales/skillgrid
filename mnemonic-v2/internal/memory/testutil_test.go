@@ -185,7 +185,7 @@ func findIDBySyncID(t *testing.T, st store.Store, syncID string) int64 {
 	if err != nil {
 		t.Fatalf("find by sync id: %v", err)
 	}
-	return n
+	return int64(n)
 }
 
 // syncIDsOf lists the live sync ids of a project, in id order.

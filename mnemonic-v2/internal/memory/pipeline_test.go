@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -153,7 +154,9 @@ func TestSaveRedactsMultiLineSecrets(t *testing.T) {
 	svc := newTestService(t) // default 32000-rune limit: no truncation interference
 	secret := "AKIA-MULTI-LINE"
 	other := "another-secret"
-	content := "line1 <private>" + secret + "</private> mid\nline2 <private>" + other + "</private> end"
+	// two spans, one spanning a newline (a multi-line secret): both must be
+	// stripped, and the surviving text must not leak the span boundaries.
+	content := "alpha <private>" + secret + "</private> beta\n<private>" + other + "</private>"
 	r, err := svc.Save(ctx, SaveRequest{SessionID: "s", Type: "learning", Title: "T",
 		Content: content, Project: "p", Scope: "project"})
 	if err != nil {
@@ -168,8 +171,17 @@ func TestSaveRedactsMultiLineSecrets(t *testing.T) {
 			t.Fatalf("secret not fully stripped (%q left in %q)", s, got.Content)
 		}
 	}
-	if !strings.Contains(got.Content, "line1") || !strings.Contains(got.Content, "end") {
+	if !strings.Contains(got.Content, "alpha") || !strings.Contains(got.Content, "beta") {
 		t.Fatalf("surrounding text lost: %q", got.Content)
+	}
+	// a save differing only inside the spans must hash-equal the first
+	r2, err := svc.Save(ctx, SaveRequest{SessionID: "s", Type: "learning", Title: "T",
+		Content: "alpha <private>DIFFERENT</private> beta\n<private>OTHER</private>", Project: "p", Scope: "project"})
+	if err != nil {
+		t.Fatalf("save 2: %v", err)
+	}
+	if r2.ID != r.ID || !r2.Replayed {
+		t.Fatalf("multi-line span difference must hash-equal → noop: %+v vs %+v", r2, r)
 	}
 }
 
@@ -282,15 +294,11 @@ func TestSaveUnenrolledJournalsNothing(t *testing.T) {
 // check is fixed in this task per the brief).
 func TestSaveIntoEndedSessionRefused(t *testing.T) {
 	svc := newTestService(t)
-	if _, err := probeStore(t, svc.st).Probe(`SELECT COUNT(*) > 0 FROM sessions WHERE id = 's'`); err == nil {
-		// session "s" auto-registered by this test's save below? no — a save
-		// has not run yet; just end an explicitly seeded session.
-	}
 	seedObservation(t, svc.st, "p", "decision", "seed", "c", "") // auto-registers session s
 	markSessionEnded(t, svc.st, "s")
 	_, err := svc.Save(ctx, SaveRequest{SessionID: "s", Type: "decision", Title: "T", Content: "C", Project: "p", Scope: "project"})
-	if !isSessionEndedErr(err) {
-		t.Fatalf("ended session must refuse the save, got %v", err)
+	if !errors.Is(err, ErrSessionEnded) {
+		t.Fatalf("ended session must return ErrSessionEnded (409), got %v", err)
 	}
 }
 
@@ -301,10 +309,17 @@ func TestSaveIntoMismatchedOwnedSessionRefused(t *testing.T) {
 	seedObservation(t, svc.st, "p", "decision", "seed", "c", "") // session s → project p
 	setSessionOwnedProject(t, svc.st, "s", "other-proj")
 	_, err := svc.Save(ctx, SaveRequest{SessionID: "s", Type: "decision", Title: "T", Content: "C", Project: "q", Scope: "project"})
-	if !isSessionProjectMismatchErr(err) {
-		t.Fatalf("mismatched owned session must refuse the save, got %v", err)
+	if !errors.Is(err, ErrSessionProjectMismatch) {
+		t.Fatalf("mismatched owned session must return ErrSessionProjectMismatch (409), got %v", err)
 	}
 }
+
+// The gate wraps the store's sentinels: the memory package's 409 sentinels
+// are the same values the gate returns (errors.Is must work end-to-end).
+var (
+	_ = ErrSessionEnded
+	_ = ErrSessionProjectMismatch
+)
 
 // [save-with-unknown-session] a missing session row is auto-registered (shared
 // ownership) inside the save — the first save opens its session implicitly.

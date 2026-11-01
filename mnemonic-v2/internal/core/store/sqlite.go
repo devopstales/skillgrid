@@ -31,8 +31,19 @@ type sqliteStore struct {
 	// pooled is true when the DB handle came from the refcounted pool
 	// (Close releases a pool ref rather than closing the DB).
 	pooled bool
-	// txnHook is the committed-transaction counter seam (Task 10).
+	// txnHook is the committed-transaction counter seam (Task 10; the save
+	// pipeline's single-transaction assertion uses it too, Task 5).
 	txnHook func()
+	// syncOn gates the save's sync-mutation journal (the memory service
+	// sets it from cfg.Sync.Enabled — the store owns no config, INV-2).
+	syncOn bool
+}
+
+// RawExec runs a raw statement against the database (test seam for the
+// memory package's session-policy fixtures; mirrors the Probe test hooks).
+func (s *sqliteStore) RawExec(query string, args ...any) error {
+	_, err := s.db.Exec(query, args...)
+	return err
 }
 
 var _ Store = (*sqliteStore)(nil)

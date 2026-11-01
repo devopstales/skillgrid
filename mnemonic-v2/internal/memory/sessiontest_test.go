@@ -16,15 +16,18 @@ func parseStoreTime(s string) (time.Time, error) {
 	return time.Parse("2006-01-02 15:04:05", s)
 }
 
+// execSeam is the store's raw-exec test seam (the SQLite store's rawExec —
+// an unexported method the test type-asserts against).
+
 // markSessionEnded sets ended_at on a session row (test seam for the
 // session-policy tests; Task 7's SessionEnd is the production path).
 func markSessionEnded(t *testing.T, st store.Store, sessionID string) {
 	t.Helper()
-	raw, ok := st.(interface{ rawExec(q string, args ...any) error })
+	raw, ok := st.(interface{ RawExec(query string, args ...any) error })
 	if !ok {
-		t.Fatal("store lacks rawExec test seam")
+		t.Fatal("store lacks the rawExec test seam (expected *store.sqliteStore)")
 	}
-	if err := raw.rawExec(`UPDATE sessions SET ended_at = datetime('now') WHERE id = ?`, sessionID); err != nil {
+	if err := raw.RawExec(`UPDATE sessions SET ended_at = datetime('now') WHERE id = ?`, sessionID); err != nil {
 		t.Fatalf("mark ended: %v", err)
 	}
 }
@@ -33,11 +36,11 @@ func markSessionEnded(t *testing.T, st store.Store, sessionID string) {
 // project (test seam for the ownership check).
 func setSessionOwnedProject(t *testing.T, st store.Store, sessionID, project string) {
 	t.Helper()
-	raw, ok := st.(interface{ rawExec(q string, args ...any) error })
+	raw, ok := st.(interface{ RawExec(query string, args ...any) error })
 	if !ok {
-		t.Fatal("store lacks rawExec test seam")
+		t.Fatal("store lacks the rawExec test seam (expected *store.sqliteStore)")
 	}
-	if err := raw.rawExec(`UPDATE sessions SET ownership_mode = 'project_owned', project = ? WHERE id = ?`, project, sessionID); err != nil {
+	if err := raw.RawExec(`UPDATE sessions SET ownership_mode = 'project_owned', project = ? WHERE id = ?`, project, sessionID); err != nil {
 		t.Fatalf("set owned project: %v", err)
 	}
 }
