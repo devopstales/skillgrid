@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"regexp"
@@ -19,7 +20,8 @@ import (
 // single entry point for every save surface (MCP/CLI/HTTP funnel here).
 //
 // Steps implemented here: 1 VALIDATE, 2 RESOLVE (project + session policy),
-// 3 REDACT (strip private spans + truncate), 5 DEDUP (the hash floor; the LLM
+// 3 REDACT (strip private spans + truncate), 4.5 REPLAY LEDGER (the
+// operation-idempotency check — Task 6), 5 DEDUP (the hash floor; the LLM
 // path's internals land in Task 8 — the call site is final), 6 UPSERT/INSERT
 // (topic-key revision with observation_versions snapshot, fresh insert with
 // review_after + importance), 7 ENQUEUE (sync journal, enrollment-gated),
@@ -37,6 +39,18 @@ var ErrSessionEnded = errors.New("memory: session ended")
 // project does not match the resolved project (the gate returns
 // store.ErrSessionProjectMismatch; wrapped the same way).
 var ErrSessionProjectMismatch = errors.New("memory: session project mismatch")
+
+// ErrOperationConflict is the 409 for a replay whose operation id is already
+// committed under a different payload fingerprint (spec 01-memory/001 §4).
+// The transport layer (Task 13) maps errors.Is(err, ErrOperationConflict) →
+// 409; the committed observation and ledger row are left untouched.
+var ErrOperationConflict = errors.New("memory: operation conflict")
+
+// ErrOperationExpired is the 410 for a replay whose ledger row exists but
+// its observation is gone — the target was hard-deleted and the ledger FK
+// (ON DELETE SET NULL, Task 1's DDL) nulled observation_id, leaving the row
+// as a tombstone (spec 01-memory/001 §4). Mapped to 410 by Task 13.
+var ErrOperationExpired = errors.New("memory: operation expired")
 
 // wrapSessionErr re-wraps the gate's session sentinels into the memory
 // package's sentinels (errors.Is against the store's values).
@@ -121,6 +135,25 @@ func (s *Service) Save(ctx context.Context, req SaveRequest) (SaveResult, error)
 	// 3. REDACT — strip private spans, then truncate (rune count, per the
 	// brief) — the hash is over the redacted+truncated content.
 	content := truncateContent(stripPrivate(req.Content, s.cfg.Memory.PrivateTag), s.cfg.Memory.ContentMaxBytes)
+
+	// 4.5. REPLAY LEDGER (spec 01-memory/001 §4) — the operation-idempotency
+	// check, one ledger lookup before dedup. Identical fingerprint → return
+	// the committed id early (dedup/upsert/journal run exactly once — the
+	// whole point: a plugin retrying a flaky save never double-writes).
+	// Changed fingerprint → ErrOperationConflict (409). Ledger row whose
+	// target was deleted (observation_id NULL via ON DELETE SET NULL) →
+	// ErrOperationExpired (410). No row (or no operation id) → proceed to
+	// dedup; the ledger row is inserted inside the commit transaction by
+	// the gate (step 8).
+	if req.OperationID != "" {
+		out, done, err := s.replayLedger(ctx, s.st, req, content)
+		if err != nil {
+			return SaveResult{}, err
+		}
+		if done {
+			return out, nil
+		}
+	}
 
 	// 5. DEDUP — final call site. Task 8 changes only the interior of
 	// runDedup when the seam is non-nil; the pipeline never changes again.
@@ -454,4 +487,136 @@ func promptFor(in saveTxnInput) string {
 func monthsStamp(months int) *string {
 	s := time.Now().UTC().AddDate(0, months, 0).Format("2006-01-02 15:04:05")
 	return &s
+}
+
+// ── step 4.5: the replay ledger ─────────────────────────────────────────────
+
+// ledgerFingerprint reads the stored fingerprint for an operation id via
+// the store's Probe test seam (the bool-returning seam the pipeline can
+// cross-package-assert — Go's export data carries unexported methods only
+// within the package, so the pipeline can't see the store's unexported
+// methods; the Probe seam is the narrow cross-package read surface).
+// notFound:true means the ledger has no row. A failed read (other than
+// ErrNoRows) is NOT evidence of absence (spec 004-dedup §6, the hash
+// floor's posture): it errors — the ledger is the idempotency guard.
+func (s *Service) ledgerFingerprint(st store.Store, operationID, want string) (matched, found bool, err error) {
+	p, ok := st.(interface {
+		Probe(query string, args ...any) (bool, error)
+	})
+	if !ok {
+		return false, false, fmt.Errorf("memory: store %T does not expose the Probe seam the replay ledger reads through", st)
+	}
+	// ponytail: the fingerprint is compared by equality probe (the seam
+	// returns bool only, so the stored value is recovered by asking
+	// "does my computed value match?"). ErrNoRows = no ledger row (first
+	// save under this id). Upgrade path: a SaveTXN gate method when Task
+	// 18's Postgres adapter needs the read transactional.
+	matched, err = p.Probe(
+		`SELECT fingerprint = ? FROM observation_save_operations WHERE operation_id = ?`,
+		want, operationID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	return matched, true, nil
+}
+
+// ledgerObservationID reads the ledger row's observation_id for an
+// operation id (0 = no row OR the ON DELETE SET NULL tombstone — the
+// caller disambiguates via ledgerFingerprint first).
+func (s *Service) ledgerObservationID(st store.Store, operationID string) (int64, error) {
+	p, ok := st.(interface {
+		ProbeInt(query string, args ...any) (int, error)
+	})
+	if !ok {
+		return 0, fmt.Errorf("memory: store %T does not expose the ProbeInt seam the replay ledger reads through", st)
+	}
+	n, err := p.ProbeInt(
+		`SELECT ifnull(observation_id, 0) FROM observation_save_operations WHERE operation_id = ?`,
+		operationID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return int64(n), err
+}
+
+// replayLedger runs the step 4.5 check (spec 01-memory/001 §4) before
+// dedup. Two read-only Probe calls (fingerprint equality, then
+// observation_id) over the ledger table; branches on the row's state:
+//
+//	no row                             → done:false, proceed to dedup
+//	(the ledger row is inserted inside the commit transaction by the
+//	gate, step 8).
+//	row + different fingerprint        → ErrOperationConflict (409)
+//	row + same fingerprint + NULL
+//	observation_id (the ON DELETE SET
+//	NULL tombstone)                    → ErrOperationExpired (410)
+//	row + same fingerprint + live
+//	observation                        → the committed result
+//	(Replayed:true), returned early — dedup/upsert/journal run exactly
+//	once (the whole point: a plugin retrying a flaky save never
+//	double-writes).
+//
+// The check runs BEFORE session-ownership resolution: the fingerprint is
+// computed over the request's redacted+truncated content (spec §4), not
+// the resolved project, so a retry of the same request fingerprints
+// identically whether or not its session row is present.
+// ponytail: the read goes through the store's Probe/ProbeInt test seams
+// (the narrow cross-package read surface — Go's export data carries
+// unexported methods only within the package, so the pipeline can't
+// assert against a store-internal ledgerLookup) rather than a new SaveTXN
+// gate method; the upgrade path is a gate method when Task 18's Postgres
+// adapter needs the ledger read transactional inside the save txn.
+func (s *Service) replayLedger(ctx context.Context, st store.Store, req SaveRequest, content string) (SaveResult, bool, error) {
+	fingerprint := s.opFingerprintFor(req, content)
+	matched, found, err := s.ledgerFingerprint(st, req.OperationID, fingerprint)
+	if err != nil {
+		return SaveResult{}, false, fmt.Errorf("memory: replay ledger lookup: %w", err)
+	}
+	if !found {
+		return SaveResult{}, false, nil // no row: first save under this id
+	}
+	if !matched {
+		// row exists but different fingerprint → 409.
+		return SaveResult{}, true, ErrOperationConflict
+	}
+	// fingerprint match: read the observation_id (NULL → target was
+	// deleted → 410; non-NULL → the committed row).
+	obsID, err := s.ledgerObservationID(st, req.OperationID)
+	if err != nil {
+		return SaveResult{}, false, fmt.Errorf("memory: replay ledger lookup: %w", err)
+	}
+	if obsID == 0 {
+		return SaveResult{}, true, ErrOperationExpired
+	}
+	// committed result: read the row's sync_id (INV-6 identity) — a row
+	// that vanished between the lookup and this read is the 410 path too.
+	o, err := st.GetObservation(ctx, obsID, false)
+	if err != nil {
+		return SaveResult{}, true, ErrOperationExpired
+	}
+	return SaveResult{ID: o.ID, SyncID: o.SyncID, Replayed: true}, true, nil
+}
+
+// opFingerprintFor computes the replay fingerprint for a request (spec
+// 01-memory/001 §4): "v1:" + the normalized content hash
+// (storeNormalizedHash over the redacted+truncated content). This matches
+// the gate's ledger insert (txngate.go: "v1:"+p.NormalizedHash), so the
+// pipeline's fingerprint and the stored fingerprint agree. Computed before
+// session-ownership resolution, so a retry of the same request fingerprints
+// identically whether or not its session row is present.
+//
+// ponytail: the spec names "length-prefixed normalized fields" for the
+// fingerprint; the gate's implementation (Task 5) stores only the
+// normalized content hash. The content is the distinguishing field for
+// the 409 check (a changed payload differs in content); the other
+// fields (type, title, project, scope, topic_key) are validated at step 1
+// and are part of the dedup identity (step 5), so a change in any of them
+// is caught by the hash floor or the validation. Upgrade path: the gate
+// widens the fingerprint to all fields when the spec's collision concern
+// ("ab|c" vs "a|bc") becomes a real threat.
+func (s *Service) opFingerprintFor(req SaveRequest, content string) string {
+	return "v1:" + storeNormalizedHash(content)
 }
