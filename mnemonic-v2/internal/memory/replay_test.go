@@ -77,6 +77,38 @@ func TestReplayChangedPayloadConflicts(t *testing.T) {
 	}
 }
 
+// Triangulation 3 — a replay with identical content but a changed Type
+// (a dedup-identity field, not content) must return 409 operation_conflict,
+// NOT Replayed:true. The fingerprint covers all dedup-identity fields
+// (Type, Title, Project, Scope, TopicKey, Content), so a non-content
+// payload change is a fingerprint mismatch → 409. (With a content-only
+// fingerprint this would be a false identical-replay; the dedup step that
+// would catch it never runs because step 4.5 returns early.)
+func TestReplayChangedTypeConflicts(t *testing.T) {
+	svc := newTestService(t)
+	base := SaveRequest{SessionID: "s", Type: "decision", Title: "T", Content: "C", Project: "p", Scope: "project", OperationID: "op-type"}
+	r1, err := svc.Save(ctx, base)
+	if err != nil {
+		t.Fatalf("save 1: %v", err)
+	}
+	changed := base
+	changed.Type = "pattern"
+	_, err = svc.Save(ctx, changed)
+	if !errors.Is(err, ErrOperationConflict) {
+		t.Fatalf("changed type must 409 conflict, got %v (would be Replayed:true with a content-only fingerprint)", err)
+	}
+	// the conflict must not have touched the committed row or the ledger.
+	if n := liveObsCount(t, svc.st); n != 1 {
+		t.Fatalf("conflict must not write a new row; live count = %d", n)
+	}
+	if n := ledgerCount(t, svc.st); n != 1 {
+		t.Fatalf("conflict must not write a second ledger row; ledger count = %d", n)
+	}
+	if got, _ := svc.st.GetObservation(ctx, r1.ID, false); got.Type != "decision" {
+		t.Fatalf("conflict must not rewrite the committed row: type=%q", got.Type)
+	}
+}
+
 // [replay-deleted-target-410] a hard-deleted target leaves its ledger row as
 // a tombstone (observation_id SET NULL); replaying the operation id is
 // refused with ErrOperationExpired (410).
@@ -155,11 +187,12 @@ func TestReplayIdenticalAfterRedactionIsNotConflict(t *testing.T) {
 	if !r2.Replayed || r2.ID != r1.ID {
 		t.Fatalf("redaction-identical replay must return the committed id: %+v vs %+v", r1, r2)
 	}
-	// pin the stored fingerprint: the gate stores "v1:" + the normalized
-	// content hash (storeNormalizedHash over the redacted+truncated
-	// content). A normalization drift breaks replays loudly here.
+	// pin the stored fingerprint: the gate stores "v1:" +
+	// storeOpFingerprint(type, title, project, scope, topic_key, content)
+	// over the dedup-identity fields + redacted+truncated content. A
+	// normalization drift breaks replays loudly here.
 	storedFingerprintMustEqual(t, svc.st, "op-redact",
-		"v1:"+storeNormalizedHash("alpha beta"))
+		"v1:"+opFingerprint("decision", "T", "p", "project", "", "alpha beta"))
 }
 
 // storedFingerprintMustEqual asserts the ledger row's stored fingerprint

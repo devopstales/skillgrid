@@ -1,8 +1,12 @@
 package memory
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"regexp"
@@ -533,6 +537,11 @@ func (s *Service) ledgerObservationID(st store.Store, operationID string) (int64
 	if !ok {
 		return 0, fmt.Errorf("memory: store %T does not expose the ProbeInt seam the replay ledger reads through", st)
 	}
+	// ponytail: ifnull(observation_id, 0) maps the tombstone's NULL to 0,
+	// which the caller treats as "not live." This assumes rowids start at
+	// 1 (SQLite/Postgres default); a Task 18 adapter that starts rowids at
+	// 0 must re-check this assumption (a rowid-0 observation would be
+	// misread as a tombstone).
 	n, err := p.ProbeInt(
 		`SELECT ifnull(observation_id, 0) FROM observation_save_operations WHERE operation_id = ?`,
 		operationID)
@@ -591,32 +600,53 @@ func (s *Service) replayLedger(ctx context.Context, st store.Store, req SaveRequ
 	if obsID == 0 {
 		return SaveResult{}, true, ErrOperationExpired
 	}
-	// committed result: read the row's sync_id (INV-6 identity) — a row
-	// that vanished between the lookup and this read is the 410 path too.
+	// committed result: read the row's sync_id (INV-6 identity). A row
+	// that vanished between the ledger lookup and this read (not found)
+	// is the 410 path; any other read error is propagated (it is not
+	// evidence the target was deleted).
 	o, err := st.GetObservation(ctx, obsID, false)
 	if err != nil {
-		return SaveResult{}, true, ErrOperationExpired
+		if errors.Is(err, sql.ErrNoRows) {
+			return SaveResult{}, true, ErrOperationExpired
+		}
+		return SaveResult{}, false, fmt.Errorf("memory: replay ledger observation read: %w", err)
 	}
 	return SaveResult{ID: o.ID, SyncID: o.SyncID, Replayed: true}, true, nil
 }
 
 // opFingerprintFor computes the replay fingerprint for a request (spec
-// 01-memory/001 §4): "v1:" + the normalized content hash
-// (storeNormalizedHash over the redacted+truncated content). This matches
-// the gate's ledger insert (txngate.go: "v1:"+p.NormalizedHash), so the
-// pipeline's fingerprint and the stored fingerprint agree. Computed before
-// session-ownership resolution, so a retry of the same request fingerprints
-// identically whether or not its session row is present.
-//
-// ponytail: the spec names "length-prefixed normalized fields" for the
-// fingerprint; the gate's implementation (Task 5) stores only the
-// normalized content hash. The content is the distinguishing field for
-// the 409 check (a changed payload differs in content); the other
-// fields (type, title, project, scope, topic_key) are validated at step 1
-// and are part of the dedup identity (step 5), so a change in any of them
-// is caught by the hash floor or the validation. Upgrade path: the gate
-// widens the fingerprint to all fields when the spec's collision concern
-// ("ab|c" vs "a|bc") becomes a real threat.
+// 01-memory/001 Â§4): "v1:" + hex(sha256(lengthPrefixed(normalizedFields)))
+// over the dedup-identity fields (Type, Title, Project, Scope, TopicKey) and
+// the redacted+truncated content. The length prefix (big-endian uint64
+// before each field) prevents the "ab|c" vs "a|bc" boundary collision a
+// plain join would have. Computed before session-ownership resolution, so a
+// retry of the same request fingerprints identically whether or not its
+// session row is present. This matches the gate's ledger insert
+// (txngate.go: storeOpFingerprint), so the pipeline's fingerprint and the
+// stored fingerprint agree.
 func (s *Service) opFingerprintFor(req SaveRequest, content string) string {
-	return "v1:" + storeNormalizedHash(content)
+	scope := strings.TrimSpace(req.Scope)
+	if scope == "" {
+		scope = "project"
+	}
+	return "v1:" + opFingerprint(req.Type, strings.TrimSpace(req.Title),
+		strings.TrimSpace(req.Project), scope, strings.TrimSpace(req.TopicKey), content)
+}
+
+// opFingerprint hashes a field list: each field is length-prefixed (a
+// big-endian uint64) before its bytes — the length prefix prevents the
+// "ab|c" vs "a|bc" boundary collision a plain join would have — then the
+// whole stream is SHA-256 hex. (Shared with the store's storeOpFingerprint
+// in txngate.go, which must stay in lockstep; the two packages cannot share
+// the function without inverting the memory → core/store dependency
+// direction.)
+func opFingerprint(fields ...string) string {
+	var b bytes.Buffer
+	for _, f := range fields {
+		var l uint64 = uint64(len(f))
+		_ = binary.Write(&b, binary.BigEndian, l)
+		b.WriteString(f)
+	}
+	h := sha256.Sum256(b.Bytes())
+	return hex.EncodeToString(h[:])
 }

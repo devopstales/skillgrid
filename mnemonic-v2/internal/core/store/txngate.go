@@ -1,8 +1,12 @@
 package store
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -167,12 +171,15 @@ func (t *saveTXN) InsertObservation(ctx context.Context, p GateInsert) (int64, s
 	if err != nil {
 		return 0, "", err
 	}
-	// replay-safe ledger row (spec 002-schema §3.3)
+	// replay-safe ledger row (spec 002-schema §3.3): the fingerprint
+	// covers all dedup-identity fields (the pipeline's opFingerprintFor
+	// must stay in lockstep with storeOpFingerprint).
 	if p.OperationID != "" {
+		fp := "v1:" + storeOpFingerprint(p.Type, p.Title, p.Project, p.Scope, p.TopicKey, p.Content)
 		if _, err := t.tx.Exec(`
 			INSERT INTO observation_save_operations (operation_id, fingerprint, observation_id)
 			VALUES (?, ?, ?)`,
-			p.OperationID, "v1:"+p.NormalizedHash, id); err != nil {
+			p.OperationID, fp, id); err != nil {
 			return 0, "", err
 		}
 	}
@@ -303,4 +310,23 @@ func (s *sqliteStore) BeginSaveTxn(ctx context.Context) (SaveTXN, error) {
 		return nil, err
 	}
 	return &saveTXN{st: s, tx: tx}, nil
+}
+
+// storeOpFingerprint is the replay fingerprint over the dedup-identity
+// fields (spec 01-memory/001 §4): each field is length-prefixed (a
+// big-endian uint64) before its bytes — the length prefix prevents the
+// "ab|c" vs "a|bc" boundary collision a plain join would have — then the
+// whole stream is SHA-256 hex. (Shared with the memory pipeline's
+// opFingerprint, which must stay in lockstep; the two packages cannot share
+// the function without inverting the memory → core/store dependency
+// direction.)
+func storeOpFingerprint(fields ...string) string {
+	var b bytes.Buffer
+	for _, f := range fields {
+		var l uint64 = uint64(len(f))
+		_ = binary.Write(&b, binary.BigEndian, l)
+		b.WriteString(f)
+	}
+	h := sha256.Sum256(b.Bytes())
+	return hex.EncodeToString(h[:])
 }
