@@ -3,6 +3,7 @@ module github.com/devopstales/skillgrid/mnemonic-v2
 go 1.26.0
 
 require (
+	github.com/lib/pq v1.12.3
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.60.1
 )

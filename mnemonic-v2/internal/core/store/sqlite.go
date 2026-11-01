@@ -91,15 +91,23 @@ var _ Store = (*sqliteStore)(nil)
 // dsn is reserved for the Postgres dialect; the SQLite dialect derives its DSN
 // from dataDir/project (the WAL pragmas + _txlock) and ignores dsn.
 func Open(ctx context.Context, dataDir, project string, dialect Dialect, dsn string) (Store, error) {
-	if dialect != SQLite {
-		return nil, fmt.Errorf("store.Open: dialect %v not implemented yet (SQLite only in Task 1)", dialect)
-	}
 	project = strings.TrimSpace(project)
 	if project == "" {
 		return nil, errors.New("store.Open: project is required")
 	}
 	if strings.Contains(project, "..") {
 		return nil, fmt.Errorf("store.Open: invalid project id %q", project)
+	}
+	switch dialect {
+	case SQLite:
+		// fall through to the SQLite open below
+	case Postgres:
+		// the direct-PG dialect render (S-3 as amended): dataDir is not
+		// used — the DSN names the server, and schema_<project> is the
+		// isolation boundary.
+		return openPG(ctx, project, dsn)
+	default:
+		return nil, fmt.Errorf("store.Open: unknown dialect %v", dialect)
 	}
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, fmt.Errorf("store.Open: create data dir: %w", err)
