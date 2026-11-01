@@ -869,6 +869,11 @@ func (s *sqliteStore) MarkReviewed(ctx context.Context, id int64) error {
 	var ra string
 	if months > 0 {
 		ra = time.Now().UTC().AddDate(0, months, 0).Format("2006-01-02 15:04:05")
+	} else {
+		// Explicit no-decay: types without a review schedule (learning,
+		// session_summary, policy, unmapped) clear review_after so the row
+		// reads as active (Engram MarkReviewed semantics).
+		ra = ""
 	}
 	return s.withWriteRetry(func() error {
 		_, err := s.db.ExecContext(ctx, `UPDATE observations SET review_after = ?, updated_at = datetime('now') WHERE id = ?`, nullableString(ra), id)
@@ -969,10 +974,13 @@ func (s *sqliteStore) InsertPrompt(ctx context.Context, sessionID, content, proj
 		if err := s.ensureSessionTx(tx, sessionID, project); err != nil {
 			return err
 		}
+		// Resolve project the same way AddObservation does: explicit project
+		// wins, otherwise inherit the session's project.
+		resolved := s.resolveProjectTx(tx, sessionID, project)
 		res, err := tx.Exec(`
 			INSERT INTO user_prompts (sync_id, session_id, content, project)
 			VALUES (?, ?, ?, ?)`,
-			syncID, sessionID, content, nullableString(project),
+			syncID, sessionID, content, nullableString(resolved),
 		)
 		if err != nil {
 			return err
