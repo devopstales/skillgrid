@@ -137,6 +137,17 @@ func (s *Service) conflictPreFilter(ctx context.Context, project, scope, title s
 	for i, t := range terms {
 		quoted[i] = `"` + strings.ReplaceAll(t, `"`, `""`) + `"`
 	}
+	// ponytail: the RawQuery seam is on the SQLite adapter only; a dialect
+	// without it (Task 18's Postgres) degrades to no candidates — a
+	// pre-filter miss is not evidence of absence (§3 note), and a panic
+	// in the save pipeline would be a regression on the INV-3 posture
+	// (the seams may be absent; the deterministic floor still runs).
+	rq, ok := s.st.(interface {
+		RawQuery(query string, args ...any) ([][]any, error)
+	})
+	if !ok {
+		return nil
+	}
 	q := `SELECT o.id, ifnull(o.sync_id,''), o.title, o.scope, ifnull(o.topic_key,'')
 		FROM observations_fts fts
 		CROSS JOIN observations o ON o.id = fts.rowid
@@ -144,9 +155,7 @@ func (s *Service) conflictPreFilter(ctx context.Context, project, scope, title s
 		  AND LOWER(o.project) = ? AND o.scope = ?
 		ORDER BY bm25(observations_fts, 5.0, 1.0, 0.0, 0.0, 0.0, 3.0)
 		LIMIT 20`
-	rows, err := s.st.(interface {
-		RawQuery(query string, args ...any) ([][]any, error)
-	}).RawQuery(q, strings.Join(quoted, " OR "), project, scope)
+	rows, err := rq.RawQuery(q, strings.Join(quoted, " OR "), project, scope)
 	if err != nil {
 		return nil
 	}
