@@ -34,7 +34,8 @@ import (
 // 7.5 MATERIALIZE CANDIDATES (pending relations — Task 9), 8 COMMIT (one
 // local transaction).
 //
-// Step 10 (Publish) is Task 7.
+// Step 10 (Publish) is wired in Task 7: one SaveEvent per committed save,
+// after the commit; the trail consumer (trails.go) subscribes in NewService.
 
 // ErrSessionEnded is the terminal 409: the session row exists and has
 // ended. The gate (core/store) returns store.ErrSessionEnded; the pipeline
@@ -96,9 +97,12 @@ type Service struct {
 }
 
 // NewService builds the service. l and e may be nil (absent seams → the
-// deterministic floors flag degraded).
+// deterministic floors flag degraded). The session trail (trails.go) is
+// subscribed here, first, so it is always on for every committed save.
 func NewService(st store.Store, cfg config.Config, bus *EventBus, l llm.LLM, e embedder.Embedder) *Service {
-	return &Service{st: st, cfg: cfg, bus: bus, llm: l, emb: e}
+	s := &Service{st: st, cfg: cfg, bus: bus, llm: l, emb: e}
+	s.subscribeTrail()
+	return s
 }
 
 // SaveRequest is one save (spec 01-memory/001 §2 input).
@@ -244,9 +248,25 @@ func (s *Service) Save(ctx context.Context, req SaveRequest) (SaveResult, error)
 		}
 	}
 
-	// Task 7: wire bus.Publish(SaveEvent{...}) here — the event carries
-	// sync_id, project, scope, type, topic_key, entity, importance,
-	// degraded (spec 01-memory/001 §5). Not published in Task 5.
+	// 10. PUBLISH (spec 01-memory/001 §5) — exactly one SaveEvent per
+	// committed save, after the commit. The event carries the sync_id,
+	// session_id (the trail's provenance anchor), project, scope, type,
+	// topic_key, importance (the step-6 value), and degraded. Entity is
+	// left "" until Task 12 (the payload-completion task) fills it. The
+	// bus fans out to the trail consumer (subscribed in NewService) and
+	// any wiki consumer; a consumer failure never fails the save. The
+	// early-return paths (validation error, replay-identical) published
+	// nothing — they are not new committed saves, so "exactly once" holds.
+	s.bus.Publish(SaveEvent{
+		SyncID:     row.syncID,
+		SessionID:  req.SessionID,
+		Project:    row.project,
+		Scope:      scope,
+		Type:       req.Type,
+		TopicKey:   req.TopicKey,
+		Importance: Importance(0, 0, req.Type),
+		Degraded:   degraded,
+	})
 	return res, nil
 }
 
@@ -389,6 +409,7 @@ type saveTxnInput struct {
 type saveTxnOutput struct {
 	id            int64
 	syncID        string
+	project       string // the resolved project (step-2, in-transaction)
 	revisionCount int
 	replayed      bool
 }
@@ -441,7 +462,7 @@ func (s *Service) commitSave(ctx context.Context, st store.Store, in saveTxnInpu
 		if err := txn.Commit(ctx); err != nil {
 			return saveTxnOutput{}, err
 		}
-		return saveTxnOutput{id: in.decision.CandidateID, syncID: syncID, replayed: true}, nil
+		return saveTxnOutput{id: in.decision.CandidateID, syncID: syncID, project: project, replayed: true}, nil
 	}
 
 	// Step 6a (topic-key upsert): a re-save with a topic_key matching an
@@ -503,6 +524,7 @@ func (s *Service) commitSave(ctx context.Context, st store.Store, in saveTxnInpu
 	if err := txn.Commit(ctx); err != nil {
 		return saveTxnOutput{}, err
 	}
+	out.project = project
 	return out, nil
 }
 

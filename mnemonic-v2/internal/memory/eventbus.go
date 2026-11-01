@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"fmt"
 	"log"
 	"sync"
 )
@@ -18,9 +17,12 @@ import (
 // in Task 7.
 
 // SaveEvent is the committed-save handoff (spec 004-transport-mcp §5):
-// enough for the wiki to do entity-targeted regeneration.
+// enough for the wiki to do entity-targeted regeneration. SessionID is the
+// provenance anchor (INV-1) the trail consumer appends under; it is not
+// wiki-facing.
 type SaveEvent struct {
 	SyncID     string
+	SessionID  string
 	Project    string
 	Scope      string
 	Type       string
@@ -72,5 +74,3 @@ func (b *EventBus) Publish(ev SaveEvent) {
 		}()
 	}
 }
-
-var _ = fmt.Sprintf // reserved for later consumer-error formatting (Task 7)
