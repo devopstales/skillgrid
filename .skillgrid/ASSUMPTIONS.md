@@ -74,8 +74,9 @@ The ADR index. One row per decision: a short description and a link to the full 
 | 0039 | Code-style group: three axes — (1) agent-style v0.9.0 (CC-BY-4.0) prose standard (generation + review), (2) code-design vocabulary (`codebase-design` from `verification/`), (3) 17 Google language style guides (MIT, TestDino 2026) one skill per language; manual vendoring bumps; no new Go deps | yes | `.skillgrid/artifacts/04-adr-0039-agent-style-code-style-group.md` |
 | 0040 | Mnemonic v2 module extraction: fresh `mnemonic-v2/` module (path `github.com/devopstales/skillgrid/mnemonic-v2`), v1 renamed to `mnemonic_back/`, coexistence until v2 ships | yes | `.skillgrid/artifacts/04-adr-0040-mnemonic-v2-module-extraction.md` |
 | 0041 | Mnemonic v2 Postgres driver: `lib/pq` (pure-Go, `database/sql`-confined to `postgres.go`) | yes | `.skillgrid/artifacts/04-adr-0041-mnemonic-v2-postgres-driver.md` |
+| 0042 | Goldfish plan review: before-code document review is a fresh-context 3-stage subflow of writing-blueprints (zoom-out / comprehension / critic), not a new phase and not part of qa | yes | `.skillgrid/artifacts/04-adr-0042-goldfish-plan-review.md` |
 
-**Highest sequence in use:** 0041 (next ADR is `04-adr-0042-slug.md`). This index is a pointer — the body of each decision is the linked file (ADR-0019).
+**Highest sequence in use:** 0042 (next ADR is `04-adr-0043-slug.md`). This index is a pointer — the body of each decision is the linked file (ADR-0019).
 
 Operational rules (the hard limits a change must respect — build toolchain, commit format, dependency policy, spec/code zone order) live in `AGENTS.md`, not here. `AGENTS.md` is the real source for those; the onboarding skill renders them into the agent prompt. A rule that is actually a decision belongs in this index as an ADR instead.
 
