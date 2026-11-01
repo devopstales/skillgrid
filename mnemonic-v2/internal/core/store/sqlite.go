@@ -708,9 +708,16 @@ func (s *sqliteStore) AddRelation(ctx context.Context, p AddRelationParams) (Rel
 		if err != nil {
 			return err
 		}
+		// read back the stored row (not the params) so the returned Relation
+		// is complete — reason/evidence/session_id are stored and the "returns
+		// the stored row" contract holds (a caller that round-trips the row
+		// sees what is in the table, not what was asked for).
+		var reason, evidence, sessionID sql.NullString
 		var createdAt string
 		if err := s.db.QueryRowContext(ctx,
-			`SELECT judgment_status, created_at FROM memory_relations WHERE id = ?`, id).Scan(&rel.JudgmentStatus, &createdAt); err != nil {
+			`SELECT judgment_status, ifnull(reason,''), ifnull(evidence,''), ifnull(session_id,''), created_at
+			 FROM memory_relations WHERE id = ?`, id).
+			Scan(&rel.JudgmentStatus, &reason, &evidence, &sessionID, &createdAt); err != nil {
 			return err
 		}
 		rel.ID = id
@@ -718,6 +725,9 @@ func (s *sqliteStore) AddRelation(ctx context.Context, p AddRelationParams) (Rel
 		rel.SourceID = p.SourceID
 		rel.TargetID = p.TargetID
 		rel.Relation = p.Relation
+		rel.Reason = reason.String
+		rel.Evidence = evidence.String
+		rel.SessionID = sessionID.String
 		rel.CreatedAt = createdAt
 		return nil
 	})

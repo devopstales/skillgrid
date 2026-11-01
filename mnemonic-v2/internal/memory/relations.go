@@ -183,9 +183,10 @@ func strPtr(s string) *string {
 // materializeCandidates writes the gate's surviving observations as pending
 // memory_relations rows (source = the new save, target = the candidate) and
 // returns the stored rows (bounded to candidateBound). One AddRelation per
-// candidate — the relations rows are independent; a failure surfaces the
-// error, the save itself has already committed (the relations are an
-// after-save step, not part of the save transaction).
+// candidate — the relations rows are independent; a failure drops that
+// candidate and returns the partial list (the save itself has already
+// committed — the relations are an after-save step, not part of the save
+// transaction; see the ponytail comment for the ceiling).
 func (s *Service) materializeCandidates(ctx context.Context, sourceSyncID, sessionID string, cands []store.Observation) []store.Relation {
 	out := make([]store.Relation, 0, candidateBound)
 	for _, c := range cands {

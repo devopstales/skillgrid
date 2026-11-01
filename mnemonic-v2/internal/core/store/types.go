@@ -158,6 +158,9 @@ type Relation struct {
 	SourceID       string
 	TargetID       string
 	Relation       string
+	Reason         string
+	Evidence       string
+	SessionID      string
 	JudgmentStatus string
 	CreatedAt      string
 }

@@ -23,6 +23,7 @@ func TestRelevanceGateTerms(t *testing.T) {
 		{"C++ linker flags", "C# linker flags", true},    // C++ ≠ C#; "linker"+"flags" (2)
 		{"updated the parser", "fixed the parser", true}, // both reduce to "parser"
 		{"database pool", "database pool sizing", true},  // 2 shared
+		{"auth cache ttl", "auth pool sizing", false},    // 1 shared ("auth") — the ≥2 boundary
 		{"database pool", "auth cache", false},           // 0 shared
 		{"", "auth", false},                              // empty side
 	}
@@ -75,15 +76,29 @@ func TestConflictCandidatesMaterializedAsPending(t *testing.T) {
 	}
 }
 
-// [no-candidate-when-gate-fails] a save whose title shares zero significant
-// terms with the live observation (and no shared topic key) surfaces no
-// candidate.
+// [no-candidate-when-gate-fails] a save whose title shares exactly ONE
+// significant term with a live observation (and no shared topic key)
+// surfaces no candidate. The seed shares the term "auth" with the save
+// ("auth pool"), so the FTS pre-filter returns the seed row and the gate
+// actually runs — this pins "the gate rejects one-term overlap", not "the
+// net is empty" (a broken gate that accepted on shared >= 1 would surface
+// the seed and fail this test).
 func TestNoCandidateWhenGateFails(t *testing.T) {
 	svc := newTestService(t)
-	seedObservation(t, svc.st, "p", "decision", "database pool sizing", "tune max conns", "")
-	r, _ := svc.Save(ctx, SaveRequest{SessionID: "s", Type: "decision", Title: "auth cache", Content: "ttl", Project: "p", Scope: "project"})
+	seedObservation(t, svc.st, "p", "decision", "auth cache sizing", "tune max conns", "")
+	r, err := svc.Save(ctx, SaveRequest{SessionID: "s", Type: "decision", Title: "auth pool", Content: "ttl", Project: "p", Scope: "project"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// the pre-filter reaches the gate: the seed shares the term "auth" with
+	// the save ("auth pool"), so the seed row is in the FTS pre-filter set.
+	// A gate that accepted on shared >= 1 would surface the seed and fail
+	// both assertions below.
 	if len(r.Candidates) != 0 {
-		t.Fatalf("gate must reject: %+v", r.Candidates)
+		t.Fatalf("gate must reject one-term overlap: %+v", r.Candidates)
+	}
+	if pendingSourceCount(t, svc.st, r.SyncID) != 0 {
+		t.Fatalf("one-term overlap must not materialize a pending relation")
 	}
 }
 
