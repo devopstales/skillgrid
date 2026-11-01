@@ -396,7 +396,8 @@ func scanObservation(row interface {
 }
 
 // scanObservationFields scans the 26 observation columns, optionally followed
-// by a trailing rank column (retrieval queries append one).
+// by a trailing rank column (retrieval queries append one; scanned as a
+// nullable so a NULL rank cannot fail the scan).
 func scanObservationFields(row interface {
 	Scan(dest ...any) error
 }, withRank bool) (Observation, error) {
@@ -414,7 +415,7 @@ func scanObservationFields(row interface {
 		embedding   []byte
 		embedModel  sql.NullString
 		deletedAt   sql.NullString
-		rank        float64 // trailing rank column (retrieval queries)
+		rank        sql.NullFloat64 // trailing rank column (retrieval queries)
 	)
 	dest := []any{
 		&o.ID, &o.SyncID, &o.SessionID, &o.Type, &o.Title, &o.Content,
@@ -664,8 +665,20 @@ const (
 	searchFTSTopicKeyWeight = 3.0
 )
 
+// searchRankBoostSQL is the composite-rank boost factor, with age in days
+// measured from COALESCE(last_seen_at, updated_at, created_at) and the
+// recency half-life of 30 days (spec 001-storage §4). The boost weights
+// (0.10 pinned / 0.06 recency / 0.04 stability, Engram store.go:6031-6044)
+// are inlined as literals — they are the spec-pinned values the ranking test
+// asserts against, and a Go const string cannot embed them via fmt.
+const searchRankBoostSQL = `(1.0
+	+ 0.10 * CAST(o.pinned AS REAL)
+	+ 0.06 / (1.0 + ABS((JULIANDAY('now') - JULIANDAY(COALESCE(o.last_seen_at, o.updated_at, o.created_at)))) * 24.0 / 30.0)
+	+ 0.04 * (CAST(o.revision_count AS REAL) + CAST(o.duplicate_count AS REAL)) / (CAST(o.revision_count AS REAL) + CAST(o.duplicate_count AS REAL) + 4.0))`
+
 // Search runs an FTS5 trigram MATCH (with the < 3-rune LIKE fallback),
-// ranked by bm25 with title/content/topic_key weights.
+// ranked by the composite rank: bm25(title, content, topic_key weights)
+// multiplied by the pinned/recency/stability boosts (Engram store.go:6031-6044).
 func (s *sqliteStore) Search(ctx context.Context, q SearchQuery) (SearchResult, error) {
 	limit := q.Limit
 	if limit <= 0 {
@@ -675,8 +688,8 @@ func (s *sqliteStore) Search(ctx context.Context, q SearchQuery) (SearchResult, 
 		return s.searchLIKE(ctx, q, limit)
 	}
 	// FTS5 MATCH path
-	rankExpr := fmt.Sprintf("bm25(observations_fts, %.1f, %.1f, 0.0, 0.0, 0.0, %.1f)",
-		searchFTSTitleWeight, searchFTSContentWeight, searchFTSTopicKeyWeight)
+	rankExpr := fmt.Sprintf("bm25(observations_fts, %.1f, %.1f, 0.0, 0.0, 0.0, %.1f) * %s",
+		searchFTSTitleWeight, searchFTSContentWeight, searchFTSTopicKeyWeight, searchRankBoostSQL)
 	qStr := `SELECT ` + obsSelectColumns + `, ` + rankExpr + ` AS rank
 		FROM observations_fts fts
 		CROSS JOIN observations o ON o.id = fts.rowid
