@@ -249,24 +249,30 @@ func (s *Service) Save(ctx context.Context, req SaveRequest) (SaveResult, error)
 	}
 
 	// 10. PUBLISH (spec 01-memory/001 §5) — exactly one SaveEvent per
-	// committed save, after the commit. The event carries the sync_id,
-	// session_id (the trail's provenance anchor), project, scope, type,
-	// topic_key, importance (the step-6 value), and degraded. Entity is
-	// left "" until Task 12 (the payload-completion task) fills it. The
-	// bus fans out to the trail consumer (subscribed in NewService) and
-	// any wiki consumer; a consumer failure never fails the save. The
-	// early-return paths (validation error, replay-identical) published
-	// nothing — they are not new committed saves, so "exactly once" holds.
-	s.bus.Publish(SaveEvent{
-		SyncID:     row.syncID,
-		SessionID:  req.SessionID,
-		Project:    row.project,
-		Scope:      scope,
-		Type:       req.Type,
-		TopicKey:   req.TopicKey,
-		Importance: Importance(0, 0, req.Type),
-		Degraded:   degraded,
-	})
+	// committed save that wrote a new observation, after the commit. The
+	// event carries the sync_id, session_id (the trail's provenance anchor),
+	// project, scope, type, topic_key, importance (the step-6 value), and
+	// degraded. Entity is left "" until Task 12 (the payload-completion task)
+	// fills it. The bus fans out to the trail consumer (subscribed in
+	// NewService) and any wiki consumer; a consumer failure never fails the
+	// save. The non-publishing paths are the ones that write no new
+	// observation: a validation error (nothing committed), the replay-identical
+	// early return (step 4.5), and the dedup-noop (step 6a — the hash-floor
+	// VerdictNoop branch marks the existing row a duplicate and commits no new
+	// row). A dedup-noop is not a new save, so "exactly once per committed
+	// save" is "exactly once per new observation."
+	if !row.replayed {
+		s.bus.Publish(SaveEvent{
+			SyncID:     row.syncID,
+			SessionID:  req.SessionID,
+			Project:    row.project,
+			Scope:      scope,
+			Type:       req.Type,
+			TopicKey:   req.TopicKey,
+			Importance: Importance(0, 0, req.Type),
+			Degraded:   degraded,
+		})
+	}
 	return res, nil
 }
 

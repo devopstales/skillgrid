@@ -191,6 +191,66 @@ func TestPanickingConsumerNeverFailsSave(t *testing.T) {
 	}
 }
 
+// FIX-R1 (important #1): a dedup-noop is not a new committed save — the
+// hash-floor VerdictNoop branch (pipeline.go, the committed-save path that
+// writes no new observation) publishes NO event and appends NO trail row.
+// Save A publishes; save B (identical payload, NO operation id → the hash
+// floor, not the replay ledger) must leave the totals at one event and one
+// trail row.
+func TestDedupNoopDoesNotPublish(t *testing.T) {
+	svc, bus := newTestServiceWithBus(t)
+	var got []SaveEvent
+	bus.Subscribe(func(e SaveEvent) { got = append(got, e) })
+	r1, err := svc.Save(ctx, SaveRequest{SessionID: "s", Type: "learning",
+		Title: "T", Content: "C", Project: "p", Scope: "project"})
+	if err != nil {
+		t.Fatalf("save A: %v", err)
+	}
+	// no OperationID: the replay ledger is bypassed and the dedup floor runs
+	// over the redacted content — an identical re-save is a VerdictNoop.
+	r2, err := svc.Save(ctx, SaveRequest{SessionID: "s", Type: "learning",
+		Title: "T", Content: "C", Project: "p", Scope: "project"})
+	if err != nil {
+		t.Fatalf("save B: %v", err)
+	}
+	if r2.Dedup.Verdict != "noop" || !r2.Replayed || r2.SyncID != r1.SyncID {
+		t.Fatalf("save B must be a hash-floor noop on the same row: %+v vs %+v", r2, r1)
+	}
+	if len(got) != 1 {
+		t.Fatalf("dedup-noop is not a new commit → exactly one event total, got %d", len(got))
+	}
+	if rows := trailRows(t, svc.st, "s"); len(rows) != 1 {
+		t.Fatalf("dedup-noop must append no trail row → exactly one total, got %d", len(rows))
+	}
+}
+
+// FIX-R1 (important #2): the consumer's own FK-guard branch, in isolation.
+// ensureSession is called against an EMPTY store (no session row) — it must
+// register the row (shared ownership, the resolved project). This covers the
+// path TestMissingSessionAutoRegistersOnSave cannot: there the pipeline's
+// in-txn CheckSession already created the row, so the consumer's ensureSession
+// was dead code on that path.
+func TestEnsureSessionRegistersMissingRow(t *testing.T) {
+	svc, _ := newTestServiceWithBus(t)
+	if n := sessionCount(t, svc.st, "orphan"); n != 0 {
+		t.Fatalf("precondition: no session row for %q, got %d", "orphan", n)
+	}
+	if err := svc.ensureSession(rawSeam(t, svc.st), "orphan", "p"); err != nil {
+		t.Fatalf("ensureSession: %v", err)
+	}
+	info := sessionInfoOf(t, svc.st, "orphan")
+	if info.ownership != "shared" || info.project != "p" {
+		t.Fatalf("ensureSession must register shared-ownership for the resolved project: %+v", info)
+	}
+	// idempotent: a second call leaves exactly one row (ON CONFLICT DO NOTHING).
+	if err := svc.ensureSession(rawSeam(t, svc.st), "orphan", "p"); err != nil {
+		t.Fatalf("ensureSession (2nd): %v", err)
+	}
+	if n := sessionCount(t, svc.st, "orphan"); n != 1 {
+		t.Fatalf("ensureSession must be idempotent, got %d rows", n)
+	}
+}
+
 // ── assertion helpers (test-only; the RawQuery/RawExec read seams) ─────────
 
 // trailEntry is one row of a session's trail (the assertion surface).
@@ -253,4 +313,25 @@ func rawQuery(t *testing.T, st store.Store, query string, args ...any) ([][]any,
 		t.Fatal("store lacks the RawQuery test seam")
 	}
 	return p.RawQuery(query, args...)
+}
+
+// rawSeam narrows the store to the RawExec write seam the trail consumer's
+// ensureSession goes through (a store without it is a test bug).
+func rawSeam(t *testing.T, st store.Store) trailSeam {
+	t.Helper()
+	p, ok := st.(trailSeam)
+	if !ok {
+		t.Fatal("store lacks the RawExec test seam")
+	}
+	return p
+}
+
+// sessionCount counts sessions rows for a session id (0 = absent).
+func sessionCount(t *testing.T, st store.Store, sessionID string) int {
+	t.Helper()
+	n, err := probeStore(t, st).ProbeInt(`SELECT COUNT(*) FROM sessions WHERE id = ?`, sessionID)
+	if err != nil {
+		t.Fatalf("session count: %v", err)
+	}
+	return n
 }
