@@ -273,10 +273,60 @@ func countSummaryObs(t *testing.T, st store.Store) int {
 	return n
 }
 
-// trails counts retrieval-trail rows (Task 11 creates the table).
-func trails(t *testing.T, st store.Store) int {
+// setReviewAfterForTest stamps review_after directly (a test-only fixture for
+// the Review clock assertions — the store has no review_after update method,
+// so the test reaches the row through the RawExec write seam, the same
+// pattern the trail consumer uses).
+func setReviewAfterForTest(t *testing.T, st store.Store, id int64, reviewAfter string) error {
 	t.Helper()
-	return 0
+	raw, ok := st.(trailSeam)
+	if !ok {
+		t.Fatal("store lacks the RawExec test seam")
+	}
+	return raw.RawExec(`UPDATE observations SET review_after = ? WHERE id = ?`, reviewAfter, id)
+}
+
+// retrievalTrailRow is one row of the retrieval-trail audit table (the
+// assertion surface for INV-5: the search/lookup/VectorSearch audit).
+type retrievalTrailRow struct {
+	Route    string
+	Query    string
+	Project  string
+	IDs      string
+	Degraded bool
+}
+
+// retrievalTrails reads every retrieval-trail row in order (the assertion
+// surface for INV-5).
+func retrievalTrails(t *testing.T, st store.Store) []retrievalTrailRow {
+	t.Helper()
+	rows, err := rawQuery(t, st,
+		`SELECT route, query, ifnull(project,''), ifnull(ids,''), degraded
+		 FROM retrieval_trails ORDER BY id`)
+	if err != nil {
+		t.Fatalf("retrieval trail read: %v", err)
+	}
+	out := make([]retrievalTrailRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, retrievalTrailRow{
+			Route:    strVal(r, 0),
+			Query:    strVal(r, 1),
+			Project:  strVal(r, 2),
+			IDs:      strVal(r, 3),
+			Degraded: intVal(r, 4) != 0,
+		})
+	}
+	return out
+}
+
+// retrievalTrailCount counts retrieval-trail rows (a before/after probe).
+func retrievalTrailCount(t *testing.T, st store.Store) int {
+	t.Helper()
+	n, err := probeStore(t, st).ProbeInt(`SELECT COUNT(*) FROM retrieval_trails`)
+	if err != nil {
+		t.Fatalf("retrieval trail count: %v", err)
+	}
+	return n
 }
 
 // sizeOf returns an observation's content byte length.

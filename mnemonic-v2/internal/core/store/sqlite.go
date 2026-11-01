@@ -5,10 +5,12 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"embed"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -20,6 +22,10 @@ import (
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/syncid"
 	"modernc.org/sqlite"
 )
+
+// float32FromLE decodes one little-endian float32 (the stored-vector
+// encoding; mirrors the test writer in vector_test.go).
+func float32FromLE(b []byte) float32 { return math.Float32frombits(binary.LittleEndian.Uint32(b)) }
 
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
@@ -981,14 +987,169 @@ func scanObservationWithRank(row interface {
 	return o, err
 }
 
-// VectorSearch returns empty + degraded (wired in Task 12).
+// VectorSearch is the vector leg of the retrieval ladder (spec 01-memory/005
+// §3): the nearest stored observations.embedding vectors to the query vector
+// by cosine similarity. The vectors are read back from the observations
+// table (the store owns no embedder — INV-2; the embedder is the memory
+// package's seam, armed at Search time). Cosine similarity is computed in
+// Go over the decoded blobs (no vec0 dependency — the store stays
+// modernc.org/sqlite-only; ADR-0008 is the only sanctioned dependency and
+// adding a vec0 binding is a new ADR). An empty vector set (no rows with a
+// stored embedding, or a zero query vector) degrades: the result is empty
+// and Degraded=true (INV-3 — explicit degraded, never a silent fusion).
 func (s *sqliteStore) VectorSearch(ctx context.Context, q VecQuery) (VecResult, error) {
-	return VecResult{Degraded: true}, nil
+	if len(q.QueryVector) == 0 {
+		return VecResult{Degraded: true}, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+obsSelectColumns+`
+		FROM observations o
+		WHERE o.deleted_at IS NULL AND o.embedding IS NOT NULL AND o.embedding != ''`+projectWhere(q.Project))
+	if err != nil {
+		return VecResult{Degraded: true}, err
+	}
+	defer rows.Close()
+	type scored struct {
+		obs Observation
+		dot float64
+	}
+	var candidates []scored
+	for rows.Next() {
+		obs, err := scanObservation(rows)
+		if err != nil {
+			return VecResult{Degraded: true}, err
+		}
+		qv, ok := decodeFloat32BLOB(obs.Embedding)
+		if !ok || len(qv) != len(q.QueryVector) {
+			continue // a row whose vector dimension does not match the query is not comparable
+		}
+		candidates = append(candidates, scored{obs: obs, dot: cosineSimilarity(q.QueryVector, qv)})
+	}
+	if err := rows.Err(); err != nil {
+		return VecResult{Degraded: true}, err
+	}
+	if len(candidates) == 0 {
+		// The leg is absent (no comparable vectors): degrade, never a silent
+		// empty-that-passes-as-success.
+		return VecResult{Degraded: true}, nil
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].dot > candidates[j].dot
+	})
+	topK := q.TopK
+	if topK <= 0 {
+		topK = len(candidates)
+	}
+	if topK > len(candidates) {
+		topK = len(candidates)
+	}
+	res := VecResult{}
+	for _, c := range candidates[:topK] {
+		res.Observations = append(res.Observations, c.obs)
+	}
+	return res, nil
 }
 
-// Context is not implemented yet (later task).
+// projectWhere scopes a retrieval SELECT to one project when q.Project is
+// set (the FTS/LIKE legs' project isolation, spec 001-storage §3).
+func projectWhere(project string) string {
+	if project == "" {
+		return ""
+	}
+	return ` AND LOWER(project) = ` + quoteSQL(project)
+}
+
+// quoteSQL quotes a project id for inlining into projectWhere (the value is
+// the store's own validated project id — Open rejects ".." and empty ids —
+// but it is inlined as a string literal, so it is quoted regardless).
+func quoteSQL(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
+// decodeFloat32BLOB decodes a little-endian float32 blob. ok=false when the
+// byte length is not a multiple of 4 (a truncated or absent vector).
+func decodeFloat32BLOB(b []byte) ([]float32, bool) {
+	if len(b) == 0 || len(b)%4 != 0 {
+		return nil, false
+	}
+	out := make([]float32, len(b)/4)
+	for i := range out {
+		out[i] = float32FromLE(b[i*4:])
+	}
+	return out, true
+}
+
+// cosineSimilarity returns the cosine similarity of two equal-length vectors
+// in [−1, 1]. A zero-magnitude vector yields 0 (no direction to align).
+func cosineSimilarity(a, b []float32) float64 {
+	var dot, na, nb float64
+	for i := range a {
+		dot += float64(a[i]) * float64(b[i])
+		na += float64(a[i]) * float64(a[i])
+		nb += float64(b[i]) * float64(b[i])
+	}
+	if na == 0 || nb == 0 {
+		return 0
+	}
+	return dot / (math.Sqrt(na) * math.Sqrt(nb))
+}
+
+// Context is the orientation layer of the retrieval ladder (spec
+// 01-memory/005 §2): the project's pinned observations first (capped at 20),
+// then recent observations, trimmed to the byte budget (default 16 KiB, max
+// 64 KiB). TotalBytes is the summed content+title byte length of the rows
+// returned (the caller's budget accounting). olderHistory is accepted but
+// unused (the calendar overview is a later-layer concern, not the byte-budget
+// core — ponytail: the flag is carried for the spec's contract shape).
 func (s *sqliteStore) Context(ctx context.Context, q ContextQuery) (ContextResult, error) {
-	return ContextResult{}, ErrNotImplemented{Method: "Context"}
+	budget := q.MaxBytes
+	if budget <= 0 {
+		budget = 16 * 1024
+	}
+	if budget > 64*1024 {
+		budget = 64 * 1024
+	}
+	// Pinned first (≤20), then recent, project-scoped.
+	qStr := `SELECT ` + obsSelectColumns + `
+		FROM observations o
+		WHERE o.deleted_at IS NULL` + projectWhere(q.Project) + `
+		ORDER BY CASE WHEN o.pinned = 1 THEN 0 ELSE 1 END, datetime(o.updated_at) DESC, o.id DESC
+		LIMIT 40`
+	rows, err := s.db.QueryContext(ctx, qStr)
+	if err != nil {
+		return ContextResult{}, err
+	}
+	defer rows.Close()
+	var all []Observation
+	for rows.Next() {
+		obs, err := scanObservation(rows)
+		if err != nil {
+			return ContextResult{}, err
+		}
+		all = append(all, obs)
+	}
+	if err := rows.Err(); err != nil {
+		return ContextResult{}, err
+	}
+	// Trim to the byte budget, but keep the pinned rows leading (the pinning
+	// cap is 20; beyond 20 pinned the budget still trims).
+	res := ContextResult{}
+	pinnedSeen := 0
+	for _, obs := range all {
+		if obs.Pinned {
+			if pinnedSeen >= 20 {
+				continue // the pinned cap (spec 005 §2: ≤20 pinned)
+			}
+			pinnedSeen++
+		}
+		cost := len(obs.Content) + len(obs.Title)
+		if res.TotalBytes+cost > budget && res.TotalBytes > 0 {
+			break
+		}
+		res.Observations = append(res.Observations, obs)
+		res.TotalBytes += cost
+	}
+	return res, nil
 }
 
 // ── sync ────────────────────────────────────────────────────────────────────

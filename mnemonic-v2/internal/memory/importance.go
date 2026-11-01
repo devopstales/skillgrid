@@ -1,5 +1,7 @@
 package memory
 
+import "time"
+
 // importance.go — the on-the-fly importance score (spec 002-schema §2.2.3,
 // v1 dream.go:382-400). The formula is the source of truth; the stored
 // observations.importance column is a cache, computed at pipeline step 6d
@@ -58,4 +60,22 @@ var durableTypes = map[string]bool{
 	"architecture": true,
 	"convention":   true,
 	"config":       true,
+}
+
+// ageDays is the whole-day age of a store timestamp ("2006-01-02 15:04:05")
+// from now, floored at 0. A zero/unparseable stamp is age 0 (a fresh row).
+// The recompute path (lookup.go) derives the row's age from the rank-age
+// anchor through this helper, so the importance formula's recency term uses
+// the same anchor the search boost does (last_seen_at || updated_at ||
+// created_at, spec 005 §3).
+func ageDays(stamp string) int {
+	t, err := time.Parse("2006-01-02 15:04:05", stamp)
+	if err != nil || t.IsZero() {
+		return 0
+	}
+	days := int(time.Since(t).Hours() / 24)
+	if days < 0 {
+		return 0
+	}
+	return days
 }
