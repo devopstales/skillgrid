@@ -238,13 +238,19 @@ func (s *Service) Save(ctx context.Context, req SaveRequest) (SaveResult, error)
 	res.Dedup.Verdict = string(decision.Verdict)
 	res.Dedup.Reason = decision.Reason
 	if decision.Verdict == llm.VerdictUpdate || decision.Verdict == llm.VerdictDelete {
-		// Task 8's LLM path produces these: the merge lands on
-		// CandidateID, and the result references the target by sync_id
-		// (INV-6). The merge write is Task 8's; this branch is the final
-		// result-shape slot.
-		target, err := s.st.GetObservation(ctx, decision.CandidateID, false)
-		if err == nil {
-			res.Dedup.MergedIntoSyncID = &target.SyncID
+		// The merge verdicts (Task 8's LLM path): the result references the
+		// merge target by sync_id (INV-6). An update's target is still live
+		// (read through the store); a delete's target was superseded inside
+		// the save transaction, so its sync id is the one captured at merge
+		// time (row.mergedInto).
+		targetSyncID := row.mergedInto
+		if targetSyncID == "" && decision.Verdict == llm.VerdictUpdate {
+			if target, err := s.st.GetObservation(ctx, decision.CandidateID, false); err == nil {
+				targetSyncID = target.SyncID
+			}
+		}
+		if targetSyncID != "" {
+			res.Dedup.MergedIntoSyncID = &targetSyncID
 		}
 	}
 
@@ -263,15 +269,34 @@ func (s *Service) Save(ctx context.Context, req SaveRequest) (SaveResult, error)
 	// save" is "exactly once per new observation."
 	if !row.replayed {
 		s.bus.Publish(SaveEvent{
-			SyncID:     row.syncID,
-			SessionID:  req.SessionID,
-			Project:    row.project,
-			Scope:      scope,
-			Type:       req.Type,
-			TopicKey:   req.TopicKey,
-			Importance: Importance(0, 0, req.Type),
-			Degraded:   degraded,
+			SyncID:           row.syncID,
+			SessionID:        req.SessionID,
+			Project:          row.project,
+			Scope:            scope,
+			Type:             req.Type,
+			TopicKey:         req.TopicKey,
+			Importance:       Importance(0, 0, req.Type),
+			Degraded:         degraded,
+			SupersededSyncID: row.mergedInto,
 		})
+	}
+	// The supersede edge (the dedup-delete's provenance): source = the new
+	// save, target = the superseded row, relation = 'supersedes'. A pending
+	// (unjudged) edge — the same posture as the conflict candidates'
+	// pending relations (spec 01-memory/003 §3); the wiki reads judged
+	// supersedes edges, and a judgment is not required for the chain to be
+	// walkable. After the commit, like the candidate materialization: a
+	// relation failure must not undo the save.
+	if !row.replayed && row.superseded {
+		if _, err := s.st.AddRelation(ctx, store.AddRelationParams{
+			SourceID:  row.syncID,
+			TargetID:  row.mergedInto,
+			Relation:  "supersedes",
+			Reason:    "dedup-delete: the save supersedes the target (spec 004-dedup §2)",
+			SessionID: req.SessionID,
+		}); err != nil {
+			return res, fmt.Errorf("memory: supersede relation: %w", err)
+		}
 	}
 	return res, nil
 }
@@ -418,18 +443,25 @@ type saveTxnOutput struct {
 	project       string // the resolved project (step-2, in-transaction)
 	revisionCount int
 	replayed      bool
+	superseded    bool   // the save superseded a target (the delete verdict)
+	mergedInto    string // the delete target's sync id (INV-6 result reference)
 }
 
 // commitSave runs steps 6–8 through the store's save-transaction gate
 // (core/store.SaveTXN — INV-2: the pipeline never touches a raw handle).
-func (s *Service) commitSave(ctx context.Context, st store.Store, in saveTxnInput) (saveTxnOutput, error) {
+// The single named-return err is the rollback contract: every error return
+// leaves it non-nil, so the deferred Rollback fires (the store's pool is
+// SetMaxOpenConns(1) — a leaked transaction would hold the only connection
+// and deadlock the next store read).
+func (s *Service) commitSave(ctx context.Context, st store.Store, in saveTxnInput) (out saveTxnOutput, err error) {
 	// ponytail: the gate cast is the INV-2 boundary — the pipeline sees
 	// only the gate interface; the SQLite adapter (core/store/txngate.go)
 	// is the single implementation, and Task 18's Postgres adapter plugs
 	// into the same seam shape.
-	txn, err := beginSaveTxn(ctx, st)
+	var txn store.SaveTXN
+	txn, err = beginSaveTxn(ctx, st)
 	if err != nil {
-		return saveTxnOutput{}, err
+		return
 	}
 	defer func() {
 		if err != nil {
@@ -442,9 +474,11 @@ func (s *Service) commitSave(ctx context.Context, st store.Store, in saveTxnInpu
 	// store.ErrSessionProjectMismatch); the pipeline wraps them into the
 	// memory package's sentinels so the transport layer (Task 13) maps
 	// errors.Is(err, ErrSessionEnded) → 409.
-	project, err := txn.CheckSession(ctx, in.req.SessionID, in.req.Project)
+	var project string
+	project, err = txn.CheckSession(ctx, in.req.SessionID, in.req.Project)
 	if err != nil {
-		return saveTxnOutput{}, wrapSessionErr(err)
+		err = wrapSessionErr(err)
+		return
 	}
 
 	scope := strings.TrimSpace(in.req.Scope)
@@ -452,46 +486,151 @@ func (s *Service) commitSave(ctx context.Context, st store.Store, in saveTxnInpu
 		scope = "project"
 	}
 
-	// Step 6a: exact-dedupe hit → noop (bump counters, no new row) — the
-	// hash floor's verdict. (The LLM's update/delete verdicts are the
-	// merge-into-target path, Task 8.)
-	if in.decision.Verdict == llm.VerdictNoop && in.decision.CandidateID > 0 {
-		if err := txn.MarkDuplicate(ctx, in.decision.CandidateID); err != nil {
-			return saveTxnOutput{}, err
+	// Step 6a: noop → no write (first-class, spec 004-dedup §2/§6 "if
+	// already covered, write nothing"). With a verified CandidateID the
+	// counters are bumped (the hash-floor and LLM-verified noops); without
+	// one the save is a pure no-op. (The branch runs after CheckSession —
+	// the save's session is auto-registered, as it always has.)
+	if in.decision.Verdict == llm.VerdictNoop {
+		if in.decision.CandidateID > 0 {
+			if err = txn.MarkDuplicate(ctx, in.decision.CandidateID); err != nil {
+				return
+			}
+			// the noop re-touches the row; the result carries the matched
+			// row's identity (read inside the txn before commit).
+			var syncID string
+			syncID, err = txn.LookupSyncID(ctx, in.decision.CandidateID)
+			if err != nil {
+				return
+			}
+			if err = txn.Commit(ctx); err != nil {
+				return
+			}
+			out = saveTxnOutput{id: in.decision.CandidateID, syncID: syncID, project: project, replayed: true}
+			return
 		}
-		// the noop re-touches the row; the result carries the matched row's
-		// identity (read inside the txn before commit).
-		syncID, err := txn.LookupSyncID(ctx, in.decision.CandidateID)
-		if err != nil {
-			return saveTxnOutput{}, err
+		if err = txn.Rollback(); err != nil {
+			return
 		}
-		if err := txn.Commit(ctx); err != nil {
-			return saveTxnOutput{}, err
-		}
-		return saveTxnOutput{id: in.decision.CandidateID, syncID: syncID, project: project, replayed: true}, nil
+		out = saveTxnOutput{replayed: true}
+		return
 	}
 
-	// Step 6a (topic-key upsert): a re-save with a topic_key matching an
+	// Step 6a (the LLM merge verdicts, spec 004-dedup §4): the update and
+	// delete verdicts carry a trust-but-verified CandidateID (runDedup) —
+	// update revises the target in place (revision_count++, version
+	// snapshot); delete supersedes it (soft-delete + superseded_by_sync_id
+	// → the new save's sync_id, delete journaled) and stores the new. Both
+	// need the new save's sync id, so it is minted here, before the merge.
+	// An update whose verified target vanished (no live row at commit time)
+	// is a no-op: it cannot merge into a row that is not there, and a
+	// no-op must not insert a new row (spec 004-dedup §2/§6).
+	reviseID := int64(0)
+	reviseSyncID := ""
+	newSyncID := syncid.NewSyncID("obs")
+	if in.decision.Verdict == llm.VerdictUpdate || in.decision.Verdict == llm.VerdictDelete {
+		target := in.decision.CandidateID
+		if target <= 0 {
+			if err = txn.Rollback(); err != nil {
+				return
+			}
+			out = saveTxnOutput{replayed: true}
+			return
+		}
+		var targetSyncID string
+		var lookupErr error
+		targetSyncID, lookupErr = txn.LookupSyncID(ctx, target)
+		if errors.Is(lookupErr, store.ErrObservationNotFound) {
+			// The verified target vanished between verify and commit (a
+			// concurrent save): a vanished merge target is a no-op, not an
+			// insert (spec 004-dedup §6 — a failed read is not evidence of
+			// absence; and "if already covered, write nothing").
+			err = txn.Rollback()
+			out = saveTxnOutput{replayed: true}
+			return
+		}
+		if lookupErr != nil {
+			err = lookupErr
+			return
+		}
+		if in.decision.Verdict == llm.VerdictDelete {
+			if err = txn.SupersedeTarget(ctx, target, newSyncID, project); err != nil {
+				return
+			}
+			var id int64
+			id, _, err = txn.InsertObservation(ctx, gateInsert(in, project, scope, newSyncID, s.reviewAfterFor(in.req.Type)))
+			if err != nil {
+				return
+			}
+			if err = txn.Commit(ctx); err != nil {
+				return
+			}
+			out = saveTxnOutput{id: id, syncID: newSyncID, project: project, superseded: true, mergedInto: targetSyncID}
+			return
+		}
+		// update: the target becomes the in-place revision below (same path
+		// as the topic-key revision — the version snapshot + revision_count++
+		// + journal ride on ReviseObservation).
+		reviseID = target
+		reviseSyncID = targetSyncID
+	}
+
+	// Step 6b (topic-key upsert): a re-save with a topic_key matching an
 	// existing row for the same project+scope+topic_key revises in place
 	// (a hash-miss with a topic_key hit: new content for a bounded topic).
 	// A hash-miss on an identical topic-key save is a revision, not a noop:
 	// the content changed, so the bounded topic is updated.
-	reviseID := int64(0)
-	reviseSyncID := ""
-	if in.req.TopicKey != "" {
-		id, found, err := txn.LookupTopicKey(ctx, project, scope, in.req.TopicKey)
+	if reviseID == 0 && in.req.TopicKey != "" {
+		var id int64
+		var found bool
+		id, found, err = txn.LookupTopicKey(ctx, project, scope, in.req.TopicKey)
 		if err != nil {
-			return saveTxnOutput{}, err
+			return
 		}
 		if found {
 			reviseID = id
 			if reviseSyncID, err = txn.LookupSyncID(ctx, reviseID); err != nil {
-				return saveTxnOutput{}, err
+				return
 			}
 		}
 	}
 
-	p := store.GateInsert{
+	p := gateInsert(in, project, scope, newSyncID, s.reviewAfterFor(in.req.Type))
+
+	if reviseID > 0 {
+		// In-place revision: snapshot the pre-state first (the gate reads
+		// the current row inside the txn). The revision's importance is
+		// recomputed over the surviving row's retrieval_usage at read time
+		// (Task 11's usage bumps feed it); the gate writes p.Importance as
+		// the fresh-state score for now.
+		var rev int
+		rev, err = txn.ReviseObservation(ctx, reviseID, p)
+		if err != nil {
+			return
+		}
+		out = saveTxnOutput{id: reviseID, syncID: reviseSyncID, revisionCount: rev}
+	} else {
+		var id int64
+		var syncID string
+		id, syncID, err = txn.InsertObservation(ctx, p)
+		if err != nil {
+			return
+		}
+		out = saveTxnOutput{id: id, syncID: syncID}
+	}
+	if err = txn.Commit(ctx); err != nil {
+		return
+	}
+	out.project = project
+	return
+}
+
+// gateInsert builds the gate's insert/revise payload from the save input.
+// The new save's sync id and the review-after stamp are the caller's: the
+// delete merge needs the sync id for the supersede stamp before the insert
+// runs, and review_after is per-service (config-driven).
+func gateInsert(in saveTxnInput, project, scope, syncID string, reviewAfter *string) store.GateInsert {
+	return store.GateInsert{
 		SessionID:      in.req.SessionID,
 		Type:           in.req.Type,
 		Title:          in.req.Title,
@@ -501,37 +640,12 @@ func (s *Service) commitSave(ctx context.Context, st store.Store, in saveTxnInpu
 		Scope:          scope,
 		TopicKey:       in.req.TopicKey,
 		OperationID:    in.req.OperationID,
-		SyncID:         syncid.NewSyncID("obs"),
+		SyncID:         syncID,
 		NormalizedHash: storeNormalizedHash(in.content),
-		ReviewAfter:    s.reviewAfterFor(in.req.Type),
+		ReviewAfter:    reviewAfter,
 		Importance:     Importance(0, 0, in.req.Type), // fresh insert: usage 0, age 0
 		PromptContent:  promptFor(in),
 	}
-
-	var out saveTxnOutput
-	if reviseID > 0 {
-		// In-place revision: snapshot the pre-state first (the gate reads
-		// the current row inside the txn). The revision's importance is
-		// recomputed over the surviving row's retrieval_usage at read time
-		// (Task 11's usage bumps feed it); the gate writes p.Importance as
-		// the fresh-state score for now.
-		rev, err := txn.ReviseObservation(ctx, reviseID, p)
-		if err != nil {
-			return saveTxnOutput{}, err
-		}
-		out = saveTxnOutput{id: reviseID, syncID: reviseSyncID, revisionCount: rev}
-	} else {
-		id, syncID, err := txn.InsertObservation(ctx, p)
-		if err != nil {
-			return saveTxnOutput{}, err
-		}
-		out = saveTxnOutput{id: id, syncID: syncID}
-	}
-	if err := txn.Commit(ctx); err != nil {
-		return saveTxnOutput{}, err
-	}
-	out.project = project
-	return out, nil
 }
 
 // reviewAfterFor maps a type to its review clock from cfg.Memory.Review

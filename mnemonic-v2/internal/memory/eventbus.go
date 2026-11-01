@@ -30,6 +30,11 @@ type SaveEvent struct {
 	Entity     string
 	Importance float64
 	Degraded   bool
+	// SupersededSyncID is the target the save superseded (the dedup-delete
+	// verdict): non-empty when the save soft-deleted an existing row, and
+	// the consumer records the supersedes relation (source = SyncID,
+	// target = SupersededSyncID).
+	SupersededSyncID string
 }
 
 // EventBus is the in-process, fan-out save-event bus.

@@ -21,6 +21,11 @@ import (
 // the single adapter over the SQLite handle, so the Postgres dialect
 // (Task 18) plugs into the same seam shape.
 
+// ErrObservationNotFound: the row id has no live observation (LookupSyncID
+// on a missing/deleted row). The pipeline's LLM merge path maps it to a
+// no-op (a target that vanished between verify and commit cannot be merged).
+var ErrObservationNotFound = errors.New("store: observation not found")
+
 // ErrSessionEnded: the session row exists and has ended (terminal, 409).
 var ErrSessionEnded = errors.New("store: session ended")
 
@@ -53,6 +58,11 @@ type SaveTXN interface {
 	ReviseObservation(ctx context.Context, id int64, p GateInsert) (int, error)
 	// MarkDuplicate: the hash-floor noop (counters only, no new row).
 	MarkDuplicate(ctx context.Context, id int64) error
+	// SupersedeTarget: the dedup-delete merge (spec 004-dedup §2): the
+	// target is soft-deleted, superseded_by_sync_id is stamped with the
+	// new save's sync_id, and the sync journal records the delete
+	// (enrollment-gated, same transaction).
+	SupersedeTarget(ctx context.Context, targetID int64, newSyncID, project string) error
 	// EnrollProject: idempotent sync enrollment (Task 17's surface).
 	EnrollProject(ctx context.Context, project string) error
 	Commit(ctx context.Context) error
@@ -247,10 +257,14 @@ func (t *saveTXN) ReviseObservation(ctx context.Context, id int64, p GateInsert)
 }
 
 // LookupSyncID reads a row's sync_id (the pipeline's noop/revise results
-// carry the row's identity by sync_id — INV-6).
+// carry the row's identity by sync_id — INV-6). A missing/deleted row is
+// ErrObservationNotFound (a clean sentinel, not a bare ErrNoRows).
 func (t *saveTXN) LookupSyncID(ctx context.Context, id int64) (string, error) {
 	var out string
 	err := t.tx.QueryRow(`SELECT sync_id FROM observations WHERE id = ? AND deleted_at IS NULL`, id).Scan(&out)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrObservationNotFound
+	}
 	return out, err
 }
 
@@ -260,6 +274,32 @@ func (t *saveTXN) MarkDuplicate(ctx context.Context, id int64) error {
 		SET duplicate_count = duplicate_count + 1, last_seen_at = datetime('now'), updated_at = datetime('now')
 		WHERE id = ? AND deleted_at IS NULL`, id)
 	return err
+}
+
+func (t *saveTXN) SupersedeTarget(ctx context.Context, targetID int64, newSyncID, project string) error {
+	if _, err := t.tx.Exec(`
+		UPDATE observations
+		SET deleted_at = datetime('now'), superseded_by_sync_id = ?, updated_at = datetime('now')
+		WHERE id = ? AND deleted_at IS NULL`, newSyncID, targetID); err != nil {
+		return fmt.Errorf("store: supersede target: %w", err)
+	}
+	// step 7: the delete journals with the target's sync_id as the entity
+	// key (enrollment-gated; the apply path resolves id ← sync_id —
+	// sync.go applyDelete, Task 15).
+	if t.st.syncEnabled() && t.enrolled(project) {
+		var targetSyncID string
+		err := t.tx.QueryRow(`SELECT sync_id FROM observations WHERE id = ?`, targetID).Scan(&targetSyncID)
+		if err != nil {
+			return fmt.Errorf("store: supersede target sync id: %w", err)
+		}
+		if _, err := t.tx.Exec(`
+			INSERT INTO sync_mutations (target_key, entity, entity_key, op, payload, source, project)
+			VALUES ('local', 'observation', ?, 'delete', '{}', 'local', ?)`,
+			targetSyncID, project); err != nil {
+			return fmt.Errorf("store: supersede target journal: %w", err)
+		}
+	}
+	return nil
 }
 
 func (t *saveTXN) EnrollProject(ctx context.Context, project string) error {

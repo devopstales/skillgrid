@@ -73,18 +73,19 @@ func TestHashFloorDoesNotCrossScopes(t *testing.T) {
 	}
 }
 
-// The LLM seam is non-nil but the floor is what Task 5 ships: dedup.Run
-// currently returns the hash-floor verdict (the LLM internals land in Task 8).
-func TestDedupRunSeamPresentStillHashFloorInTask5(t *testing.T) {
+// The LLM seam is non-nil: dedup.Run consults the seam (Task 8), not the
+// floor — the LLM-first inversion (spec 004-dedup §1) over v1's hash default.
+func TestDedupRunSeamPresentConsultsLLM(t *testing.T) {
 	st := openTestStore(t)
 	stub := &stubLLM{}
 	stub.setClassify(func(ctx context.Context, newContent string, candidates []string) (llm.DedupDecision, error) {
 		return llm.DedupDecision{Verdict: llm.VerdictAdd, Reason: "llm"}, nil
 	})
 	d, degraded := runDedup(ctx, stub, st, "p", "project", "brand new", "decision", "T")
-	// Task 5: the seam is plumbed but not yet consulted → floor verdict.
-	if d.Reason != "hash" {
-		t.Fatalf("Task 5 dedup.Run must return the hash-floor verdict: %+v", d)
+	if d.Reason != "llm" || d.Verdict != llm.VerdictAdd {
+		t.Fatalf("the seam must be consulted when present (LLM-first): %+v", d)
 	}
-	_ = degraded
+	if degraded {
+		t.Fatalf("a successful seam is not degraded")
+	}
 }
