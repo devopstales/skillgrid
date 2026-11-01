@@ -1,8 +1,9 @@
+P26-11-01-mnv2mem: "2026-11-01: 2026-10-31-mnemonic-v2-memory SLICED. T0 checklist complete (commits ae57d7e3 blueprint + f493f3c8 v1 rename + 5ee9017f spec batch: acceptance.feature 16 rules/75 scenarios, ADR-0040/0041, spec amendments 001/002/004, state repoint, mnemonic/ -> mnemonic_back/). Blueprint gate passed: S-3 = dialect-render reading, missing session = auto-register, Accept+slice. tasks.md: 20 tickets = blueprint tasks 1:1, 11 waves, High ~8-10k lines, ask-on-risk, stacked-to-main (serial dev). One-way doors: TICKET-01 (D5 fresh module, door check), TICKET-19 (D4 seed import). TICKET-18 Precondition: MNEMONIC_PG_TEST_DSN (gate G15). Build shape tracer thread. Next: ticketing (backlogmd) then subagent-execution Wave 1 (TICKET-01 door check)."
 schema: skillgrid/state/v1
 pipeline:
-  current_phase: blueprint
+  current_phase: slicing
   current_change: 2026-10-31-mnemonic-v2-memory
-  status: blueprint-accepted-t0-checklist
+  status: sliced-t0-complete
 progress:
   completed_changes: 26
   blocked_changes: 0
