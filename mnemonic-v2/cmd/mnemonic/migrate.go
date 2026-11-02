@@ -58,17 +58,19 @@ func runMigrate(fl config.Flags, cwd string, args []string) int {
 	}
 	defer st.Close()
 
-	// The resolved project the store was opened for (openRuntime's
-	// detector chain — the seed names it explicitly, not re-resolved at
-	// migrate time). Re-resolve here with the same explicit so the
-	// migrate's project matches the store's.
+	cfg := h.Config()
+	// The project the store was opened for (openRuntime resolved it from
+	// the --project flag / detector chain). Re-resolve with the same
+	// explicit so the seed names the project explicitly (not re-resolved
+	// at migrate time).
 	resolved, err := h.CurrentProject(cwd, project)
 	if err != nil {
 		fmt.Fprintf(outW(), "error: %s\n", err.Error())
 		return exitErr
 	}
-
-	cfg := h.Config()
+	_ = st // the store is the doctor's read surface; the seed re-opens its
+	// own v2 store through store.Open (the seed's data dir is cfg.DataDir,
+	// the same path the runtime opened).
 	rep, err := migrate.Migrate(context.Background(), v1Dir, cfg.DataDir, resolved)
 	if err != nil {
 		fmt.Fprintf(outW(), "error: %s\n", err.Error())

@@ -83,7 +83,7 @@ func runDoctor(fl config.Flags, cwd string, args []string) int {
 // migrationStateLine runs the v1→v2 seed migration state check for the
 // doctor's resolved project and renders the advisory line ("", false when
 // the v1 store is absent — the check stays advisory-ok, no line). It calls
-// migrate.State directly (the cutover's own package owns the layout
+// migrate.Report directly (the cutover's own package owns the layout
 // knowledge); the service's MigrationState hook is the library's wiring
 // point, the CLI's direct call is the doctor's wiring point.
 func migrationStateLine(h *handler.Handler, st store.Store, v1Dir string) (string, bool) {
