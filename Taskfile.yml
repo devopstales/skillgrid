@@ -20,7 +20,10 @@ version: "3"
 
 vars:
   CLI_DIR: skillgrid-cli
-  MEM_DIR: mnemonic
+  # ADR-0040: the Taskfile must build both mnemonic modules. v1 is archived
+  # (mnemonic_back/), v2 is the active binary producer (mnemonic-v2/).
+  MEM1_DIR: mnemonic_back
+  MEM2_DIR: mnemonic-v2
   CLI_BIN: skillgrid
   MEM_BIN: mnemonic
   OUT: dist
@@ -38,7 +41,7 @@ tasks:
     desc: Build both local platform binaries into dist/.
     cmds:
       - mkdir -p {{.OUT}}
-      - cd {{.MEM_DIR}} && go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}} {{.MEM_PKG}}
+      - cd {{.MEM2_DIR}} && go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}} {{.MEM_PKG}}
       - cd {{.CLI_DIR}} && go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}} {{.CLI_PKG}}
       - rm -f ~/.local/bin/{{.MEM_BIN}} ~/.local/bin/{{.CLI_BIN}}
       - cp {{.OUT}}/{{.MEM_BIN}} ~/.local/bin/
@@ -54,31 +57,33 @@ tasks:
   build-linux:
     desc: Build linux binaries (amd64 + 386) for both modules.
     cmds:
-      - cd {{.MEM_DIR}} && GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-linux-amd64 {{.MEM_PKG}}
-      - cd {{.MEM_DIR}} && GOOS=linux GOARCH=386 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-linux-386 {{.MEM_PKG}}
+      - cd {{.MEM2_DIR}} && GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-linux-amd64 {{.MEM_PKG}}
+      - cd {{.MEM2_DIR}} && GOOS=linux GOARCH=386 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-linux-386 {{.MEM_PKG}}
       - cd {{.CLI_DIR}} && GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}}-linux-amd64 {{.CLI_PKG}}
       - cd {{.CLI_DIR}} && GOOS=linux GOARCH=386 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}}-linux-386 {{.CLI_PKG}}
 
   build-darwin:
     desc: Build macOS binaries (amd64 + arm64) for both modules.
     cmds:
-      - cd {{.MEM_DIR}} && GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-darwin-amd64 {{.MEM_PKG}}
-      - cd {{.MEM_DIR}} && GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-darwin-arm64 {{.MEM_PKG}}
+      - cd {{.MEM2_DIR}} && GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-darwin-amd64 {{.MEM_PKG}}
+      - cd {{.MEM2_DIR}} && GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-darwin-arm64 {{.MEM_PKG}}
       - cd {{.CLI_DIR}} && GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}}-darwin-amd64 {{.CLI_PKG}}
       - cd {{.CLI_DIR}} && GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}}-darwin-arm64 {{.CLI_PKG}}
 
   test:
     desc: Run go vet and go test ./... in both modules.
     cmds:
-      - cd {{.MEM_DIR}} && go vet ./...
-      - cd {{.MEM_DIR}} && go test ./...
+      - cd {{.MEM2_DIR}} && go vet ./...
+      - cd {{.MEM2_DIR}} && go test ./...
+      - cd {{.MEM1_DIR}} && go vet ./...
+      - cd {{.MEM1_DIR}} && go test ./...
       - cd {{.CLI_DIR}} && go vet ./...
       - cd {{.CLI_DIR}} && go test ./...
 
   seed-test:
     desc: Run the Mnemonic all-stores seed integration tests (memory + code index + web cache).
     cmds:
-      - cd {{.MEM_DIR}} && go test -v -run TestSeed ./internal/integration/
+      - cd {{.MEM1_DIR}} && go test -v -run TestSeed ./internal/integration/
 
   skill-check:
     desc: Skill-hygiene guard — anatomy invariants, line budgets, hot-path ceilings (scripts/check-skillgrid-skills.mjs).
@@ -118,7 +123,8 @@ tasks:
   fmt:
     desc: gofmt -w both modules.
     cmds:
-      - cd {{.MEM_DIR}} && gofmt -l -w .
+      - cd {{.MEM2_DIR}} && gofmt -l -w .
+      - cd {{.MEM1_DIR}} && gofmt -l -w .
       - cd {{.CLI_DIR}} && gofmt -l -w .
 
   clean:
