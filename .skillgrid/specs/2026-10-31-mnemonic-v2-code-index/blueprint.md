@@ -96,7 +96,7 @@ Derived from the spec zone + the **live-probe relevance truths** (findings.md, T
 - `mnemonic-v2/internal/transport/handler/handler_code.go` — the one shared code-index handler set (the MCP + CLI surfaces meet here; never diverge).
 - `mnemonic-v2/cmd/mnemonic/index.go` — the `mnemonic index/search/status/orient/explain/path/impact/affected/grep/read/watch` CLI group (delegated by the memory change's `005-transport-cli`).
 - `mnemonic-v2/internal/codeindex/*_test.go` + `mnemonic-v2/internal/core/store/store_code_test.go` — tests for every truth above, **including the four T-CI held-out tests** (T-CI-1…4).
-- `.skillgrid/artifacts/04-adr-0043-tree-sitter-dep.md`, `04-adr-0044-fsnotify-dep.md`, `04-adr-0045-onnxer-dep.md`, `04-adr-0046-store-interface-extension.md` — the four dependency/extension decisions (0042 is already used by `goldfish-plan-review`).
+- `.skillgrid/artifacts/04-adr-0043-code-index-tree-sitter-dep.md`, `04-adr-0044-code-index-fsnotify-dep.md`, `04-adr-0045-code-index-onnxer-conditional.md`, `04-adr-0046-code-index-store-extension.md` — the four dependency/extension decisions (0042 is already used by `goldfish-plan-review`).
 
 **Key links** (critical connections that must work together):
 
@@ -367,7 +367,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add mnemonic-v2/internal/core/store/ mnemonic-v2/internal/codeindex/ .skillgrid/artifacts/04-adr-0046-store-interface-extension.md
+git add mnemonic-v2/internal/core/store/ mnemonic-v2/internal/codeindex/ .skillgrid/artifacts/04-adr-0046-code-index-store-extension.md
 git commit -m "feat(mnemonic-v2): extend Store with code-index methods, 9-table migration, Index driver, door check
 
 [skillgrid-context] change=2026-10-31-mnemonic-v2-code-index task=T01 door-check"
@@ -649,7 +649,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add mnemonic-v2/internal/codeindex/extract/ mnemonic-v2/internal/codeindex/index.go .skillgrid/artifacts/04-adr-0043-tree-sitter-dep.md
+git add mnemonic-v2/internal/codeindex/extract/ mnemonic-v2/internal/codeindex/index.go .skillgrid/artifacts/04-adr-0043-code-index-tree-sitter-dep.md
 git commit -m "feat(mnemonic-v2): tree-sitter extraction ladder, self-healing pool, real extractor stamp, chunker
 
 [skillgrid-context] change=2026-10-31-mnemonic-v2-code-index task=T03"
@@ -1070,7 +1070,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add mnemonic-v2/internal/codeindex/watch/ .skillgrid/artifacts/04-adr-0043-fsnotify-dep.md
+git add mnemonic-v2/internal/codeindex/watch/ .skillgrid/artifacts/04-adr-0044-code-index-fsnotify-dep.md
 git commit -m "feat(mnemonic-v2): fsnotify watch loop — debounce, burst-collapse, fingerprint re-check, failure isolation
 
 [skillgrid-context] change=2026-10-31-mnemonic-v2-code-index task=T06"
