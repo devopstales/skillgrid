@@ -287,6 +287,38 @@ func TestV1SeedImport(t *testing.T) {
 		`SELECT COUNT(*) FROM observation_save_operations WHERE operation_id LIKE 'v1migrate:%' AND operation_id NOT LIKE 'v1migrate:session:%'`); n != live {
 		t.Fatalf("ledger must hold one v1migrate: row per seeded observation; %d of %d", n, live)
 	}
+	// provenance.writer (the review's fix): every seeded row carries
+	// provenance.writer = "v1-migrate" (the v1 store has no provenance
+	// column; the seed is the rows' writer) — read from the INV-1
+	// provenance column directly, not the search result (the search
+	// result does not project provenance).
+	if n := probeInt(t, st,
+		`SELECT COUNT(*) FROM observations WHERE project = 'p' AND deleted_at IS NULL AND json_extract(provenance, '$.writer') != 'v1-migrate'`); n != 0 {
+		t.Fatalf("every seeded row must carry provenance.writer = 'v1-migrate'; %d rows differ", n)
+	}
+	// the normal save surfaces leave provenance.writer empty (the
+	// existing behavior — the seed's rows are the only ones with a writer).
+	svc := memory.NewService(openTestStoreIn(t, v2dir, "p"), v2TestConfig(v2dir), memory.NewEventBus(), nil, nil)
+	if _, err := svc.Save(ctx, memory.SaveRequest{
+		SessionID: "s-normal", Type: "discovery", Title: "writer-empty normal save",
+		Content: "a normal (non-seed) save", Project: "p", Scope: "project",
+	}); err != nil {
+		t.Fatalf("normal save: %v", err)
+	}
+	if n := probeInt(t, st,
+		`SELECT COUNT(*) FROM observations WHERE title = 'writer-empty normal save' AND json_extract(provenance, '$.writer') != ''`); n != 0 {
+		t.Fatalf("a normal save must leave provenance.writer empty; %d rows differ", n)
+	}
+}
+
+// v2TestConfig is the v2 store config the test's non-seed save runs under
+// (the migrate package's v2Config, mirrored here — default config, the
+// test's data dir, project detection off).
+func v2TestConfig(dataDir string) config.Config {
+	c := config.Default()
+	c.DataDir = dataDir
+	c.Project.Detect = false
+	return c
 }
 
 // ── [v1-files-untouched] ────────────────────────────────────────────────────
@@ -433,9 +465,8 @@ func TestV1MigrateTypeMapping(t *testing.T) {
 	}
 	for _, r := range rows {
 		t.Run(r.v1, func(t *testing.T) {
-			// fresh v1 store per subtest (the migrate's dedup is
-			// per-v2-store, so a shared v1 store would dedup rows
-			// across subtests).
+			// shared v1 store, fresh v2 store per subtest (the probe
+			// filters by title, so the shared v1 rows don't interfere).
 			if _, err := db.Exec(`INSERT INTO observations
 				(session_id, type, title, content, project, scope,
 				 normalized_hash, created_at, updated_at)

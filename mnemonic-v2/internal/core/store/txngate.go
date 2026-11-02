@@ -74,9 +74,14 @@ type GateInsert struct {
 	SessionID, Type, Title, Content, ToolName, Project, Scope, TopicKey, OperationID string
 	SyncID                                                                           string
 	NormalizedHash                                                                   string
-	ReviewAfter                                                                      *string
-	Importance                                                                       float64
-	PromptContent                                                                    string
+	// Writer is stamped on the new observation's provenance (the save
+	// request's writer — empty for the normal save surfaces, the v1-migrate
+	// marker for the seed, TICKET-19). Revise keeps the existing row's
+	// provenance (INV-1 — the revision never rewrites it).
+	Writer        string
+	ReviewAfter   *string
+	Importance    float64
+	PromptContent string
 }
 
 // saveTXN implements SaveTXN on a *sql.Tx.
@@ -161,7 +166,7 @@ func (t *saveTXN) LookupTopicKey(ctx context.Context, project, scope, topicKey s
 
 func (t *saveTXN) InsertObservation(ctx context.Context, p GateInsert) (int64, string, error) {
 	now := nowStamp()
-	prov := Provenance{SessionID: p.SessionID, CreatedAt: now}
+	prov := Provenance{SessionID: p.SessionID, Writer: p.Writer, CreatedAt: now}
 	provJSON, _ := json.Marshal(prov)
 	res, err := t.tx.Exec(`
 		INSERT INTO observations (

@@ -1424,7 +1424,7 @@ func (t *pgSaveTXN) LookupSyncID(ctx context.Context, id int64) (string, error) 
 
 func (t *pgSaveTXN) InsertObservation(ctx context.Context, p GateInsert) (int64, string, error) {
 	now := pgNow()
-	prov := Provenance{SessionID: p.SessionID, CreatedAt: now}
+	prov := Provenance{SessionID: p.SessionID, Writer: p.Writer, CreatedAt: now}
 	provJSON, _ := json.Marshal(prov)
 	var id int64
 	err := t.tx.QueryRowContext(ctx, `

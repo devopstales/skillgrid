@@ -34,12 +34,10 @@ import (
 
 // WriterV1Migrate is the provenance.writer stamped on every seeded row
 // (brief: the v1 store has no provenance column; the seed sets
-// provenance.writer = "v1-migrate", model = ""). The v2 save pipeline
-// stamps the row's provenance from the SaveRequest's session; the seed's
-// rows carry the v1 session's identity, and this constant is the
-// documented marker the doctor's completeness check reads (the
-// provenance.writer column is the store's INV-1 provenance record — the
-// seed's rows are the only ones with writer = "v1-migrate").
+// provenance.writer = "v1-migrate", model = ""). Migrate sets it on every
+// SaveRequest; the save pipeline carries it through GateInsert.Writer to
+// the row's INV-1 provenance record (the seed's rows are the only rows
+// with a non-empty writer — the normal save surfaces leave it "").
 const WriterV1Migrate = "v1-migrate"
 
 // OpIDPrefix is the replay-ledger operation-id prefix for seeded rows
@@ -158,6 +156,7 @@ func Migrate(ctx context.Context, v1Dir, v2DataDir, project string) (MigrateRepo
 			Project:     project,
 			Scope:       "project",
 			OperationID: MigrateSessionOpID(id),
+			Writer:      WriterV1Migrate,
 		}); err != nil {
 			return MigrateReport{}, fmt.Errorf("migrate: session %s: %w", id, err)
 		}
@@ -199,6 +198,7 @@ func Migrate(ctx context.Context, v1Dir, v2DataDir, project string) (MigrateRepo
 			Scope:       scope,
 			TopicKey:    topicKey,
 			OperationID: OpIDPrefix + fmt.Sprint(id),
+			Writer:      WriterV1Migrate,
 		})
 		if err != nil {
 			rep.Errors = append(rep.Errors, fmt.Sprintf("v1 observation %d: %v", id, err))

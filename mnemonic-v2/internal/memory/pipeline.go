@@ -127,6 +127,13 @@ type SaveRequest struct {
 	// amended): nil → true (the MCP "absent" default), explicit false → off.
 	CapturePrompt *bool
 	CurrentPrompt string // the current turn's prompt, when capture is on
+	// Writer is the provenance.writer stamped on the new observation's
+	// INV-1 provenance record (spec 002-schema §2.2.1). Empty for the
+	// normal save surfaces (MCP/CLI — the agent's identity is the session,
+	// not a writer); set by the v1→v2 seed migration (TICKET-19, the
+	// v1-migrate marker — the v1 store has no provenance column, so the
+	// seed is the rows' writer).
+	Writer string
 }
 
 // SaveResult is the save's return shape (spec 01-memory/001 §2 step 9).
@@ -664,6 +671,7 @@ func gateInsert(in saveTxnInput, project, scope, syncID string, reviewAfter *str
 		TopicKey:       in.req.TopicKey,
 		OperationID:    in.req.OperationID,
 		SyncID:         syncID,
+		Writer:         in.req.Writer,
 		NormalizedHash: storeNormalizedHash(in.content),
 		ReviewAfter:    reviewAfter,
 		Importance:     Importance(0, 0, in.req.Type), // fresh insert: usage 0, age 0
