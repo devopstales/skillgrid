@@ -95,6 +95,7 @@ type ExtractOption func(*extractConfig)
 type extractConfig struct {
 	maxFileSize int
 	pool        *Pool
+	grammar     grammarLoaderFn
 }
 
 // defaultMaxFileSize is the oversized threshold (500 KiB — the spec 001 §2
@@ -116,6 +117,15 @@ func WithMaxFileSize(n int) ExtractOption {
 func WithPool(p *Pool) ExtractOption {
 	return func(c *extractConfig) {
 		c.pool = p
+	}
+}
+
+// WithGrammar supplies the grammar loader (the test injection seam for the
+// panicking-grammar circuit-breaker test — the v1 ex.grammar pattern). A nil
+// loader (the default) means the production registry (resolveGrammar).
+func WithGrammar(fn grammarLoaderFn) ExtractOption {
+	return func(c *extractConfig) {
+		c.grammar = fn
 	}
 }
 

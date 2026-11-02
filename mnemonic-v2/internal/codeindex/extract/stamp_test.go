@@ -44,3 +44,71 @@ func TestStampForDeterministic(t *testing.T) {
 		t.Fatalf("StampFor must be a content hash: different inputs → different stamps")
 	}
 }
+
+// [extractor-stamp-content-hash] (F2, C-2a — the pinned set is REAL, proven by
+// in-test mutation): temporarily add a 26th language entry to langMaps,
+// capture Stamp(), restore the table, and assert the stamp CHANGED. This is
+// the load-bearing proof that the stamp is a content hash over the data
+// tables' shape (a 26th row forces a full re-walk), not a hard-coded const.
+func TestStampChangesWhenDataTableGrows(t *testing.T) {
+	before := Stamp()
+
+	// Inject a 26th map-tier language (a node-type shape the pinned set
+	// serializes). It must be a fresh language not already in langMaps.
+	const testLang = "testlang_26th"
+	if _, exists := langMaps[testLang]; exists {
+		t.Fatalf("precondition: %s must not already be in langMaps", testLang)
+	}
+	langMaps[testLang] = langMapDef{
+		defNodes:  map[string]defInfo{"test_function_definition": {kind: "function", nameFrom: nil}},
+		callNodes: map[string]callInfo{"test_call_expression": {targetFrom: nil}},
+	}
+	restored := false
+	defer func() {
+		if !restored {
+			delete(langMaps, testLang)
+			restored = true
+		}
+	}()
+
+	during := Stamp()
+	if during == before {
+		t.Fatalf("Stamp() must CHANGE when the data table gains a 26th row: before=%q during=%q", before, during)
+	}
+
+	// Restore and confirm the stamp returns to the original (byte-stable, and
+	// the mutation is fully reversible — no leaked state).
+	delete(langMaps, testLang)
+	restored = true
+	if after := Stamp(); after != before {
+		t.Fatalf("Stamp() must return to the original after restore: before=%q after=%q", before, after)
+	}
+}
+
+// [extractor-stamp-content-hash] (F2, C-2b — config invariance, the M5
+// ruling): a different WithMaxFileSize option does NOT change Stamp(). The
+// stamp is computed over the extractor code + data tables + chunker constants
+// only; MaxFileSize is config, so varying it must leave Stamp() untouched.
+// (This is asserted directly at the Stamp() level, not just via the
+// StampFor primitive.)
+func TestStampConfigInvarianceMaxFileSize(t *testing.T) {
+	base := Stamp()
+
+	// A small max file size (config) must not change the stamp.
+	_, _, err := ExtractFile(nil, "small.go", "func f() int { return 1 }\n", "go", WithMaxFileSize(64))
+	if err != nil {
+		t.Fatalf("extract with a small max file size: %v", err)
+	}
+	if got := Stamp(); got != base {
+		t.Fatalf("Stamp() must be invariant to WithMaxFileSize (config, M5): base=%q got=%q", base, got)
+	}
+
+	// A huge max file size must not change it either.
+	_, _, err = ExtractFile(nil, "small.go", "func f() int { return 1 }\n", "go", WithMaxFileSize(1<<30))
+	if err != nil {
+		t.Fatalf("extract with a huge max file size: %v", err)
+	}
+	if got := Stamp(); got != base {
+		t.Fatalf("Stamp() must be invariant to WithMaxFileSize (config, M5): base=%q got=%q", base, got)
+	}
+}

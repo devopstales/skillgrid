@@ -62,7 +62,7 @@ func ExtractFile(ctx context.Context, path, content, lang string, opts ...Extrac
 		return g, TierRegex, nil
 	}
 
-	e := &extractor{pool: pool}
+	e := &extractor{pool: pool, grammar: cfg.grammar}
 
 	// Quarantined or breaker-tripped → straight to regex (no tree-sitter
 	// attempt — the "a 4th go file goes straight to regex" decision).
