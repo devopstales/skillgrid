@@ -21,6 +21,7 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -40,15 +41,17 @@ type fakeTransport struct {
 	sequences map[string]int64            // project → next seq to assign
 	touched   []string                    // projects whose schema was queried
 	fails     map[string]bool             // project → EnsureSchema fails
+	maxPushB  int                         // the size ceiling (0 = default 8MiB)
 }
 
-// newFakeTransport builds an empty fake transport.
+// newFakeTransport builds an empty fake transport (default size ceiling).
 func newFakeTransport(t *testing.T) *fakeTransport {
 	t.Helper()
 	return &fakeTransport{
 		buckets:   map[string][]store.Mutation{},
 		sequences: map[string]int64{},
 		fails:     map[string]bool{},
+		maxPushB:  DefaultMaxPushBytes,
 	}
 }
 
@@ -96,21 +99,20 @@ func (f *fakeTransport) EnsureSchema(ctx context.Context, project string) error 
 }
 
 // PushMutations appends a batch to the project bucket (one logical
-// transaction; the batch-cap and size limits are enforced at the seam
-// boundary, the brief's contract).
+// transaction). The batch-cap and size limits are enforced at the seam
+// boundary (the brief's contract) — the fake enforces the same size
+// contract as the PG transport so the tests exercise the limit.
 func (f *fakeTransport) PushMutations(ctx context.Context, project string, batch []store.Mutation) (int64, error) {
 	if len(batch) == 0 {
 		return f.sequences[project], nil
 	}
-	total := 0
-	for _, m := range batch {
-		total += len(m.Payload)
+	if size := batchBytes(batch); size > f.maxPushB {
+		return 0, fmt.Errorf("%w: %d > %d", ErrPushTooLarge, size, f.maxPushB)
 	}
 	last := int64(0)
 	for _, m := range batch {
 		last = f.ack(project, m)
 	}
-	_ = total
 	return last, nil
 }
 
@@ -194,6 +196,28 @@ func TestPushEmptyOutbox(t *testing.T) {
 	}
 	if len(tr.buckets["p"]) != 0 {
 		t.Fatalf("empty push must write nothing")
+	}
+}
+
+// TestPushOverSizeCeiling (TRIANGULATE [push-acks-seq], the ≤8MiB half): a
+// push whose payloads sum over the size ceiling is refused (the brief's
+// "≤100/batch, ≤8MiB" contract — the byte half is enforced at the seam).
+func TestPushOverSizeCeiling(t *testing.T) {
+	tr := newFakeTransport(t)
+	tr.maxPushB = 100 // a small ceiling so the test doesn't build 8MiB
+	st := openTestStore(t)
+
+	// a batch whose payloads sum to > 100 bytes.
+	batch := []store.Mutation{
+		{EntityKey: "k1", Op: "upsert", Payload: strings.Repeat("a", 60)},
+		{EntityKey: "k2", Op: "upsert", Payload: strings.Repeat("b", 60)},
+	} // 120 bytes total > 100
+	if _, err := Push(ctx, st, tr, "p", batch); err == nil {
+		t.Fatalf("a push over the size ceiling must be refused")
+	}
+	// and it wrote nothing: the bucket is empty.
+	if len(tr.buckets["p"]) != 0 {
+		t.Fatalf("a refused push must write nothing, got %d rows", len(tr.buckets["p"]))
 	}
 }
 

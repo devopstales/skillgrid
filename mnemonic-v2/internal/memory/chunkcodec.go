@@ -183,13 +183,17 @@ func Import(ctx context.Context, st store.Store, project, dir string) (int, erro
 			// a chunk with no sync id is not an apply unit (a session/
 			// prompt without identity) — record it as imported but do not
 			// apply (the apply seam needs an entity key).
-			markChunkImported(st, id)
+			if err := markChunkImported(st, id); err != nil {
+				return applied, fmt.Errorf("sync: record chunk %s: %v", id, err)
+			}
 			continue
 		}
 		if err := svc.ApplyPulled(ctx, m); err != nil {
 			return applied, fmt.Errorf("sync: apply chunk %s: %v", id, err)
 		}
-		markChunkImported(st, id)
+		if err := markChunkImported(st, id); err != nil {
+			return applied, fmt.Errorf("sync: record chunk %s: %v", id, err)
+		}
 		applied++
 	}
 	return applied, nil
@@ -265,9 +269,13 @@ func chunkImported(st store.Store, chunkID string) bool {
 }
 
 // markChunkImported records the chunk in sync_chunks (the dedupe marker).
-func markChunkImported(st store.Store, chunkID string) {
-	_ = applyPulledSeam(st).RawExec(
-		`INSERT INTO sync_chunks (chunk_id) VALUES (?) ON CONFLICT(chunk_id) DO NOTHING`,
+// The PK is (target_key, chunk_id), so the conflict target is the pair.
+// It returns the insert error so a failed record is surfaced (self-healing
+// — a re-import retries — but not silent).
+func markChunkImported(st store.Store, chunkID string) error {
+	return applyPulledSeam(st).RawExec(
+		`INSERT INTO sync_chunks (target_key, chunk_id) VALUES ('local', ?)
+		 ON CONFLICT(target_key, chunk_id) DO NOTHING`,
 		chunkID)
 }
 

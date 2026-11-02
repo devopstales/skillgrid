@@ -10,6 +10,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -194,7 +195,7 @@ func syncPush(fl config.Flags, cwd string, args []string) int {
 			break
 		}
 		if _, perr := memory.Push(context.Background(), st, tr, resolved, batch); perr != nil {
-			if perr.Error() == "sync-paused" {
+			if errors.Is(perr, memory.ErrPaused) {
 				if *jsonOut {
 					return finish(fs, true, dispatchResult{result: map[string]any{"project": resolved, "status": "sync-paused"}})
 				}

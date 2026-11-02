@@ -24,6 +24,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/project"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/store"
@@ -47,6 +48,11 @@ var ErrBatchTooLarge = errors.New("sync: push batch exceeds the cap")
 // (project_controls.paused=1 — the write was skipped, the cursor is
 // untouched; the CLI reports "sync-paused").
 var ErrPaused = errors.New("sync-paused")
+
+// ErrPushTooLarge marks a push refused because the batch's total payload
+// exceeds the config's MaxPushBytes (the brief's ≤8MiB half of the
+// "≤100/batch, ≤8MiB" contract).
+var ErrPushTooLarge = errors.New("sync: push batch exceeds the byte limit")
 
 // MutationTransport is the seam between the sync engine and the remote
 // (spec 006 §5). Adapters: PGTransport (prod — the team's PG) and the
@@ -255,10 +261,16 @@ func (p *pgTransport) EnsureSchema(ctx context.Context, project string) error {
 // PushMutations writes the batch in ONE transaction: insert the mutations,
 // then advance the remote's sync_state.last_acked_seq to the batch's
 // highest local seq. A paused project (project_controls.paused=1) writes
-// nothing and returns ErrPaused (the current cursor).
+// nothing and returns ErrPaused (the current cursor). The batch cap
+// (p.pushLim, the config's lowered limit — never over MaxBatch) and the
+// payload ceiling (p.maxPushB, the config's MaxPushBytes) are enforced
+// here at the seam (the brief's "≤100/batch, ≤8MiB" contract).
 func (p *pgTransport) PushMutations(ctx context.Context, project string, batch []store.Mutation) (int64, error) {
-	if len(batch) > MaxBatch {
-		return 0, fmt.Errorf("%w: %d > %d", ErrBatchTooLarge, len(batch), MaxBatch)
+	if len(batch) > p.pushLim {
+		return 0, fmt.Errorf("%w: %d > %d", ErrBatchTooLarge, len(batch), p.pushLim)
+	}
+	if size := batchBytes(batch); size > p.maxPushB {
+		return 0, fmt.Errorf("%w: %d > %d", ErrPushTooLarge, size, p.maxPushB)
 	}
 	if len(batch) == 0 {
 		return 0, nil
@@ -335,8 +347,13 @@ func (p *pgTransport) PullMutations(ctx context.Context, project string, sinceSe
 		if err := rows.Scan(&m.Seq, &m.TargetKey, &m.Entity, &m.EntityKey, &m.Op, &m.Payload, &m.Source, &m.Project, &occ); err != nil {
 			return nil, fmt.Errorf("sync: pull scan: %w", err)
 		}
-		if s, ok := occ.(string); ok {
-			m.OccurredAt = s
+		// lib/pq decodes TIMESTAMPTZ to time.Time; the fake/SQLite path
+		// carries a string. Handle both (the store's timestamp format).
+		switch v := occ.(type) {
+		case time.Time:
+			m.OccurredAt = v.UTC().Format("2006-01-02 15:04:05")
+		case string:
+			m.OccurredAt = v
 		}
 		out = append(out, m)
 	}
@@ -345,6 +362,15 @@ func (p *pgTransport) PullMutations(ctx context.Context, project string, sinceSe
 
 // Close closes the PG handle.
 func (p *pgTransport) Close() error { return p.db.Close() }
+
+// batchBytes is the total payload size of a batch (the size gate).
+func batchBytes(batch []store.Mutation) int {
+	n := 0
+	for _, m := range batch {
+		n += len(m.Payload)
+	}
+	return n
+}
 
 // nullableProj renders the project column (nil when empty — the column is
 // nullable on the remote).
