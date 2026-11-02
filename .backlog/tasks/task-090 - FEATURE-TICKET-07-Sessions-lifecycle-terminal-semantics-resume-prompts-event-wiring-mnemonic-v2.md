@@ -3,10 +3,10 @@ id: TASK-090
 title: >-
   [FEATURE] TICKET-07 Sessions (lifecycle, terminal semantics, resume, prompts)
   + event wiring (mnemonic-v2)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-01 12:47'
-updated_date: '2026-11-01 12:48'
+updated_date: '2026-11-01 20:01'
 labels: []
 milestone: m-11
 dependencies:
@@ -39,3 +39,19 @@ Session lifecycle: start (byte-exact id, runtime_lease_expires_at = now+30min, l
 <!-- SECTION:PLAN:BEGIN -->
 --ac
 <!-- SECTION:PLAN:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: orchestrator
+created: 2026-11-01 19:36
+---
+Wave 5 start (2026-11-01): implementer dispatched (events: save → bus → trails).
+---
+<!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Event wiring: step-10 bus.Publish at the marked hook (exactly one event per committed save; replayed/noop saves do NOT publish — fix round 1 exposed a real bug where the noop save WAS publishing, now gated `if !row.replayed`). Trail consumer (trails.go) appends session_trails (additive 002 migration); missing session auto-registered (pipeline CheckSession + consumer ensureSession FK guard). Post-commit bus side-effect INV documented (audit row can drop, fact never lost). 10 tests incl. exactly-once, no-republish-on-replay, no-publish-on-noop, ensureSession isolation. Review Approved, 1 fix round. Commits 60cadd77, 92acc30b. Refs: TASK-090
+<!-- SECTION:FINAL_SUMMARY:END -->

@@ -25,11 +25,62 @@ mnemonic-v2. Its one-line model:
 > structural + semantic). It is the *graph* the knowledge-base's pin-check and module-map
 > read live; without it, the KB degrades to ripgrep-only (explicit `degraded`).**
 
+> **It is a *graph*, not a *wiki*.** "Turning a codebase into a wiki is an anti-pattern"
+> (decodingai, *Build an LLM Wiki From First Principles*, 2026-10-20): an LLM-compiling
+> the code into prose pages would re-sync every commit and *re-derive* what the repo
+> already expresses as a navigable graph ("the repo is already the wiki"). This change is
+> the **machine-extracted** half — zero LLM at index time (INV-7/CI-INV-1), re-derived
+> deterministically from the tree. The **LLM-maintained** half — the *why*, synthesized
+> into grounded markdown pages that *cite* this graph (`code:<path>` / `symbol:`) rather
+> than re-derive it — is the **knowledge-base change** (KB `002-sources` §2.2, `006-
+> validate`). The two never blur: code-index derives a *cache*, the KB compiles a
+> *reasoning surface* on top of it.
+
 The code-index is **not** a source store — the code stays in the repo. The graph is a
 **derived index** of the working tree: it can always be rebuilt from the tree, and it is
 *live* (it reflects the current tree, not a snapshot). If the code moves, the graph is
 stale (`index_freshness`) and re-indexing catches it; the KB's pin-check catches the
 *knowledge* that moved.
+
+### 1.1 The retrieval contract: retrieval-as-reasoning, not retrieval-as-lookup
+
+The `code_*` surface is designed for **retrieval-as-reasoning** (the arXiv *LLM-Wiki*
+paper's term, §2605.25480v2): the agent *searches, reads, follows links, re-plans, and
+decides when evidence is sufficient* — retrieval is not a one-shot `top-k` the agent
+consumes. This is why the surface exposes **compositional** operations (search / read /
+link-follow / impact) the agent *composes* across turns, rather than a single
+black-box "answer" tool.
+
+The paper's **code-idiomatic traversal strategies** map 1:1 onto this surface (the
+`ki outline` map fold already made them first-class):
+
+| Paper strategy (for wiki) | code-index verb | When |
+|---|---|---|
+| **Direct access** (known entity → read) | `code_resolve(name)` → `code_read` | the agent already names the symbol |
+| **Bridge query** (A→B→answer via links) | `code_path(a, b)` / `code_orient` follow an edge id | connecting two known symbols |
+| **Exploratory browsing** (read directory index) | `code_orient(package)` → `code_search under=<pkg>` | the agent doesn't know where a feature lives |
+
+Two of the paper's **termination** rules are adopted as *advisory* agent behavior (the
+tool stays stateless; the agent tracks its own budget):
+
+- **Evidence-sufficiency before answering:** the agent should have at least one
+  `code_read` / `code_orient` hit it actually read before asserting a fact about the
+  code (mirrors the paper's "≥1 `read` before answering").
+- **Patience bound:** after `P` (default 3) consecutive empty `code_search` results the
+  agent stops re-searching the same query and re-plans (widen the `under` scope, switch
+  verb, or escalate to `code_grep`) — a stop condition, not an error.
+
+The paper's **ablation** is the external evidence for why this is worth building
+(§2605.25480v2 Table 3): removing the compiled *structure* costs 6–7 F1, removing
+*progressive (agent-driven) traversal* costs 12–14 F1, and removing the *Error Book*
+costs 3–4 F1. **The traversal is the biggest single term** — which is exactly what
+T9b (`code_orient` map) + T5 (`under` scope, `content` mode) make first-class, and
+*not* what a flat `code_search` alone would. The LLM-Wiki Error Book is a *document-
+wiki* mechanism (it repairs LLM-compiled pages); its code-idiomatic half — a *deterministic*
+structural validator over the graph — is what `code_status`'s capabilities report +
+CI-INV-1 (rebuild → identical) already provide. The **persistent, learning** Error Book
+(accumulating constraints across batches) belongs to the KB change, not here (the D-KB
+boundary).
 
 ## 2. Role in the five functions
 

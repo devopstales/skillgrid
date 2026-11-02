@@ -2119,7 +2119,18 @@ func resetWarmCache() {
 // still means the FTS+signals floor), and the nil-or-zero-length gate already
 // skips the vector leg for both nil and Null, so the off path degrades to the
 // FTS+signals floor exactly as before.
+//
+// envEmbedder is the test-hermeticity override name (default off). When the
+// environment variable is set to "off", resolveEmbedder returns the Null
+// Adapter regardless of the configured provider, so index/search tests never
+// reach a live Ollama server or load the onnx runtime. Production leaves it
+// unset. Read at call time (not package init) so t.Setenv in tests takes hold.
+const envEmbedder = "SKILLGRID_MNEMONIC_EMBEDDER"
+
 func resolveEmbedder(configRoot string) embedder.Embedder {
+	if os.Getenv(envEmbedder) == "off" {
+		return embedder.NewNull()
+	}
 	cfg := config.Load(configRoot)
 	return embedder.BuildFromConfig(embedder.EmbedderConfig{
 		Provider:  cfg.Embedder.Provider,

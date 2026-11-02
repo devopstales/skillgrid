@@ -1,10 +1,10 @@
 ---
 id: TASK-101
 title: '[FEATURE] TICKET-18 PostgresStore (the second dialect render) (mnemonic-v2)'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-01 12:47'
-updated_date: '2026-11-01 12:48'
+updated_date: '2026-11-02 07:55'
 labels: []
 milestone: m-11
 dependencies:
@@ -38,3 +38,19 @@ The second dialect render (one-way door D3): store/postgres.go with the Open dia
 <!-- SECTION:PLAN:BEGIN -->
 --ac
 <!-- SECTION:PLAN:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: orchestrator
+created: 2026-11-01 22:00
+---
+Wave 6 (2026-11-01): implementer dispatched (PostgresStore — second dialect render). NOTE: gate G15 — needs MNEMONIC_PG_TEST_DSN (Postgres ≥15) or PG parity tests skip.
+---
+<!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+PostgresStore (second dialect render): full Store interface (S-2, same Go types, no *sql.Rows escaping), tsvector FTS + GIN + weight classes A/B/C + ts_rank_cd ranking, <3-rune ILIKE/pg_trgm fallback, pgvector(768) + HNSW index, schema-per-project (double-quoted, dedicated conn + SET search_path), lib/pq v1.12.3 (ADR-0041). Migration parity re-run against migrations_pg/ (from-empty + idempotent reopen + no-catalog-inflation). 8/8 TestPG* pass WITH DSN (gate G15); skip cleanly without. Fix round 1: deleted the test init() + pgLocalhostDSN (bridge-IP rot hazard — brief's DSN works as-is), collapsed dead VectorSearch error branch, folded tsv into CREATE TABLE. Commits a86d0d46, 1df17db7. Refs: TASK-101
+<!-- SECTION:FINAL_SUMMARY:END -->

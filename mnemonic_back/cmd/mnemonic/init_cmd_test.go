@@ -20,6 +20,12 @@ import (
 // so without this the resolver would fall back to the installed ~/.skillgrid
 // mirror, which can be stale. The test binary runs from skillgrid-cli/cmd/
 // skillgrid, so the repo root is ../../../.
+//
+// It also forces the embedder seam off so RunCodeIndex in these tests never
+// reaches a live Ollama server (sequential /api/embeddings calls that contend
+// across parallel packages and trip the per-package timeout). Indexing tests
+// only assert on structural stats (files/symbols/edges), not vectors, so the
+// Null embedder is a no-op for them.
 func TestMain(m *testing.M) {
 	prevBlock := blockMDPath
 	prevPreamble := agentsPreamblePath
@@ -29,7 +35,14 @@ func TestMain(m *testing.M) {
 	agentsPreamblePath = func(dir string) string {
 		return "../../../.agents/skills/lifecycle/onboarding/templates/agents-preamble.md"
 	}
+	prevEmb, hadEmb := os.LookupEnv("SKILLGRID_MNEMONIC_EMBEDDER")
+	os.Setenv("SKILLGRID_MNEMONIC_EMBEDDER", "off")
 	code := m.Run()
+	if hadEmb {
+		os.Setenv("SKILLGRID_MNEMONIC_EMBEDDER", prevEmb)
+	} else {
+		os.Unsetenv("SKILLGRID_MNEMONIC_EMBEDDER")
+	}
 	blockMDPath = prevBlock
 	agentsPreamblePath = prevPreamble
 	os.Exit(code)

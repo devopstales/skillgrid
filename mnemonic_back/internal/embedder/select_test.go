@@ -78,17 +78,34 @@ func TestEmbedderConfigDrivenSelection(t *testing.T) {
 		t.Fatalf("provider=off → %T, want NullEmbedder", e)
 	}
 
-	// no provider → the default (onnx) embedder: config.Load falls back to
-	// DefaultEmbedder() (provider "onnx"), so an absent provider key keeps
-	// the current default. An explicitly empty provider in a section maps to
-	// Null via the selector's "" branch.
+	// no provider → the BUILT-IN default (onnx) embedder: config.Load falls
+	// back to DefaultEmbedder() (provider "onnx") when no repo-local OR
+	// home-local file supplies a provider. An explicitly empty provider in a
+	// section maps to Null via the selector's "" branch.
+	//
+	// Hermeticity: this asserts the built-in default, so it must not be masked
+	// by the operator's ~/.skillgrid/config.d/indexing.yaml (which may set
+	// provider: ollama). Point HOME at a clean temp dir for just this assertion
+	// so homeIndexingYAML() resolves to a non-existent path and the built-in
+	// default is what config.Load returns.
+	cleanHome := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	t.Setenv("HOME", cleanHome)
+	t.Cleanup(func() {
+		if oldHome == "" {
+			os.Unsetenv("HOME")
+		} else {
+			os.Setenv("HOME", oldHome)
+		}
+	})
+
 	dir = writeIndexing(t, "")
 	if got := config.Load(dir).Embedder.Provider; got != "onnx" {
-		t.Fatalf("absent provider key → config provider %q, want the onnx default", got)
+		t.Fatalf("absent provider key (clean HOME) → config provider %q, want the onnx built-in default", got)
 	}
 	e = BuildFromConfig(toEmbedderConfig(config.Load(dir).Embedder))
 	if _, ok := e.(*Onnx); !ok {
-		t.Fatalf("absent provider key → %T, want *Onnx (current default)", e)
+		t.Fatalf("absent provider key (clean HOME) → %T, want *Onnx (current built-in default)", e)
 	}
 	if _, ok := BuildFromConfig(EmbedderConfig{}).(NullEmbedder); !ok {
 		t.Fatal("empty provider → want NullEmbedder")

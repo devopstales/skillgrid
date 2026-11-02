@@ -87,16 +87,26 @@ func startMCP(t *testing.T, cwd string) *mcpHandle {
 
 func buildBinary(t *testing.T) (string, error) {
 	t.Helper()
-	// Walk up to the mnemonic/ module root, then build ./cmd/mnemonic.
+	// Walk up to the module root (the dir containing go.mod), then build
+	// ./cmd/mnemonic. Keying on go.mod (not a "mnemonic" dir-name suffix) keeps
+	// this working regardless of what the module directory is named (it has
+	// been renamed between mnemonic/ and mnemonic_back/).
 	dir, err := os.Getwd()
 	if err != nil {
 		return "", err
 	}
-	for i := 0; i < 8 && !strings.HasSuffix(dir, "mnemonic"); i++ {
-		dir = filepath.Dir(dir)
+	for i := 0; i < 12; i++ {
+		if _, statErr := os.Stat(filepath.Join(dir, "go.mod")); statErr == nil {
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
 	}
-	if !strings.HasSuffix(dir, "mnemonic") {
-		return "", fmt.Errorf("mnemonic root not found from %s", os.Getenv("PWD"))
+	if _, statErr := os.Stat(filepath.Join(dir, "go.mod")); statErr != nil {
+		return "", fmt.Errorf("mnemonic module root (go.mod) not found from %s", os.Getenv("PWD"))
 	}
 	bin := filepath.Join(t.TempDir(), "mnemonic-bin-"+t.Name())
 	cmd := exec.Command("go", "build", "-o", bin, "./cmd/mnemonic")

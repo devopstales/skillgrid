@@ -3,10 +3,10 @@ id: TASK-095
 title: >-
   [FEATURE] TICKET-12 Save event emission (wiki handoff) + consumer isolation
   (mnemonic-v2)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-01 12:47'
-updated_date: '2026-11-01 12:48'
+updated_date: '2026-11-01 22:00'
 labels: []
 milestone: m-11
 dependencies:
@@ -39,3 +39,19 @@ The llm-wiki function consumes saves through exactly one in-process event: SaveE
 <!-- SECTION:PLAN:BEGIN -->
 --ac
 <!-- SECTION:PLAN:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: orchestrator
+created: 2026-11-01 21:48
+---
+Wave 6 (2026-11-01): implementer dispatched (save event emission + consumer isolation).
+---
+<!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Save event contract (entity + importance) + consumer isolation: SaveEvent.Entity filled at step-10 (EntityFor = topic_key family head / first significant title term / trimmed title — spec §5 best-effort entity name, not row content; TopicKey+SyncID carry the wiki's re-read handle). Consumer isolation verified+extended (per-subscriber panic recovery, bare-func contract doc) — a panicking consumer never fails the save, later consumers still fire. Wiki handoff = bus consumer post-commit (stub package outside internal/memory proves the dependency direction). Import guard (memory does not import wiki). Exactly-once pinned. topic_key correction (architecture/auth-model→auth/model) fixes the brief's own test against the committed ≤2-level rule. 6 new tests. Review Approved, 0 Critical. Watch-item: revision-path event Importance = fresh-state (same as row) ≠ read-time (Task 11). Commits 7bf9772b. Refs: TASK-095
+<!-- SECTION:FINAL_SUMMARY:END -->

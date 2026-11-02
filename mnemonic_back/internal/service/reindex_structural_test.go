@@ -65,6 +65,12 @@ func mustWriteSvc(t *testing.T, path, content string) {
 // load just to reflect an edit). The gate relies on this, so proving it here
 // proves the gate's re-index is embedder-free in production.
 func TestReindexStructuralIsEmbedderFree(t *testing.T) {
+	// Hermetic: the initial RunCodeIndex below would otherwise resolve the
+	// operator's configured embedder (e.g. ollama from the home-local fallback)
+	// and issue live embed calls. This test asserts the RE-INDEX is embedder-free
+	// (via the spy), so forcing the seam off for the initial index does not
+	// change what is being tested.
+	t.Setenv("SKILLGRID_MNEMONIC_EMBEDDER", "off")
 	dataDir := t.TempDir()
 	svc := New(dataDir)
 	root := t.TempDir()

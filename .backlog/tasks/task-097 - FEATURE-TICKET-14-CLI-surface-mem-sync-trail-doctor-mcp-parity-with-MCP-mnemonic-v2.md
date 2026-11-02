@@ -3,10 +3,10 @@ id: TASK-097
 title: >-
   [FEATURE] TICKET-14 CLI surface (mem / sync / trail / doctor / mcp) + parity
   with MCP (mnemonic-v2)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-01 12:47'
-updated_date: '2026-11-01 12:48'
+updated_date: '2026-11-01 19:36'
 labels: []
 milestone: m-11
 dependencies:
@@ -40,3 +40,19 @@ The CLI dispatch (stdlib flag, v1 pattern): mem (save/get/search/lookup/context/
 <!-- SECTION:PLAN:BEGIN -->
 --ac
 <!-- SECTION:PLAN:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: orchestrator
+created: 2026-11-01 18:31
+---
+Wave 4 (2026-11-01): implementer dispatched (sync journal + pull-apply seam).
+---
+<!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Sync journal core: ApplyPulled dispatch (observation→AddPulledObservation through-store FTS trigger fires; relation→AddPulledRelation both-endpoints-or-park; session/prompt/project no-op until 16/17). Tombstone floor before delete (upsert→delete→late-upsert stays dead). Deferred-apply 5-cap with monotonic retry counter. Enrollment gates journal (reversible). Idempotent pull (double-apply = one effect). Append-only outbox (pull neither appends to nor rewrites local journal). Canonical payload fix in txngate (session_id/type/title/content/project/scope — cross-machine apply). 13 tests. Review Approved, 0 C/I. Commits 9df8b63b. Refs: TASK-097
+<!-- SECTION:FINAL_SUMMARY:END -->

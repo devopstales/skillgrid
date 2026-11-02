@@ -95,6 +95,47 @@ func TestResolveEmbedderRoutesLocal(t *testing.T) {
 	}
 }
 
+// TestResolveEmbedderEnvOff forces the test hermeticity seam: when
+// SKILLGRID_MNEMONIC_EMBEDDER=off is set, resolveEmbedder must return the Null
+// Adapter regardless of the configured provider, so index/search tests never
+// reach a live Ollama (or load the onnx runtime). Without the seam the
+// configured provider (e.g. ollama from the home-local fallback) is honored.
+func TestResolveEmbedderEnvOff(t *testing.T) {
+	// A live mock Ollama server so the control path (seam unset) deterministically
+	// resolves *Ollama — the Verify probe succeeds. With the seam set, the same
+	// config must instead yield Null, proving the seam overrides the config.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"x","embedding":[0.1,0.2,0.3]}`))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	if err := osMkdirConfigD(dir); err != nil {
+		t.Fatalf("mkdir config.d: %v", err)
+	}
+	body := "mnemonic:\n  embedder:\n    provider: ollama\n    base_url: " + srv.URL + "\n    model: x\n    dimension: 3\n"
+	if err := osWriteConfigYAML(dir, body); err != nil {
+		t.Fatalf("write indexing.yaml: %v", err)
+	}
+
+	// Control first: seam unset → the configured ollama provider is honored.
+	t.Setenv("SKILLGRID_MNEMONIC_EMBEDDER", "")
+	if e := resolveEmbedder(dir); e == nil {
+		t.Fatalf("seam unset: resolveEmbedder returned nil, want *Ollama")
+	} else if _, ok := e.(*embedder.Ollama); !ok {
+		t.Fatalf("seam unset: resolveEmbedder → %T, want *Ollama (proves the config is live and the seam is what will flip it)", e)
+	}
+
+	// Seam set → Null regardless of the live ollama config.
+	t.Setenv("SKILLGRID_MNEMONIC_EMBEDDER", "off")
+	if e := resolveEmbedder(dir); e == nil {
+		t.Fatalf("seam off: resolveEmbedder returned nil, want Null")
+	} else if _, ok := e.(embedder.NullEmbedder); !ok {
+		t.Fatalf("seam off: resolveEmbedder → %T, want Null (seam must override the live ollama config)", e)
+	}
+}
+
 // TestResolveEmbedderOffIsNull covers the off-provider half of 014 step 06 M1:
 // provider:off must resolve to the Null Adapter (BuildFromConfig's off branch),
 // never *Onnx. The FTS+signals floor is reached via the caller's

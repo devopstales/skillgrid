@@ -3,9 +3,10 @@ id: TASK-085
 title: >-
   [FEATURE] TICKET-02 Migration suite + FTS5 trigger parity (from-empty
   regression) (mnemonic-v2)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-01 12:41'
+updated_date: '2026-11-01 15:24'
 labels: []
 milestone: m-11
 dependencies:
@@ -42,3 +43,19 @@ The full migration set must run from an empty DB exactly once, re-open must be a
 - [ ] #4 No new warnings introduced
 - [ ] #5 Spec/docs updated if behavior changes
 <!-- DOD:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: orchestrator
+created: 2026-11-01 13:58
+---
+Wave 2 start (2026-11-01): implementer dispatched.
+---
+<!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Migration parity (from-empty exactly-once + proven skip on re-open via sqlite_master count) + FTS5 trigger sync (insert/update/soft-delete) + <3-rune LIKE fallback + composite ranking in SQL (BM25 title 5.0/content 1.0/topic_key 3.0 x boosts pinned 0.10/recency 0.06/stability 0.04, order-only assertions). Fix round 1 exposed + fixed 3 root-cause bugs: rank degeneracy (MAX(bm25,1.0) base), ORDER BY direction, Pinned persistence in UpdateObservationForProject. Commits dffdfd8d, bfd3b859. Refs: TASK-085
+<!-- SECTION:FINAL_SUMMARY:END -->

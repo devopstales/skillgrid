@@ -43,7 +43,7 @@ Same two profiles as the memory change (memory `004-transport-mcp` §2):
 | `code_index` | Run incremental index (cwd git root); `--full`/`--lsp`/`--pdg`/`--communities`/`--process` flags | `003` §7, `005` §2 |
 | `code_search` | Hybrid search (FTS + structural + semantic, RRF) — the "prefer over grep" tool | `006` §5 |
 | `code_read` | Fetch indexed source for path/line-range (secret redaction) | `006` §7 |
-| `code_orient` | Symbol metadata + signature + file TOC + symbol list | `004` §8 |
+| `code_orient` | **The navigation entry point** — the progressive-disclosure "map" of a symbol/package/file (metadata + TOC + bounded outbound edges, `depth`-re-rootable). The agent's "find a feature" first verb | `004` §8 |
 | `code_explain` | Node + degree + connections ranked by neighbor degree | `004` §8 |
 | `code_path` | BFS shortest path or "where the graph stops" | `004` §7 |
 | `code_impact` | Risk-tiered blast radius (WILL BREAK / LIKELY AFFECTED) | `004` §5 |

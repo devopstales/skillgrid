@@ -120,6 +120,45 @@ and *ambiguity* explicit (step 3 non-unique → `unresolved`).
 > it writes an anchor, and `kb_lint` flags a grounded page that pins a span by bare
 > `line:` (no token) as a *weak pin* (warn).
 
+### 2.2 The citation-confidence check (the System-1 decision-model leg — `010-decision` §3.2)
+
+The checks above are **code-grounded**: they attest that the page's *anchor/claim* still
+matches **live code**. The **citation-checker** is the **same mechanism at a different
+target** — **passage-grounded**: does the *page's body* (or an agent's answer derived
+from it) match the *cited passage* (`sources:`)? This is an **optional** check kind,
+**`cite`**, that runs a decision model's `choice` over the cited chunk:
+
+```
+fully supported | partially supported | says nothing | contradicts
+```
+
+with the per-option score. The **degree of support** is the signal: a claim "partially
+supported at 0.57" is a *different finding* than "contradicts at 0.88" — the pin-check's
+`stale`/`fresh` boolean is a *category*; the citation-confidence is a *gradient* on top of
+it. This is what the reference pattern's "check citations in under a second" adds: the
+confidence is cheap to compute (a decision model, not a chat-LLM loop) and the agent can
+act on the *degree* (a `contradicts` at 0.88 is a near-certain stale page; a `partially
+supported` at 0.57 is a soft nudge).
+
+**The floor (no decision model, the default):** the `cite` check is **skipped** — the
+deterministic pin-check (token/span/symbol/claim vs live code, §2) is unaffected and
+remains the fail-closed gate. `kb_validate` reports **`cite: skipped (no decision
+model)`**, explicit per INV-3. The pin-check **never depends** on the decision model; the
+citation-confidence is an *additive* lens on top of the code-grounded checks.
+
+**Result shape (the additive field):** each page's `checks[]` (§3) may carry a `cite`
+entry:
+
+```json
+{ "kind": "cite", "source": "memory://…", "result": "partially_supported",
+  "confidence": 0.57, "note": "page claims X; the cited passage supports Y only" }
+```
+
+The page's overall `status` (§3) is **unchanged by `cite`** by default — the
+code-grounded checks are the `status` driver. `cite` is a *finding* (surfaced, linted),
+not a `status` blocker, **unless** `decision.cite_strict: true` (`010-decision` DE-O3),
+in which case a `contradicts` citation **is** a divergence that `--strict` fails on.
+
 ## 3. The result (per page)
 
 `kb_validate` returns, per grounded page:
@@ -221,8 +260,11 @@ is not just a gate, it is the *feedback* that keeps the brain honest.
 
 INV-1 (the pin-check result carries provenance: which checks, what was expected vs
 actual), INV-3 (a `symbol:` check with no graph is `degraded` → falls back to ripgrep
-token check, or `unresolved` if the symbol can't be found), KB-INV-2 (grounded pages are
-grounded — a grounded page with no resolvable anchor is a finding).
+token check, or `unresolved` if the symbol can't be found; a `cite` check with no
+decision model is **`skipped`**, explicit — §2.2), KB-INV-2 (grounded pages are grounded
+— a grounded page with no resolvable anchor is a finding), **KB-INV-6** (the `cite`
+citation-confidence is an *enhancement, not a dependency* — the pin-check never requires
+the decision model; `010-decision` §7).
 
 ## 8. Open items
 
@@ -231,3 +273,9 @@ KB-O3 (default = flag, not fail; fail in CI / `--strict`) are **resolved by defa
 here. The one remaining tuning is the pre-commit hook's changed-file scoping (how to
 map a changed path to the grounded pages that pin it) — defaulted to "pages whose any
 anchor `path` is a prefix of a changed path," refined in the review.
+
+The **`cite` citation-confidence** (§2.2) is owned by `010-decision` (the decision-model
+seam + its degrade contract); `006-validate` only defines that `kb_validate` *accepts*
+the optional `cite` check and surfaces its confidence. Its open items (DE-O3: does a
+`contradicts` citation fail the turn under `--strict`? — default **no**, it's a finding
+unless `decision.cite_strict: true`) are in `010-decision` §8.

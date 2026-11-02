@@ -167,9 +167,29 @@ A `PathResult` is always *something* (a path, or a "the graph stops here because
 - **`code_explain(symbol)`:** the node + its degree + **all connections ranked by the
   neighbor's degree** (hubs first, the v1 `graph.Explain`). The "what is this symbol,
   and who is it most connected to?" answer.
-- **`code_orient(symbol)`:** the symbol metadata + signature + **the file TOC** (every
-  symbol in the containing file, line order) + the symbol list. The "where am I in this
-  file?" orientation (the v1 `code_orient`/`code_signature`/`code_file_toc` combined).
+- **`code_orient(symbol | package | file, depth?)`:** the **navigation entry point** —
+  the progressive-disclosure "map" of the codebase (the `ki outline` pattern, the
+  Neo4j *scaling-karpathy-llm-wiki-graph* article: "give the agent a structure it can
+  navigate, not just a box it can search"). A **compact, bounded** view: the unit's
+  metadata + signature + **the file TOC** (every symbol in the containing file, line
+  order) + the unit's **outbound edges** (`calls`/`imports`/`references`), each row
+  carrying a stable symbol id the agent copies to re-root deeper. `depth` (default 1)
+  bounds how many hops of outbound edges are expanded; the target of an outbound edge is
+  **not** expanded inline (following it is just another `code_orient` on that row's id).
+  Re-rooting on a **package** returns that package's symbol TOC (the unit is the top-level
+  Go package, §4); re-rooting on a **file** returns its full symbol TOC + the file's
+  import edges. **It is the agent's "find a feature" entry verb:** orient on a package →
+  see the symbol map → `code_resolve` a symbol → `code_read` the span. Time/space cost
+  stays flat as the repo grows (each query adds one layer of detail, never the whole
+  vault). This *replaces* the v1 `code_orient`/`code_signature`/`code_file_toc` three
+  tools (combined into one map read) and supersedes the v1 symbol-only orientation.
+
+  > **Source of the progressive-disclosure framing:** the Neo4j `ki` reference
+  > implementation (`ki outline` — re-rootable, `--depth`-bounded, URI-per-row) over
+  > wiki markdown. The code-index applies the same read pattern to the symbol graph;
+  > the article's NICD benchmark (vector+graph ≫ vector-only: >2× precision/recall,
+  > truthfulness +80%) is the external justification for making navigation a first-class
+  > verb rather than a search afterthought.
 
 ## 9. Fair coverage (the health signal)
 

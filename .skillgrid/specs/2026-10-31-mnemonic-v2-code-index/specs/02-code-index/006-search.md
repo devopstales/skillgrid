@@ -112,8 +112,8 @@ partition key, the v1 cocoindex partition).
 
 ## 5. The RRF fusion (the hybrid)
 
-`code_search(query, limit?, language?)` → **RRF over the available legs** (K=60, the v1
-constant):
+`code_search(query, limit?, language?, under?)` → **RRF over the available legs** (K=60,
+the v1 constant):
 1. Run the **FTS leg** (always) → a ranked list.
 2. Run the **structural leg** (when the query is a pattern) → a ranked list.
 3. Run the **semantic leg** (when the embedder is up) → a ranked list.
@@ -126,6 +126,19 @@ constant):
 **`code_semantic(query, ...)`** is the semantic leg *alone* (no fusion) — the
 "find by meaning" query. **`code_grep(pattern, ...)`** is the structural leg *alone* —
 the by-example AST search. **`code_search`** is the fused default.
+
+### 5.1 The `under` subtree scope (progressive-disclosure narrowing)
+
+`under` is an **optional path/package prefix** that narrows *all three legs* to a
+subtree (the `ki search --under` pattern: outline narrows the search space, search
+picks the slice out of it). It is a **`files.path` prefix match** (`under = 'internal/pay'`
+matches `internal/pay/…`) — no new table, no new index. Composes with `language`:
+`code_search("retry", under="internal/pay", language="go")`. When `under` is set and
+matches nothing, the result is empty (not an error) — the scope was too narrow. This is
+the single biggest **context-rot defense for large repos**: the agent orients on a
+package (`code_orient`), then searches *within* it, so the search space — and the
+context the hits pull — stays bounded as the codebase grows. The `under` prefix is
+recorded in the retrieval trail (INV-5) so the scoped query is reproducible.
 
 ## 6. The degradation ladder (INV-3 — explicit, never silent)
 
@@ -143,11 +156,23 @@ The semantic leg *improves* the answer; its absence *degrades* it (explicitly).
 
 ## 7. `code_read` (the post-search fetch)
 
-`code_read(path, start_line?, end_line?)` → the indexed source for a path/line-range
+`code_read(path, start_line?, end_line?, mode?)` → the source for a path/line-range
 (after `code_search` narrows it), with **secret redaction** (the v1 property — a
-`token=`/`password=`/`secret=` literal in the fetched slice is masked). This is the
-"search → read the exact span" workflow. It reads the **working tree** (live), not a
-snapshot — the same live stance as the graph.
+`token=`/`password=`/`secret=` literal in the fetched slice is masked). It reads the
+**working tree** (live), not a snapshot — the same live stance as the graph.
+
+**Two modes** (the `ki get --type full` vs `--type content` pattern — progressive
+disclosure, drilling without pulling the subtree):
+- **`mode: full`** (default) — the live source span for the range (the
+  "search → read the exact span" workflow). A symbol target (`code_read` on a symbol id
+  from `code_orient`/`code_search`) expands to that symbol's `start_line`…`end_line`.
+- **`mode: content`** — the **drill handle**: the symbol's signature + **pointers to its
+  callees/callers as ids** (the `to_id`/`to_name` of its `calls`/`references` edges,
+  confidence-labeled), *not* their bodies. The agent sees the shape of the neighborhood
+  and copies an id to `code_read` deeper — each read adds one layer, never the whole
+  neighborhood. For a file target, `content` mode returns the file TOC (the symbol
+  list, line order) instead of the file body. This is the cheap read that keeps the
+  context window flat when the agent is still deciding *which* span to pull.
 
 ## 8. The retrieval trail (INV-5)
 

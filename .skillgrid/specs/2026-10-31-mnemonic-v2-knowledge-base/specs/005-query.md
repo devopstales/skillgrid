@@ -82,6 +82,64 @@ a grounded page.
 stage-1 snippet as the whole page. It is for *ranking* and *deciding what to open*. The
 agent opens the page (`kb_read`) before relying on its content.
 
+### 2.1 The semantic leg's seam (confirm-and-name; reuses the memory change's embedder)
+
+`kb_query`'s **semantic leg** (when the embedder seam is wired) does **not** define its
+own vector store or ranker — it **references the memory change's `Embedder`/ranker seam**
+(`00-foundation/003-intelligence`), the same seam the code-index's semantic leg
+(`02-code-index/006-search`) uses. One retrieval contract across the three functions
+(D-KB's "share the machinery, not the interface" applied to retrieval). Three rules are
+fixed here (the ScopeLab `VectorRanker` design, the injection-point contract):
+
+- **Candidate-scoping (the legs compose, they don't each scan the vault).** The
+  **FTS (keyword) leg narrows the candidate set**; the semantic leg ranks **within**
+  that set (`candidateIds`), not over the whole vault. This is what keeps a large vault
+  query O(candidates), not O(vault) — the FTS `preFilterLimit` semantics.
+- **Single-blend-place.** The **final blended score** (the hybrid/RRF fusion of the
+  FTS + semantic legs) is computed in **one place — the query service**, not inside the
+  ranker. The ranker returns monotonic per-leg scores; the service owns the blend
+  (the same shape as the code-index's RRF-K=60 living in the `search` package, not the
+  legs). A ranker that bakes in the blend would diverge from the FTS-only path.
+- **Explicit fallback, never silent.** When the ranker/embedder rejects, the leg degrades
+  to an **explicit** policy — `keyword` (FTS-only) | `empty` (no semantic results) |
+  `throw` — matching INV-3 (LLM-first, explicit degradation) and the code-index's
+  `degraded: no_vector`. The **default with no embedder** is the portable hash-64 /
+  cosine floor (matching the code-index's D-CI8 hash-64 default), so the semantic leg
+  always has a deterministic floor and never a silent gap.
+
+> **The default is FTS5 (not in-RAM fallback).** Unlike the ScopeLab design (which
+> defaults to an in-RAM MiniSearch and flips to FTS5 via `auto`, because FTS5
+> availability varies by JS adapter), the KB is Go/`modernc.org/sqlite` — FTS5 is always
+> present, so the **keyword leg defaults to external-content FTS5** (disk-backed,
+> memory-flat). Only the *parity-gate + threshold* lessons transfer (§5.1), not the
+> default.
+
+### 2.2 The optional steerable rerank (the System-1 decision-model leg — `010-decision` §3.1)
+
+The fused FTS+semantic ordering (§2.1) is the **floor**. `010-decision` adds an optional
+**second stage**: **search wide** (the candidate pool) → each candidate gets a decision
+model's `new` ("does this page directly answer the query?") → sort by confidence →
+**threshold-drop** (below `decision.rerank_threshold`, it never reaches the agent). Only
+the candidates that clear the bar go to `kb_read` / the answer. This is the reference
+pattern's **cross-encoder rerank** — *similarity is not relevance* (a table of contents
+matches many queries but answers none).
+
+**The steerable part (the KB-specific value):** the agent populates a **`rerank_instruction`**
+per-query, so the *ranking criteria* can differ from the *search query*. "Tell me about
+the legal brief" → the FTS query is generic, but the rerank instruction is *"prioritize
+pages explicitly titled or described as a legal brief."* A fixed boost (`in_degree`,
+`groundedness`, §2) can't do this — the instruction is *query-conditional*. This is the
+difference from a non-steerable cross-encoder.
+
+**The floor (no decision model, the default):** the rerank stage is **skipped** and
+`kb_query` returns the fused FTS+semantic ordering with **`reranked: false`** in the
+response (the deterministic RRF floor holds; the threshold-drop still applies to the fused
+scores). Never a silent "re-rank with nothing" — the flag is explicit (INV-3). The rerank
+**re-ranks *within* the fused candidate set** (the legs compose; the decision model does
+not re-scan the vault — `010-decision` DE-O2). The `rerank_instruction` + the decision-model
+call sites are owned by `010-decision`; `005-query` only defines that `kb_query` *accepts*
+the optional `rerank_instruction` parameter and surfaces the `reranked` flag.
+
 ## 3. Stage 2 — `kb_read` (full page)
 
 `kb_read(rel_path, section?)` returns the **full** page:
@@ -148,14 +206,123 @@ fallback-suggesting). `mnemonic trail recent|show` inspects them (the shared tra
 store, `00-foundation/005-transport-cli`). This is the audit record for "why did the
 agent recall this page."
 
-## 8. Invariants
+## 8. Retrieval eval (the measurement leg — `kb_eval`)
+
+Every retrieval system needs a way to answer: *"did that change make recall better or
+worse?"* The ranking (§2), the semantic-leg fallback (§2.1), and the `thin` fallback
+handoff (§6) are all **tunable** — and none of them is currently *measured*. `kb_eval`
+is the frozen-query regression harness over the **memory/KB corpus** (the "what do we
+know about X" recall), not the code corpus. It is the RAG-tutorial lesson — *"add evals:
+a set of test questions so you can measure whether a change actually makes the answers
+worse or better"* — applied to this spec's retrieval model.
+
+**Why the mem/KB corpus, not code, is the one that needs it first:** the mem/KB corpus is
+where *paraphrased* recall matters (a decision saved as "commit trailers are banned" must
+surface for "how do we tag AI commits"). It is also the corpus §2.1's `degraded:
+keyword` flag *warns about* — BM25-only recall can miss differently-phrased pages — but
+nothing today *measures* when a query becomes fragile to an embedder outage. The code
+corpus already has a leak-free git-history eval (the v1 `skillgrid eval` precedent,
+commit-subject → changed-files); the mem/KB corpus is the unmeasured half.
+
+### 8.1 The case
+
+A **case** is a frozen `(query → expected page set)` pair, plus two knobs:
+
+```
+query:         "how do we tag AI commits"
+expect:        ["decisions/ai-commit-tagging"]     # rel_paths that MUST surface
+min_rank:      3                                     # …and must land in the top-N
+degraded_ok:   true                                  # pass under keyword-only, or hybrid-only?
+source:        manual | trail:<id>                   # provenance (hand-authored or promoted)
+```
+
+`min_rank` keeps the eval honest: a page that surfaces "somewhere in 50" is not a recall
+win; it must land in the top window (default 3). `degraded_ok` is the **fragile-case
+signal**: a case that passes under `hybrid` but **fails** under `keyword` is a
+*fragile-to-embedder-outage* query — exactly the risk §2.1's explicit-degrade flag names
+but the code corpus can't express (a code path's FTS leg is rarely the only way to find
+it; a paraphrased decision often is).
+
+### 8.2 The two sources (starter set + trail bootstrap)
+
+- **Starter set (committed):** a small hand-authored set of cases under
+  `.skillgrid/knowledge/_eval/cases.yaml` covering the recall shapes that matter —
+  same-phrasing, paraphrase (the `degraded_ok=false`-critical ones), and a
+  cross-page multi-hop ("explain the design of Y" that should surface ≥2 pages). Committed
+  so the eval is reproducible and reviewable, not regenerated.
+- **Trail bootstrap:** §7's `retrieval_trails` already log every `kb_query`/`kb_search`
+  (the query, the rank route, the returned `rel_path`s, the `degraded` status). A
+  **promote** path turns a good, real trail into a case: *"that query returned the right
+  pages — pin it so a future ranking change can't silently regress it."* The set grows
+  organically from real traffic instead of only from hand-authoring. Promotion is a
+  deliberate act (a human or the agent confirms the trail's result was correct before
+  freezing it) — a bad trail promoted becomes a bad test.
+
+### 8.3 The replay (shares the v1 ablation-harness machinery)
+
+`kb_eval` does **not** invent a new scoring rig. It **reuses** the retrieval-eval ablation
+harness the v1 `skillgrid eval` already ships (seeded paired bootstrap 95% CI +
+permutation p-value + the shipped-config gate — `mnemonic_back/internal/eval`), projecting
+the **mem/KB corpus** into it:
+
+- The **corpus** = the KB page set (`rel_path` → page), the mem/KB analogue of the code
+  eval's file-path corpus.
+- The **ranker** = the *live* `kb_query` fused search (FTS + semantic RRF, §2), the
+  mem/KB analogue of the code eval's `shippedRank` (a lexical projection of
+  `hybrid.RerankTable`). Baseline = the FTS-only ordering; shipped = the fused ordering.
+  So the harness measures the **ranking delta** (the semantic leg's value), exactly as the
+  code eval measures it — and `degraded_ok` adds the **per-case fragility** dimension the
+  code corpus lacks.
+- **Recall@k over `rel_path`s** (the code eval's recall@k over file paths), plus the
+  fragility flag, pooled over the starter set + promoted trail cases.
+
+**The live-store boundary:** the harness itself is pure-Go (the ranker is a pure function
+of `(query, corpus)`), but the **mem/KB ranker reads the live store** (the FTS index + the
+embedder seam). That boundary is tested at the CLI round-trip, the way the code eval's
+`--corpus self` is — `kb_eval` against a real `.skillgrid/knowledge/` + shared store, not
+an in-RAM fixture.
+
+### 8.4 The report + the gate
+
+`kb_eval --cases .skillgrid/knowledge/_eval/cases.yaml` prints, per case: pass /
+degraded-pass (matched but `degraded: keyword`) / **fragile** (pass under hybrid, fail
+under keyword) / fail, plus the pooled recall@k and the bootstrap CI + permutation
+p-value of the shipped-vs-baseline delta (does the semantic leg *actually* help recall?).
+It exits non-zero on a **new** failure so it can gate the QA/review step for any change
+that touches `005-query`'s ranking, the `thin` threshold, or the semantic-leg fallback.
+
+### 8.5 Non-goals (what `kb_eval` is NOT)
+
+- **Not answer-quality grading.** It measures **retrieval recall** (did the right pages
+  rank high), deterministically. It does *not* LLM-judge the prose `kb_read`/`kb_query`
+  returns — that is unmeasurable by a frozen set and is a separate concern (the
+  `kb_validate` pin-check covers *correctness of the page*, not *recall of the page*).
+- **Not a new vector store or ranker.** It rides the §2.1 shared retrieval contract
+  (the memory change's embedder seam, the single-blend-place service) — it *measures*
+  that contract, it does not replace it.
+- **Not the code eval.** The code corpus keeps its git-history leak-free eval. `kb_eval`
+  is the mem/KB half of the same measurement idea, sharing the harness, not the corpus.
+
+## 9. Invariants
 
 INV-3 (explicit `degraded: stale_index`), INV-1 (cited sections — every stage-2 result
 carries the page's `sources:`), INV-5 (trails), INV-4 (local truth — the query reads the
 local index, never a remote authority).
 
-## 9. Open items
+**KB-INV-5 (added):** **The retrieval is measured, not just tuned.** Any change to
+`kb_query`'s ranking, the `thin` threshold, or the semantic-leg fallback (§2.1) is
+gated by `kb_eval` — a frozen case set whose recall@k and fragile-case signal must not
+regress (a new failure fails the gate). A retrieval change that can't be shown
+non-regressive by the eval is a spec violation.
 
-None. The two-stage pattern, the ranking, and the fallback handoff are fixed. The
-`thin` threshold (how few pages before the fallback hint fires) is the one tunable —
-defaulted in `008-transport` config.
+## 10. Open items
+
+| # | Question | Default |
+|---|---|---|
+| KQ-O1 | Where the eval cases live: `.skillgrid/knowledge/_eval/cases.yaml` (in the vault, git-tracked) vs a sidecar `kb_eval_cases` table in the shared store? | **In the vault, git-tracked** (KB-INV-1 — the vault is truth; a case is a durable test fixture, and git-tracking makes promotion + review + rebase auditable). The shared store holds only the *runs*, not the *cases*. |
+| KQ-O2 | Trail-promote: a named `kb_eval promote <trail-id>` engine verb, or an agent-driven convention (the agent writes the case YAML from a trail)? | **Engine verb** (`kb_eval promote`), so the promote is atomic (freezes query + expect + `degraded_ok` from the trail's recorded route) and auditable in the run state. |
+| KQ-O3 | Does `kb_eval` gate the **QA step** (non-zero exit on new failure), or is it advisory-only like Trivy? | **Gating** for changes that touch `005-query`'s ranking / `thin` / semantic fallback; advisory otherwise. (Trivy is advisory because it's a *scanner*; `kb_eval` is a *regression gate* on a change to the thing it measures.) |
+| KQ-O4 | The `thin` threshold's value (how few pages before the §6 fallback hint fires) — and whether `kb_eval` should *tune* it by sweeping the threshold over the case set? | **Sweep it** — `kb_eval` reports recall@k across a small `thin`-threshold grid, so the threshold is *chosen* by measured recall, not asserted. The threshold itself is defaulted in `008-transport` config. |
+
+The two-stage pattern, the ranking, the fallback handoff, and the eval are all fixed. The
+`thin` threshold's value is the one *tunable* — and KQ-O4 makes it a *measured* tunable.

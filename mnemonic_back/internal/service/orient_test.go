@@ -14,6 +14,13 @@ import (
 // root and project ID.
 func indexOrientFixture(t *testing.T) (string, string, *Service) {
 	t.Helper()
+	// Hermetic: the orient tests assert on structural index output (symbols/
+	// TOC/rationale), not vectors. Force the embedder seam off so RunCodeIndex
+	// never reaches a live Ollama server (the sequential embed calls are what
+	// made this package trip its per-package timeout under the parallel suite).
+	// resolve_embedder_test.go needs the REAL embedder and does not call this
+	// fixture, so the seam does not interfere with it.
+	t.Setenv("SKILLGRID_MNEMONIC_EMBEDDER", "off")
 	dataDir := t.TempDir()
 	svc := New(dataDir)
 	root := t.TempDir()

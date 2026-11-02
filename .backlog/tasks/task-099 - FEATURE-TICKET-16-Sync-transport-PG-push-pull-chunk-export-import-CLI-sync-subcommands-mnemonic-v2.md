@@ -3,10 +3,10 @@ id: TASK-099
 title: >-
   [FEATURE] TICKET-16 Sync transport (PG push/pull + chunk export/import + CLI
   sync subcommands) (mnemonic-v2)
-status: needs-triage
+status: in-progress
 assignee: []
 created_date: '2026-11-01 12:47'
-updated_date: '2026-11-01 12:48'
+updated_date: '2026-11-02 10:32'
 labels: []
 milestone: m-11
 dependencies:
@@ -40,3 +40,13 @@ The network half of sync: push inserts pending mutations (<=100/batch, <=8 MiB) 
 <!-- SECTION:PLAN:BEGIN -->
 --ac
 <!-- SECTION:PLAN:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: orchestrator
+created: 2026-11-02 10:32
+---
+Wave 9 start (2026-11-02): implementer dispatched (sync transport — PG push/pull + chunk export/import).
+---
+<!-- COMMENTS:END -->

@@ -11,6 +11,9 @@ import (
 // TestRunCodeIndexPDGWithProgress: the progress callback threaded through the
 // service reaches the indexer — the CLI relies on this to render live status.
 func TestRunCodeIndexPDGWithProgress(t *testing.T) {
+	// Hermetic: this asserts on the progress event stream, not vectors. Force
+	// the embedder seam off so RunCodeIndex never reaches a live Ollama server.
+	t.Setenv("SKILLGRID_MNEMONIC_EMBEDDER", "off")
 	dataDir := t.TempDir()
 	svc := New(dataDir)
 	root := t.TempDir()

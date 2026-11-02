@@ -3,9 +3,10 @@ id: TASK-086
 title: >-
   [FEATURE] TICKET-03 Intelligence seams (LLM + Embedder + degradation policy)
   (mnemonic-v2)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-01 12:41'
+updated_date: '2026-11-01 15:56'
 labels: []
 milestone: m-11
 dependencies:
@@ -42,3 +43,25 @@ The LLM-first seams with explicit deterministic degradation (INV-3): the LLM int
 - [ ] #4 No new warnings introduced
 - [ ] #5 Spec/docs updated if behavior changes
 <!-- DOD:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: orchestrator
+created: 2026-11-01 15:24
+---
+Wave 2 (2026-11-01): implementer dispatched.
+---
+
+author: orchestrator
+created: 2026-11-01 15:46
+---
+Review complete (2026-11-01): Approved with 1 plan-mandated Important (degrade.Run signature bend) + 4 Minor. Controller ruling: keep the any-based Run, correct the ponytail comment, restore the exact brief signatures for the LLM/Embedder seams (already exact per reviewer). Fix round 1 dispatched.
+---
+<!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+LLM seam (4-way Classify → DedupDecision, Judge, Compare, Extract) + Embedder seam (Embed/Model/Dimensions + Null adapter) + OpenAI-compatible provider (one base URL, chat + embeddings, stdlib net/http, no new dep) + degrade package (nil seam → floor + degraded, no retry; failing seam → exactly one bounded retry → floor; per-call isolation; ctx passthrough). INV-3 tested per-call. 23/23 tests. Fix round 1: ponytail comment corrected (real any-vs-generic tradeoff), ctx param on Run, doJSON dedup, dead branch, Null doc. Commits 0dda6b64, 49269d7a. Refs: TASK-086
+<!-- SECTION:FINAL_SUMMARY:END -->

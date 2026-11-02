@@ -96,17 +96,33 @@ report "run `code_index --pdg`". The tables are absent (not created) until the p
 
 ## 5. Communities (v2.1, `--communities`) — the output contract
 
-**Deferred to v2.1** (CI-5). Leiden partition (seeded, reproducible) over the undirected
-`symbols`/`edges` graph; **god nodes** ranked by degree; **labels** derived from top
-god-node names + file paths (**never an LLM call**); **cohesion** = internal_edges /
-C(n,2). Cached by a content-hash key (an unchanged re-index is a cache hit).
+**Deferred to v2.1** (CI-5). Leiden partition over the undirected `symbols`/`edges`
+graph; **god nodes** ranked by degree; **labels** derived from top god-node names +
+file paths (**never an LLM call**); **cohesion = conductance** — the fraction of a
+community's link mass that *crosses* the boundary (the `ki` `themes` pattern: ≤ 0.35
+reads "tightly interlinked", ≥ 0.60 "loosely", otherwise "moderately" — a hedge against
+over-reading a weak cluster). **Determinism is pinned** (the `ki` `randomSeed +
+concurrency: 1` contract): a fixed random seed + single-threaded execution, so a
+re-run on an unchanged graph returns the *same* communities (the answer moves only
+when the corpus moves, never because the model "felt different this session"). Cached
+by a content-hash key (an unchanged re-index is a cache hit — the seed is part of the
+key).
+
+> **Metric note:** edge *density* (internal_edges / C(n,2)) is a valid *separate*
+> signal and may also be stored, but the **cohesion *word*** ("tightly/loosely
+> interlinked") the agent reads is conductance — it measures how self-contained a
+> cluster is, which is the question "is this a real module or an accident of the graph?"
+> asks. (Source: Neo4j `ki` `themes` command, the GDS `conductance` pipeline.)
 
 **Output tables (v2.1 additions):**
 ```sql
 CREATE TABLE communities (id INTEGER PRIMARY KEY, symbol_id INTEGER UNIQUE,
     FOREIGN KEY(symbol_id) REFERENCES symbols(id) ON DELETE CASCADE);
 CREATE TABLE community_meta (id INTEGER PRIMARY KEY, label TEXT,
-    symbol_count INTEGER, god_nodes TEXT, cache_key TEXT, cohesion REAL);
+    symbol_count INTEGER, god_nodes TEXT, cache_key TEXT,
+    conductance REAL,     -- the cohesion word (≤0.35 tight / ≥0.60 loose)
+    density REAL,         -- optional separate signal (internal_edges / C(n,2))
+    leiden_seed INTEGER); -- the pinned determinism seed (part of cache_key)
 ```
 
 **v2 behavior:** with `--communities` off (default), `code_communities` /

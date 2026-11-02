@@ -3,10 +3,10 @@ id: TASK-092
 title: >-
   [FEATURE] TICKET-09 Relations: conflict-candidate detection + relevance gate
   (mnemonic-v2)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-01 12:47'
-updated_date: '2026-11-01 12:48'
+updated_date: '2026-11-01 18:31'
 labels: []
 milestone: m-11
 dependencies:
@@ -39,3 +39,19 @@ After a committed save, conflicting memories must be surfaced, not silently coex
 <!-- SECTION:PLAN:BEGIN -->
 --ac
 <!-- SECTION:PLAN:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: orchestrator
+created: 2026-11-01 18:05
+---
+Wave 4 (2026-11-01): implementer dispatched (relations: conflict-candidate detection + relevance gate).
+---
+<!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Relations: conflict-candidate detection = OR-FTS title pre-filter (same project+scope) + relevance gate (shared topic_key OR ≥2 significant shared title terms); candidates materialized as pending memory_relations + returned in SaveResult.Candidates, JudgmentRequired:true. AddRelation implemented on SQLiteStore (rel- sync_id, full readback). RawQuery read seam added (store.Search's short-term LIKE fallback misroutes OR queries — ruled legitimate; PG home = Store method for T18). 8 tests incl. the ≥2 boundary (one-term overlap does NOT surface — RED against shared>=1, GREEN against shared>=2). Fix round 1: gate boundary row, gate-reaches re-seed, doc, readback. Commits 30f30600, e4cef7d1, 71078018. Refs: TASK-092
+<!-- SECTION:FINAL_SUMMARY:END -->

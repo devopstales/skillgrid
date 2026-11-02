@@ -59,11 +59,31 @@ The skill opens with the rules the agent must always hold:
    Run `kb_validate` before relying on them. If a page is stale, fix the *knowledge*,
    not just the code.
 
+8. **PROMOTE ON RECURRENCE.** A candidate concept/invariant earns its *own* page only
+   when **>=2 distinct sources** (or >=2 distinct memories) extract it. One mention is a
+   fact *about the note*; two is a fact *about the knowledge* (the decodingai
+   "graph-ingestion, scaled down" threshold). A one-off mention stays an inline fact in
+   the page that noticed it, not a new page. This is the **recurrence sharpening** of the
+   graduate-rule (`003-generate` section 2): the graduate-rule asks "is this durable?",
+   this rule adds "is it *recurring*?" Together they keep the graph clean (cut noise,
+   keep what recurs). The threshold is tunable (`CONVENTIONS.md`), default 2.
+
 ## 3. The session discipline (recall-at-start / save-at-end, adapted to wiki-first)
 
 The skill encodes the **when**. Adapted from pi's recall-at-start / retro-at-end,
 pointed at the wiki-first retrieval:
 
+- **First, always — `kb_status` (the cheap first-verb).** Before any
+  recall/ingest/validate, the agent calls `kb_status` (read-only, zero LLM — the
+  pi `wiki_status` / `/wiki-dashboard` pattern): page counts by type,
+  `stale`/`unresolved` count, last `kb_index`/`kb_validate` time, coverage-gap count
+  (from `kb_lint`'s read-only summary), orphan count, and the `kb_events` activity
+  feed tail. It **routes the next action**: a stale page → `kb_validate`; a
+  coverage gap → `kb_generate`; a thin/empty vault → ingest. This is the read-only
+  half of `007-lint` surfaced as a single glance — parity with the code-index's
+  `code_status`. *(If `kb_status` is not yet a named `kb_*` tool when the KB is
+  sliced, the skill references `kb_lint`'s read-only summary as the interim
+  first-verb — KI note, `009-skill` open items.)*
 - **At task start** — `kb_query` with task-specific terms (the wiki-first retrieval).
   For large vaults, use **two-stage links-first recall**:
   - **Stage 1:** `kb_query` returns ranked links + 1-line snippets (protects context —
@@ -85,6 +105,34 @@ pointed at the wiki-first retrieval:
 > `SaveEvent` (eager-per-save) handles the *memory → KB* handoff automatically, but the
 > *agent's own* durable decisions (the ones it makes in its head, not the ones it
 > `mem_save`s) are saved by the agent following this discipline.
+
+### 3.1 The interactive layer (questions are data — decodingai phase 3)
+
+The KB is not only *fed* by ingest; the agent's **questions are data** — they show what
+is not yet clear, and they leave a breadcrumb trail of the knowledge's own gaps. The
+skill maintains three lightweight surfaces **beside** the ingest-owned page folders
+(`001-structure`):
+
+- **`questions/`** — each asked question is logged as a **slim pointer page** (the query
+  + which pages answered it + whether it was answerable). Cheap, append-mostly.
+- **`open-questions.md`** — the running list of what the KB **cannot answer yet** (the
+  wiki's *own* gaps, surfaced, not hidden). An unanswerable question lands here. This is
+  the "the brain knows what it doesn't know" habit — the coverage-gap lint (`007-lint`)
+  surfaces the *structural* gaps; `open-questions.md` surfaces the *query* gaps.
+- **`notes/`** — a second page layer *on top of* the page-type folders. An answer that
+  **synthesizes >=2 pages** (or that the user asks to save) becomes a **note**; a
+  single-concept answer **stays an answer** (not a note — creating a note out of every
+  answer makes the wiki useless). A repo/code question the `architecture`/`workflows`
+  pages can't answer makes the agent read the code and write a **code note**, which
+  re-enters the graduate-rule and can push a concept over the >=2 threshold (rule 8).
+
+> **This is a *skill* convention, not a new engine table.** `questions/`,
+> `open-questions.md`, and `notes/` are plain markdown the agent writes into the vault
+> (sanctioned direct authoring, section 5); the index picks them up via the usual
+> `kb_index`. If the KB later wants an *engine* `kb_questions` index (to surface
+> open-questions in `kb_status`), that is a separate engine decision — flagged here, not
+> assumed. The promotion of a note/concept over the >=2 threshold is the **recurrence**
+> rule (golden rule 8) applied to the interactive layer.
 
 ## 4. The workflows (pi's, adapted)
 
@@ -128,6 +176,71 @@ the "file if novel" step — produces a conforming page):
   source's body in. The body is the *synthesis* (the why, the map, the contract), not a
   copy of the fact.
 
+### 5.1 The claims authoring contract (the authoring side of the pin-check)
+
+The skill teaches the agent **how to author + reconcile claims** when it writes a
+grounded page by hand (the "file if novel" path). The engine (`kb_validate`,
+`006-validate`) *checks* claims; this is the *writing* discipline (the openwiki Claims
+contract, adapted):
+
+- **One falsifiable truth per claim.** A claim is *one substantive, independently
+  checkable* system truth. Prefer **behavior / responsibility / architecture /
+  relationships / flow / invariants / lifecycle / failure / config / security** claims.
+  **Do not create a claim merely because a symbol/path/parameter/return-type exists** —
+  "this function exists" is not a claim; "this function retries 3x then escalates" is.
+- **Cite the code span, not the file.** Every claim cites `code:<path>#L<a>-<b>`
+  (the KB's `repo://` equivalent) — a **bounded span**, whole-file only when the whole
+  file is genuinely the evidence. This is what `kb_validate`'s `symbol:` / `line:` +
+  version-token checks re-read against live code.
+- **Reconcile deliberately — never a silent re-point.** When `kb_validate` reports a
+  claim `stale` or `unresolved`, that is a **requirement to re-check the live code**
+  (via `code_resolve` / `code_read`), **not** an instruction to auto-retract. The agent
+  makes one explicit decision per stale claim: **confirm** (re-checked, still true),
+  **revise** (change the statement/anchor, keep the claim's identity), or **retract**
+  (the truth no longer holds — fix the *prose*, then drop the claim). This is
+  `006-validate` section 2.1's fail-closed stance, stated as an authoring rule: an
+  ambiguous re-point is `unresolved`, never a guess.
+- **Reconcile the *page*, not just the claim.** A stale claim usually means the page's
+  *why* moved too — fix the body and the claim together (one atomic edit, section 5).
+
+### 5.2 The engine/agent ownership boundary (KB-INV-3, generalized)
+
+The split is total and explicit (the openwiki "non-negotiable boundaries"):
+
+- **The agent owns** the page **prose + the claims** it authors (the page-type folders,
+  the `notes/`/`questions/` layer, the `sources:`/`anchors:`/`claims:` frontmatter).
+- **The engine owns** the **derived** state: the `kb_pages` / `kb_pages_fts` /
+  `kb_claims` / `kb_events` **rows**, `index/`, the `kb_fts_pending` ledger, and the
+  pin-check machinery. The agent **writes pages; it never writes the derived tables
+  directly.** If the index looks wrong, re-`kb_index` — don't edit the rows (golden
+  rule 2). This is KB-INV-3 generalized from "index is derived" to "everything the
+  engine rebuilds is engine-owned."
+
+### 5.3 The mermaid authoring sub-skill (`architecture` / `workflows` pages)
+
+Diagrams are **part of high-quality generation, not decoration** (the openwiki
+`mermaid-diagrams` skill, adopted here). For `architecture/` + `workflows/` pages, the
+agent embeds a ` ```mermaid ` fence where a flow / lifecycle / data-model is clearer
+visually than as prose:
+
+- **Type selection:** `sequenceDiagram` for runtime/request flows; `stateDiagram-v2`
+  for lifecycles/state machines; `erDiagram` for the data model; `flowchart TD` for
+  control flow.
+- **Grounded in source.** Never invent a participant/state/entity the code doesn't
+  support (verify via `code_resolve` / `code_read`). Prefer **a few strong diagrams**
+  over decorating every page; one accurate diagram on the page that needs it beats a
+  diagram forced onto every page. A one-line caption directly below each.
+- **Syntax safety** (the render-breakage rules — a fence that fails to parse degrades
+  to a text fence, a quality failure): no `;`/`|` in labels; escape `<…>` (`returns
+  Promise of User`, not `returns Promise<User>`); quote labels with punctuation in
+  `flowchart` (`A["calls foo(bar)"]`); never use a reserved word (`note`, `end`,
+  `loop`, `alt`, `opt`, `class`, `state`, …) as a node/participant id (alias a
+  space-y participant: `participant AS as Auth Service`).
+
+> **The full rules live in `MERMAID.md`** (a companion the skill references on demand —
+> progressive disclosure). This subsection is the *when* (which pages, which type);
+> `MERMAID.md` is the *how* (the syntax-safety checklist).
+
 ## 6. What the skill is NOT
 
 - **Not a tool.** It is a document the agent loads and follows. It does not run; the
@@ -140,9 +253,14 @@ the "file if novel" step — produces a conforming page):
   (opt-in in pi, off-by-default — out of scope for v2), the personal + company layered
   vaults (v2 is single-project), `wiki_watch` cron scheduling (the `SaveEvent` already
   drives eager generation — no separate watch loop).
-- **Not adopted from openwiki `skills/`:** `mermaid-diagrams` and `write-connector` are
-  *authoring aids*, not the management layer. v2 can add them later if page authoring
-  needs them; they are not part of the management discipline.
+- **Adopted from openwiki `skills/`:** `mermaid-diagrams` **is adopted** (section 5.3 +
+  `MERMAID.md`) — it is an *authoring sub-skill* the management skill references on
+  demand for `architecture`/`workflows` pages, not a separate management layer.
+- **Not adopted from openwiki `skills/`:** `write-connector` is a *deferred authoring
+  aid* — it is about **ingest connectors** (Notion/YouTube/etc.), which is the KB's
+  `002-sources` *engine* concern, not the management skill. The KB's four sources
+  (memory / code / git / external) are already defined; a connector-authoring skill is a
+  future authoring aid, not the management discipline.
 
 ## 7. Invariants
 
@@ -152,7 +270,26 @@ are non-negotiable — rule 5), KB-INV-2 (grounded pages are grounded — rule 7
 
 ## 8. Open items
 
-None. The golden rules, the session discipline, the workflows, and the page conventions
-are fixed. The one carried tunable is the two-stage recall threshold (when a vault is
-"large enough" to require stage 1 before stage 2) — defaulted to "always use stage 1
-(`kb_query`) before `kb_read`" (the cheap, safe default), refined in the review.
+The golden rules, the session discipline, the workflows, and the page conventions are
+fixed. Open items (defaults recorded, not blocking — resolved at the KB slice):
+
+- **SK-O1 (the `kb_status` first-verb):** is `kb_status` a named `kb_*` engine tool, or
+  does the skill use `kb_lint`'s read-only summary as the interim first-verb?
+  **Default: add `kb_status`** (parity with the code-index's `code_status` — it is the
+  cheap always-first verb). If not added, the skill's `kb_status` references `kb_lint`.
+- **SK-O2 (the question/notes layer, engine-indexed or not):** are `questions/` /
+  `notes/` / `open-questions.md` plain vault pages (the default) or engine-indexed
+  (a `kb_questions` table surfaced in `kb_status`)? **Default: plain pages** (no engine
+  table, lowest risk; the index picks them up via the usual `kb_index`).
+- **SK-O3 (the >=2 promotion threshold, skill or engine):** is the recurrence rule a
+  *skill* convention the agent applies (default) or a *deterministic* `003-generate`
+  graduate-rule parameter? **Default: skill convention** — the engine's graduate-rule
+  already gates "is this durable?"; the skill adds the "is it *recurring*?" sharpening.
+  If the KB wants it deterministic, it is a `003-generate` tuning.
+- **SK-O4 (mermaid, engine-validated or pass-through):** does the KB engine validate
+  mermaid fences (a broken fence is a `kb_lint` finding) or pass them through (the
+  syntax-safety rules prevent a broken fence)? **Default: pass-through** (the engine
+  renders markdown; the sub-skill's syntax rules are the guard).
+- **SK-O5 (two-stage recall threshold):** when a vault is "large enough" to require
+  stage 1 before stage 2 — **defaulted to "always use stage 1 (`kb_query`) before
+  `kb_read`"** (the cheap, safe default), refined in the review.

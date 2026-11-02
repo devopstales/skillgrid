@@ -3,10 +3,10 @@ id: TASK-093
 title: >-
   [FEATURE] TICKET-10 Judgment (judge / judge_many / compare) + consolidate +
   scan (mnemonic-v2)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-01 12:47'
-updated_date: '2026-11-01 12:48'
+updated_date: '2026-11-01 21:48'
 labels: []
 milestone: m-11
 dependencies:
@@ -39,3 +39,19 @@ The human-in-the-loop loop over candidates: mem_judge sets judgment_status=judge
 <!-- SECTION:PLAN:BEGIN -->
 --ac
 <!-- SECTION:PLAN:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: orchestrator
+created: 2026-11-01 21:11
+---
+Wave 6 start (2026-11-01): implementer dispatched (judgment + consolidate + scan).
+---
+<!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Judgment + consolidate + scan: Judge (pending→judged + provenance, raced judge = no-op via WHERE judgment_status='pending'), JudgeMany (1-32, one txn, rollback-on-error, already-judged no-op), Compare (LLM→judged relation directly, idempotent per unordered pair, double-check-after-seam TOCTOU guard), Consolidate (two-phase fingerprint-gated merge: preview resolves refusals, sha256 over canonical projection, confirm re-resolves, fingerprint mismatch→fresh plan no writes, survivor inherits newest source + ## consolidated_from footer, sources soft-deleted + superseded_by_sync_id), Scan (page-batched 500-row re-run, new pending only, reuses Task 9 pre-filter+gate). Two-txn consolidate = documented ceiling (monotonic-degrading, fingerprint-observable, INV-1 intact; Task 18 closes). Latent bug fixed: txngate scope hardcoded 'project'→real scope. 15 tests. Review Approved, 0 C/I. Commits 3591f147. Refs: TASK-093
+<!-- SECTION:FINAL_SUMMARY:END -->

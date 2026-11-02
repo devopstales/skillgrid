@@ -3,10 +3,10 @@ id: TASK-088
 title: >-
   [FEATURE] TICKET-05 Save pipeline core (validate -> redact -> hash floor ->
   upsert -> enqueue -> commit) (mnemonic-v2)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-01 12:44'
-updated_date: '2026-11-01 12:48'
+updated_date: '2026-11-01 17:16'
 labels: []
 milestone: m-11
 dependencies:
@@ -53,3 +53,19 @@ The 10-step mem_save contract: validation, project/session resolution, redaction
 4. go test ./internal/memory/... -run TestSave GREEN
 5. Commit feat(mnemonic-v2): save pipeline core
 <!-- SECTION:PLAN:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: orchestrator
+created: 2026-11-01 16:25
+---
+Wave 3 start (2026-11-01): implementer dispatched (save pipeline core — tracer thread working save path).
+---
+<!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Save pipeline core: 10-step contract steps 1-3 + 5-floor (validate → resolve → redact/truncate → normalized_hash dedup floor → upsert → enqueue → commit → result). Hash dedup (identical content = same id + dup_count bump, no new row; same topic_key = in-place revision + observation_versions snapshot). INV-1/2/3 hold (provenance immutable, store-interface-only, hash floor = degraded path). LLM dedup branch stubbed for T08. eventbus Publish created, not wired (T07). 24 memory tests, real SQLite (no mock store). Review Approved, 0 C/I, 6 Minor deferred to final review. Commits f8983234, dd1a0a3f. Refs: TASK-088
+<!-- SECTION:FINAL_SUMMARY:END -->
