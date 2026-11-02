@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -519,5 +520,297 @@ func TestHybridRRF(t *testing.T) {
 	}
 	if top.Score < want-1e-9 || top.Score > want+1e-9 {
 		t.Fatalf("RRF score for a rank-0 single-leg doc must be 1/(K+0+1)=%v, got %v", want, top.Score)
+	}
+}
+
+// [broken-leg-degrades-out] T-CI-2 / F1: the free-text FTS MATCH path must
+// PROPAGATE a MATCH error (the leg errors → it degrades out + a warning is
+// present), NOT swallow it as a zero-hit leg. The T-CI-2 contract: a leg that
+// errors is dropped from the fusion + reported (warning + degraded flag) — the
+// answer is NOT set to empty by the broken leg's empty result; the OTHER legs
+// that answered still shape the answer. Different input: an error-forcing
+// RawQuery seam on the MATCH expression.
+func TestFTSFreeTextMatchErrorsDegrade(t *testing.T) {
+	st := seedIndex(t)
+	ctx := context.Background()
+
+	// Store an embedding for wireGitHooks (the semantic leg's candidate) so a
+	// WORKING embedder gives the semantic leg a hit to return — proving the
+	// broken FTS leg's empty result did NOT set the answer (T-CI-2).
+	syms, err := st.SymbolByName(ctx, "wireGitHooks")
+	if err != nil || len(syms) != 1 {
+		t.Fatalf("expected wireGitHooks symbol: %v", err)
+	}
+	if err := st.EmbedSymbol(ctx, syms[0].ID, "test", []float32{1, 0, 0}); err != nil {
+		t.Fatalf("embed symbol: %v", err)
+	}
+	// A store seam whose RawQuery errors when the query is a MATCH expression
+	// (the free-text FTS path). The FTS leg (identifier-first + free-text, the
+	// floor) therefore errors and degrades out. The working embedder + stored
+	// vector keep the semantic leg answering.
+	es := &errStore{Store: st, matchErr: errors.New("fts match: malformed expression")}
+	r, err := Hybrid(ctx, es, SearchQuery{
+		Query:    "wireGitHooks",
+		Project:  "p",
+		Limit:    5,
+		Embedder: &constEmbedder{model: "test", vec: []float32{1, 0, 0}},
+	})
+	if err != nil {
+		t.Fatalf("hybrid (fts match error): %v", err)
+	}
+	// The free-text leg ERRORED: it degrades (the degraded flag names the FTS
+	// error) and a warning naming the FTS leg is present (T-CI-2 — the error is
+	// reported, not swallowed as a silent zero-hit leg).
+	if !strings.Contains(r.Degraded, "fts_error") {
+		t.Fatalf("a free-text FTS MATCH error must degrade (F1): %q", r.Degraded)
+	}
+	hasWarning := false
+	for _, w := range r.Warnings {
+		if strings.Contains(w, "fts") {
+			hasWarning = true
+		}
+	}
+	if !hasWarning {
+		t.Fatalf("a free-text FTS MATCH error must add a warning (F1): %+v", r.Warnings)
+	}
+	// The broken FTS leg's empty result must NOT set the answer to empty: the
+	// working semantic leg still answers (its hits are in the fusion). This is
+	// the T-CI-2 guarantee — a broken leg degrades OUT, the answer is shaped by
+	// the legs that returned.
+	if len(r.Hits) == 0 {
+		t.Fatalf("a broken FTS leg must not set the answer to empty (T-CI-2): %+v", r)
+	}
+	// The broken FTS leg contributed no ranked hits: no hit is provenance-"fts".
+	for _, h := range r.Hits {
+		if _, ok := h.Provenance["fts"]; ok {
+			t.Fatalf("broken FTS leg must not appear in provenance (F1): %+v", h)
+		}
+	}
+}
+
+// errStore wraps a Store and forces RawQuery to error when the query is an FTS
+// MATCH expression (the free-text FTS path) and pass through everything else
+// (the identifier-first path, the file-set read, the trail write).
+type errStore struct {
+	store.Store
+	matchErr error
+}
+
+func (s *errStore) RawQuery(query string, args ...any) ([][]any, error) {
+	if strings.Contains(query, " MATCH ") {
+		return nil, s.matchErr
+	}
+	return s.Store.(interface {
+		RawQuery(query string, args ...any) ([][]any, error)
+	}).RawQuery(query, args...)
+}
+
+// constEmbedder is a deterministic embedder: Model() returns a fixed model
+// name, Embed returns a fixed vector for every text. The semantic leg scans the
+// stored BLOB vectors (the F1 test stores one for wireGitHooks → cosine over
+// that candidate → the leg returns a hit, proving the broken FTS leg's empty
+// result did not set the answer).
+type constEmbedder struct {
+	model string
+	vec   []float32
+}
+
+func (e *constEmbedder) Model() string   { return e.model }
+func (e *constEmbedder) Dimensions() int { return len(e.vec) }
+func (e *constEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+	out := make([][]float32, len(texts))
+	for i := range out {
+		out[i] = e.vec
+	}
+	return out, nil
+}
+
+// [structural-grep-scope] F2: the structural leg walks the SAME scope the index
+// uses (the same root + exclude set + the under? prefix) so a structural hit
+// for a file the index skipped is NOT in the structural results. The index's
+// exclude set (excludedDirs) is the source of truth for scope; a file under an
+// excluded dir (.git) is walked by the bare walk but is outside the index scope,
+// so the scoped structural walk must skip it.
+func TestStructuralGrepScopeMatchesIndex(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	// A supported-language file OUTSIDE the index scope (under .git — the
+	// index's excludedDirs). It has a function declaration so the bare walk
+	// would match it, but the index-scope walk must skip it.
+	gitDir := filepath.Join(dir, ".git")
+	os.MkdirAll(gitDir, 0o755)
+	gitFile := filepath.Join(gitDir, "hooks.go")
+	os.WriteFile(gitFile, []byte("package hooks\n\nfunc wireGitHooks() {}\n"), 0o644)
+	// A supported-language file IN the index scope (a plain dir).
+	plainFile := filepath.Join(dir, "sync.go")
+	os.WriteFile(plainFile, []byte("package sync\n\nfunc wireGitHooks() {}\n"), 0o644)
+
+	// The bare (pre-fix) walk's behavior: it also skips .git (all dot-dirs),
+	// so it finds only the in-scope file. The post-fix index-scope walk must
+	// produce the SAME set (one path space) — the regression the F2 fix
+	// guards against is the two walks DIVERGING (e.g. the bare walk skipping a
+	// dot-dir the index WOULD index).
+	bare, err := grepWalkBare(dir, "")
+	if err != nil {
+		t.Fatalf("bare walk: %v", err)
+	}
+	bareSet := map[string]bool{}
+	for _, p := range bare {
+		bareSet[p] = true
+	}
+	if !bareSet["sync.go"] {
+		t.Fatalf("bare walk must find the in-scope file: %v", bare)
+	}
+	if bareSet[".git/hooks.go"] {
+		t.Fatalf("bare walk skips .git (all dot-dirs): %v", bare)
+	}
+
+	// The index-scope walk (what the post-fix leg does) must produce the SAME
+	// path set (one path space with the index): skip .git, keep in-scope.
+	scoped, err := grepWalkScoped(dir, "")
+	if err != nil {
+		t.Fatalf("scoped walk: %v", err)
+	}
+	scopedSet := map[string]bool{}
+	for _, p := range scoped {
+		scopedSet[p] = true
+	}
+	if !scopedSet["sync.go"] {
+		t.Fatalf("scoped walk must keep the in-scope file: %v", scoped)
+	}
+	if scopedSet[".git/hooks.go"] {
+		t.Fatalf("scoped walk must SKIP the index-excluded file (F2): %v", scoped)
+	}
+
+	// The Grep entry point must use the scoped walk: a structural hit for the
+	// .git file is NOT in the results, a hit for the in-scope file is.
+	res, err := Grep(ctx, "(function_declaration) \\fn", dir, "go")
+	if err != nil {
+		t.Fatalf("grep scoped: %v", err)
+	}
+	got := map[string]bool{}
+	for _, h := range res.Hits {
+		got[h.Path] = true
+	}
+	if !got["sync.go"] {
+		t.Fatalf("Grep must find the in-scope file: %+v", res.Hits)
+	}
+	if got[".git/hooks.go"] {
+		t.Fatalf("Grep must NOT find the index-excluded file (F2): %+v", res.Hits)
+	}
+}
+
+// grepWalkBare runs the pre-fix file walk's behavior (skip ALL dot-dirs + the
+// v1 skip set), returning repo-relative slash paths, for the F2 test to prove
+// the index-scope walk diverges from it (the .git file is skipped by the bare
+// walk but is ALSO outside the index scope — the point is the two must AGREE
+// on scope, which the bare walk does not guarantee for dot-dirs the index
+// WOULD index).
+func grepWalkBare(dir, under string) ([]string, error) {
+	var files []string
+	bareSkip := func(name string) bool {
+		if name == "" {
+			return false
+		}
+		if name[0] == '.' {
+			return true
+		}
+		return name == "node_modules" || name == "vendor" || name == "dist" ||
+			name == "build" || name == "out" || name == ".git" ||
+			name == ".skillgrid" || name == "target" || name == "__pycache__"
+	}
+	werr := filepath.WalkDir(dir, func(p string, d os.DirEntry, werr error) error {
+		if werr != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if bareSkip(d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if grepLangForPath(p) != "" {
+			if r, err := filepath.Rel(dir, p); err == nil && r != "." {
+				files = append(files, filepath.ToSlash(r))
+			}
+		}
+		return nil
+	})
+	return files, werr
+}
+
+// grepWalkScoped runs the index-scope file walk (the F2 fix's walk helper),
+// returning repo-relative slash paths. It is the same root + the index's
+// exclude set + the under? prefix.
+func grepWalkScoped(dir, under string) ([]string, error) {
+	var files []string
+	werr := filepath.WalkDir(dir, func(p string, d os.DirEntry, werr error) error {
+		if werr != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if indexSkipDir(d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if grepLangForPath(p) == "" {
+			return nil
+		}
+		rel, err := filepath.Rel(dir, p)
+		if err != nil || rel == "." {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if !underMatch(rel, under) {
+			return nil
+		}
+		files = append(files, rel)
+		return nil
+	})
+	return files, werr
+}
+
+// [trail-ids-store-ids] F4: the search trail records the store row ids the hits
+// resolved to (the symbol ids, per the TICKET-04 trail convention), not content
+// hashes. A symbol hit's store id must be in the recorded trail.
+func TestSearchTrailCarriesStoreIDs(t *testing.T) {
+	st := seedIndex(t)
+	ctx := context.Background()
+
+	// Resolve the real symbol's store id (the trail should carry it).
+	syms, err := st.SymbolByName(ctx, "wireGitHooks")
+	if err != nil || len(syms) != 1 {
+		t.Fatalf("expected wireGitHooks symbol: %+v", err)
+	}
+	wantID := syms[0].ID
+
+	// Run the search (the identifier-first path → a symbol hit with a store id).
+	r, err := Hybrid(ctx, st, SearchQuery{Query: "wireGitHooks", Project: "p", Limit: 5})
+	if err != nil {
+		t.Fatalf("hybrid (trail ids): %v", err)
+	}
+	if len(r.Hits) == 0 {
+		t.Fatalf("hybrid must return hits: %+v", r)
+	}
+
+	// Read the most recent trail row for route "search" and assert it carries
+	// the symbol's store id (F4), not just a content hash.
+	rows, err := st.(interface {
+		RawQuery(query string, args ...any) ([][]any, error)
+	}).RawQuery(`SELECT ids FROM retrieval_trails WHERE route = 'search' ORDER BY id DESC LIMIT 1`)
+	if err != nil || len(rows) == 0 {
+		t.Fatalf("expected a search trail row: %v", err)
+	}
+	idsCol, _ := rows[0][0].(string)
+	idsSet := map[string]bool{}
+	for _, p := range strings.Split(idsCol, ",") {
+		if p != "" {
+			idsSet[p] = true
+		}
+	}
+	if !idsSet[itoa(int(wantID))] {
+		t.Fatalf("trail must carry the symbol's store id %d (F4), got ids=%q", wantID, idsCol)
 	}
 }

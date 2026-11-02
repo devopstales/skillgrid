@@ -53,6 +53,11 @@ type Hit struct {
 	Kind       string
 	Score      float64
 	Provenance map[string]int
+	// StoreID is the store row id the hit resolved to (the trail's ids, per
+	// the TICKET-04 convention). 0 when the hit has no store id (a
+	// structural-only hit for an unindexed file — the path is its identity;
+	// the trail documents that case by recording the hitKeyID hash instead).
+	StoreID int64
 }
 
 // SearchResult is the code_search answer. Degraded is the explicit
@@ -66,7 +71,10 @@ type SearchResult struct {
 }
 
 // legHit is one leg's ranked hit (before fusion). ID is the fusion key (a
-// doc is one hit when the same doc appears in multiple legs).
+// doc is one hit when the same doc appears in multiple legs). StoreID is the
+// store row id the hit resolved to (the FTS/semantic leg's symbols.id — the
+// trail records these, per the TICKET-04 trail convention; 0 when the hit has
+// no store id, e.g. a structural-only hit for an unindexed file).
 type legHit struct {
 	ID        string
 	Path      string
@@ -74,6 +82,7 @@ type legHit struct {
 	EndLine   int
 	Symbol    string
 	Kind      string
+	StoreID   int64
 }
 
 // Hybrid runs the hybrid search: the FTS leg (always), the structural leg
@@ -171,11 +180,19 @@ func Hybrid(ctx context.Context, st store.Store, q SearchQuery) (SearchResult, e
 
 	// Record the retrieval trail (INV-5 — route "search", the query, the
 	// returned hit ids, the degraded string, the under scope in the query).
-	// Symbol hits contribute their store symbol id; chunk/grep hits
-	// contribute a deterministic hash of their doc key (the trail ids column
-	// is a comma-separated list; chunk/grep docs have no store id).
+	// F4: the trail ids carry the STORE ROW IDs the hits resolved to (the
+	// symbol ids, per the TICKET-04 trail convention — the audit answer to
+	// "which rows did this read return?"). A hit with no store id (a
+	// structural-only hit for an unindexed file) contributes a deterministic
+	// hash of its path:line doc key — the path IS the identity for unindexed
+	// files (the trail convention: store ids when present, the doc key hash
+	// when not).
 	var trailIDs []int64
 	for _, h := range res.Hits {
+		if h.StoreID != 0 {
+			trailIDs = append(trailIDs, h.StoreID)
+			continue
+		}
 		trailIDs = append(trailIDs, hitKeyID(h.Path+":"+itoa(h.StartLine)))
 	}
 	query := q.Query
@@ -230,6 +247,7 @@ func fuse(hits map[string]legHit, legs map[string]map[string]int, k, limit int) 
 			Kind:       h.Kind,
 			Score:      s.score,
 			Provenance: map[string]int{},
+			StoreID:    h.StoreID,
 		}
 		for leg, ranks := range legs {
 			if r, ok := ranks[s.id]; ok {

@@ -86,6 +86,7 @@ func semanticLeg(ctx context.Context, st store.Store, q SearchQuery) ([]legHit, 
 				EndLine:   rowInt(row, 5),
 				Symbol:    rowStr(row, 1),
 				Kind:      rowStr(row, 2),
+				StoreID:   int64(rowInt(row, 0)),
 			},
 			vec: vec,
 		})

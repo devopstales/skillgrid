@@ -42,6 +42,11 @@ const structuralMaxFileSize = 500 * 1024
 // invalid for the language degrades to no_grammar:<lang> (never a silent skip
 // — T12); a structurally invalid pattern (unbalanced parens, dangling
 // backslash) is a hard error.
+//
+// F2: the walk is index-scoped (indexSkipDir = the codeindex.Index exclude
+// set) so the structural hit path space matches the index's files.path space
+// (a structural hit for a file the index skipped is not produced — the RRF
+// fusion's dedup-by-path relies on one path space).
 func Grep(ctx context.Context, pattern, path, lang string) (GrepResult, error) {
 	res := GrepResult{}
 
@@ -68,7 +73,10 @@ func Grep(ctx context.Context, pattern, path, lang string) (GrepResult, error) {
 
 	// Collect candidate files (the path itself if a file, or the dir's
 	// supported-language files). A missing path is not an error for grep (no
-	// files to scan).
+	// files to scan). The walk is index-scoped (F2): it uses the SAME root +
+	// exclude set the codeindex.Index walk uses, so a structural hit for a
+	// file the index skipped is not produced (the RRF fusion dedups by path —
+	// one path space).
 	//
 	// ponytail: the walk caps candidates at 5000 files (large-repo defense);
 	// a structural grep over more files than that silently truncates the
@@ -253,13 +261,17 @@ func isIdentRune(c byte) bool {
 }
 
 // walkGrepFiles walks dir (best-effort) appending supported-language files.
+// F2: the skip set is indexSkipDir (the codeindex.Index exclude set) so the
+// walk's path space matches the index's files.path space — a structural hit
+// for a file the index skipped is not produced (the RRF fusion dedups by path,
+// one path space).
 func walkGrepFiles(dir string, files *[]string, limit int) error {
 	return filepath.WalkDir(dir, func(p string, d os.DirEntry, werr error) error {
 		if werr != nil {
 			return nil
 		}
 		if d.IsDir() {
-			if isGrepSkipDir(d.Name()) {
+			if indexSkipDir(d.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -274,26 +286,36 @@ func walkGrepFiles(dir string, files *[]string, limit int) error {
 	})
 }
 
-func isGrepSkipDir(name string) bool {
+// indexSkipDir is the structural walk's exclude set — the SAME set the
+// codeindex.Index driver uses (spec 001 §6 / T1: .git / node_modules / vendor
+// / build output / the KB vault — the KB has its own kb_index and is not
+// code). Mirrored locally (not imported) so the search package stays free of a
+// codeindex import cycle (codeindex → extract, and search is reached through
+// the walker). The F2 fix: the pre-fix walk used a SUPERSET (isGrepSkipDir
+// also skipped ALL dot-dirs + out/__pycache__), which could DIVERGE from the
+// index's path space (the index indexes dot-dirs that are not in its exclude
+// set, e.g. a dot-prefixed source dir, and the v1 walk skipped them). Using
+// the identical set guarantees the structural + index walks produce the same
+// path set.
+//
+// ponytail: the set is duplicated (not shared) to avoid the import cycle. If
+// codeindex ever exports excludedDirs, replace this mirror with the shared var
+// so the two walks cannot drift apart again.
+func indexSkipDir(name string) bool {
 	if name == "" {
 		return false
 	}
-	if name[0] == '.' {
-		return true
-	}
-	return grepSkipDirs[name]
+	return indexExcludedDirs[name]
 }
 
-var grepSkipDirs = map[string]bool{
+var indexExcludedDirs = map[string]bool{
+	".git":         true,
 	"node_modules": true,
 	"vendor":       true,
 	"dist":         true,
 	"build":        true,
-	"out":          true,
-	".git":         true,
-	".skillgrid":   true,
 	"target":       true,
-	"__pycache__":  true,
+	".skillgrid":   true,
 }
 
 // grammarProbeFile maps a supported language to a probe filename the

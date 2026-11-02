@@ -50,10 +50,11 @@ func ftsLeg(ctx context.Context, st store.Store, q SearchQuery) ([]legHit, error
 			args = append(args, q.Language)
 		}
 		where, args = appendUnder(where, args, "f.path", q.Under)
-		// Exact matches rank above prefix matches (ORDER BY a boolean). The
-		// literal is the escaped ident (a valid identifier, so it is safe).
-		where += ` ORDER BY (s.name = '` + sqlQuote(ident) + `') DESC, s.name, s.id LIMIT ?`
-		args = append(args, sel)
+		// Exact matches rank above prefix matches (ORDER BY a boolean).
+		// F3: the ORDER BY comparison uses a bind parameter (?), not an
+		// inlined SQL literal.
+		where += ` ORDER BY (s.name = ?) DESC, s.name, s.id LIMIT ?`
+		args = append(args, ident, sel)
 		rows, err := rq.RawQuery(`
 			SELECT s.id, s.name, s.kind, f.path, s.start_line, s.end_line
 			FROM symbols s
@@ -70,11 +71,19 @@ func ftsLeg(ctx context.Context, st store.Store, q SearchQuery) ([]legHit, error
 				EndLine:   rowInt(row, 5),
 				Symbol:    rowStr(row, 1),
 				Kind:      rowStr(row, 2),
+				StoreID:   int64(rowInt(row, 0)),
 			})
 		}
 	}
 
 	// Free-text FTS: BM25 over chunks_fts + symbol_fts (the v1 floor).
+	//
+	// F1 (T-CI-2): a free-text MATCH that ERRORS propagates the error — the
+	// leg degrades out + a warning is recorded (a silent zero-hit leg would
+	// be the v1 bug). A MATCH that runs clean and returns 0 rows is a normal
+	// zero-hit leg (no warning). The identifier-first sub-query above is a
+	// separate exact/prefix read (no MATCH) and is NOT affected — it is the
+	// T-CI-1 floor and must keep answering.
 	var textHits []legHit
 	if match := ftsMatchQuery(q.Query); match != "" {
 		// chunk_fts leg.
@@ -87,21 +96,23 @@ func ftsLeg(ctx context.Context, st store.Store, q SearchQuery) ([]legHit, error
 		where, args = appendUnder(where, args, "f.path", q.Under)
 		where += ` ORDER BY MAX(bm25(chunks_fts), 1.0) LIMIT ?`
 		args = append(args, sel)
-		if crows, err := rq.RawQuery(`
+		crows, err := rq.RawQuery(`
 			SELECT f.path, c.start_line, c.end_line
 			FROM chunks c
 			INNER JOIN chunks_fts ON chunks_fts.rowid = c.id
 			INNER JOIN files f ON f.id = c.file_id
-			`+where, args...); err == nil {
-			for _, row := range crows {
-				textHits = append(textHits, legHit{
-					ID:        "chunk:" + rowStr(row, 0) + ":" + itoa(rowInt(row, 1)),
-					Path:      rowStr(row, 0),
-					StartLine: rowInt(row, 1),
-					EndLine:   rowInt(row, 2),
-					Kind:      "chunk",
-				})
-			}
+			`+where, args...)
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range crows {
+			textHits = append(textHits, legHit{
+				ID:        "chunk:" + rowStr(row, 0) + ":" + itoa(rowInt(row, 1)),
+				Path:      rowStr(row, 0),
+				StartLine: rowInt(row, 1),
+				EndLine:   rowInt(row, 2),
+				Kind:      "chunk",
+			})
 		}
 		// symbol_fts free-text leg (the name/qualified_name/signature/kind/
 		// language columns — a free-text match on a symbol).
@@ -114,25 +125,27 @@ func ftsLeg(ctx context.Context, st store.Store, q SearchQuery) ([]legHit, error
 		where, args = appendUnder(where, args, "f.path", q.Under)
 		where += ` ORDER BY MAX(bm25(symbol_fts), 1.0) LIMIT ?`
 		args = append(args, sel)
-		if srows, err := rq.RawQuery(`
+		srows, err := rq.RawQuery(`
 			SELECT s.id, s.name, s.kind, f.path, s.start_line, s.end_line
 			FROM symbols s
 			INNER JOIN symbol_fts ON symbol_fts.rowid = s.id
 			INNER JOIN files f ON f.id = s.file_id
-			`+where, args...); err == nil {
-			for _, row := range srows {
-				textHits = append(textHits, legHit{
-					ID:        "sym:" + itoa(rowInt(row, 0)),
-					Path:      rowStr(row, 3),
-					StartLine: rowInt(row, 4),
-					EndLine:   rowInt(row, 5),
-					Symbol:    rowStr(row, 1),
-					Kind:      rowStr(row, 2),
-				})
-			}
+			`+where, args...)
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range srows {
+			textHits = append(textHits, legHit{
+				ID:        "sym:" + itoa(rowInt(row, 0)),
+				Path:      rowStr(row, 3),
+				StartLine: rowInt(row, 4),
+				EndLine:   rowInt(row, 5),
+				Symbol:    rowStr(row, 1),
+				Kind:      rowStr(row, 2),
+				StoreID:   int64(rowInt(row, 0)),
+			})
 		}
 	}
-	_ = context.Background()
 
 	// Identifier-first ordering: exact/prefix identifier matches rank ABOVE
 	// free-text (the T-CI-1 fix). Dedupe by ID (a doc in both the identifier
@@ -203,13 +216,6 @@ func ftsMatchQuery(q string) string {
 // runeLen returns the rune count of a (possibly quoted) string.
 func runeLen(s string) int {
 	return len([]rune(strings.Trim(s, `"`)))
-}
-
-// sqlQuote escapes a string for inlining as a SQL literal (the ORDER BY
-// boolean needs the ident as a literal; the value is identifier-shaped —
-// letters/digits/underscore/dot — so quoting is belt-and-suspenders).
-func sqlQuote(s string) string {
-	return strings.ReplaceAll(s, "'", "''")
 }
 
 // appendUnder appends the T10 under-scope predicate + its params for the given
