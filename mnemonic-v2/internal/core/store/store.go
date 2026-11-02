@@ -1,6 +1,9 @@
 package store
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // SyncSeam are the sync-core test hooks (Task 15). The SQLite adapter
 // implements them; the memory package type-asserts (the pipeline's Probe
@@ -24,6 +27,29 @@ const (
 	// Postgres is the remote dialect render (Task 18).
 	Postgres
 )
+
+// OpenUpTo opens (or creates) a store and applies the embedded migrations
+// only up to lastFile (inclusive, the same sort order the runner uses) —
+// the test/diagnostic seam for the migration-parity regression (T-CI-3, M1:
+// the parity test needs a store *at* a specific version). Production Open
+// migrates to completion; OpenUpTo stops before the first unapplied file
+// past lastFile and records schema_version for the applied set. lastFile is
+// the migration file NAME (e.g. "003_retrieval_trails.sql"); the empty
+// string migrates to completion (== Open).
+//
+// This is a seam on the runner, not a new Store method (the D2 door stays
+// closed): it is a package-level Open analog, not part of the Store
+// interface.
+func OpenUpTo(ctx context.Context, dataDir, project string, dialect Dialect, dsn, lastFile string) (Store, error) {
+	if dialect != SQLite {
+		// the PG analog mirrors this over migrations_pg (TICKET-08c's file
+		// does not exist yet — the PG runner's migrations_pg set is the
+		// memory change's 001-003; the loop simply stops at the highest
+		// applied file when lastFile is past that set).
+		return nil, fmt.Errorf("store.OpenUpTo: PG analog is TICKET-08c's scope (dialect %v)", dialect)
+	}
+	return openSQLiteUpTo(ctx, dataDir, project, lastFile)
+}
 
 // Store is the dialect-agnostic data layer (spec 001-storage §7).
 // Functions see only this interface (INV-2); dialect SQL lives inside the

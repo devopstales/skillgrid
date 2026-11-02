@@ -145,6 +145,43 @@ func Open(ctx context.Context, dataDir, project string, dialect Dialect, dsn str
 	return &sqliteStore{db: db, path: dbPath, pooled: pooled}, nil
 }
 
+// openSQLiteUpTo opens (or creates) the SQLite store for project under
+// dataDir and applies the migrations only up to lastFile (the OpenUpTo
+// seam's runner, M1). It shares Open's pool + WAL DSN; the only difference
+// is the migration runner (migrateSQLiteUpTo vs migrateSQLite).
+func openSQLiteUpTo(ctx context.Context, dataDir, project, lastFile string) (Store, error) {
+	project = strings.TrimSpace(project)
+	if project == "" {
+		return nil, errors.New("store.OpenUpTo: project is required")
+	}
+	if strings.Contains(project, "..") {
+		return nil, fmt.Errorf("store.OpenUpTo: invalid project id %q", project)
+	}
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		return nil, fmt.Errorf("store.OpenUpTo: create data dir: %w", err)
+	}
+	dbPath := filepath.Join(dataDir, project+".sqlite")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		return nil, fmt.Errorf("store.OpenUpTo: create db dir: %w", err)
+	}
+	db, err := poolAcquire(dbPath, func() (*sql.DB, error) {
+		return openSQLite(dbPath)
+	})
+	if err != nil {
+		return nil, err
+	}
+	pooled := !poolDisabled()
+	if err := migrateSQLiteUpTo(db, lastFile); err != nil {
+		if pooled {
+			_ = poolRelease(dbPath)
+		} else {
+			_ = db.Close()
+		}
+		return nil, fmt.Errorf("store.OpenUpTo: migrate: %w", err)
+	}
+	return &sqliteStore{db: db, path: dbPath, pooled: pooled}, nil
+}
+
 // openSQLite opens the file with the Engram-proven WAL DSN: pragmas as
 // _pragma query parameters (applied to every physical connection),
 // _txlock=immediate (BEGIN IMMEDIATE so busy_timeout serializes writers),
@@ -175,6 +212,17 @@ func openSQLite(dbPath string) (*sql.DB, error) {
 // migrateSQLite runs every unapplied embedded migration, statement by
 // statement (trigger-aware splitter), recording each in index_meta.
 func migrateSQLite(db *sql.DB) error {
+	return migrateSQLiteUpTo(db, "")
+}
+
+// migrateSQLiteUpTo is the runner core: apply every unapplied embedded
+// migration (statement by statement), recording each in index_meta. When
+// lastFile is non-empty, apply only files <= lastFile (the same sort order)
+// and stop — the OpenUpTo seam's runner (M1). When lastFile is empty, apply
+// the full set (production Open / Migrate). schema_version is recorded for
+// the applied set (the count of applied files), so a store opened up to a
+// mid-set version carries a version marker matching that set.
+func migrateSQLiteUpTo(db *sql.DB, lastFile string) error {
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS index_meta (key TEXT PRIMARY KEY, schema_version INTEGER NOT NULL DEFAULT 0)`); err != nil {
 		return fmt.Errorf("create index_meta: %w", err)
 	}
@@ -190,12 +238,19 @@ func migrateSQLite(db *sql.DB) error {
 		names = append(names, e.Name())
 	}
 	sort.Strings(names)
+	appliedCount := 0
 	for _, name := range names {
+		// the OpenUpTo stop: once past lastFile, stop (the applied set is
+		// the prefix of the sorted set through lastFile, inclusive).
+		if lastFile != "" && name > lastFile {
+			break
+		}
 		var done bool
 		if err := db.QueryRow(`SELECT COUNT(*) > 0 FROM index_meta WHERE key = ?`, "migration:"+name).Scan(&done); err != nil {
 			return fmt.Errorf("check %s: %w", name, err)
 		}
 		if done {
+			appliedCount++
 			continue
 		}
 		b, err := migrationsFS.ReadFile("migrations/" + name)
@@ -218,11 +273,12 @@ func migrateSQLite(db *sql.DB) error {
 		if _, err := db.Exec(`INSERT INTO index_meta (key, schema_version) VALUES (?, 1)`, "migration:"+name); err != nil {
 			return fmt.Errorf("record %s: %w", name, err)
 		}
+		appliedCount++
 	}
 	if _, err := db.Exec(`
 		INSERT INTO index_meta (key, schema_version) VALUES ('schema_version', ?)
 		ON CONFLICT(key) DO UPDATE SET schema_version = excluded.schema_version`,
-		len(names),
+		appliedCount,
 	); err != nil {
 		return fmt.Errorf("record schema_version: %w", err)
 	}
