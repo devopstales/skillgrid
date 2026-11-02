@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/config"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/store"
@@ -445,13 +446,17 @@ func (h *Handler) SessionStart(ctx context.Context, r SessionStartRequest) error
 	if om == "" {
 		om = "shared"
 	}
+	// the UTC stamp is computed in Go and bound as a parameter: the SQL
+	// must stay dialect-agnostic (datetime('now') is SQLite-only — the
+	// PG leg renders sessions with TIMESTAMPTZ and accepts the string).
+	now := time.Now().UTC().Format("2006-01-02 15:04:05")
 	return h.stExec(ctx, `
 		INSERT INTO sessions (id, project, directory, ownership_mode, started_at, created_at)
-		VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			directory = excluded.directory,
 			ownership_mode = excluded.ownership_mode`,
-		r.ID, r.Project, r.Directory, om)
+		r.ID, r.Project, r.Directory, om, now, now)
 }
 
 // SessionEnd ends a session (optional free-text summary). A missing session
@@ -473,7 +478,8 @@ func (h *Handler) SessionEnd(ctx context.Context, sessionID, summary string) err
 	if s, _ := rows[0][0].(string); s != "" {
 		return store.ErrSessionEnded
 	}
-	return h.stExec(ctx, `UPDATE sessions SET ended_at = datetime('now'), summary = ? WHERE id = ?`, orEmpty(summary), sessionID)
+	return h.stExec(ctx, `UPDATE sessions SET ended_at = ?, summary = ? WHERE id = ?`,
+		time.Now().UTC().Format("2006-01-02 15:04:05"), orEmpty(summary), sessionID)
 }
 
 // SessionSummary persists the six-section structured summary (spec
@@ -552,7 +558,8 @@ func (h *Handler) SessionFinalize(ctx context.Context, sessionID, project string
 	if s, _ := rows[0][0].(string); s != "" {
 		return nil // already finalized — the idempotent retry
 	}
-	return h.stExec(ctx, `UPDATE sessions SET ended_at = datetime('now') WHERE id = ?`, sessionID)
+	return h.stExec(ctx, `UPDATE sessions SET ended_at = ? WHERE id = ?`,
+		time.Now().UTC().Format("2006-01-02 15:04:05"), sessionID)
 }
 
 // ListProjects returns the store's known projects (the distinct project

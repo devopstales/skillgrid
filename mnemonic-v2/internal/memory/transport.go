@@ -123,9 +123,12 @@ func Push(ctx context.Context, st store.Store, tr MutationTransport, project str
 // append-only journal is otherwise untouched).
 func ackMutations(ctx context.Context, st store.Store, upToSeq int64) error {
 	_ = ctx
+	// the UTC stamp is bound as a parameter (dialect-agnostic — the PG
+	// leg's sync_mutations.acked_at is TIMESTAMPTZ and accepts the string;
+	// datetime('now') would be SQLite-only).
 	return applyPulledSeam(st).RawExec(
-		`UPDATE sync_mutations SET acked_at = datetime('now') WHERE seq <= ? AND acked_at IS NULL`,
-		upToSeq)
+		`UPDATE sync_mutations SET acked_at = ? WHERE seq <= ? AND acked_at IS NULL`,
+		time.Now().UTC().Format("2006-01-02 15:04:05"), upToSeq)
 }
 
 // EnsureSchema resolves + creates the project's remote schema (idempotent)

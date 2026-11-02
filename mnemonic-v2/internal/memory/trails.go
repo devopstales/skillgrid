@@ -72,11 +72,15 @@ func (s *Service) appendTrail(ev SaveEvent) {
 // as the trail's FK guard, so the two never conflict: the save's own row
 // wins via ON CONFLICT DO NOTHING).
 func (s *Service) ensureSession(seam trailSeam, sessionID, project string) error {
+	// the UTC stamp is bound as a parameter (dialect-agnostic — the same
+	// reasoning as the handler's session writes: datetime('now') is
+	// SQLite-only, the PG leg accepts the string).
+	now := time.Now().UTC().Format("2006-01-02 15:04:05")
 	return seam.RawExec(`
 		INSERT INTO sessions (id, project, directory, ownership_mode, started_at, created_at)
-		VALUES (?, ?, '', 'shared', datetime('now'), datetime('now'))
+		VALUES (?, ?, '', 'shared', ?, ?)
 		ON CONFLICT(id) DO NOTHING`,
-		sessionID, nullableProject(project))
+		sessionID, nullableProject(project), now, now)
 }
 
 // appendTrailRow inserts one trail entry at the next per-session sequence
