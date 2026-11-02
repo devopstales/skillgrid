@@ -59,10 +59,13 @@ type Datasource struct {
 	MaxConns int
 }
 
-// ProjectCfg is the mnemonic.project section.
+// ProjectCfg is the mnemonic.project section. Name is the resolved
+// project name (set by the CLI's detector; the autosync manager reads
+// it for the peer's schema when the outbox is empty).
 type ProjectCfg struct {
 	EnvVar string
 	Detect bool
+	Name   string
 }
 
 // LLMConfig is the mnemonic.llm section. Provider "openai-compat" or "local"

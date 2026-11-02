@@ -23,7 +23,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/store"
 )
@@ -42,6 +44,15 @@ type fakeTransport struct {
 	touched   []string                    // projects whose schema was queried
 	fails     map[string]bool             // project → EnsureSchema fails
 	maxPushB  int                         // the size ceiling (0 = default 8MiB)
+	// calls counts PushMutations invocations (the autosync debounce test's
+	// coalescing assertion: a burst must reach the transport once).
+	calls int64
+	// fail is the injected one-shot failure (the autosync backoff fixture
+	// — a cycle that errors on the push leg).
+	fail bool
+	// slowMs simulates network round-trip latency (the write-path test's
+	// slow remote — the transport sleeps per call, the save must not).
+	slowMs time.Duration
 }
 
 // newFakeTransport builds an empty fake transport (default size ceiling).
@@ -103,6 +114,14 @@ func (f *fakeTransport) EnsureSchema(ctx context.Context, project string) error 
 // boundary (the brief's contract) — the fake enforces the same size
 // contract as the PG transport so the tests exercise the limit.
 func (f *fakeTransport) PushMutations(ctx context.Context, project string, batch []store.Mutation) (int64, error) {
+	atomic.AddInt64(&f.calls, 1)
+	if f.slowMs > 0 {
+		time.Sleep(f.slowMs)
+	}
+	if f.fail {
+		f.fail = false
+		return 0, errFakeTransport
+	}
 	if len(batch) == 0 {
 		return f.sequences[project], nil
 	}
@@ -127,6 +146,13 @@ func (f *fakeTransport) PullMutations(ctx context.Context, project string, since
 		}
 	}
 	return out, nil
+}
+
+// Calls returns the transport's PushMutations invocation count (the
+// autosync debounce coalescing assertion — atomic: the worker goroutine
+// writes it while the test reads).
+func (f *fakeTransport) Calls() int64 {
+	return atomic.LoadInt64(&f.calls)
 }
 
 // Close closes the fake (the interface method; nothing to release).

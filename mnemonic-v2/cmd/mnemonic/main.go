@@ -106,6 +106,7 @@ func openRuntime(cwd string, fl config.Flags, explicit string) (*handler.Handler
 	if err != nil {
 		return nil, nil, err
 	}
+	cfg.Project.Name = p // the autosync manager reads this for the peer's schema
 	st, err := storeFor(cfg, p)
 	if err != nil {
 		return nil, nil, err

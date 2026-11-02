@@ -189,6 +189,8 @@ CREATE TABLE IF NOT EXISTS sync_state (
 	last_acked_seq BIGINT NOT NULL DEFAULT 0,
 	last_pulled_seq BIGINT NOT NULL DEFAULT 0,
 	backoff_until TIMESTAMPTZ,
+	lease_owner TEXT,
+	lease_until TIMESTAMPTZ,
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
