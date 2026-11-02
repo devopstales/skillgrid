@@ -43,12 +43,19 @@ index fallback** (the `code_grep` tool). It is also a *leg* of the hybrid (a pat
 query fuses with the FTS leg). A pattern invalid for a language skips that language
 with a note (never a silent skip).
 
-## 4. The semantic leg (the v1 multi-store, CI-8)
+## 4. The semantic leg (the wired 3-index store, D-CI8)
 
-The embedding store is the **v1 multi-store**, kept (CI-8): a BLOB source of truth with
-**four derived indexes** over it (vec0 + IVF + HNSW + LSH). The query engine picks the
-best available index for the query; all are derived (rebuildable from the BLOBs —
-CI-INV-1).
+> **Amended 2026-11-02 to D-CI8** (findings.md § D-CI8 — the settled decision): v2 ships
+> the **wired, working 3-index** semantic store — BLOB source of truth + `vec0` + `HNSW`
+> + a brute-force-over-BLOBs floor. **LSH and IVF are dropped from the v2 claim** (v1's
+> `lsh_buckets` was schema-only — no reader/writer — and IVF was an adapter never wired
+> into the query path; shipping them "declared, not wired" adds tables + a query-branch
+> with no v1 live precedent). Re-adding either in v2.1 is additive (a new derived index +
+> a query-branch) — a scope decision, not a migration.
+
+The embedding store is a BLOB source of truth with **three derived indexes** over it
+(vec0 + HNSW + brute-force). The query engine picks the best available index for the
+query; all are derived (rebuildable from the BLOBs — CI-INV-1).
 
 ### 4.1 The BLOB tables (source of truth)
 
@@ -71,44 +78,54 @@ CREATE TABLE embed_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);   -- the mo
 **Dual-mode (INV-2):** SQLite BLOB; Postgres `vector` (pgvector). The BLOB table is the
 *persistent* store — the indexes below are derived over it.
 
-### 4.2 The four derived indexes (vec0 + IVF + HNSW + LSH)
+### 4.2 The three derived indexes (vec0 + HNSW + brute-force)
 
 | Index | Backing | What it's for | Status |
 |---|---|---|---|
 | **vec0** | `modernc.org/sqlite/vec` (cgo-free) | the SQLite vector query path (`MATCH`/`distance`) | v1 `042_vec0_tables.sql` — kept |
-| **IVF** | pure-Go (`vectorstore/ivf.go`) | coarse quantized ANN (the `ivf_centroids` + `ivf_assignments` tables) | v1 `056_ivf_store.sql` — kept |
 | **HNSW** | pure-Go (`vectorstore/hnsw.go`, M=16, efConstruction=64, efSearch=96) | the high-recall ANN (the `hnsw_nodes`/`hnsw_links`/`hnsw_meta` tables) | v1 `057/058_hnsw_store.sql` — kept |
-| **LSH** | `lsh_buckets` table | locality-sensitive hashing for the **symbol** vectors (the fast coarse pass) | v1 `011` — kept |
+| **brute-force** | scan over the BLOB tables | the floor (always available, any dim) | v1 live path — lifted |
+| ~~**IVF**~~ | — (was pure-Go `vectorstore/ivf.go`, `ivf_centroids` + `ivf_assignments`) | — | **dropped from the v2 claim (D-CI8)** — v1 adapter, never wired into the query path; v2.1 re-add is additive |
+| ~~**LSH**~~ | — (was `lsh_buckets`) | — | **dropped from the v2 claim (D-CI8)** — v1 schema-only, no reader/writer; v2.1 re-add is additive |
 
 **Remote (Postgres):** the BLOB table is pgvector `vector`; the ANN index is **pgvector
-HNSW/IVFFlat** (the IVF/HNSW/vec0/LSH local indexes are SQLite-only — the remote uses
-pgvector's native index). The *query path* is dialect-agnostic (INV-2); the *index
-implementation* is dialect-specific (the v1 model, kept).
+HNSW**. The local indexes (HNSW/vec0) are SQLite-only — the remote uses pgvector's
+native index. The *query path* is dialect-agnostic (INV-2); the *index implementation*
+is dialect-specific.
 
 **The query engine picks the best available index** (the v1 `vectorstore/store.go`
-seam, kept): for a semantic query, it prefers HNSW (highest recall) → IVF (faster,
-coarser) → vec0 (the SQLite native path) → LSH (the symbol fast pass) → **brute-force
-over the BLOBs** (the floor). A missing index is *not* a failure — the engine falls to
-the next, and the last resort is brute-force over the BLOBs (never a hard fail). The
-chosen index is reported in the hit's provenance (the agent can see *which* index
-answered).
+seam, kept): for a semantic query, it prefers **HNSW** (highest recall) → **vec0** (the
+SQLite native path) → **brute-force over the BLOBs** (the floor). A missing index is
+*not* a failure — the engine falls to the next, and the last resort is brute-force over
+the BLOBs (never a hard fail). The chosen index is reported in the hit's provenance (the
+agent can see *which* index answered).
 
-**Dimension gating (the v1 768 pin):** the ANN indexes are pinned to **768-dim**. A
-non-768 embedder leaves the ANN indexes empty (or the matching-dim ones active) → the
-engine falls to brute-force over the BLOBs. A **model-swap guard** (`embed_meta.
-embedding_model`): a swap clears *all* indexes + vectors (a different model's vectors
-are not comparable). The degradation is explicit (`degraded: no_vector` / `degraded:
-brute_force` / `degraded: <index>_empty`).
+**Dimension gating (the 768 pin):** HNSW/vec0 activate when the embedder's `dim == 768`.
+The **default embedder is the deterministic hash-64 floor** (cgo-free, no download,
+always works — v1's `HashEmbedder` lifted): a 64-dim embedder leaves the ANN indexes
+inactive → the engine runs brute-force over the BLOBs (explicit
+`degraded: brute_force`). A real **768-dim** embedder (ONNX nomic-embed-code *with the
+pool actually wired* — the v1 follow-through — or an OpenAI-compat provider over the
+shared embedder seam) is **opt-in** and activates HNSW/vec0. A **model-swap guard**
+(`embed_meta.embedding_model`): a swap clears *all* indexes + vectors (a different
+model's vectors are not comparable). The degradation is explicit
+(`degraded: no_vector` — no embedder up / `degraded: brute_force` — embedder up, ANN
+index not active or not yet built / `degraded: <index>_empty`).
 
 ### 4.3 The embedder (the shared seam)
 
 The embedder is the shared `intelligence/embedder` seam (INV-3, memory
-`00-foundation/003-intelligence`): the **default is ONNX** (nomic-embed-code, 768-dim,
-auto-downloaded), with a **hash-based fallback** (default 64-dim) so the pipeline never
-hard-fails. **What is embedded:** each symbol (name + signature) → `embeddings`; each
-chunk (text) → `chunk_embeddings`. The semantic leg is **language-scoped** (the
-`language` filter is exact; `embeddings.language`/`chunk_embeddings.language` is the
-partition key, the v1 cocoindex partition).
+`00-foundation/003-intelligence`). **Embedder stance (D-CI8):** the store is
+**model-agnostic** (stores whatever `dim` the embedder produces; the `embed_meta`
+model-swap guard is lifted from v1). The **default** embedder is the deterministic
+**hash-64** floor (cgo-free, no download, always works — v1's `HashEmbedder` lifted, so
+the pipeline never hard-fails and semantic search always has *something*). A real
+**768-dim** embedder (ONNX nomic-embed-code — ADR-0044, conditional on the pool being
+actually wired, the v1 follow-through — or an OpenAI-compat provider) is **opt-in** and
+activates HNSW/vec0 when `dim == 768`. **What is embedded:** each symbol (name +
+signature) → `embeddings`; each chunk (text) → `chunk_embeddings`. The semantic leg is
+**language-scoped** (the `language` filter is exact; `embeddings.language`/
+`chunk_embeddings.language` is the partition key, the v1 cocoindex partition).
 
 ## 5. The RRF fusion (the hybrid)
 
@@ -145,7 +162,7 @@ recorded in the retrieval trail (INV-5) so the scoped query is reproducible.
 | State | `code_search` returns | Envelope |
 |---|---|---|
 | FTS + semantic up (HNSW) | fused (FTS + HNSW semantic) | clean |
-| FTS + semantic (IVF/vec0/LSH fallback) | fused (FTS + the best available index) | clean (the chosen index is in the provenance) |
+| FTS + semantic (HNSW/vec0/brute-force fallback) | fused (FTS + the best available index) | clean (the chosen index is in the provenance) |
 | FTS + brute-force (dim mismatch / index empty) | fused (FTS + brute-force over BLOBs) | `degraded: brute_force` |
 | FTS only (embedder down) | FTS-only | `degraded: no_vector` |
 | stale index | answers from last index + FTS | `degraded: stale_index` (CI-INV-4) |
@@ -183,20 +200,22 @@ store the memory + KB use (the shared INV-5 substrate).
 
 ## 9. Invariants
 
-INV-2 (dual-mode — FTS5↔tsvector, the local multi-store↔pgvector), INV-3 (the
-degradation ladder, explicit `degraded`), INV-5 (trails), CI-INV-1 (the FTS + all four
-derived vector indexes (vec0/IVF/HNSW/LSH) are derived — rebuildable from the BLOBs +
-the tree), CI-INV-4 (stale is a signal, not a failure — `degraded: stale_index`).
+INV-2 (dual-mode — FTS5↔tsvector, the local 3-index store↔pgvector), INV-3 (the
+degradation ladder, explicit `degraded`), INV-5 (trails), CI-INV-1 (the FTS + all
+derived vector indexes (vec0/HNSW) are derived — rebuildable from the BLOBs + the tree;
+brute-force is the floor over the BLOBs), CI-INV-4 (stale is a signal, not a failure —
+`degraded: stale_index`).
 
 ## 10. Open items
 
 - **The RRF K:** 60 (the v1 constant). Configurable. Not a spec constant.
-- **The embedding dim:** 768 (ONNX default, the ANN-index pin). The hash fallback is
-  64-dim (brute-force over the BLOBs, not the ANN indexes). A model swap clears all
-  vectors + indexes (the `embed_meta` guard).
-- **The index-preference order:** HNSW → IVF → vec0 → LSH → brute-force (the v1
-  `vectorstore/store.go` seam). The order is an implementation detail; the contract is
-  "the best available index, brute-force is the floor, never a hard fail."
+- **The embedding dim:** the store is model-agnostic (D-CI8). The **default** embedder
+  is hash-64 (brute-force over the BLOBs — the ANN indexes activate only at `dim == 768`).
+  A real 768-dim embedder is opt-in (ONNX per ADR-0044 or OpenAI-compat). A model swap
+  clears all vectors + indexes (the `embed_meta` guard).
+- **The index-preference order:** HNSW → vec0 → brute-force (D-CI8; the v1 live path,
+  lifted). The order is an implementation detail; the contract is "the best available
+  index, brute-force is the floor, never a hard fail."
 - **The structural-leg pattern syntax:** the v1 metavariable syntax (`\name`,
   `\(ARGS*)`, `\*`, `\_`). Kept verbatim (it is a documented pattern language, not a
   spec detail to redesign).
