@@ -166,15 +166,21 @@ func TestServePrintsPointer(t *testing.T) {
 	}
 }
 
-// TestStubSubcommands: index/migrate/setup are delegation stubs — they
-// print a pointer (the dispatch is complete; the delegation is a one-line
-// change later when the owning change lands).
+// TestStubSubcommands: index/setup are delegation stubs — they print a
+// pointer (the dispatch is complete; the delegation is a one-line change
+// later when the owning change lands). migrate is now a real command
+// (TICKET-19) — it requires --v1-dir and exits 2 when absent (a usage
+// error, not a delegation pointer).
 func TestStubSubcommands(t *testing.T) {
-	for _, cmd := range [][]string{{"index"}, {"migrate"}, {"setup", "opencode"}} {
+	for _, cmd := range [][]string{{"index"}, {"setup", "opencode"}} {
 		out := runCLI(t, cmd...)
 		if out == "" {
 			t.Fatalf("%v must print a delegation pointer", cmd)
 		}
+	}
+	// migrate is a real command: a usage error when --v1-dir is absent.
+	if _, code := captureRun(t, "migrate"); code != exitUsage {
+		t.Fatalf("migrate without --v1-dir must exit %d (usage error); got %d", exitUsage, code)
 	}
 }
 

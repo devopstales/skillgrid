@@ -1,21 +1,25 @@
-package migrate_test
-
-// migrate_test.go — the v1→v2 seed migration (TICKET-19, brief Task 19).
-// The migrator (internal/migrate) reads the v1 store file read-only, maps
-// its sessions + observations onto SaveRequests, and writes them through
-// Service.Save (the seed is a batch of saves — INV-4, no special import
-// path). These tests build a real v1-shaped .sqlite (v1 schema, v1 type
+// Package migrate_test is the v1→v2 seed migration's test (TICKET-19,
+// brief Task 19). It is an external test package (package migrate_test)
+// so it can import both memory and migrate without an import cycle (the
+// migrator imports memory.Service; the test imports memory for its test
+// fixtures + the migrate package for the API under test). The brief
+// names the file migrate_test.go; the package is migrate_test (the
+// external test package convention).
+//
+// The tests build a real v1-shaped .sqlite (v1 schema, v1 type
 // vocabulary) in a temp dir and assert the seed landed in v2, that the v1
 // files came back byte-identical, that a re-run is a no-op, and that the
 // doctor sees the migration state.
 
+package migrate_test
+
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -23,23 +27,13 @@ import (
 
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/config"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/store"
+	"github.com/devopstales/skillgrid/mnemonic-v2/internal/memory"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/migrate"
 )
 
-func init() {
-	// The test's wiring: bind the one-way hook to the service's store at
-	// test time (the production wiring is the CLI's doctor command, which
-	// imports both packages without a cycle — the test-only import of
-	// migrate here is legal in Go). The hook is a closure that re-binds
-	// per test (each test's store is its own temp dir).
-	migrate.SetMigrationStateHook(func(ctx context.Context, v1Dir, project string) (any, error) {
-		// The test's per-test store is the openTestStoreIn the test
-		// opened; the hook's default binding is a no-op error. The
-		// doctor-migration-state test overrides this with its own
-		// binding (t.Cleanup restores the previous one).
-		return nil, fmt.Errorf("migrate: test hook not bound (the doctor-migration-state test binds its own)")
-	})
-}
+// ctx is the test's background context (the memory package's tests use a
+// package var; the external test package defines its own).
+var ctx = context.Background()
 
 // v1FirstObservationTerm is a search term guaranteed to be in the first
 // seeded observation's title (the seed-import test's retrieval assertion).
@@ -106,12 +100,15 @@ func makeV1Store(t *testing.T, dir, project string) int {
 		if deleted {
 			del = "2026-01-02 03:04:05"
 		}
+		// 13 columns, 8 ? placeholders (the rest are literals). Args:
+		// id, typ, title, content, project, topicKey, id (for 'hash' ||
+		// id), del.
 		if _, err := db.Exec(`INSERT INTO observations
 			(id, session_id, type, title, content, project, scope, topic_key,
 			 normalized_hash, importance_score, created_at, updated_at, deleted_at)
 			VALUES (?, 'v1s1', ?, ?, ?, ?, 'project', ?, 'hash' || ?,
 				1.0, datetime('now'), datetime('now'), ?)`,
-			id, typ, title, content, nullableStr(topicKey), id, del); err != nil {
+			id, typ, title, content, "p", nullableStr(topicKey), id, del); err != nil {
 			t.Fatalf("v1 obs %d: %v", id, err)
 		}
 		if !deleted {
@@ -120,13 +117,13 @@ func makeV1Store(t *testing.T, dir, project string) int {
 	}
 	// Live #1: a v2-vocabulary type (decision), the search-term carrier.
 	ins(1, "decision", "v1seedfirst architecture choice",
-		"the v1 store recorded a first-class decision about caching", "cache")
+		"the v1 store recorded a first-class decision about caching", "cache", false)
 	// Live #2: a v1-only type (learning) — the mapping's default arm.
 	ins(2, "learning", "v1seedsecond lesson learned",
-		"the v1 store recorded a learning that v2 maps to discovery", "")
+		"the v1 store recorded a learning that v2 maps to discovery", "", false)
 	// Deleted: must not be seeded (v1's deleted_at arm).
 	ins(3, "decision", "v1seedthird already deleted",
-		"this v1 row was deleted before the cutover", "")
+		"this v1 row was deleted before the cutover", "", true)
 	return live
 }
 
@@ -158,6 +155,59 @@ func v1DirHash(t *testing.T, dir string) string {
 	}
 	sort.Strings(parts)
 	return strings.Join(parts, "|")
+}
+
+// ── store test helpers (the memory package's testutil, re-declared here) ───
+// The external test package cannot see memory's _test helpers (they are
+// unexported in the memory package's test files). These are the minimal
+// re-declarations the migrate tests need.
+
+// openTestStoreIn opens a real SQLite store for project in dir.
+func openTestStoreIn(t *testing.T, dir, project string) store.Store {
+	t.Helper()
+	st, err := store.Open(context.Background(), dir, project, store.SQLite, "")
+	if err != nil {
+		t.Fatalf("open store (%s): %v", project, err)
+	}
+	t.Cleanup(func() { st.Close() })
+	return st
+}
+
+// probeStore narrows a store to the SQLite Probe test seam.
+func probeStore(t *testing.T, st store.Store) interface {
+	Probe(query string, args ...any) (bool, error)
+	ProbeInt(query string, args ...any) (int, error)
+} {
+	t.Helper()
+	p, ok := st.(interface {
+		Probe(query string, args ...any) (bool, error)
+		ProbeInt(query string, args ...any) (int, error)
+	})
+	if !ok {
+		t.Fatal("store does not expose the Probe test seam")
+	}
+	return p
+}
+
+// liveCountIn counts live observations of a named project.
+func liveCountIn(t *testing.T, st store.Store, project string) int {
+	t.Helper()
+	n, err := probeStore(t, st).ProbeInt(`SELECT COUNT(*) FROM observations WHERE project = ? AND deleted_at IS NULL`, project)
+	if err != nil {
+		t.Fatalf("live count: %v", err)
+	}
+	return n
+}
+
+// probeInt is the t-aware ProbeInt (the test's assertion surface for the
+// store's ledger / observations counts).
+func probeInt(t *testing.T, st store.Store, query string, args ...any) int {
+	t.Helper()
+	n, err := probeStore(t, st).ProbeInt(query, args...)
+	if err != nil {
+		t.Fatalf("probe int: %v", err)
+	}
+	return n
 }
 
 // ── [v1-seed-import] ────────────────────────────────────────────────────────
@@ -194,9 +244,15 @@ func TestV1SeedImport(t *testing.T) {
 		t.Fatalf("seeded observations not searchable in v2")
 	}
 	// the door-check assertion: the v1-only type (learning) maps into the
-	// v2 vocabulary (discovery) — the field mapping the brief pins.
+	// v2 vocabulary (discovery) — the field mapping the brief pins. The
+	// search is FTS (matches the query term), so the door-check reads the
+	// row by its own search term.
+	r2, err := st.Search(ctx, store.SearchQuery{Query: "v1seedsecond", Project: "p", Limit: 5})
+	if err != nil {
+		t.Fatalf("search (door check): %v", err)
+	}
 	found := false
-	for _, o := range r.Observations {
+	for _, o := range r2.Observations {
 		if o.Title == "v1seedsecond lesson learned" {
 			found = true
 			if o.Type != "discovery" {
@@ -205,21 +261,29 @@ func TestV1SeedImport(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("the v1-only-type row must be seeded (door check): %+v", r.Observations)
+		t.Fatalf("the v1-only-type row must be seeded (door check): %+v", r2.Observations)
 	}
 	// the mapping: v1's importance_score is NOT copied — v2's importance
-	// is on-the-fly (the fresh-insert 0.5 floor, spec 002-schema §2.2.3).
-	if n := probeStore(t, st).ProbeInt(
-		`SELECT COUNT(*) FROM observations WHERE importance = 0.5`); n != live {
-		t.Fatalf("v1 importance_score must not be copied (v2 floor 0.5); %d of %d at floor", n, live)
+	// is on-the-fly (the fresh-insert floor, spec 002-schema §2.2.3). The
+	// floor is not 0.5 (the store's INSERT default) — the save pipeline
+	// recomputes it (Importance(0, 0, type) — a type-based floor above
+	// 0.5 for some types). The assertion: the v1 importance_score (1.0)
+	// is NOT copied — the v2 importance is the pipeline's computed value,
+	// not the v1's 1.0.
+	if n := probeInt(t, st,
+		`SELECT COUNT(*) FROM observations WHERE importance = 1.0`); n != 0 {
+		t.Fatalf("v1 importance_score (1.0) must not be copied; %d rows at 1.0", n)
 	}
-	// the deleted v1 row must not be seeded.
-	if n := liveCountIn(t, st, "p"); n != live {
-		t.Fatalf("v2 live count must equal the v1 live count (%d); got %d (the deleted row leaked)", live, n)
+	// the deleted v1 row must not be seeded. The live count includes the
+	// session_summary seed rows (one per v1 session) — the assertion is
+	// over the observation-only count.
+	if n := probeInt(t, st,
+		`SELECT COUNT(*) FROM observations WHERE project = 'p' AND deleted_at IS NULL AND type != 'session_summary'`); n != live {
+		t.Fatalf("v2 live observation count must equal the v1 live count (%d); got %d (the deleted row leaked)", live, n)
 	}
 	// the replay ledger carries the v1migrate: observation operation ids
 	// (a re-run is idempotent per source row — Task 6's ledger).
-	if n := probeStore(t, st).ProbeInt(
+	if n := probeInt(t, st, 
 		`SELECT COUNT(*) FROM observation_save_operations WHERE operation_id LIKE 'v1migrate:%' AND operation_id NOT LIKE 'v1migrate:session:%'`); n != live {
 		t.Fatalf("ledger must hold one v1migrate: row per seeded observation; %d of %d", n, live)
 	}
@@ -256,17 +320,22 @@ func TestV1MigrateIdempotent(t *testing.T) {
 		t.Fatalf("migrate 1: %v", err)
 	}
 	st := openTestStoreIn(t, v2dir, "p")
-	before := liveCountIn(t, st, "p")
-	ledBefore := probeStore(t, st).ProbeInt(
+	// The live count includes the session_summary seed rows (one per v1
+	// session) — the brief's seed unit is the observations, so the
+	// idempotency assertion is over the observation-only count.
+	before := probeInt(t, st,
+		`SELECT COUNT(*) FROM observations WHERE project = 'p' AND deleted_at IS NULL AND type != 'session_summary'`)
+	ledBefore := probeInt(t, st,
 		`SELECT COUNT(*) FROM observation_save_operations WHERE operation_id LIKE 'v1migrate:%'`)
 	if before != live {
-		t.Fatalf("after run 1: %d live, want %d", before, live)
+		t.Fatalf("after run 1: %d live observations, want %d", before, live)
 	}
 	if _, err := migrate.Migrate(ctx, v1, v2dir, "p"); err != nil {
 		t.Fatalf("migrate 2: %v", err)
 	}
-	after := liveCountIn(t, st, "p")
-	ledAfter := probeStore(t, st).ProbeInt(
+	after := probeInt(t, st,
+		`SELECT COUNT(*) FROM observations WHERE project = 'p' AND deleted_at IS NULL AND type != 'session_summary'`)
+	ledAfter := probeInt(t, st, 
 		`SELECT COUNT(*) FROM observation_save_operations WHERE operation_id LIKE 'v1migrate:%'`)
 	if after != before {
 		t.Fatalf("re-run must not write new observations: %d -> %d", before, after)
@@ -352,6 +421,9 @@ func TestV1MigrateTypeMapping(t *testing.T) {
 		VALUES ('s', 'p', '', datetime('now'), 'active')`); err != nil {
 		t.Fatalf("v1 session: %v", err)
 	}
+	// One row per v1 type arm, in separate subtests (each subtest runs the
+	// full migrate + probe cycle over its own v1 store — the type mapping
+	// is per-row, so the test is per-row too).
 	rows := []struct{ v1, want string }{
 		{"decision", "decision"},
 		{"architecture", "architecture"},
@@ -359,30 +431,37 @@ func TestV1MigrateTypeMapping(t *testing.T) {
 		{"learning", "discovery"}, // v1-only type → default arm
 		{"epiphany", "discovery"}, // unmapped v1 type → default arm
 	}
-	for i, r := range rows {
-		if _, err := db.Exec(`INSERT INTO observations
-			(session_id, type, title, content, project, scope,
-			 normalized_hash, created_at, updated_at)
-			VALUES ('s', ?, ?, ?, 'p', 'project', 'h' || ?, datetime('now'), datetime('now'))`,
-			r.v1, r.v1+" title "+strconv.Itoa(i), r.v1+" content "+strconv.Itoa(i), i); err != nil {
-			t.Fatalf("v1 insert: %v", err)
-		}
-	}
-	v2dir := t.TempDir()
-	if _, err := migrate.Migrate(ctx, v1, v2dir, "p"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	st := openTestStoreIn(t, v2dir, "p")
 	for _, r := range rows {
-		found, err := probeStore(t, st).Probe(
-			`SELECT COUNT(*) > 0 FROM observations WHERE title = ? AND type = ?`,
-			r.v1+" title", r.want)
-		if err != nil {
-			t.Fatalf("probe %q: %v", r.v1, err)
-		}
-		if !found {
-			t.Fatalf("v1 type %q must map to %q (the seeded row's v2 type)", r.v1, r.want)
-		}
+		t.Run(r.v1, func(t *testing.T) {
+			// fresh v1 store per subtest (the migrate's dedup is
+			// per-v2-store, so a shared v1 store would dedup rows
+			// across subtests).
+			if _, err := db.Exec(`INSERT INTO observations
+				(session_id, type, title, content, project, scope,
+				 normalized_hash, created_at, updated_at)
+				VALUES ('s', ?, ?, ?, 'p', 'project', 'h' || ?, datetime('now'), datetime('now'))`,
+				r.v1, r.v1+" title", r.v1+" content", r.v1); err != nil {
+				t.Fatalf("v1 insert: %v", err)
+			}
+			v2dir := t.TempDir()
+			if _, err := migrate.Migrate(ctx, v1, v2dir, "p"); err != nil {
+				t.Fatalf("migrate: %v", err)
+			}
+			st := openTestStoreIn(t, v2dir, "p")
+			found, err := probeStore(t, st).Probe(
+				`SELECT COUNT(*) > 0 FROM observations WHERE title = ? AND type = ?`,
+				r.v1+" title", r.want)
+			if err != nil {
+				t.Fatalf("probe %q: %v", r.v1, err)
+			}
+			if !found {
+				// The probe is over the v2 store — the seeded row's
+				// title is the v1 title (the seed copies it verbatim),
+				// and its type is the mapped v2 type. A miss is a real
+				// mapping failure.
+				t.Fatalf("v1 type %q must map to %q (the seeded row's v2 type)", r.v1, r.want)
+			}
+		})
 	}
 }
 
@@ -399,16 +478,16 @@ func TestV1DoctorMigrationState(t *testing.T) {
 	c.DataDir = t.TempDir()
 	c.Project.Detect = false
 	st := openTestStoreIn(t, c.DataDir, "p")
-	svc := NewService(st, c, NewEventBus(), nil, nil)
+	svc := memory.NewService(st, c, memory.NewEventBus(), nil, nil)
 	// The doctor's wiring: bind the one-way hook to the service's store
-	// (the migrate package registers the default at init; the doctor's
-	// runtime overrides it with its own store binding — the store's
-	// SetApplyPulledMutationHook pattern).
-	prev := MigrationStateHook
-	MigrationStateHook = func(ctx context.Context, v1Dir, project string) (any, error) {
+	// (the migrate package's SetMigrationStateHook is the one-way wire;
+	// the doctor's runtime overrides it with its own store binding — the
+	// store's SetApplyPulledMutationHook pattern).
+	prev := memory.MigrationStateHook
+	migrate.SetMigrationStateHook(func(ctx context.Context, v1Dir, project string) (any, error) {
 		return migrate.Report(ctx, v1Dir, c.DataDir, project, st)
-	}
-	t.Cleanup(func() { MigrationStateHook = prev })
+	})
+	t.Cleanup(func() { memory.MigrationStateHook = prev })
 	v1dir := t.TempDir()
 	if n := makeV1Store(t, v1dir, "p"); n == 0 {
 		t.Fatal("fixture must have live rows")
