@@ -188,14 +188,15 @@ CREATE TABLE IF NOT EXISTS embed_meta (
 -- ── chunks_fts: the chunk FTS leg (spec 001 §3, CI-INV-1 derived) ──────────
 
 CREATE VIRTUAL TABLE chunks_fts USING fts5(
-	text,
-	tokenize='trigram',
-	content='chunks',
-	content_rowid='id'
+text,
+tokenize='trigram',
+content='chunks',
+content_rowid='id'
 );
 
 CREATE TRIGGER chunks_fts_insert AFTER INSERT ON chunks BEGIN
-	INSERT INTO chunks_fts(rowid, text) VALUES (new.id, new.text);
+	INSERT INTO chunks_fts(rowid, text)
+	VALUES (new.id, new.text);
 END;
 
 CREATE TRIGGER chunks_fts_delete BEFORE DELETE ON chunks BEGIN
@@ -207,20 +208,21 @@ CREATE TRIGGER chunks_fts_update BEFORE UPDATE ON chunks BEGIN
 END;
 
 CREATE TRIGGER chunks_fts_update_insert AFTER UPDATE ON chunks BEGIN
-	INSERT INTO chunks_fts(rowid, text) VALUES (new.id, new.text);
+	INSERT INTO chunks_fts(rowid, text)
+	VALUES (new.id, new.text);
 END;
 
 -- ── symbol_fts: the symbol FTS leg (spec 002 §8, CI-INV-1 derived) ─────────
 
 CREATE VIRTUAL TABLE symbol_fts USING fts5(
-	name,
-	qualified_name,
-	signature,
-	kind,
-	language,
-	tokenize='trigram',
-	content='symbols',
-	content_rowid='id'
+name,
+qualified_name,
+signature,
+kind,
+language,
+tokenize='trigram',
+content='symbols',
+content_rowid='id'
 );
 
 CREATE TRIGGER symbol_fts_insert AFTER INSERT ON symbols BEGIN

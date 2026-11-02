@@ -182,3 +182,88 @@ func likeCount(t *testing.T, st Store, table, column, term string) int {
 	return int(n)
 }
 
+// [fts-unit-reusable] (M-2' fix): RankingWeights renders exactly the weights
+// given, in order — no padding. This pins the shape for a 2-weight call (the
+// code-index FTS legs) and a 7-weight call (the memory change's
+// observations_fts shape) so the no-cap decision is a documented contract.
+func TestRankingWeightsNoCap(t *testing.T) {
+	// 2 weights (code-index chunks_fts: text + content_hash)
+	got := RankingWeights("chunks_fts", 1.0, 0.5)
+	want := "MAX(bm25(chunks_fts, 1.0, 0.5), 1.0)"
+	if got != want {
+		t.Fatalf("2-weight: got %q, want %q", got, want)
+	}
+	// 7 weights (memory observations_fts: title, content, topic_key + 4 boost terms)
+	got7 := RankingWeights("observations_fts", 1.0, 0.8, 0.5, 0.0, 0.0, 0.0, 0.3)
+	want7 := "MAX(bm25(observations_fts, 1.0, 0.8, 0.5, 0.0, 0.0, 0.0, 0.3), 1.0)"
+	if got7 != want7 {
+		t.Fatalf("7-weight: got %q, want %q", got7, want7)
+	}
+}
+
+// [fts-unit-reusable] (F2 fix): the migration 100's FTS DDL + triggers are
+// byte-equal to what FTSDDL renders for the two code-index tables. This is
+// the "the migration + the unit cannot drift" assertion — if someone edits
+// the migration's FTS section by hand, this test catches it. The migration
+// file is the embedded source of truth; FTSDDL is the renderer. They must
+// agree.
+func TestMigration100FTSMatchesUnit(t *testing.T) {
+	// read the embedded migration file
+	b, err := migrationsFS.ReadFile("migrations/100_code_index.sql")
+	if err != nil {
+		t.Fatalf("read migration 100: %v", err)
+	}
+	// split into statements (the same splitter the runner uses)
+	stmts := splitSQLStatements(string(b))
+
+	// extract the FTS statements: the CREATE VIRTUAL TABLE + CREATE TRIGGER
+	// statements for chunks_fts and symbol_fts. They appear in order:
+	// chunks_fts virtual table, 4 chunks_fts triggers, symbol_fts virtual
+	// table, 4 symbol_fts triggers. The splitter may merge a leading --
+	// comment with the SQL (the comment precedes the CREATE VIRTUAL TABLE),
+	// so strip leading comment lines before the CREATE keyword.
+	extract := func(s, prefix string) string {
+		// strip leading -- comment lines (the splitter merges them)
+		idx := strings.Index(s, prefix)
+		if idx < 0 {
+			return ""
+		}
+		return s[idx:]
+	}
+	var chunksFTS, symbolFTS []string
+	for _, s := range stmts {
+		if e := extract(s, "CREATE VIRTUAL TABLE chunks_fts"); e != "" {
+			chunksFTS = append(chunksFTS, e)
+		} else if e := extract(s, "CREATE TRIGGER chunks_fts_"); e != "" {
+			chunksFTS = append(chunksFTS, e)
+		} else if e := extract(s, "CREATE VIRTUAL TABLE symbol_fts"); e != "" {
+			symbolFTS = append(symbolFTS, e)
+		} else if e := extract(s, "CREATE TRIGGER symbol_fts_"); e != "" {
+			symbolFTS = append(symbolFTS, e)
+		}
+	}
+
+	// render via FTSDDL (the unit is the source of truth)
+	chunksRendered := FTSDDL("chunks_fts", "chunks", "id", []string{"text"}, "trigram")
+	symbolRendered := FTSDDL("symbol_fts", "symbols", "id",
+		[]string{"name", "qualified_name", "signature", "kind", "language"}, "trigram")
+
+	// compare: exactly 5 statements each, byte-equal
+	if len(chunksFTS) != 5 {
+		t.Fatalf("chunks_fts: expected 5 FTS statements in migration, got %d", len(chunksFTS))
+	}
+	if len(symbolFTS) != 5 {
+		t.Fatalf("symbol_fts: expected 5 FTS statements in migration, got %d", len(symbolFTS))
+	}
+	for i, s := range chunksFTS {
+		if s != chunksRendered[i] {
+			t.Fatalf("chunks_fts statement %d:\n--- migration ---\n%s\n--- FTSDDL ---\n%s", i, s, chunksRendered[i])
+		}
+	}
+	for i, s := range symbolFTS {
+		if s != symbolRendered[i] {
+			t.Fatalf("symbol_fts statement %d:\n--- migration ---\n%s\n--- FTSDDL ---\n%s", i, s, symbolRendered[i])
+		}
+	}
+}
+

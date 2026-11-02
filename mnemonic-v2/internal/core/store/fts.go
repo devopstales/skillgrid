@@ -43,17 +43,13 @@ func FTSDDL(name, contentTable, contentRowID string, cols []string, tokenize str
 // FTS table with the given per-column weights (T21). The memory store's
 // Search uses this shape (searchRankRelevanceBase in sqlite.go); the KB's
 // kb_pages_fts re-uses it verbatim. The returned SQL fragment is a
-// SELECT-able expression: MAX(bm25(<fts>, w1, w2, ..., 0.0, 0.0, 0.0), 1.0)
-// where the number of weight args matches the FTS column count (one weight
-// per column, zero-padded to the bm25 6-arg shape).
+// SELECT-able expression: MAX(bm25(<fts>, w1, w2, ..., wN), 1.0) where N is
+// exactly len(weights) — one weight per FTS column, in order. The caller
+// owns the weight count (bm25 takes one weight per column; no padding).
 func RankingWeights(ftsTable string, weights ...float64) string {
-	args := make([]string, 0, 6)
-	for i := 0; i < 6; i++ {
-		if i < len(weights) {
-			args = append(args, fmt.Sprintf("%.1f", weights[i]))
-		} else {
-			args = append(args, "0.0")
-		}
+	args := make([]string, len(weights))
+	for i, w := range weights {
+		args[i] = fmt.Sprintf("%.1f", w)
 	}
 	return fmt.Sprintf("MAX(bm25(%s, %s), 1.0)", ftsTable, strings.Join(args, ", "))
 }

@@ -115,8 +115,16 @@ func TestMigrationParityAllVersions(t *testing.T) {
 			if !ok && readErr == nil {
 				t.Fatalf("read %s at v=%s must fail (table absent): it succeeded", name, v)
 			}
-			if !ok && readErr != nil && isMissingColumnErr(readErr) {
-				t.Fatalf("read %s at v=%s: a version mismatch must be a version/table error, never no-such-column: %v", name, v, readErr)
+			if !ok && readErr != nil {
+				// B2 "classified" half: the error must be the missing-TABLE
+				// class (the acceptable version mismatch), never
+				// no-such-column (the v1 bug) or any other class.
+				if isMissingColumnErr(readErr) {
+					t.Fatalf("read %s at v=%s: version mismatch surfaced as no-such-column (v1 bug): %v", name, v, readErr)
+				}
+				if !isMissingTableErr(readErr) {
+					t.Fatalf("read %s at v=%s: version mismatch must be no-such-table, got: %v", name, v, readErr)
+				}
 			}
 		}
 		st.Close()
@@ -131,11 +139,13 @@ func TestMigrationParityAllVersions(t *testing.T) {
 	if err := st.ExecDDL(ctx, []string{"ALTER TABLE symbols ADD COLUMN qualified TEXT"}); err != nil {
 		t.Fatalf("drift fixture: %v", err)
 	}
-	// the drift fixture is a store at 100 (the code-index tables exist); the
-	// `qualified` column is additive and does NOT shadow qualified_name.
+	// the drift fixture is a store at 100 (all tables exist); the `qualified`
+	// column is additive and does NOT shadow qualified_name. Every read must
+	// SUCCEED — the point is that the reads select only their own
+	// migration's columns, so the drifted column is invisible to them.
 	for name, read := range reads {
-		if err := read(st); err != nil && isMissingColumnErr(err) {
-			t.Fatalf("drift fixture: read %s must not fail no-such-column: %v", name, err)
+		if err := read(st); err != nil {
+			t.Fatalf("drift fixture: read %s must succeed (all tables present): %v", name, err)
 		}
 	}
 }
@@ -210,4 +220,17 @@ func isMissingColumnErr(err error) bool {
 		return false
 	}
 	return strings.Contains(strings.ToLower(err.Error()), "no such column")
+}
+
+// isMissingTableErr reports the acceptable version-mismatch class: a
+// missing-TABLE SQL error (SQLite's "no such table"). The parity test
+// asserts that at versions below a table's creating migration, the read
+// fails with THIS class — a positive assertion that the error is the
+// classified version-mismatch, not some other failure (a constraint error,
+// a missing index, etc.).
+func isMissingTableErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "no such table")
 }
