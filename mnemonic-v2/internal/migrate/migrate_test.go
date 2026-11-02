@@ -283,7 +283,7 @@ func TestV1SeedImport(t *testing.T) {
 	}
 	// the replay ledger carries the v1migrate: observation operation ids
 	// (a re-run is idempotent per source row — Task 6's ledger).
-	if n := probeInt(t, st, 
+	if n := probeInt(t, st,
 		`SELECT COUNT(*) FROM observation_save_operations WHERE operation_id LIKE 'v1migrate:%' AND operation_id NOT LIKE 'v1migrate:session:%'`); n != live {
 		t.Fatalf("ledger must hold one v1migrate: row per seeded observation; %d of %d", n, live)
 	}
@@ -335,7 +335,7 @@ func TestV1MigrateIdempotent(t *testing.T) {
 	}
 	after := probeInt(t, st,
 		`SELECT COUNT(*) FROM observations WHERE project = 'p' AND deleted_at IS NULL AND type != 'session_summary'`)
-	ledAfter := probeInt(t, st, 
+	ledAfter := probeInt(t, st,
 		`SELECT COUNT(*) FROM observation_save_operations WHERE operation_id LIKE 'v1migrate:%'`)
 	if after != before {
 		t.Fatalf("re-run must not write new observations: %d -> %d", before, after)
