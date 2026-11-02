@@ -146,8 +146,9 @@ func (e *transportSchemaError) Error() string {
 // one is refused (the seam enforces the batch cap, spec 006 §3).
 func TestPushAcksSeq(t *testing.T) {
 	tr := newFakeTransport(t)
+	st := openTestStore(t)
 
-	acked, err := Push(ctx, tr, "p", makeMutations(100)) // exactly the batch cap
+	acked, err := Push(ctx, st, tr, "p", makeMutations(100)) // exactly the batch cap
 	if err != nil {
 		t.Fatalf("push 100: %v", err)
 	}
@@ -164,7 +165,7 @@ func TestPushAcksSeq(t *testing.T) {
 	}
 
 	// a batch over the cap is refused (the transport never receives it).
-	if _, err := Push(ctx, tr, "p", makeMutations(101)); err == nil {
+	if _, err := Push(ctx, st, tr, "p", makeMutations(101)); err == nil {
 		t.Fatalf(">100 batch must be refused")
 	}
 	// and it wrote nothing: the bucket is still 100 rows.
@@ -180,7 +181,8 @@ func TestPushAcksSeq(t *testing.T) {
 // path, so it must not error.
 func TestPushEmptyOutbox(t *testing.T) {
 	tr := newFakeTransport(t)
-	acked, err := Push(ctx, tr, "p", nil)
+	st := openTestStore(t)
+	acked, err := Push(ctx, st, tr, "p", nil)
 	if err != nil {
 		t.Fatalf("push empty: %v", err)
 	}

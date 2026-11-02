@@ -74,6 +74,15 @@ func installSharedStore(t *testing.T, tr memory.MutationTransport) store.Store {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
+	// the test keeps its own pool ref so the commands' Close does not
+	// drop the last ref and close the shared handle (the pool is
+	// refcounted by the sqlite path — the commands each open + close
+	// their own ref).
+	ref, err := store.Open(context.Background(), dataDir, "p", store.SQLite, "")
+	if err != nil {
+		t.Fatalf("open ref: %v", err)
+	}
+	t.Cleanup(func() { ref.Close() })
 	seam := st.(store.SyncSeam)
 	seam.SetSyncEnabled(true)
 	if err := seam.SetEnrolledForTest("p"); err != nil {
@@ -128,7 +137,7 @@ func TestSyncPullApplies(t *testing.T) {
 	st := installSharedStore(t, &testPGTransport{seeded: []store.Mutation{
 		{Seq: 1, TargetKey: "cloud", Entity: "observation", EntityKey: "obs-pull-cli", Op: "upsert",
 			Payload: `{"sync_id":"obs-pull-cli","session_id":"s","type":"decision","title":"Pulled via CLI","content":"pulled content","project":"p","scope":"project"}`,
-			Source: "remote", Project: "p"},
+			Source:  "remote", Project: "p"},
 	}})
 	out, code := captureRun(t, "sync", "pull", "--project", "p")
 	if code != exitOK {
