@@ -102,6 +102,12 @@ const v1TypeDefault = "discovery"
 // v1 live observations in id order through Service.Save. Returns the
 // report; an open failure (no v1 store) is an error, a per-row save
 // failure is a report entry.
+//
+// Sync-state cutover: the v1 sync state (enrollment, cursor, outbox) is
+// dropped at cutover — v2 starts with a fresh outbox and no enrollment,
+// and the seed saves journal nothing (sync journaling is off by default).
+// A re-migration stays idempotent via the replay ledger regardless
+// (OpIDPrefix).
 func Migrate(ctx context.Context, v1Dir, v2DataDir, project string) (MigrateReport, error) {
 	v1Path := filepath.Join(v1Dir, project+".sqlite")
 	if fi, err := os.Stat(v1Path); err != nil {

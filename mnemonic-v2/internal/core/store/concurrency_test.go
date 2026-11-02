@@ -58,6 +58,11 @@ const concurrentWorkerSaves = 20
 // holds every worker row and every parent row, and the file pings
 // clean — no lost write, no corruption on either side (the worker's
 // exit code is the worker-side proof).
+//
+// The guarantee here is that two real OS processes share the file;
+// interleaving is NOT enforced (the parent can write all 10 rows after
+// the worker finished its 20 — still a two-process test, possibly
+// serialized), and the assertions are order-independent on counts.
 func TestConcurrentProcessWAL(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()
@@ -101,6 +106,14 @@ func TestConcurrentProcessWAL(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start worker: %v", err)
 	}
+	// Kill the worker if the parent fails before reaping it (a t.Fatal in
+	// the loop below would otherwise leak the child holding the file).
+	finished := false
+	t.Cleanup(func() {
+		if !finished {
+			_ = cmd.Process.Kill()
+		}
+	})
 	for i := 1; i <= 10; i++ {
 		if _, err := st.AddObservation(ctx, AddObservationParams{
 			SessionID: parentSession, Type: "decision",
@@ -124,9 +137,11 @@ func TestConcurrentProcessWAL(t *testing.T) {
 		if err != nil {
 			t.Fatalf("worker process failed: %v\nworker stderr:\n%s", err, stderr.String())
 		}
+		finished = true
 	case <-time.After(120 * time.Second):
 		_ = cmd.Process.Kill()
 		<-done
+		finished = true
 		t.Fatalf("worker did not finish within 120 s\nworker stderr:\n%s", stderr.String())
 	}
 
