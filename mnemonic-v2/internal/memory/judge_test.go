@@ -5,10 +5,13 @@ package memory
 // triangulation inputs (already-judged idempotence, batch bounds).
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/config"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/store"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/intelligence/llm"
 )
@@ -91,6 +94,56 @@ func TestJudgeManyOneTransaction(t *testing.T) {
 	if _, err := svc.JudgeMany(ctx, makeJudgeRequests(ids33(t, svc.st), "not_conflict")); err == nil {
 		t.Fatalf("33 judgments must fail (1–32)")
 	}
+}
+
+// [judge-many-failsafe] a store whose one-transaction JudgeMany seam is
+// unavailable refuses the batch as ONE failed write (fix round 3: the
+// per-judgment fallback committed one transaction per judgment, violating
+// "one queued write = one transaction" — fail-safe over silent
+// N-transaction degradation). No judgment of the batch commits: the
+// batch is a single write, so a failed batch leaves the pending rows
+// pending.
+func TestJudgeManyFailsWithoutSeam(t *testing.T) {
+	st := openTestStoreIn(t, t.TempDir(), "p")
+	t.Cleanup(func() { st.Close() })
+	// The "future adapter without the seam" is modeled by a store whose
+	// JudgeMany errors (the seam's contract: run the batch in ONE
+	// transaction; when it cannot, it reports and nothing commits).
+	svc := NewService(stripStore{st}, defaultTestConfig(t), NewEventBus(), nil, nil)
+	ids := seedPendingRelations(t, st, "p", testSession, 2)
+	_, err := svc.JudgeMany(ctx, makeJudgeRequests(ids, "refines"))
+	if err == nil {
+		t.Fatal("judge_many on a store without a working JudgeMany seam must fail (one-transaction guarantee), got nil")
+	}
+	if !errors.Is(err, errSeamMissing) {
+		t.Fatalf("the refusal must carry the seam error, got: %v", err)
+	}
+	if n := pendingCount(t, st); n != 2 {
+		t.Fatalf("a failed batch must commit NOTHING (no per-judgment partial writes): %d pending left, want 2", n)
+	}
+}
+
+// stripStore delegates to Store but shadows JudgeMany with the no-seam
+// sentinel: the type assertion matches (the embedded interface re-exposes
+// the method), and the seam call reports the unavailable one-transaction
+// batch — the same contract a future dialect without it fulfils: fail,
+// and commit nothing.
+type stripStore struct{ store.Store }
+
+func (s stripStore) JudgeMany(ctx context.Context, rs []JudgeRequest, base store.JudgeParams) ([]store.Relation, error) {
+	return nil, errSeamMissing
+}
+
+// errSeamMissing is the no-seam sentinel for the fail-safe test.
+var errSeamMissing = errors.New("store: JudgeMany single-transaction seam missing")
+
+// defaultTestConfig is the test config (Detect off — no git shell-out).
+func defaultTestConfig(t *testing.T) config.Config {
+	t.Helper()
+	c := config.Default()
+	c.DataDir = t.TempDir()
+	c.Project.Detect = false
+	return c
 }
 
 // [compare-idempotent] an LLM compare creates a judged relation (system

@@ -10,10 +10,11 @@ import (
 )
 
 // agentProfileTools are spec 004-transport-mcp §3's | agent | rows, pinned
-// literally: 18 distinct tool names (the table's 22 agent rows count
-// mem_pin / mem_unpin as two names — R-1, fix round 1: the brief's "20" was
-// a row-count slip, the authority is the spec table). Order is irrelevant;
-// membership + count are the contract.
+// literally: 22 distinct tool names (the table's 21 agent rows; the
+// `mem_pin / mem_unpin` row carries two names — fix round 3: the
+// round-1 comment's "18 distinct names" was wrong, the literal set is the
+// authority and it holds all 22). Order is irrelevant; membership +
+// count are the contract.
 var agentProfileTools = []string{
 	"mem_save",
 	"mem_search",
@@ -66,10 +67,11 @@ func TestMemToolContract(t *testing.T) {
 			t.Errorf("admin tool %s leaked into agent profile", admin)
 		}
 	}
-	// The agent profile is exactly the agentProfileTools set: 18 tool names
-	// — spec 004-transport-mcp §3's | agent | rows (R-1: the table's 22
-	// rows / the brief's "20" is a row-count slip; the pin is the literal
-	// name set, which the table names as 18 + the 6 admin names = 24).
+	// The agent profile is exactly the agentProfileTools set: 22 distinct
+	// tool names — spec 004-transport-mcp §3's | agent | rows (21 rows;
+	// pin/unpin is one row with two names). The brief's "20" and the
+	// round-1 comment's "18" were both count slips; the literal name set
+	// is what K5 protects.
 	if len(tools) != len(agentProfileTools) {
 		t.Fatalf("agent profile must expose exactly the %d agent tools, got %d", len(agentProfileTools), len(tools))
 	}
@@ -83,9 +85,9 @@ func TestMemToolContract(t *testing.T) {
 }
 
 // TestAllProfileIsAgentPlusAdmin triangulates the other profile: the All
-// profile is exactly agent ∪ admin (24 tools — spec 004-transport-mcp §3's
-// full table), pinning the "all = agent + admin" composition so a future
-// edit cannot add a tool to only one side.
+// profile is exactly agent ∪ admin (28 tools — spec 004-transport-mcp §3's
+// full table: 22 agent names + 6 admin), pinning the "all = agent + admin"
+// composition so a future edit cannot add a tool to only one side.
 func TestAllProfileIsAgentPlusAdmin(t *testing.T) {
 	s := NewServer(newTestHandler(t), All)
 	tools := s.ToolNames()

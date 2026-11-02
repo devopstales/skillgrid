@@ -2,7 +2,7 @@ package mcp
 
 // server.go — the MCP stdio server: the primary agent interface (spec
 // 004-transport-mcp §1). A Server is a thin adapter over the shared
-// handler: it registers the profile-filtered tool set (K5: 20 agent /
+// handler: it registers the profile-filtered tool set (K5: 22 agent /
 // 6 admin), dispatches tool calls through the write queue (writes) or
 // directly (reads), and wraps every result in the D1 envelope.
 //
@@ -31,7 +31,7 @@ const (
 	// Agent is the 18-tool agent profile (spec 004-transport-mcp §3's
 	// | agent | rows — R-1, fix round 1).
 	Agent Profile = "agent"
-	// All is the 24-tool profile (agent + the 6 admin tools).
+	// All is the 28-tool profile (agent + the 6 admin tools).
 	All Profile = "all"
 )
 
@@ -65,7 +65,7 @@ type Server struct {
 }
 
 // NewServer builds an MCP server over the shared handler. The profile
-// selects the tool set (Agent = 18 tools, All = 24 tools — spec
+// selects the tool set (Agent = 22 tools, All = 28 tools — spec
 // 004-transport-mcp §3's literal name sets, R-1).
 func NewServer(h *handler.Handler, profile Profile) *Server {
 	s := &Server{

@@ -249,23 +249,23 @@ func TestJudgeManyWritesOnceInQueue(t *testing.T) {
 	}
 }
 
-// TestCurrentProjectReturnsDetectorResolution (fix round 1, IMPORTANT #1)
-// pins that mem_current_project returns the detector's resolution, not a
-// hardcoded fixture: the test handler's detector resolves to testProject
-// ("p" by fixture, but the point is it comes from the detector, not a
-// literal), and an explicit selector wins.
+// TestCurrentProjectReturnsDetectorResolution (fix round 1, IMPORTANT #1;
+// round 3: distinct fixture) pins that mem_current_project returns the
+// detector's resolution, not a hardcoded literal: this test's detector
+// resolves to distinctProject ("fixture-project" — NOT the pre-fix "p"
+// literal, and NOT the shared testProject), so a regression to the
+// literal "p" fails the assertion. An explicit selector wins.
 func TestCurrentProjectReturnsDetectorResolution(t *testing.T) {
-	s := NewServer(newTestHandler(t), Agent)
-	// No explicit → the detector's chain (the fixture resolves to "p", but
-	// the assertion is that it is the detector's answer, not a literal —
-	// a different detector would yield a different project).
+	s := NewServer(newTestHandlerDistinctProject(t), Agent)
+	// No explicit → the detector's chain (resolves to distinctProject, a
+	// value distinct from the pre-fix "p" literal).
 	out := s.CallTool(ctx, "mem_current_project", map[string]any{})
 	var env map[string]any
 	if err := json.Unmarshal(out, &env); err != nil {
 		t.Fatalf("envelope is not JSON: %v (%s)", err, out)
 	}
-	if env["project"] != testProject {
-		t.Fatalf("mem_current_project = %v, want the detector's %q", env["project"], testProject)
+	if env["project"] != distinctProject {
+		t.Fatalf("mem_current_project = %v, want the detector's %q (not the pre-fix literal)", env["project"], distinctProject)
 	}
 	// An explicit selector wins over the detector.
 	out2 := s.CallTool(ctx, "mem_current_project", map[string]any{"project": "explicit-wins"})

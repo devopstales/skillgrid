@@ -67,6 +67,31 @@ func newTestHandlerNoDetector(t *testing.T) *handler.Handler {
 	return handler.NewHandler(memory.NewService(st, c, memory.NewEventBus(), nil, nil), c, nil)
 }
 
+// distinctProject is the detector fixture's resolution for
+// TestCurrentProjectReturnsDetectorResolution — deliberately NOT testProject
+// ("p", the pre-fix hardcoded literal) so a regression to the literal fails
+// the test (fix round 3: the round-1 fixture resolved to testProject, the
+// same value the broken code returned, so the test passed against both).
+const distinctProject = "fixture-project"
+
+// newTestHandlerDistinctProject builds a Handler whose detector resolves to
+// distinctProject (only this test's fixture uses it — the shared
+// testProject is untouched, the other tests depend on it).
+func newTestHandlerDistinctProject(t *testing.T) *handler.Handler {
+	t.Helper()
+	c := config.Default()
+	c.DataDir = t.TempDir()
+	c.Project.Detect = false
+	st := openTestStore(t, t.TempDir())
+	det := &detectorStub{resolve: func(cwd, explicit string) (string, error) {
+		if explicit != "" {
+			return explicit, nil
+		}
+		return distinctProject, nil
+	}}
+	return handler.NewHandler(memory.NewService(st, c, memory.NewEventBus(), nil, nil), c, det)
+}
+
 // saveArgs builds one valid mem_save arg set (the queue tests' input).
 func saveArgs(i int) map[string]any {
 	return map[string]any{

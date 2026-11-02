@@ -4,7 +4,7 @@ package mcp
 // 004-transport-mcp §3) + their dispatch fns. Each tool is: parse args →
 // Handler call → the dispatch fn returns the result (the server wraps it
 // in the envelope). The profile (Agent/All) filters which tools are
-// registered (K5: 20 agent / 6 admin, the spec table's literal rows).
+// registered (K5: 22 agent / 6 admin, the spec table's literal rows).
 //
 // This file is the MCP adapter's tool surface — the CLI (Task 14) has its
 // own adapter over the same Handler. The tool definitions here are the
@@ -25,7 +25,7 @@ type toolEntry struct {
 }
 
 // toolSet returns the profile-filtered tool set (K5: spec
-// 004-transport-mcp §3's literal rows — 18 agent + 6 admin names, R-1).
+// 004-transport-mcp §3's literal rows — 22 agent + 6 admin names).
 func (s *Server) toolSet() []toolEntry {
 	entries := []toolEntry{
 		{name: "mem_save", def: memSaveTool(), isWrite: true},
