@@ -90,6 +90,13 @@ type FileGraph struct {
 	Edges      []Edge
 	Unresolved []UnresolvedRef
 	Chunks     []Chunk
+	// Oversized is true when the file was skipped for being over the max
+	// size (the driver counts it in files_oversized, not silent — T1). The
+	// zero value (false) means "not oversized" so a test double that doesn't
+	// set it is treated as a normal indexed file. An additive data field
+	// (not a Store method — the D2 door is about interface methods, not this
+	// shape).
+	Oversized bool
 }
 
 // FreshnessRecord is the one `index_freshness` row (spec 001 §4 — the

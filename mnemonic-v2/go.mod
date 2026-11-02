@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/lib/pq v1.12.3
 	github.com/mark3labs/mcp-go v1.5.0
+	github.com/odvcencio/gotreesitter v0.55.1
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.61.1
 )

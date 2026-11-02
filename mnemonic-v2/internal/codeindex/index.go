@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/devopstales/skillgrid/mnemonic-v2/internal/codeindex/extract"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/store"
 )
 
@@ -64,12 +65,16 @@ type IndexReport struct {
 // failure returns an error (the run is not partial-silent); the watch
 // loop's failure isolation (TICKET-06) is the caller's concern.
 func Index(ctx context.Context, root string, st store.Store, opts IndexOpts) (IndexReport, error) {
-	if opts.ExtractFn == nil {
-		return IndexReport{}, fmt.Errorf("codeindex.Index: ExtractFn is required (the extraction ladder is TICKET-03)")
+	// The ExtractFn seam (TICKET-01's test double, TICKET-03's real ladder):
+	// a nil ExtractFn defaults to the real 3-tier ladder (TICKET-03 wires it
+	// in; the store-level tests still inject a test double).
+	fn := opts.ExtractFn
+	if fn == nil {
+		fn = extract.DefaultExtractFn
 	}
 	stamp := opts.Stamp
 	if stamp == "" {
-		stamp = "v2-task1"
+		stamp = extract.Stamp() // D-STAMP: the real content hash (TICKET-03)
 	}
 	var rep IndexReport
 
@@ -131,9 +136,17 @@ func Index(ctx context.Context, root string, st store.Store, opts IndexOpts) (In
 			continue
 		}
 
-		g, err := opts.ExtractFn(rel, string(content))
+		g, err := fn(rel, string(content))
 		if err != nil {
 			return rep, fmt.Errorf("codeindex.Index: extract %s: %w", rel, err)
+		}
+		// The oversized outcome (T1): a file over the max is not indexed —
+		// counted in files_oversized, not silent. The ladder marks it via the
+		// graph's Oversized flag; the driver counts it (a zero-value graph
+		// from a test double has Oversized=false → treated as indexed).
+		if g.Oversized {
+			rep.FilesOversized++
+			continue
 		}
 
 		// K1: the five per-file writes in ONE tx — all commit or all roll
