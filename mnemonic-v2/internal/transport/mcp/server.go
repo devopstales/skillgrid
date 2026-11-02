@@ -267,26 +267,12 @@ func toolError(code, message string) map[string]any {
 }
 
 // wrapEnvelope merges a result with the degradation state (the D1
-// envelope: result fields + degraded/degraded_reason when degraded).
+// envelope: result fields + degraded/degraded_reason when degraded). The
+// degradation extraction is envelope.ExtractDegraded (the shared K6 seam —
+// the same call the CLI adapter makes, so the flag never diverges).
 func wrapEnvelope(result any) (map[string]any, error) {
-	degraded, reason := extractDegraded(result)
+	degraded, reason := envelope.ExtractDegraded(result)
 	return envelope.WithDegraded(result, degraded, reason)
-}
-
-// extractDegraded inspects a result for the degraded flag (the service
-// result types carry Degraded bool; the envelope surfaces it).
-func extractDegraded(result any) (bool, string) {
-	b, _ := json.Marshal(result)
-	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
-		return false, ""
-	}
-	d, _ := m["degraded"].(bool)
-	reason, _ := m["degraded_reason"].(string)
-	if d && reason == "" {
-		reason = "intelligence seam absent (deterministic floor ran)"
-	}
-	return d, reason
 }
 
 // ToolSchema is the test-hook shape for a tool's input schema.

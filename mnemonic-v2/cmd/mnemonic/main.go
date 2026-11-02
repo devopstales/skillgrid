@@ -337,7 +337,7 @@ func finish(fs *flag.FlagSet, jsonOut bool, r dispatchResult) int {
 	if jsonOut {
 		// The K6 seam: the --json output IS the envelope (the same
 		// marshal the MCP tools use — the byte-identical contract).
-		degraded, reason := extractDegraded(r.result)
+		degraded, reason := envelope.ExtractDegraded(r.result)
 		env, err := envelope.WithDegraded(r.result, degraded, reason)
 		if err != nil {
 			fmt.Fprintf(outW(), "error: [internal_error] %s\n", err.Error())
@@ -365,23 +365,6 @@ func mustMarshal(v any) string {
 		return `{"error":true,"code":"internal_error","message":"envelope marshal failed"}`
 	}
 	return string(b)
-}
-
-// extractDegraded inspects a result for the degraded flag (the service
-// result types carry Degraded bool; the envelope surfaces it — the same
-// mapping the MCP adapter runs, so the flag is identical across surfaces).
-func extractDegraded(result any) (bool, string) {
-	b, _ := jsonMarshal(result)
-	var m map[string]any
-	if err := jsonUnmarshal(b, &m); err != nil {
-		return false, ""
-	}
-	d, _ := m["degraded"].(bool)
-	reason, _ := m["degraded_reason"].(string)
-	if d && reason == "" {
-		reason = "intelligence seam absent (deterministic floor ran)"
-	}
-	return d, reason
 }
 
 // printHuman renders a result as human-readable text (the default
@@ -445,5 +428,3 @@ func gitOutput(dir string, args ...string) (string, error) {
 func runGit(args []string) ([]byte, error) {
 	return exec.Command("git", args...).Output()
 }
-
-

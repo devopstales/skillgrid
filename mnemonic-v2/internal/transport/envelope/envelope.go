@@ -146,6 +146,28 @@ func WithDegraded(result any, degraded bool, reason string) (map[string]any, err
 	return m, nil
 }
 
+// ExtractDegraded inspects a result for the degradation flag (the service
+// result types carry `Degraded bool`; the envelope surfaces it). The two
+// adapters over one Handler — the MCP server and the CLI — both run this
+// before WithDegraded, so the degraded flag + reason are identical across
+// surfaces (the K6 seam: the extraction is owned here, not re-implemented
+// in each adapter). A result without the flag is not degraded; the default
+// reason is supplied here (INV-3: never a silent floor) so the caller never
+// re-derives it.
+func ExtractDegraded(result any) (bool, string) {
+	b, _ := json.Marshal(result)
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		return false, ""
+	}
+	d, _ := m["degraded"].(bool)
+	reason, _ := m["degraded_reason"].(string)
+	if d && reason == "" {
+		reason = "intelligence seam absent (deterministic floor ran)"
+	}
+	return d, reason
+}
+
 // snakeKeys recursively normalizes a JSON value's object keys to snake_case
 // (the Go CamelCase → wire snake_case mapping). Non-object values pass
 // through; nested objects/arrays are normalized recursively.

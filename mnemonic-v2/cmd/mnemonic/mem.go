@@ -114,6 +114,23 @@ func errExit(format string, args ...any) int {
 	return exitUsage
 }
 
+// rejectAll refuses --all on the read commands until the cross-project
+// store lands (the per-project fan-out is TICKET-16, the task that owns
+// the cross-project registry). Today --all would silently resolve to the
+// current project (one project's rows) — a worse bug than a loud usage
+// error. explicit + --all is the pinned project.ErrAllWithProject; a bare
+// --all names the deferred fan-out and points at --project. Returns the
+// usage message ("" to proceed).
+func rejectAll(pf projectFlag) string {
+	if !pf.all {
+		return ""
+	}
+	if pf.project != "" {
+		return project.ErrAllWithProject.Error()
+	}
+	return "mem: --all fan-out is not yet wired (the cross-project store is pending); use --project <name> to read one project"
+}
+
 // memSave runs `mem save`.
 func memSave(fl config.Flags, cwd string, args []string) int {
 	fs := flag.NewFlagSet("mem save", flag.ContinueOnError)
@@ -181,16 +198,11 @@ func memSearch(fl config.Flags, cwd string, args []string) int {
 	if query == "" {
 		return errExit("mem search: a query is required")
 	}
-	// spec 005-transport-cli §3: an explicit project + --all is a
-	// usage error (the detector owns the pinned error; the CLI surfaces
-	// it).
-	if pf.all && pf.project != "" {
-		det := project.Detector{EnvVar: config.EnvProject}
-		if _, err := det.ResolveWithAll("", pf.project, true, func(string) (string, error) {
-			return "", os.ErrNotExist
-		}); err != nil {
-			return errExit("%s", err.Error())
-		}
+	// --all is refused until the cross-project store lands (rejectAll):
+	// an explicit project + --all is the pinned usage error, a bare --all
+	// names the deferred fan-out.
+	if msg := rejectAll(pf); msg != "" {
+		return errExit("%s", msg)
 	}
 	h, st, err := openRuntime(cwd, fl, pf.project)
 	if err != nil {
@@ -198,13 +210,7 @@ func memSearch(fl config.Flags, cwd string, args []string) int {
 		return exitErr
 	}
 	defer st.Close()
-	f := handler.SearchFilters{Type: typ, Scope: scope, MatchMode: matchMode, Limit: limit}
-	if pf.all {
-		f.AllProjects = true
-	}
-	if !pf.all {
-		f.Project = pf.project
-	}
+	f := handler.SearchFilters{Type: typ, Scope: scope, MatchMode: matchMode, Limit: limit, Project: pf.project}
 	res, err := h.Search(context.Background(), query, f)
 	return finish(fs, *jsonOut, dispatchResult{result: res, err: err})
 }
@@ -235,6 +241,9 @@ func memGet(fl config.Flags, cwd string, args []string) int {
 	if id == 0 && syncID == "" {
 		return errExit("mem get: --id or --sync-id (or a positional id) is required")
 	}
+	if msg := rejectAll(pf); msg != "" {
+		return errExit("%s", msg)
+	}
 	h, st, err := openRuntime(cwd, fl, pf.project)
 	if err != nil {
 		fmt.Fprintf(outW(), "error: %s\n", err.Error())
@@ -264,6 +273,9 @@ func memLookup(fl config.Flags, cwd string, args []string) int {
 	}
 	if id == 0 && syncID == "" && topicKey == "" && phrase == "" {
 		return errExit("mem lookup: --id, --sync-id, --topic-key or --phrase is required")
+	}
+	if msg := rejectAll(pf); msg != "" {
+		return errExit("%s", msg)
 	}
 	h, st, err := openRuntime(cwd, fl, pf.project)
 	if err != nil {
@@ -310,6 +322,9 @@ func memReview(fl config.Flags, cwd string, args []string) int {
 	if err := fs.Parse(reorderArgs(args)); err != nil {
 		return exitUsage
 	}
+	if msg := rejectAll(pf); msg != "" {
+		return errExit("%s", msg)
+	}
 	h, st, err := openRuntime(cwd, fl, pf.project)
 	if err != nil {
 		fmt.Fprintf(outW(), "error: %s\n", err.Error())
@@ -336,6 +351,7 @@ func memTimeline(fl config.Flags, cwd string, args []string) int {
 	}
 	// R-2: the service method is not yet exposed — a degraded envelope,
 	// never a healthy empty one (the same shape the MCP tool renders).
+	// TODO(TICKET-16): wire timeline to the handler.
 	res := map[string]any{
 		"degraded":        true,
 		"degraded_reason": "timeline: service not yet wired",
@@ -565,6 +581,9 @@ func memStats(fl config.Flags, cwd string, args []string) int {
 	jsonOut := jsonFlag(fs)
 	if err := fs.Parse(reorderArgs(args)); err != nil {
 		return exitUsage
+	}
+	if msg := rejectAll(pf); msg != "" {
+		return errExit("%s", msg)
 	}
 	h, st, err := openRuntime(cwd, fl, pf.project)
 	if err != nil {

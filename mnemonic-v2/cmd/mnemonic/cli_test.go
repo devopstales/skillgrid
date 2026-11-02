@@ -24,9 +24,6 @@ import (
 func testCtx() context.Context { return context.Background() }
 
 // stubDetector is the fixed detector the CLI test fixtures use (no git
-// shell-out): an explicit selector passes through, otherwise it resolves
-// to the fixture project.
-// stubDetector is the fixed detector the CLI test fixtures use (no git
 // shell-out): it wraps the real project.Detector (so the env var and the
 // chain still apply) but passes a no-op git binding (no repository in
 // the temp dirs). The tests that need the fixture project pass it
@@ -97,14 +94,33 @@ func TestCLIProjectSelection(t *testing.T) {
 	}
 }
 
-// TestCLIAllReadsEveryProject [cli-project-selection] triangulation:
-// --all alone (no explicit project) must NOT be a usage error — it runs
-// the per-project fan-out.
-func TestCLIAllReadsEveryProject(t *testing.T) {
+// TestCLIAllFanoutNotWired [cli-project-selection] fix round 1: --all
+// alone (no explicit project) is a usage error until the cross-project
+// store lands — it must NOT silently resolve to the current project (one
+// project's rows). The message names the deferred fan-out and points at
+// --project.
+func TestCLIAllFanoutNotWired(t *testing.T) {
 	t.Setenv("MNEMONIC_PROJECT", "envproj")
-	err := runCLIError(t, "mem", "search", "q", "--all")
-	if err != nil {
-		t.Fatalf("--all alone must not be a usage error: %v", err)
+	out, code := captureRun(t, "mem", "search", "q", "--all")
+	if code != exitUsage {
+		t.Fatalf("bare --all on a read command must be a usage error (exit 2), got %d (output: %s)", code, out)
+	}
+	if !strings.Contains(out, "--all") || !strings.Contains(out, "not yet wired") {
+		t.Fatalf("the usage error must name --all and the deferred fan-out: %s", out)
+	}
+}
+
+// TestCLIAllFanoutNotWiredGet [cli-project-selection] triangulation: the
+// rejection is per read command, not search-specific — --all on `mem get`
+// is refused the same way (it too would silently resolve to one project).
+func TestCLIAllFanoutNotWiredGet(t *testing.T) {
+	t.Setenv("MNEMONIC_PROJECT", "envproj")
+	out, code := captureRun(t, "mem", "get", "--id", "1", "--all")
+	if code != exitUsage {
+		t.Fatalf("--all on mem get must be a usage error (exit 2), got %d (output: %s)", code, out)
+	}
+	if !strings.Contains(out, "not yet wired") {
+		t.Fatalf("the usage error must name the deferred fan-out: %s", out)
 	}
 }
 
