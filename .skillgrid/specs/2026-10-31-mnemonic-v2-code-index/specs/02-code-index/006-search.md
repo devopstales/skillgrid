@@ -14,7 +14,8 @@ KB (the `code_search` read the KB can use to find a code span to cite).
 `code_search` is the **"prefer over grep"** tool — the agent's primary way to find code
 in the index. It is a **hybrid** of three legs, fused by RRF (Reciprocal Rank Fusion).
 The v1 `code_hybrid_search` (RRF K=60) is the model; v2 keeps the fusion, **simplifies
-the deterministic leg**, and **keeps the v1 multi-store vector architecture** (CI-8).
+the deterministic leg**, and ships the **wired 3-index vector store** (D-CI8: BLOB +
+vec0 + HNSW + brute-force floor; LSH/IVF dropped from the v2 claim — §4).
 
 The three legs:
 

@@ -347,30 +347,26 @@ re-work — the seam is additive.
 
 ## Execution-dependency gate (serial development)
 
-The code-index **depends on the memory change's foundation**, which is mid-execution
-(only `internal/core/store` + `internal/core/syncid` are built as of 2026-11-01;
-commits `15e009e1`…`36e1dd86`). The code-index's "Depends on" (spec 000) names:
+> **Status (amended 2026-11-02, T0): the gate is SATISFIED.** The memory change shipped
+> 2026-11-02 (20/20 tickets, QA PASS, archived to `.skillgrid/archive/2026-10-31-mnemonic-v2-memory/`).
+> Every foundation piece below is **Built** — the code-index change is unblocked and is
+> `current_change`. The original 2026-11-01 table is kept as history.
 
-| Foundation piece | Memory change status | Code-index tasks that need it |
+The code-index **depends on the memory change's foundation** (as of 2026-11-01 only
+`internal/core/store` + `internal/core/syncid` were built; commits `15e009e1`…`36e1dd86`):
+
+| Foundation piece | Status (2026-11-02, post-ship) | Code-index tasks that need it |
 |---|---|---|
-| `Store` interface + `SQLiteStore` (`internal/core/store`) | **Built** (TICKET-01/02) | All (the 7 tables are additive migrations on this store) |
+| `Store` interface + `SQLiteStore` (`internal/core/store`) | **Built** (memory TICKET-01/02) | All (the 7 content + 2 FTS tables are additive migrations on this store) |
 | `syncid` (INV-6) | **Built** | `files.sync_id`, `symbols.sync_id` minting |
-| `internal/intelligence` (Embedder seam + degrade) | **Not built** (memory TICKET-03) | The semantic leg, the model-swap guard, `degraded: no_vector` |
-| `internal/core/config` + `internal/core/project` | **Not built** (memory TICKET-04) | `MaxFileSize`, include/exclude, debounce, project detection |
-| `internal/transport/mcp` (one server, profiles, write queue) | **Not built** (memory TICKET-13) | The `code_*` family transport (D-PROFILE), the `code_index` queued write |
-| `cmd/mnemonic` (CLI dispatch) | **Not built** (memory) | The `mnemonic index/search/…` CLI group |
+| `internal/intelligence` (Embedder seam + degrade) | **Built** (memory TICKET-03) | The semantic leg, the model-swap guard, `degraded: no_vector` |
+| `internal/core/config` + `internal/core/project` | **Built** (memory TICKET-04) | `MaxFileSize`, include/exclude, debounce, project detection |
+| `internal/transport/mcp` (one server, profiles, write queue) | **Built** (memory TICKET-13) | The `code_*` family transport (D-PROFILE), the `code_index` queued write |
+| `cmd/mnemonic` (CLI dispatch) | **Built** (memory) | The `mnemonic index/search/…` CLI group |
 
-**Policy (per the user's "plan full; execute after memory ships" call):** the blueprint
-is written **in full** (all 9 spec areas → tasks), but its **first-wave tasks that touch the
-not-yet-built foundation** (the `Store` interface *extension* for code-index methods, the
-`code_*` transport, the semantic leg) are **precondition-gated**: they declare "blocked by
-memory change complete" and do not execute until the memory change ships. The tasks that
-only need the *built* foundation (the 7 additive table migrations, the tree-sitter extraction
-engine, the graph-query walker, the watch loop) **can execute as soon as their direct
-predecessor lands** — but under serial development (AGENTS.md § Rules: one change at a time)
-the memory change is `current_change` until it ships, so **the code-index change is not
-`current_change` and does not start execution until the memory change ships.** This is a
-planning-only gate; it does not block writing the blueprint.
+**Policy (per the user's "plan full; execute after memory ships" call, now executed):** the
+blueprint was written in full; the precondition gate lifted at the memory ship (2026-11-02).
+Execution proceeds from TICKET-01 (the go-tree-sitter door check).
 
 ## Carry-forward (to the blueprint)
 

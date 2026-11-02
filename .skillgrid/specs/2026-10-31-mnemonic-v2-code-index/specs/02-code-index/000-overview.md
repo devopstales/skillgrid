@@ -103,8 +103,8 @@ and defers the heavy optional passes.**
 (single node table), tree-sitter ladder (6 rich + 24 map + regex fallback), reverse-BFS
 impact/blast-radius, neighbor views (callers/callees/dependents/implementors/hierarchy/
 tests), shortest path + "where the graph stops", 3-tier confidence, drop-not-guess
-(name-only edges), hybrid search (RRF), structural AST grep, embeddings (the v1
-multi-store: BLOB + vec0 + IVF + HNSW + LSH),
+(name-only edges), hybrid search (RRF), structural AST grep, embeddings (the wired
+3-index store, D-CI8: BLOB + vec0 + HNSW + brute-force floor),
 SBOM dependency graph (`dep_edges`).
 
 ### Rebuild clean
@@ -125,9 +125,14 @@ SBOM dependency graph (`dep_edges`).
 - **PDG + taint** — deferred to v2.1 behind `--pdg` (CI-5).
 - **Communities + process flows** — deferred to v2.1 behind `--communities` / `--process` (CI-5).
 - **Import cycles** — dropped as a stored table; re-derived from `edges` kind=imports on demand.
-- **4 vector stores** (BLOB + vec0 + IVF + HNSW + LSH) — **kept** (CI-8). The v1 multi-store stays; the query engine picks the best available index. (Not a v2 simplification — the multi-store is the v1 behavior, restored.)
+- **3 wired vector indexes** (BLOB + vec0 + HNSW + brute-force floor) — D-CI8 (the
+  settled 2026-11-01 decision, findings.md): v1's IVF adapter (never wired into the query
+  path) and LSH (`lsh_buckets`, schema-only, no reader/writer) are **dropped from the v2
+  claim**; re-adding either in v2.1 is additive. The query engine picks the best available
+  index (HNSW → vec0 → brute-force); the default embedder is the deterministic hash-64
+  floor (ANN indexes activate at dim == 768, opt-in).
 - **Rationale capture** (NOTE:/WHY:/ADR) — **moved to memory** (a `note` observation pointing at the symbol, CI-9). The graph only *points* at code; memory *holds* the why.
-- **`symbol_segments`** — dropped (partial-name resolution → `qualified_name` FTS). (`lsh_buckets` is **kept**, CI-8 — LSH for the symbol vectors is part of the multi-store.)
+- **`symbol_segments`** — dropped (partial-name resolution → `qualified_name` FTS). (`lsh_buckets` is **dropped from the v2 claim**, D-CI8 — it was schema-only in v1.)
 
 ## 4. The freshness model (the query-path contract)
 
@@ -179,7 +184,7 @@ resolve. Everything else in the `code_*` surface is a v1 tool kept/renamed.
 | **CI-5** | Heavy optional passes | **PDG + taint + communities + process flows deferred to v2.1**, behind `--pdg` / `--communities` / `--process`. Default graph is thin. |
 | **CI-6** | LSP tier | **Optional** (`--lsp`, default off) → `LSP_RESOLVED` edges (a 4th confidence tier, only when LSP is active). |
 | **CI-7** | Independence from KB | **Graph is first-class but optional.** Code-index runs standalone; the KB degrades to ripgrep-only without it. |
-| **CI-8** | Embeddings | **Keep the v1 multi-store**: BLOB (source of truth) + vec0 + IVF + HNSW + LSH. The query engine picks the best available index; all are derived over the BLOBs (rebuildable). Remote: BLOB + pgvector. |
+| **CI-8** (amended to D-CI8) | Embeddings | **Wired 3-index store**: BLOB (source of truth) + vec0 + HNSW + brute-force floor (LSH/IVF dropped from the v2 claim — v1 never wired them; v2.1 re-add is additive). The query engine picks the best available index; all are derived over the BLOBs (rebuildable). Default embedder: deterministic hash-64 (ANN at dim == 768, opt-in). Remote: BLOB + pgvector. |
 | **CI-9** | Rationale (NOTE:/WHY:/ADR) | **Moves to memory** (a `note` observation pointing at the symbol). The graph only points at code; memory holds the why. |
 
 ## 7. Invariants (re-stated for this function)
@@ -189,7 +194,7 @@ The cross-cutting invariants from `00-foundation/000-architecture` §4 all bind:
 | # | Invariant | Code-index application |
 |---|---|---|
 | INV-1 | Provenance immutable | Symbols/edges carry origin (file, extractor, stamp, `indexed_at`). Supersession is additive (a new symbol row with a new `sync_id`; the old is pruned, not overwritten in place — the `files`/`symbols` content_hash is the change signal). |
-| INV-2 | Dual-mode | Every table is defined for **both** SQLite and Postgres (FTS5→`tsvector`; the local vector multi-store (vec0/IVF/HNSW/LSH)→pgvector). Same project DB as memory. |
+| INV-2 | Dual-mode | Every table is defined for **both** SQLite and Postgres (FTS5→`tsvector`; the local 3-index vector store (vec0/HNSW)→pgvector HNSW; brute-force floor is dialect-agnostic). Same project DB as memory. |
 | INV-3 | LLM-first, explicit degradation | The embedder is the shared `intelligence/embedder` seam. Absent/failing → deterministic floor (FTS + structural only) + `degraded: true`. The LSP tier degrades to static extraction. |
 | INV-4 | Local is truth | Local SQLite is the source of truth; remote PG is replication. A remote failure never corrupts the local graph. |
 | INV-5 | Retrieval trails | Every `code_search` / `code_explore` / `code_impact` records a trail (query, route, what was returned). |

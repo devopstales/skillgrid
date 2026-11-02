@@ -63,6 +63,11 @@ produces a `FileGraph` (possibly empty).
   v2 stores the node-type → symbol-kind mapping as data). These produce symbols +
   imports; calls are best-effort (often name-only → `unresolved_edges`).
 
+  **Counting rule (settled 2026-11-02, T0 revision):** 24 map-based extractors + 6 rich
+  one-pass = 30 language *maps*; v1's `c` → `cpp` alias means the data table has 25 rows
+  (the alias row shares the cpp map). "24" counts maps, "25" counts rows — tests assert
+  the counting rule, not a bare number.
+
 **Confidence assignment** (`002` §6): a statically-bound call (the callee is a known
 symbol in scope) → `EXTRACTED`; a name-only call (the callee is not resolvable) → a
 `to_id NULL` edge + an `unresolved_edges` row (CI-INV-3). Heritage (extends/implements)
