@@ -94,6 +94,22 @@ inline self-review or the implementer's verdict leaked in — **diagnostic only*
 - **Standards:** met-with-fixes
 - **Spec:** met
 - **Security:** secure-with-fixes
-- **Floor (decides):** met-with-fixes
-- **Worst issue (across all three axes):** Taskfile.yml `MEM_DIR: mnemonic` — broken build entry point at HEAD (Critical, standards)
-- **Unfixed Important count (must be 0 to proceed):** 5 (standards: PG-session-sql, envelope sentinels, dead var, PullAndApply config; security: MCP all-profile gate, sync source identity)
+- **Floor (decides):** met (after the 2026-11-02 fix round; initial render met-with-fixes)
+- **Worst issue (across all three axes):** Taskfile.yml `MEM_DIR: mnemonic` — fixed (build entry point restored, ADR-0040 both-modules contract honored)
+- **Unfixed Important count (must be 0 to proceed):** 0 (all 5 code-zone Important fixed + tested; the 2 security design-level findings parked as named windows W037/W038 with their fix paths)
+
+## Fix Round (2026-11-02)
+
+| # | Finding | Disposition | Evidence |
+|---|---------|-------------|----------|
+| C1 | Taskfile `MEM_DIR: mnemonic` | **FIXED** | `task build` runs green; build targets mnemonic-v2, test/fmt cover both modules, seed-test targets v1 |
+| I1 | SQLite-flavored SQL in dialect-agnostic paths | **FIXED** | UTC stamps computed in Go + bound as parameters (handler session methods, trails.ensureSession, ackMutations); PG parity suite re-run green 8/8 |
+| I2 | `envelope.MapError` substring classification | **FIXED** | `memory.ErrInvalidArguments` sentinel wraps all validation errors (pipeline + MCP errMissingArg); store "observation %d not found" wraps `ErrObservationNotFound`; isNotFound anchors on sql.ErrNoRows + sentinel only; new regression test `TestMapErrorIsNotSubstringBased` |
+| I3 | Dead `var MigrationState` | **FIXED** | deleted (only `MigrationStateHook` is used) |
+| I4 | `PullAndApply` zero-config SyncService | **FIXED** | takes `config.Config`; autosync passes its own cfg, CLI passes `h.Config()` (the config openRuntime already resolved) |
+| S1 | MCP `all` profile: no policy gate / HITL | **DEFERRED → W037** | design-level (policy gate + HITL is a product surface, not a bug); fix path: gate `all` behind an explicit operator flag + approval/audit for hard-delete and consolidate-confirm |
+| S2 | Sync peers: no source identity / signing | **DEFERRED → W038** | design-level (schema migration + per-project allowlist); fix path: source-machine column + allowlist at apply time; optional HMAC over the chunk manifest |
+
+**Minor items (capped, not fixed this round):** jsonEscape control chars (Optional), consolidate 2-txn (Consider, folds into Task 18 pgSaveTXN), redaction call-site consistency (Consider), x/text v0.14.0 pin (FYI — verified inert: `secure/precis` not in the build graph; `go mod tidy` will drop it when the graph moves).
+
+**Validation:** `go build`/`go vet` clean; `go test ./... -count=1` all packages green; `-race` green on memory/transport/store; `task build` green; PG parity suite green (8/8, DSN-gated).
