@@ -105,6 +105,12 @@ func NewService(st store.Store, cfg config.Config, bus *EventBus, l llm.LLM, e e
 	return s
 }
 
+// St exposes the store (the handler seam's read/write paths — Get by id,
+// Update/Delete with the expected_project ownership assertion — go through
+// it directly; the service owns the pipeline logic, the store owns the
+// row ops).
+func (s *Service) St() store.Store { return s.st }
+
 // SaveRequest is one save (spec 01-memory/001 §2 input).
 type SaveRequest struct {
 	SessionID, Type, Title, Content, ToolName, Project, Scope, TopicKey, OperationID string

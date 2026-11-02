@@ -80,7 +80,8 @@ func (s *Service) Judge(ctx context.Context, r JudgeRequest) (store.Relation, er
 	conf := r.Confidence
 	if err := s.st.JudgeRelation(ctx, r.JudgmentID, store.JudgeParams{
 		Relation: r.Relation, Reason: r.Reason, Evidence: r.Evidence,
-		Confidence: &conf, MarkedByActor: "agent", MarkedByKind: "mcp", MarkedByModel: "",
+		Confidence: &conf, MarkedByActor: "agent", MarkedByKind: "mcp",
+		MarkedByModel: r.Model,
 	}); err != nil {
 		return store.Relation{}, err
 	}

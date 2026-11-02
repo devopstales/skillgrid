@@ -1033,6 +1033,12 @@ func (s *sqliteStore) JudgeMany(ctx context.Context, rs []JudgeRequest, base Jud
 			p.Reason = r.Reason
 			p.Evidence = r.Evidence
 			p.Confidence = &conf
+			// Per-request model (INV-1 marked_by_model): the agent's model
+			// name, when present, overrides the base provenance (the base
+			// is the transport's default — "" when the agent sent none).
+			if r.Model != "" {
+				p.MarkedByModel = r.Model
+			}
 			if err := s.judgeRelationTxn(ctx, tx, r.JudgmentID, p); err != nil {
 				return err
 			}

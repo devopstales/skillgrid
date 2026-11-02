@@ -202,13 +202,16 @@ type JudgeParams struct {
 
 // JudgeRequest is one verdict in a JudgeMany batch (the store-level twin
 // of the memory service's JudgeRequest — the store owns the row, the
-// service owns the tooling shape; the service maps between them).
+// service owns the tooling shape; the service maps between them). Model is
+// the agent's model name (INV-1 marked_by_model provenance; the transport
+// is where it enters — the service hardcodes "" otherwise).
 type JudgeRequest struct {
 	JudgmentID int64
 	Relation   string
 	Reason     string
 	Evidence   string
 	Confidence float64
+	Model      string
 }
 
 // PromptSearchQuery is the input for SearchPrompts.
