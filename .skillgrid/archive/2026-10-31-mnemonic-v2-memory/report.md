@@ -552,3 +552,52 @@ Every artifact read this close, for traceability:
 - ship: (pending)
 - report (QA half): this file
 - research / findings / ADRs: .skillgrid/artifacts/04-adr-0040-mnemonic-v2-module-extraction.md, 04-adr-0041-mnemonic-v2-postgres-driver.md, 04-adr-0042 (goldfish plan review)
+
+## Final-State Facts
+
+> Shipped 2026-11-02 (skillgrid:ship) · reflected 2026-11-02 (skillgrid:reflect).
+> This retro half completes the report in place in the archive (the QA half above
+> moved with the folder; the `diff -r` readback at ship verified it intact).
+
+**Integration:** kept `release/2` as-is (option 3 — user choice). `main` is 1084 commits
+behind; the whole v2 release line is unmerged and unpushed (push blocked: paldib lacks
+write on devopstales/skillgrid). Diff range `52d554b3..77474091`.
+
+**Rollback:** `git revert 52d554b3..77474091` on release/2 (the branch never merged; the
+range is exactly this change's commits).
+
+**Ship commit:** 77474091 (archive move + state close). Mnemonic obs 138
+(`skillgrid/2026-10-31-mnemonic-v2-memory/ship`).
+
+## Retro
+
+### Decisions (ratified by the human during the cycle)
+- **D4 v1 seed migration (one-way door)** — user go-ahead on the last-5-ticket dispatch; v1 opened `mode=ro`, proven untouched by `TestV1FilesUntouched`.
+- **T17 RED attestation** — user accepted the review record as standing in for the missing initial T17 session report (the QA CONCERNS gate question, answered by the "fix all four" directive).
+- **Ship integration = keep branch** — user picked option 3 knowing main would receive the whole v2 line at once when the release lands.
+
+### Lessons
+- **A rename is a second change.** The v1 `mnemonic/ → mnemonic_back/` rename shipped in the T0 batch, but the root Taskfile still pointed at the old path for ~10 days until the review caught it. A rename's blast radius includes every build entry point (Taskfile, CI, install scripts) — the ADR consequence list is the checklist, and ship is when it gets re-verified.
+- **Substring classification drifts; sentinels don't.** `MapError` sniffed `"not found"` / `" is required"` message substrings; two live misclassifications were caught only because the fix round wrote a regression test *against the misclassification*, not the happy path. The D1 wire contract (code, message) is the seam — anything that maps to it should map by `errors.Is`, never by string.
+- **A dialect-agnostic store is only as dialect-agnostic as its raw SQL seams.** `datetime('now')` in handler/trails/ack paths was invisible to the PG parity suite because the suite covers the store's own methods, not the `RawExec` seams above it. The fix (Go-computed bound stamps) is cheap; the lesson is that every `RawExec`/`RawQuery` call is dialect SQL and belongs in the dialect audit.
+- **Guard tooling that can't run is a silent scope hole.** The QA gate's first render was capped at CONCERNS partly because its own drift checks crashed (missing node module, no base ref). A non-COMPLETE machine scope is a non-answer — the fail-closed rule worked as designed, but the fix was tooling, not evidence.
+
+### Patterns (reusable)
+- **Review-attested RED** (T17): when a TDD RED record is lost, a pre-commit review that walked the diff scenario-by-scenario can stand in — attested in the ledger, row re-marked, no code change. The attestation names the reviewer session, the date, and the commit it predates.
+- **Mechanical ship move**: snapshot → `git mv` → source-gone check → `diff -r` readback (empty = pass). The readback is the only evidence; it ran exactly once and passed.
+- **Fix-round triage table** (review.md): every finding gets an explicit disposition (FIXED + commit, or DEFERRED → window ID with named fix path) before the floor re-renders. 0 unfixed Important is the gate, parked design findings never block.
+
+### Surprises
+- The root disk was 100% full mid-cycle (puppeteer/Brave caches); the Trivy failure was network (stale gcr.io mirror + ghcr.io token DENIED behind the egress proxy), not disk — the dep-latest verification substituted for the Trivy pass.
+- `main` is 1084 commits behind `release/2` — the "stacked-to-main" chain strategy has in practice become "everything lands on release/2, main catches up at release time." The ship menu's base-branch note surfaced this; it's now documented, not re-discovered.
+
+## Environment Retro
+
+| Category | Finding | Fix lands in | Source |
+|----------|---------|--------------|--------|
+| Automated checks | No guardrail catches SQLite-flavored SQL (`datetime('now')`, `ifnull(`) in dialect-agnostic code: the fix round left 3 occurrences in store-internal SQLite-only paths (legit), but a grep-based check (e.g. pre-commit: `datetime('now')` outside `migrations*.sql` and the `store/sqlite.go` adapter files) would have caught all 5 review findings in one pass | pre-commit hook or CI job over `mnemonic-v2/internal/**.go` | review.md standards-Important-2; fix commits 8b9cb187 |
+| Automated checks | Renamed-module drift: Taskfile `MEM_DIR` pointed at deleted `mnemonic/` for the whole change; a cheap check (`task build --list` dry-run, or a CI job running `task build`) would fail fast on any rename | CI job (hub-sync-check.yml gains a `task build` step) or pre-commit | review.md standards-Critical-1; fix commit f853dd10 |
+| Tool economy | Trivy's DB is unreachable from this network (gcr.io BLOB_UNKNOWN, ghcr.io token DENIED) — every future security pass re-discovers this and re-runs the dep-latest substitution | document the network constraint in `.skillgrid/ASSUMPTIONS.md` § Security + note the substitution procedure | QA report Mode A (2026-11-02) |
+| Navigation | `Chain strategy: stacked-to-main` in tasks.md carries the strategy name, not a git ref — the ship-drift guard had no base ref and reported UNSCOPED until `QA_BASE_REF` was added to qa-gate.mjs | qa-gate.mjs (done in bd0edc6f) + convention note: record the base ref in tasks.md alongside the strategy | qa-gate.mjs:129; WINDOWS W034 (closed) |
+
+**No findings** for: Coding standards (all reviewer misses were mechanical → routed to checks above), Steering-file no-ops (AGENTS.md block was accurate), Information access (nothing needed was missing; the PG DSN and disk state were discoverable).
