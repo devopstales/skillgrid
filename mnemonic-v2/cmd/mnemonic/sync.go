@@ -251,7 +251,10 @@ func syncPull(fl config.Flags, cwd string, args []string) int {
 	}).ProbeInt(`SELECT COALESCE(MAX(last_pulled_seq),0) FROM sync_state WHERE target_key='cloud'`); e == nil {
 		since = n
 	}
-	applied, err := memory.PullAndApply(context.Background(), st, tr, resolved, int64(since))
+	// openRuntime already loaded + validated the config (the handler
+	// carries it) — the pull path needs the same resolved value so
+	// NewSyncService threads the operator's Sync.Enabled into the apply.
+	applied, err := memory.PullAndApply(context.Background(), st, tr, resolved, int64(since), h.Config())
 	if err != nil {
 		return finish(fs, *jsonOut, dispatchResult{err: err})
 	}

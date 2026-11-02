@@ -408,7 +408,7 @@ func (a *Autosync) pullLeg(ctx context.Context) error {
 			return nil // unresolvable: no schema to read
 		}
 	}
-	_, err := PullAndApply(ctx, a.svc.st, a.tr, project, since)
+	_, err := PullAndApply(ctx, a.svc.st, a.tr, project, since, a.cfg)
 	return err
 }
 

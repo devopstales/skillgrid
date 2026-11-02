@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/project"
+	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/config"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/store"
 
 	_ "github.com/lib/pq" // ADR-0041: the PG driver of record for the PG transport.
@@ -151,7 +152,13 @@ func Pull(ctx context.Context, tr MutationTransport, project string, sinceSeq in
 // autosync's pull cycle): EnsureSchema first (fail-fast), fetch since the
 // cursor, apply each via SyncService.ApplyPulled (the cursor advances per
 // mutation), replay the deferred queue, and return what was applied.
-func PullAndApply(ctx context.Context, st store.Store, tr MutationTransport, project string, sinceSeq int64) (int, error) {
+// PullAndApply fetches the peer's mutations since sinceSeq and applies them
+// through the store (the pull half of the sync cycle). It builds its
+// SyncService through NewSyncService (the config's Sync.Enabled seam is
+// threaded in, matching every other construction path — a zero-config
+// service would silently skip the store's sync flag when the operator
+// enabled sync).
+func PullAndApply(ctx context.Context, st store.Store, tr MutationTransport, project string, sinceSeq int64, cfg config.Config) (int, error) {
 	if err := EnsureSchema(ctx, tr, project); err != nil {
 		return 0, err
 	}
@@ -159,7 +166,7 @@ func PullAndApply(ctx context.Context, st store.Store, tr MutationTransport, pro
 	if err != nil {
 		return 0, err
 	}
-	svc := &SyncService{st: st}
+	svc := NewSyncService(st, cfg)
 	for _, m := range muts {
 		if err := svc.ApplyPulled(ctx, m); err != nil {
 			return 0, err
