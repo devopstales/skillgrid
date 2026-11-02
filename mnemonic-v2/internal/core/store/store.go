@@ -89,7 +89,6 @@ type Store interface {
 	SymbolByName(ctx context.Context, name string) ([]SymbolRow, error)
 	SymbolByUID(ctx context.Context, uid string) (SymbolRow, error)
 	FileByPath(ctx context.Context, path string) (FileRow, error)
-	ChunkIDByFile(ctx context.Context, fileID int64) (int64, error)
 	// vectors (M2: the vectorstore.Engine holds the Store, not a *sql.DB —
 	// the vector SQL is dialect-rendered; BLOB tables here, ANN in 08a)
 	EmbedSymbol(ctx context.Context, symbolID int64, model string, vec []float32) error

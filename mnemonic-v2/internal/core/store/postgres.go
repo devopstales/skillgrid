@@ -1658,10 +1658,6 @@ func (s *pgStore) FileByPath(ctx context.Context, path string) (FileRow, error) 
 	return FileRow{}, pgCodeIndexNotImplemented("FileByPath")
 }
 
-func (s *pgStore) ChunkIDByFile(ctx context.Context, fileID int64) (int64, error) {
-	return 0, pgCodeIndexNotImplemented("ChunkIDByFile")
-}
-
 func (s *pgStore) EmbedSymbol(ctx context.Context, symbolID int64, model string, vec []float32) error {
 	return pgCodeIndexNotImplemented("EmbedSymbol")
 }

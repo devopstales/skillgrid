@@ -177,6 +177,14 @@ CREATE TABLE IF NOT EXISTS chunk_embeddings (
 	FOREIGN KEY (chunk_id) REFERENCES chunks(id) ON DELETE CASCADE
 );
 
+-- the model-swap guard (spec 006 §4.1 — embed_meta.embedding_model): a
+-- model change makes every stored vector non-comparable; the guard (the
+-- vectorstore.GuardModelSwap, TICKET-08a) reads this key before a run.
+CREATE TABLE IF NOT EXISTS embed_meta (
+	key   TEXT PRIMARY KEY,
+	value TEXT NOT NULL
+);
+
 -- ── chunks_fts: the chunk FTS leg (spec 001 §3, CI-INV-1 derived) ──────────
 
 CREATE VIRTUAL TABLE chunks_fts USING fts5(

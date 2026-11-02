@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"testing"
@@ -64,7 +65,9 @@ func TestDoorCheckCodeIndexWritesAndSearches(t *testing.T) {
 	if n := ftsMatchCount(t, st, "chunks_fts", "trigram"); n != 1 {
 		t.Fatalf("chunks_fts MATCH must find the inserted chunk: got %d", n)
 	}
-	cid, err := st.ChunkIDByFile(ctx, fid)
+	// the chunk id via the same RawQuery test seam (ChunkIDByFile was
+	// test-only surface on the D2 door — review F1: off the interface)
+	cid, err := rawQueryInt(t, st, `SELECT id FROM chunks WHERE file_id = ? ORDER BY id LIMIT 1`, fid)
 	if err != nil {
 		t.Fatalf("chunk id: %v", err)
 	}
@@ -342,6 +345,27 @@ func ftsMatchCount(t *testing.T, st Store, table, term string) int {
 		t.Fatalf("fts match %s: bad count type %T", table, rows[0][0])
 	}
 	return int(n)
+}
+
+// rawQueryInt reads a single int off the RawQuery test seam (the
+// ChunkIDByFile replacement — review F1: test-only reads stay on the seam,
+// off the D2 interface).
+func rawQueryInt(t *testing.T, st Store, q string, args ...any) (int64, error) {
+	t.Helper()
+	rows, err := st.(interface {
+		RawQuery(query string, args ...any) ([][]any, error)
+	}).RawQuery(q, args...)
+	if err != nil {
+		return 0, err
+	}
+	if len(rows) == 0 {
+		return 0, errors.New("rawQueryInt: no rows")
+	}
+	n, ok := rows[0][0].(int64)
+	if !ok {
+		return 0, fmt.Errorf("rawQueryInt: bad type %T", rows[0][0])
+	}
+	return n, nil
 }
 
 // rawTableHasRows probes the raw table (the SQLite store's Probe seam).

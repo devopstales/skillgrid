@@ -2139,15 +2139,6 @@ func (s *sqliteStore) FileByPath(ctx context.Context, path string) (FileRow, err
 	return f, nil
 }
 
-// ChunkIDByFile returns the file's first chunk id (ErrNoRows when the file
-// has no chunks — the EmbedChunk test seam).
-func (s *sqliteStore) ChunkIDByFile(ctx context.Context, fileID int64) (int64, error) {
-	var id int64
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id FROM chunks WHERE file_id = ? ORDER BY id LIMIT 1`, fileID).Scan(&id)
-	return id, err
-}
-
 // EmbedSymbol stores a symbol's vector in the embeddings BLOB table (spec
 // 006 §4.1 — the BLOB is the source of truth; the ANN render is TICKET-08a).
 func (s *sqliteStore) EmbedSymbol(ctx context.Context, symbolID int64, model string, vec []float32) error {
