@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -92,12 +90,6 @@ func openPG(ctx context.Context, project, dsn string) (*pgStore, error) {
 	if strings.TrimSpace(dsn) == "" {
 		return nil, errors.New("store.Open: Postgres dialect requires a DSN")
 	}
-	// localhost DSNs (docker port mappings, loopback tunnels) are routed to
-	// the host's docker bridge IP inside the container — the container's own
-	// 127.0.0.1 is a different loopback. ponytail: env override wins; the
-	// rewrite only touches hostnames in the localhost family, never a real
-	// remote host.
-	dsn = pgLocalhostDSN(dsn)
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open postgres: %w", err)
@@ -162,34 +154,6 @@ func openPG(ctx context.Context, project, dsn string) (*pgStore, error) {
 	}
 	conn.Close()
 	return st, nil
-}
-
-// pgLocalhostDSN rewrites a localhost-family host to a different IP when
-// MNEMONIC_PG_LOCALHOST_HOST is set (the docker port-mapping case: the test
-// runs on the host, PG is in a container reachable via the bridge IP, not
-// the host's own loopback). When the env var is unset the DSN is returned
-// unchanged — production localhost DSNs are left alone.
-// ponytail: the rewrite only touches localhost-family hostnames; a real
-// remote host is never rewritten.
-func pgLocalhostDSN(dsn string) string {
-	repl := os.Getenv("MNEMONIC_PG_LOCALHOST_HOST")
-	if repl == "" {
-		return dsn
-	}
-	u, err := url.Parse(dsn)
-	if err != nil || u.Scheme != "postgres" && u.Scheme != "postgresql" {
-		return dsn
-	}
-	host := u.Hostname()
-	if host != "localhost" && host != "127.0.0.1" && host != "::1" {
-		return dsn
-	}
-	port := u.Port()
-	if port == "" {
-		port = "5432"
-	}
-	u.Host = repl + ":" + port
-	return u.String()
 }
 
 // pgCanonical is project.Canonicalize inlined (the store must not import
@@ -1062,11 +1026,7 @@ func (s *pgStore) VectorSearch(ctx context.Context, q VecQuery) (VecResult, erro
 	args = append(args, topK)
 	rows, err := s.db.QueryContext(ctx, qStr, args...)
 	if err != nil {
-		// the leg is absent (no comparable vectors — or the query failed):
-		// degrade, never a silent empty-that-passes-as-success (INV-3).
-		if len(q.QueryVector) == 0 {
-			return VecResult{Degraded: true}, err
-		}
+		// degrade on any query failure (INV-3) — never a silent error-as-success.
 		return VecResult{Degraded: true}, err
 	}
 	defer rows.Close()

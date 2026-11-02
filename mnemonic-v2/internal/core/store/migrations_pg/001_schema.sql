@@ -61,7 +61,8 @@ CREATE TABLE IF NOT EXISTS observations (
 	provenance JSONB NOT NULL DEFAULT '{}'::jsonb,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-	deleted_at TIMESTAMPTZ
+	deleted_at TIMESTAMPTZ,
+	tsv tsvector
 );
 
 -- spec 002-schema §2.2: the two dedupe/topic indexes.
@@ -73,13 +74,11 @@ CREATE INDEX IF NOT EXISTS idx_obs_topic ON observations(project, scope, topic_k
 -- the equivalent). A sequential scan would be a silent query-surface divergence.
 CREATE INDEX IF NOT EXISTS idx_obs_embedding_hnsw ON observations USING hnsw (embedding vector_cosine_ops);
 
--- FTS (spec 001-storage §3): a tsvector column maintained by triggers. The
--- weight classes mirror the FTS5 column weights (title 5.0 / content 1.0 /
--- topic_key 3.0): title → A (heaviest), topic_key → B, content → C, the
--- remaining FTS5 columns (tool_name, type, project) are not indexed —
--- they are filter fields, not recall fields.
-ALTER TABLE observations ADD COLUMN IF NOT EXISTS tsv tsvector;
-
+-- FTS (spec 001-storage §3): the tsv tsvector column (above) is maintained
+-- by triggers. The weight classes mirror the FTS5 column weights (title
+-- 5.0 / content 1.0 / topic_key 3.0): title → A (heaviest), topic_key → B,
+-- content → C, the remaining FTS5 columns (tool_name, type, project) are
+-- not indexed — they are filter fields, not recall fields.
 CREATE INDEX IF NOT EXISTS idx_obs_tsv_gin ON observations USING gin (tsv);
 
 CREATE OR REPLACE FUNCTION set_obs_tsv() RETURNS trigger AS $$

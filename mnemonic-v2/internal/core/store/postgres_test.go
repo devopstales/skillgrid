@@ -12,19 +12,8 @@ import (
 
 // pgTestDSN is the reachable Postgres instance for the PG parity tests
 // (gate G15 — CI provides it). Empty → the TestPG* suite skips cleanly.
-// If the DSN uses a localhost host and MNEMONIC_PG_LOCALHOST_HOST is set
-// (the docker port-mapping case), pgLocalhostDSN rewrites the host.
+// The DSN carries the right host; no env-var indirection.
 var pgTestDSN = os.Getenv("MNEMONIC_PG_TEST_DSN")
-
-// pgTestLocalhostHost is the docker bridge IP for localhost DSNs (the test
-// runs on the host, PG is in a container). Set in init so the DSN rewrite
-// applies to every PG test.
-func init() {
-	// Only set when the DSN is a localhost host (the docker case).
-	if pgTestDSN != "" && os.Getenv("MNEMONIC_PG_LOCALHOST_HOST") == "" {
-		os.Setenv("MNEMONIC_PG_LOCALHOST_HOST", "198.18.0.2")
-	}
-}
 
 // requirePG skips the test when no PG DSN is configured (the tests are
 // integration tests — the SQLite suite stays green without a database).
