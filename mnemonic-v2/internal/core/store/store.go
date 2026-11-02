@@ -55,6 +55,11 @@ type Store interface {
 	MarkReviewed(ctx context.Context, id int64) error
 	BumpRetrievalUsage(ctx context.Context, ids []int64) error
 	SearchPrompts(ctx context.Context, q PromptSearchQuery) (PromptSearchResult, error)
+	// JudgeMany runs the verdict batch inside ONE transaction (spec
+	// 004-transport-mcp §4: mem_judge_many is one queued write = one
+	// transaction). base carries the provenance defaults (actor/kind); a
+	// per-request Model overrides base.MarkedByModel when non-empty.
+	JudgeMany(ctx context.Context, rs []JudgeRequest, base JudgeParams) ([]Relation, error)
 
 	// test-only hooks (SQLite store; a no-op-capable method on the interface
 	// so both dialects satisfy it)

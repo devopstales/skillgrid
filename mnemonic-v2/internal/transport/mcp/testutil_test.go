@@ -37,6 +37,10 @@ func newTestHandler(t *testing.T) *handler.Handler {
 }
 
 // newTestHandlerWithStore builds a Handler over a caller-provided store.
+// The store's transaction hook is wired here (the write-queue test's
+// load-bearing assertion — the committed-transaction order, fix round 1
+// IMPORTANT #3): every committed store transaction appends its sequence to
+// the Server's txn log.
 func newTestHandlerWithStore(t *testing.T, st store.Store) *handler.Handler {
 	t.Helper()
 	c := config.Default()
@@ -49,14 +53,6 @@ func newTestHandlerWithStore(t *testing.T, st store.Store) *handler.Handler {
 		return testProject, nil
 	}}
 	return handler.NewHandler(memory.NewService(st, c, memory.NewEventBus(), nil, nil), c, det)
-}
-
-// newTestHandlerWithNoLLM is newTestHandler with the seams explicitly nil
-// (the envelope-degraded fixture: absent seams, never a failing one). The
-// service's runDedup returns degraded=true when the LLM is nil (the
-// INV-3 floor), so a save is always (at least) degraded.
-func newTestHandlerWithNoLLM(t *testing.T) *handler.Handler {
-	return newTestHandlerWithStore(t, openTestStore(t, t.TempDir()))
 }
 
 // newTestHandlerNoDetector builds a Handler with NO detector (the fixture
@@ -80,4 +76,51 @@ func saveArgs(i int) map[string]any {
 		"session_id": "sess-1",
 		"project":    testProject,
 	}
+}
+
+// rawQuery runs a SELECT through the store's RawQuery seam (the test
+// fixture for row-level assertions).
+func rawQuery(st store.Store, query string, args ...any) ([][]any, error) {
+	rq, ok := st.(interface {
+		RawQuery(query string, args ...any) ([][]any, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("store %T has no RawQuery seam", st)
+	}
+	return rq.RawQuery(query, args...)
+}
+
+// rawExec runs a write through the store's RawExec seam (the test fixture
+// for seed/patch row-level assertions).
+func rawExec(st store.Store, query string, args ...any) error {
+	re, ok := st.(interface {
+		RawExec(query string, args ...any) error
+	})
+	if !ok {
+		return fmt.Errorf("store %T has no RawExec seam", st)
+	}
+	return re.RawExec(query, args...)
+}
+
+// firstInt reads a single-integer probe row (COUNT(*) results).
+func firstInt(rows [][]any) int64 {
+	if len(rows) == 0 || len(rows[0]) == 0 {
+		return 0
+	}
+	switch n := rows[0][0].(type) {
+	case int64:
+		return n
+	case int:
+		return int64(n)
+	}
+	return 0
+}
+
+// firstString reads one column of a probe row.
+func firstString(rows [][]any, i int) string {
+	if len(rows) == 0 || len(rows[0]) <= i {
+		return ""
+	}
+	s, _ := rows[0][i].(string)
+	return s
 }

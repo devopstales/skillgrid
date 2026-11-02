@@ -43,7 +43,7 @@ func TestMapErrorPinsSentinels(t *testing.T) {
 	}{
 		{memory.ErrOperationConflict, CodeOperationConflict},
 		{memory.ErrOperationExpired, CodeOperationExpired},
-		{memory.ErrSessionEnded, CodeSessionAlreadyEnded},
+		{memory.ErrSessionEnded, CodeSessionEnded},
 		{memory.ErrSessionProjectMismatch, CodeProjectMismatch},
 		{memory.ErrConsolidateFingerprintMismatch, CodeFingerprintMismatch},
 		{memory.ErrConsolidateRefused, CodeConsolidationRefused},

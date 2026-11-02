@@ -111,6 +111,15 @@ func NewService(st store.Store, cfg config.Config, bus *EventBus, l llm.LLM, e e
 // row ops).
 func (s *Service) St() store.Store { return s.st }
 
+// LLM exposes the LLM seam (nil when absent) — the handler's Doctor
+// capability check reads it (the transport reports the seam's state, it
+// does not manufacture one).
+func (s *Service) LLM() llm.LLM { return s.llm }
+
+// Embedder exposes the embedder seam (nil when absent) — the handler's
+// Doctor round-trip check.
+func (s *Service) Embedder() embedder.Embedder { return s.emb }
+
 // SaveRequest is one save (spec 01-memory/001 §2 input).
 type SaveRequest struct {
 	SessionID, Type, Title, Content, ToolName, Project, Scope, TopicKey, OperationID string
@@ -276,12 +285,12 @@ func (s *Service) Save(ctx context.Context, req SaveRequest) (SaveResult, error)
 	// new observation."
 	if !row.replayed {
 		s.bus.Publish(SaveEvent{
-			SyncID:           row.syncID,
-			SessionID:        req.SessionID,
-			Project:          row.project,
-			Scope:            scope,
-			Type:             req.Type,
-			TopicKey:         req.TopicKey,
+			SyncID:    row.syncID,
+			SessionID: req.SessionID,
+			Project:   row.project,
+			Scope:     scope,
+			Type:      req.Type,
+			TopicKey:  req.TopicKey,
 			// ponytail: the Entity is the wiki-handoff target, not the row's
 			// content: the wiki regenerates pages keyed by entity, so it
 			// re-reads the row through the store's read seam (the wiki

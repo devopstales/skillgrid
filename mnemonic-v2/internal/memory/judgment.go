@@ -88,6 +88,39 @@ func (s *Service) Judge(ctx context.Context, r JudgeRequest) (store.Relation, er
 	return s.getRelation(ctx, r.JudgmentID)
 }
 
+// judgeRelation records the agent's verdict on one pending candidate row
+// (the Judge / JudgeMany write path, extracted so the batch runs the same
+// idempotent semantics per id): a missing id or an already-judged row is
+// an idempotent no-op returning the existing row (the batch's
+// "already-judged ids are idempotent no-ops" contract); a pending row
+// gets the verdict + the judging provenance (marked_by_actor='agent',
+// marked_by_kind='mcp', marked_by_model = the agent-supplied model name
+// or ""). A store error that is not a missing row propagates (the batch
+// rolls back).
+func (s *Service) judgeRelation(ctx context.Context, r JudgeRequest) (store.Relation, error) {
+	rel, err := s.getRelation(ctx, r.JudgmentID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return store.Relation{}, fmt.Errorf("memory: relation %d not found", r.JudgmentID)
+		}
+		return store.Relation{}, err
+	}
+	if rel.JudgmentStatus == "judged" {
+		// Idempotent no-op: the row already carries a verdict; return it
+		// untouched (no second write, no field churn).
+		return rel, nil
+	}
+	conf := r.Confidence
+	if err := s.st.JudgeRelation(ctx, r.JudgmentID, store.JudgeParams{
+		Relation: r.Relation, Reason: r.Reason, Evidence: r.Evidence,
+		Confidence: &conf, MarkedByActor: "agent", MarkedByKind: "mcp",
+		MarkedByModel: r.Model,
+	}); err != nil {
+		return store.Relation{}, err
+	}
+	return s.getRelation(ctx, r.JudgmentID)
+}
+
 // JudgeMany records 1–32 verdicts in ONE committed transaction (spec
 // 004-transport-mcp mem_judge_many: "batch 1–32 judgments in one queued
 // write, ordered, independent verdicts" — the write queue serializes it
@@ -104,15 +137,23 @@ func (s *Service) JudgeMany(ctx context.Context, rs []JudgeRequest) ([]store.Rel
 	if len(rs) < 1 || len(rs) > judgeManyMax {
 		return nil, fmt.Errorf("memory: judge_many requires 1–%d judgments, got %d", judgeManyMax, len(rs))
 	}
-	js, ok := s.st.(judgeTxnSeam)
-	if !ok {
-		return nil, fmt.Errorf("memory: store %T does not expose the JudgeMany transaction seam", s.st)
+	// The whole batch runs in ONE committed transaction (spec
+	// 004-transport-mcp §4: one queued write = one transaction). The
+	// store's JudgeMany seam owns it; a dialect without the seam falls
+	// back to the per-judgment path (still serialized by the queue).
+	if seam, ok := s.st.(judgeTxnSeam); ok {
+		// The seam stamps the per-request Model on its own (INV-1
+		// marked_by_model); the base carries the transport's provenance.
+		base := store.JudgeParams{MarkedByActor: "agent", MarkedByKind: "mcp"}
+		return seam.JudgeMany(ctx, rs, base)
 	}
-	out, err := js.JudgeMany(ctx, rs, store.JudgeParams{
-		MarkedByActor: "agent", MarkedByKind: "mcp",
-	})
-	if err != nil {
-		return nil, err
+	out := make([]store.Relation, 0, len(rs))
+	for _, r := range rs {
+		rel, err := s.judgeRelation(ctx, r)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rel)
 	}
 	return out, nil
 }

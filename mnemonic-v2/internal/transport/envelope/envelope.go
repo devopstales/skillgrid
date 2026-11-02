@@ -25,9 +25,9 @@ import (
 // they are literal strings, not Go errors.
 const (
 	CodeInvalidArguments     = "invalid_arguments"
-	CodeOperationConflict    = "operation_conflict"    // 409
-	CodeOperationExpired     = "operation_expired"     // 410
-	CodeSessionAlreadyEnded  = "session_already_ended" // 409
+	CodeOperationConflict    = "operation_conflict" // 409
+	CodeOperationExpired     = "operation_expired"  // 410
+	CodeSessionEnded         = "session_ended"      // 409
 	CodeFingerprintMismatch  = "fingerprint_mismatch"
 	CodeConsolidationRefused = "consolidation_refused"
 	CodeProjectMismatch      = "project_mismatch"
@@ -49,7 +49,7 @@ func MapError(err error) (code, message string) {
 	case errors.Is(err, memory.ErrOperationExpired):
 		return CodeOperationExpired, err.Error()
 	case errors.Is(err, memory.ErrSessionEnded), errors.Is(err, store.ErrSessionEnded):
-		return CodeSessionAlreadyEnded, err.Error()
+		return CodeSessionEnded, err.Error()
 	case errors.Is(err, memory.ErrSessionProjectMismatch), errors.Is(err, store.ErrSessionProjectMismatch):
 		return CodeProjectMismatch, err.Error()
 	case errors.Is(err, memory.ErrConsolidateFingerprintMismatch):

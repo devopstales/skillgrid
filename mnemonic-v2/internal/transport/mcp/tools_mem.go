@@ -24,8 +24,8 @@ type toolEntry struct {
 	isWrite bool
 }
 
-// toolSet returns the profile-filtered tool set (K5: the spec table's
-// literal rows — 20 agent + 6 admin).
+// toolSet returns the profile-filtered tool set (K5: spec
+// 004-transport-mcp §3's literal rows — 18 agent + 6 admin names, R-1).
 func (s *Server) toolSet() []toolEntry {
 	entries := []toolEntry{
 		{name: "mem_save", def: memSaveTool(), isWrite: true},
@@ -35,6 +35,10 @@ func (s *Server) toolSet() []toolEntry {
 		{name: "mem_search_prompts", def: memSearchPromptsTool(), isWrite: false},
 		{name: "mem_context", def: memContextTool(), isWrite: false},
 		{name: "mem_save_prompt", def: memSavePromptTool(), isWrite: true},
+		// mem_capture_passive is a no-op (R-2): it stays a write-tool in
+		// the queue (R-2: "the write queue still serializes them if
+		// they're write tools") — the queueing is what makes it real when
+		// CapturePassive lands.
 		{name: "mem_capture_passive", def: memCapturePassiveTool(), isWrite: true},
 		{name: "mem_update", def: memUpdateTool(), isWrite: true},
 		{name: "mem_judge", def: memJudgeTool(), isWrite: true},
@@ -96,20 +100,20 @@ func (s *Server) buildToolDispatch() map[string]func(ctx context.Context, args m
 		"mem_compare":           dispatchCompare(h),
 		"mem_consolidate":       dispatchConsolidate(h),
 		"mem_suggest_topic_key": dispatchSuggestTopicKey(h),
-		"mem_session_start":     dispatchNoop(),
-		"mem_session_end":       dispatchNoop(),
-		"mem_session_summary":   dispatchNoop(),
-		"mem_session_finalize":  dispatchNoop(),
+		"mem_session_start":     dispatchSessionStart(h),
+		"mem_session_end":       dispatchSessionEnd(h),
+		"mem_session_summary":   dispatchSessionSummary(h),
+		"mem_session_finalize":  dispatchSessionFinalize(h),
 		"mem_current_project":   dispatchCurrentProject(h),
-		"mem_list_projects":     dispatchNoop(),
+		"mem_list_projects":     dispatchListProjects(h),
 		"mem_pin":               dispatchPin(h),
 		"mem_unpin":             dispatchUnpin(h),
 		"mem_delete":            dispatchDelete(h),
-		"mem_stats":             dispatchNoop(),
-		"mem_timeline":          dispatchNoop(),
-		"mem_merge_projects":    dispatchNoop(),
+		"mem_stats":             dispatchStats(h),
+		"mem_timeline":          dispatchTimeline(h),
+		"mem_merge_projects":    dispatchMergeProjects(h),
 		"mem_review":            dispatchReview(h),
-		"mem_doctor":            dispatchNoop(),
+		"mem_doctor":            dispatchDoctor(h),
 	}
 	return d
 }
@@ -148,11 +152,13 @@ func memSearchTool() mcplib.Tool {
 
 func memGetObservationTool() mcplib.Tool {
 	return mcplib.NewTool("mem_get_observation",
-		mcplib.WithDescription("Full untruncated content by id. Accepts both sync_id (INV-6, the agent-visible id) and the local numeric id. include_history/history_cursor for version paging."),
+		mcplib.WithDescription("Full untruncated content by id. Accepts both sync_id (INV-6, the agent-visible id) and the local numeric id. include_history for version history."),
 		mcplib.WithNumber("id", mcplib.Description("Local numeric observation id (fallback)")),
 		mcplib.WithString("sync_id", mcplib.Description("The sync_id (INV-6, the agent-visible id)")),
 		mcplib.WithBoolean("include_history", mcplib.Description("Include version history (default false)")),
-		mcplib.WithNumber("history_cursor", mcplib.Description("Version page cursor (default 0)")),
+		// history_cursor is parked (R-4): the store's version paging is not
+		// built; the arg returns from the schema until it exists. The
+		// handler's Get signature keeps it (forward-compat).
 	)
 }
 

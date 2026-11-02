@@ -22,6 +22,13 @@ import (
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/memory"
 )
 
+// errInvalidArguments is the (code, message) for a transport-level arg
+// validation failure (the MCP/CLI adapter validated a pinned required arg
+// before the handler method ran). Its " is required" shape maps to the
+// envelope's invalid_arguments code (the same shape the pipeline's
+// validation errors use).
+var errInvalidArguments = errors.New("memory: argument is required")
+
 // DefaultCWD is the cwd the detector resolves against when a surface does
 // not have one (the MCP stdio process cwd; the CLI passes its own).
 const DefaultCWD = ""
@@ -174,6 +181,57 @@ type DeleteRequest struct {
 	ID              int64
 	ExpectedProject string
 	Hard            bool
+}
+
+// ListProjectsResult is the mem_list_projects output (spec
+// 004-transport-mcp §3: the store's known projects).
+type ListProjectsResult struct {
+	Projects []string `json:"projects"`
+}
+
+// StatsResult is the mem_stats output (spec 004-transport-mcp §3:
+// per-type/project statistics).
+type StatsResult struct {
+	Project string              `json:"project"`
+	ByType  map[string]TypeStat `json:"by_type"`
+	Total   int64               `json:"total"`
+	Deleted int64               `json:"deleted"`
+}
+
+// TypeStat is one type row of the per-type statistics.
+type TypeStat struct {
+	Total   int64 `json:"total"`
+	Deleted int64 `json:"deleted"`
+}
+
+// TimelineResult is the mem_timeline output (spec 004-transport-mcp §3:
+// before/after in a session). The service method is not yet exposed —
+// the dispatch pins the args and returns an honest degraded envelope
+// until it lands.
+type TimelineResult struct {
+	Events []TimelineEvent `json:"events"`
+}
+
+// TimelineEvent is one session-timeline row.
+type TimelineEvent struct {
+	Sequence  int64  `json:"sequence"`
+	Action    string `json:"action"`
+	SyncID    string `json:"sync_id"`
+	Timestamp string `json:"timestamp"`
+}
+
+// MergeRequest is the mem_merge_projects input (spec
+// 004-transport-mcp §3: merge project spelling variants). The service
+// method is not yet exposed — the dispatch pins the args and returns an
+// honest degraded envelope until it lands.
+type MergeRequest struct {
+	Source string
+	Target string
+}
+
+// MergeResult is the mem_merge_projects output.
+type MergeResult struct {
+	Moved int `json:"moved"`
 }
 
 // ── the 26 methods ─────────────────────────────────────────────────────────
@@ -349,6 +407,315 @@ func (h *Handler) Pin(ctx context.Context, id int64, project string) error {
 func (h *Handler) Unpin(ctx context.Context, id int64, project string) error {
 	pinned := false
 	return h.svc.St().UpdateObservationForProject(ctx, id, project, store.UpdateParams{Pinned: &pinned})
+}
+
+// ── the session lifecycle + project/admin methods (fix round 1, I-2) ──────
+//
+// These are the tools the brief's interface block names as handler methods
+// ("same shapes as the memory.Service methods"). The session tools wire to
+// the store's sessions table (the service's session gate + trail already
+// own those rows — T07); the read-only admin tools (ListProjects, Stats)
+// read through the store's RawQuery seam; Doctor reports the capability
+// checks. The methods the memory function does not yet expose
+// (Timeline, MergeProjects) are validated here and returned degraded by
+// their adapter (R-2: an honest no-op is a degraded envelope, never a
+// healthy empty one).
+
+// SessionStartRequest is the mem_session_start input (spec
+// 004-transport-mcp §3).
+type SessionStartRequest struct {
+	ID, Project, Directory, OwnershipMode string
+	Resume, Isolated                      bool
+}
+
+// SessionStart registers a session row (idempotent — a re-start resumes the
+// existing row, it never fails on a duplicate id).
+func (h *Handler) SessionStart(ctx context.Context, r SessionStartRequest) error {
+	if strings.TrimSpace(r.ID) == "" {
+		return fmt.Errorf("%w: id", errInvalidArguments)
+	}
+	if strings.TrimSpace(r.Project) == "" {
+		p, err := h.resolveProject(DefaultCWD, "")
+		if err != nil {
+			return err
+		}
+		r.Project = p
+	}
+	om := r.OwnershipMode
+	if om == "" {
+		om = "shared"
+	}
+	return h.stExec(ctx, `
+		INSERT INTO sessions (id, project, directory, ownership_mode, started_at, created_at)
+		VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+		ON CONFLICT(id) DO UPDATE SET
+			directory = excluded.directory,
+			ownership_mode = excluded.ownership_mode`,
+		r.ID, r.Project, r.Directory, om)
+}
+
+// SessionEnd ends a session (optional free-text summary). A missing session
+// is an invalid_arguments error (the agent must start it first); an already
+// ended session is the pinned 409 (idempotent re-ends map to the envelope's
+// session_ended code, which the retrying agent recognizes).
+func (h *Handler) SessionEnd(ctx context.Context, sessionID, summary string) error {
+	if strings.TrimSpace(sessionID) == "" {
+		return fmt.Errorf("%w: session_id", errInvalidArguments)
+	}
+	st := h.svc.St()
+	rows, err := rawQueryOf(st, `SELECT ifnull(ended_at, '') FROM sessions WHERE id = ?`, sessionID)
+	if err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		return fmt.Errorf("%w: session_id %q (no such session)", errInvalidArguments, sessionID)
+	}
+	if s, _ := rows[0][0].(string); s != "" {
+		return store.ErrSessionEnded
+	}
+	return h.stExec(ctx, `UPDATE sessions SET ended_at = datetime('now'), summary = ? WHERE id = ?`, orEmpty(summary), sessionID)
+}
+
+// SessionSummary persists the six-section structured summary (spec
+// 004-transport-mcp §3: Goal/Instructions/Discoveries/Accomplished/Next
+// Steps/Relevant Files) as a session_summary observation on the session.
+type SessionSummaryRequest struct {
+	SessionID, Project string
+	SixSections
+}
+
+// SixSections are the six summary sections (the spec's pinned shape).
+type SixSections struct {
+	Goal, Instructions, Discoveries, Accomplished, NextSteps, RelevantFiles string
+}
+
+// SessionSummary persists the six sections (spec 004-transport-mcp §3:
+// Goal/Instructions/Discoveries/Accomplished/Next Steps/Relevant Files) as
+// a session_summary observation on the session. The session row must
+// exist (a summary without a session is an arg error, not a silent new
+// session); an ended session is the pinned 409 (the save pipeline's
+// session gate would reject it anyway — checked here for a clear code).
+func (h *Handler) SessionSummary(ctx context.Context, r SessionSummaryRequest) (SaveResult, error) {
+	if strings.TrimSpace(r.SessionID) == "" {
+		return SaveResult{}, fmt.Errorf("%w: session_id", errInvalidArguments)
+	}
+	// The session row must exist (a summary without a session is an arg
+	// error, not a silent new session).
+	st := h.svc.St()
+	rows, err := rawQueryOf(st, `SELECT ifnull(ended_at, '') FROM sessions WHERE id = ?`, r.SessionID)
+	if err != nil {
+		return SaveResult{}, err
+	}
+	if len(rows) == 0 {
+		return SaveResult{}, fmt.Errorf("%w: session_id %q (no such session)", errInvalidArguments, r.SessionID)
+	}
+	if s, _ := rows[0][0].(string); s != "" {
+		return SaveResult{}, store.ErrSessionEnded
+	}
+	sections := []struct{ h, v string }{
+		{"## Goal", r.Goal}, {"## Instructions", r.Instructions}, {"## Discoveries", r.Discoveries},
+		{"## Accomplished", r.Accomplished}, {"## Next Steps", r.NextSteps}, {"## Relevant Files", r.RelevantFiles},
+	}
+	var b strings.Builder
+	for _, s := range sections {
+		if strings.TrimSpace(s.v) != "" {
+			fmt.Fprintf(&b, "%s\n%s\n\n", s.h, strings.TrimSpace(s.v))
+		}
+	}
+	if b.Len() == 0 {
+		return SaveResult{}, fmt.Errorf("%w: at least one summary section", errInvalidArguments)
+	}
+	return h.Save(ctx, SaveRequest{
+		SessionID: r.SessionID, Type: "session_summary",
+		Title:   "session summary: " + r.SessionID,
+		Content: strings.TrimSpace(b.String()),
+		Project: r.Project, Scope: "project",
+	})
+}
+
+// SessionFinalize is the atomic summary + close (the spec row: atomic
+// summary + close + idempotent retry journal). An already-ended session is
+// a no-op success, never a 409 — the retry journal semantics the spec row
+// pins (a re-finalize must not fail the retrying agent).
+func (h *Handler) SessionFinalize(ctx context.Context, sessionID, project string) error {
+	if strings.TrimSpace(sessionID) == "" {
+		return fmt.Errorf("%w: session_id", errInvalidArguments)
+	}
+	st := h.svc.St()
+	rows, err := rawQueryOf(st, `SELECT ifnull(ended_at, '') FROM sessions WHERE id = ?`, sessionID)
+	if err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		return fmt.Errorf("%w: session_id %q (no such session)", errInvalidArguments, sessionID)
+	}
+	if s, _ := rows[0][0].(string); s != "" {
+		return nil // already finalized — the idempotent retry
+	}
+	return h.stExec(ctx, `UPDATE sessions SET ended_at = datetime('now') WHERE id = ?`, sessionID)
+}
+
+// ListProjects returns the store's known projects (the distinct project
+// names across sessions + observations — spec 004-transport-mcp §3
+// mem_list_projects, agent profile).
+func (h *Handler) ListProjects(ctx context.Context) (ListProjectsResult, error) {
+	st := h.svc.St()
+	rows, err := rawQueryOf(st, `
+		SELECT p FROM (
+			SELECT DISTINCT project AS p FROM sessions WHERE project != ''
+			UNION
+			SELECT DISTINCT project FROM observations WHERE project != ''
+		) ORDER BY p`)
+	if err != nil {
+		return ListProjectsResult{}, err
+	}
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if p, ok := row[0].(string); ok && p != "" {
+			out = append(out, p)
+		}
+	}
+	return ListProjectsResult{Projects: out}, nil
+}
+
+// Stats is the per-type/project statistics (spec 004-transport-mcp §3
+// mem_stats, admin profile). An empty project means all projects.
+func (h *Handler) Stats(ctx context.Context, project string) (StatsResult, error) {
+	st := h.svc.St()
+	where, args := "", []any{}
+	if strings.TrimSpace(project) != "" {
+		where = " WHERE project = ?"
+		args = append(args, project)
+	}
+	rows, err := rawQueryOf(st, `
+		SELECT ifnull(type, ''), COUNT(*), COUNT(CASE WHEN deleted_at IS NOT NULL THEN 1 END)
+		FROM observations`+where+`
+		GROUP BY type ORDER BY type`, args...)
+	if err != nil {
+		return StatsResult{}, err
+	}
+	byType := map[string]TypeStat{}
+	total, deleted := int64(0), int64(0)
+	for _, row := range rows {
+		typ, _ := row[0].(string)
+		n, d := numAt(row, 1), numAt(row, 2)
+		byType[typ] = TypeStat{Total: n, Deleted: d}
+		total += n
+		deleted += d
+	}
+	return StatsResult{Project: project, ByType: byType, Total: total, Deleted: deleted}, nil
+}
+
+// DoctorCheck is one diagnostic (spec 004-transport-mcp §3 mem_doctor:
+// config/FTS/vector/embed checks).
+type DoctorCheck struct {
+	Name   string `json:"name"`
+	OK     bool   `json:"ok"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// Doctor runs the capability checks (config, FTS search, the vector leg,
+// the embedder seam, the LLM seam) and reports them — the admin
+// diagnostics (spec 004-transport-mcp §3). The store's Ping gates all of
+// them: a dead store is a doctor error, not a doctor report.
+func (h *Handler) Doctor(ctx context.Context) (map[string]any, error) {
+	st := h.svc.St()
+	if err := st.Ping(ctx); err != nil {
+		return nil, err
+	}
+	checks := []DoctorCheck{{Name: "config", OK: true, Detail: "config resolved"}}
+	// FTS: a store-level search must run (the short-term probe rides the
+	// store's LIKE path, which always resolves against the FTS table).
+	if _, err := st.Search(ctx, store.SearchQuery{Query: "doc", Project: "", Limit: 1}); err != nil {
+		checks = append(checks, DoctorCheck{Name: "fts", OK: false, Detail: err.Error()})
+	} else {
+		checks = append(checks, DoctorCheck{Name: "fts", OK: true})
+	}
+	// Vector: the leg must be reachable (an empty vector returns no hits
+	// but must not error when the column exists).
+	if _, err := st.VectorSearch(ctx, store.VecQuery{QueryVector: []float32{}, Project: "", TopK: 1}); err != nil {
+		checks = append(checks, DoctorCheck{Name: "vector", OK: false, Detail: err.Error()})
+	} else {
+		checks = append(checks, DoctorCheck{Name: "vector", OK: true})
+	}
+	// Embedder: the seam's round-trip check (a nil seam is a capability,
+	// not a failure — the deterministic floor runs instead).
+	if e := h.svc.Embedder(); e == nil {
+		checks = append(checks, DoctorCheck{Name: "embed", OK: false, Detail: "embedder seam absent (deterministic floor)"})
+	} else {
+		v, err := e.Embed(ctx, []string{"mnemonic-doctor"})
+		if err != nil || len(v) == 0 || len(v[0]) == 0 {
+			checks = append(checks, DoctorCheck{Name: "embed", OK: false, Detail: "embed round-trip failed"})
+		} else {
+			checks = append(checks, DoctorCheck{Name: "embed", OK: true, Detail: "dim=" + itoa(len(v[0]))})
+		}
+	}
+	// LLM: the seam's presence (the same capability split).
+	if h.svc.LLM() == nil {
+		checks = append(checks, DoctorCheck{Name: "llm", OK: false, Detail: "llm seam absent (deterministic floor)"})
+	} else {
+		checks = append(checks, DoctorCheck{Name: "llm", OK: true})
+	}
+	return map[string]any{"checks": checks}, nil
+}
+
+// rawQueryOf runs a raw SELECT through the store's RawQuery seam (the
+// handler's dialect-agnostic read surface — the Probe pattern).
+func rawQueryOf(st store.Store, query string, args ...any) ([][]any, error) {
+	rq, ok := st.(interface {
+		RawQuery(query string, args ...any) ([][]any, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("handler: store %T does not expose the RawQuery seam", st)
+	}
+	return rq.RawQuery(query, args...)
+}
+
+// stExec runs a write through the store's RawExec seam (the handler's
+// dialect-agnostic write surface for the session rows — the memory
+// pipeline owns its own transactions; these are the session table's
+// direct rows).
+func (h *Handler) stExec(ctx context.Context, query string, args ...any) error {
+	_ = ctx
+	re, ok := h.svc.St().(interface {
+		RawExec(query string, args ...any) error
+	})
+	if !ok {
+		return fmt.Errorf("handler: store %T does not expose the RawExec seam", h.svc.St())
+	}
+	return re.RawExec(query, args...)
+}
+
+func orEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+func numAt(row []any, i int) int64 {
+	if len(row) <= i {
+		return 0
+	}
+	switch n := row[i].(type) {
+	case int64:
+		return n
+	case int:
+		return int64(n)
+	}
+	return 0
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var b []byte
+	for n > 0 {
+		b = append([]byte{byte('0' + n%10)}, b...)
+		n /= 10
+	}
+	return string(b)
 }
 
 // syncIDToID resolves a sync_id to its local id (0 when absent — the

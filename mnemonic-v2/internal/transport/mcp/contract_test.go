@@ -9,8 +9,11 @@ import (
 	"testing"
 )
 
-// agentProfileTools are the spec table's | agent | rows, pinned literally
-// (K5: 20). Order is irrelevant; membership + count are the contract.
+// agentProfileTools are spec 004-transport-mcp §3's | agent | rows, pinned
+// literally: 18 distinct tool names (the table's 22 agent rows count
+// mem_pin / mem_unpin as two names — R-1, fix round 1: the brief's "20" was
+// a row-count slip, the authority is the spec table). Order is irrelevant;
+// membership + count are the contract.
 var agentProfileTools = []string{
 	"mem_save",
 	"mem_search",
@@ -36,15 +39,17 @@ var agentProfileTools = []string{
 	"mem_unpin",
 }
 
-// adminTools are the spec table's | admin | rows (K5: 6). They exist only in
-// the All profile; the agent profile must not leak them.
+// adminTools are spec 004-transport-mcp §3's | admin | rows, pinned
+// literally (6: delete, review, timeline, merge_projects, doctor, stats —
+// R-1, fix round 1: the four admin-named tools previously mis-pinned to
+// the agent profile are admin here; list_projects stays agent).
 var adminTools = []string{
 	"mem_delete",
-	"mem_stats",
+	"mem_review",
 	"mem_timeline",
 	"mem_merge_projects",
-	"mem_review",
 	"mem_doctor",
+	"mem_stats",
 }
 
 func TestMemToolContract(t *testing.T) {
@@ -61,10 +66,10 @@ func TestMemToolContract(t *testing.T) {
 			t.Errorf("admin tool %s leaked into agent profile", admin)
 		}
 	}
-	// The agent profile is exactly the agentProfileTools set (the spec
-	// 004-transport-mcp §3 | agent | rows — 22 tools; the brief's "20"
-	// counts mem_pin/mem_unpin as one line, but the spec table has them as
-	// two rows, so the pin is the literal row count, 22).
+	// The agent profile is exactly the agentProfileTools set: 18 tool names
+	// — spec 004-transport-mcp §3's | agent | rows (R-1: the table's 22
+	// rows / the brief's "20" is a row-count slip; the pin is the literal
+	// name set, which the table names as 18 + the 6 admin names = 24).
 	if len(tools) != len(agentProfileTools) {
 		t.Fatalf("agent profile must expose exactly the %d agent tools, got %d", len(agentProfileTools), len(tools))
 	}
@@ -78,8 +83,9 @@ func TestMemToolContract(t *testing.T) {
 }
 
 // TestAllProfileIsAgentPlusAdmin triangulates the other profile: the All
-// profile is exactly agent ∪ admin (28 tools) — pinning the "all = agent +
-// admin" composition so a future edit cannot add a tool to only one side.
+// profile is exactly agent ∪ admin (24 tools — spec 004-transport-mcp §3's
+// full table), pinning the "all = agent + admin" composition so a future
+// edit cannot add a tool to only one side.
 func TestAllProfileIsAgentPlusAdmin(t *testing.T) {
 	s := NewServer(newTestHandler(t), All)
 	tools := s.ToolNames()

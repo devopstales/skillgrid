@@ -142,7 +142,7 @@ func TestErrorCodesMapsSentinels(t *testing.T) {
 	}{
 		{memory.ErrOperationConflict, envelope.CodeOperationConflict},
 		{memory.ErrOperationExpired, envelope.CodeOperationExpired},
-		{memory.ErrSessionEnded, envelope.CodeSessionAlreadyEnded},
+		{memory.ErrSessionEnded, envelope.CodeSessionEnded},
 		{memory.ErrConsolidateFingerprintMismatch, envelope.CodeFingerprintMismatch},
 		{memory.ErrConsolidateRefused, envelope.CodeConsolidationRefused},
 		{errors.New("something else"), envelope.CodeInternal},

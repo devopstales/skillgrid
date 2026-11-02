@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/transport/handler"
 )
@@ -172,19 +173,24 @@ func dispatchSavePrompt(h *handler.Handler) func(ctx context.Context, args map[s
 	}
 }
 
-// dispatchCapturePassive maps mem_capture_passive args → the service's
-// Extract seam. The service wiring is a later task (the memory function
-// does not yet expose CapturePassive) — so this dispatch is an honest
-// no-op on the wire: it carries `degraded: true` + a reason, so the agent
-// knows it is a no-op, not a success.
+// dispatchCapturePassive maps mem_capture_passive args → the handler. The
+// pinned required args (text, session_id) are validated first; the service
+// method the memory function does not yet expose (CapturePassive over the
+// Extract seam) makes this an honest no-op on the wire (R-2): it carries
+// `degraded: true` + a reason, so the agent knows it is not a success.
 func dispatchCapturePassive(h *handler.Handler) func(ctx context.Context, args map[string]any) (any, error) {
 	return func(ctx context.Context, args map[string]any) (any, error) {
+		_ = h
+		_ = ctx
+		if argString(args, "text") == "" {
+			return nil, errMissingArg("mem_capture_passive: text")
+		}
+		if argString(args, "session_id") == "" {
+			return nil, errMissingArg("mem_capture_passive: session_id")
+		}
 		// ponytail: D1 surface — service wiring is a later task; returns
 		// captured:0 without side effects. The degraded flag + reason make
 		// the no-op honest on the wire (the agent sees it is not a success).
-		_ = h
-		_ = ctx
-		_ = args
 		return map[string]any{
 			"captured":        0,
 			"degraded":        true,
@@ -227,30 +233,22 @@ func classifyStoreError(err error) error {
 		return nil
 	}
 	msg := err.Error()
-	if containsProjectMismatch(msg) {
+	if strings.Contains(msg, "belongs to project") {
 		return errProjectMismatch
 	}
-	if containsNotFound(msg) {
+	if strings.Contains(msg, "not found") {
 		return errNotFound
 	}
 	return err
 }
 
-func containsProjectMismatch(msg string) bool {
-	return contains(msg, "belongs to project")
-}
-
-func containsNotFound(msg string) bool {
-	return contains(msg, "not found")
-}
-
-func contains(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
+// errMissingArg builds the envelope-invalid-arguments error for a pinned
+// required arg the adapter validated before the handler call. It carries
+// the "memory:" prefix + " is required" shape the envelope's
+// isValidationError maps to invalid_arguments (the pipeline's own
+// validation errors share that shape).
+func errMissingArg(arg string) error {
+	return fmt.Errorf("memory: %s is required", arg)
 }
 
 // judgeArg is one entry in the mem_judge_many judgments array.
@@ -304,7 +302,19 @@ func dispatchJudgeMany(h *handler.Handler) func(ctx context.Context, args map[st
 				Model:      model,
 			})
 		}
-		return h.JudgeMany(ctx, rs)
+		rels, err := h.JudgeMany(ctx, rs)
+		if err != nil {
+			return nil, err
+		}
+		// The D1 shape: a judged-relation summary (the wire is a JSON
+		// object, never a bare array — the envelope's contract).
+		out := make([]map[string]any, 0, len(rels))
+		for _, r := range rels {
+			out = append(out, map[string]any{
+				"id": r.ID, "sync_id": r.SyncID, "relation": r.Relation,
+			})
+		}
+		return map[string]any{"judged": len(out), "relations": out}, nil
 	}
 }
 
@@ -477,13 +487,136 @@ func dispatchReview(h *handler.Handler) func(ctx context.Context, args map[strin
 	}
 }
 
-// dispatchNoop is the placeholder for tools whose service method is not
-// yet exposed (the session lifecycle, stats, timeline, merge, doctor).
-// They return an empty result — the handler is the contract; the adapter
-// is a thin mapping.
-func dispatchNoop() func(ctx context.Context, args map[string]any) (any, error) {
+// dispatchSessionStart maps mem_session_start args → Handler.SessionStart.
+func dispatchSessionStart(h *handler.Handler) func(ctx context.Context, args map[string]any) (any, error) {
 	return func(ctx context.Context, args map[string]any) (any, error) {
-		return map[string]any{}, nil
+		if argString(args, "id") == "" {
+			return nil, errMissingArg("mem_session_start: id")
+		}
+		if err := h.SessionStart(ctx, handler.SessionStartRequest{
+			ID: argString(args, "id"), Project: argString(args, "project"),
+			Directory: argString(args, "directory"), OwnershipMode: argString(args, "ownership_mode"),
+			Resume: argBool(args, "resume"), Isolated: argBool(args, "isolated"),
+		}); err != nil {
+			return nil, err
+		}
+		return map[string]any{"session_id": argString(args, "id"), "started": true}, nil
+	}
+}
+
+// dispatchSessionEnd maps mem_session_end args → Handler.SessionEnd.
+func dispatchSessionEnd(h *handler.Handler) func(ctx context.Context, args map[string]any) (any, error) {
+	return func(ctx context.Context, args map[string]any) (any, error) {
+		if argString(args, "session_id") == "" {
+			return nil, errMissingArg("mem_session_end: session_id")
+		}
+		if err := h.SessionEnd(ctx, argString(args, "session_id"), argString(args, "summary")); err != nil {
+			return nil, err
+		}
+		return map[string]any{"session_id": argString(args, "session_id"), "ended": true}, nil
+	}
+}
+
+// dispatchSessionSummary maps mem_session_summary args → Handler.SessionSummary.
+func dispatchSessionSummary(h *handler.Handler) func(ctx context.Context, args map[string]any) (any, error) {
+	return func(ctx context.Context, args map[string]any) (any, error) {
+		if argString(args, "session_id") == "" {
+			return nil, errMissingArg("mem_session_summary: session_id")
+		}
+		res, err := h.SessionSummary(ctx, handler.SessionSummaryRequest{
+			SessionID: argString(args, "session_id"),
+			Project:   argString(args, "project"),
+			SixSections: handler.SixSections{
+				Goal: argString(args, "goal"), Instructions: argString(args, "instructions"),
+				Discoveries: argString(args, "discoveries"), Accomplished: argString(args, "accomplished"),
+				NextSteps: argString(args, "next_steps"), RelevantFiles: argString(args, "relevant_files"),
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"sync_id": res.SyncID, "saved": true}, nil
+	}
+}
+
+// dispatchSessionFinalize maps mem_session_finalize args →
+// Handler.SessionFinalize (the idempotent close).
+func dispatchSessionFinalize(h *handler.Handler) func(ctx context.Context, args map[string]any) (any, error) {
+	return func(ctx context.Context, args map[string]any) (any, error) {
+		if argString(args, "session_id") == "" {
+			return nil, errMissingArg("mem_session_finalize: session_id")
+		}
+		if err := h.SessionFinalize(ctx, argString(args, "session_id"), argString(args, "project")); err != nil {
+			return nil, err
+		}
+		return map[string]any{"session_id": argString(args, "session_id"), "finalized": true}, nil
+	}
+}
+
+// dispatchListProjects maps mem_list_projects args → Handler.ListProjects.
+func dispatchListProjects(h *handler.Handler) func(ctx context.Context, args map[string]any) (any, error) {
+	return func(ctx context.Context, args map[string]any) (any, error) {
+		res, err := h.ListProjects(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if res.Projects == nil {
+			res.Projects = []string{}
+		}
+		return res, nil
+	}
+}
+
+// dispatchStats maps mem_stats args → Handler.Stats (admin profile).
+func dispatchStats(h *handler.Handler) func(ctx context.Context, args map[string]any) (any, error) {
+	return func(ctx context.Context, args map[string]any) (any, error) {
+		return h.Stats(ctx, argString(args, "project"))
+	}
+}
+
+// dispatchTimeline is the honest no-op for mem_timeline (admin profile):
+// the memory function does not yet expose a session timeline (R-2: a
+// degraded envelope + reason, never a healthy empty one). The pinned
+// required arg is validated first.
+func dispatchTimeline(h *handler.Handler) func(ctx context.Context, args map[string]any) (any, error) {
+	return func(ctx context.Context, args map[string]any) (any, error) {
+		_ = h
+		_ = ctx
+		if argString(args, "session_id") == "" {
+			return nil, errMissingArg("mem_timeline: session_id")
+		}
+		return map[string]any{
+			"degraded":        true,
+			"degraded_reason": "timeline: service not yet wired",
+		}, nil
+	}
+}
+
+// dispatchMergeProjects is the honest no-op for mem_merge_projects (admin
+// profile): the store has no project-variant merge yet (R-2: a degraded
+// envelope + reason). Both pinned required args are validated first.
+func dispatchMergeProjects(h *handler.Handler) func(ctx context.Context, args map[string]any) (any, error) {
+	return func(ctx context.Context, args map[string]any) (any, error) {
+		_ = h
+		_ = ctx
+		if argString(args, "source") == "" {
+			return nil, errMissingArg("mem_merge_projects: source")
+		}
+		if argString(args, "target") == "" {
+			return nil, errMissingArg("mem_merge_projects: target")
+		}
+		return map[string]any{
+			"degraded":        true,
+			"degraded_reason": "merge_projects: store seam not yet wired",
+		}, nil
+	}
+}
+
+// dispatchDoctor maps mem_doctor args → Handler.Doctor (admin profile —
+// the capability checks: config/FTS/vector/embed).
+func dispatchDoctor(h *handler.Handler) func(ctx context.Context, args map[string]any) (any, error) {
+	return func(ctx context.Context, args map[string]any) (any, error) {
+		return h.Doctor(ctx)
 	}
 }
 

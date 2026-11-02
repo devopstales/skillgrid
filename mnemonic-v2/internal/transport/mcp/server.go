@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -27,9 +28,10 @@ import (
 type Profile string
 
 const (
-	// Agent is the 20-tool agent profile (the plugins' default).
+	// Agent is the 18-tool agent profile (spec 004-transport-mcp §3's
+	// | agent | rows — R-1, fix round 1).
 	Agent Profile = "agent"
-	// All is the 26-tool profile (agent + the 6 admin tools).
+	// All is the 24-tool profile (agent + the 6 admin tools).
 	All Profile = "all"
 )
 
@@ -56,16 +58,30 @@ type Server struct {
 	// calls is the in-process dispatch (the test harness calls CallTool
 	// directly; the stdio path goes through mcp.HandleMessage).
 	calls map[string]func(ctx context.Context, args map[string]any) (any, error)
+	// txnMu guards txnLog (the store's committed-transaction order — the
+	// write queue's load-bearing test assertion, fix round 1 IMPORTANT #3).
+	txnMu  sync.Mutex
+	txnLog []int
 }
 
 // NewServer builds an MCP server over the shared handler. The profile
-// selects the tool set (Agent = 20 tools, All = 26 tools).
+// selects the tool set (Agent = 18 tools, All = 24 tools — spec
+// 004-transport-mcp §3's literal name sets, R-1).
 func NewServer(h *handler.Handler, profile Profile) *Server {
 	s := &Server{
 		h:       h,
 		profile: profile,
 		queue:   newWriteQueue(),
 	}
+	// The store's committed-transaction seam (store.SetTxnHook) records
+	// the transaction order: the write queue's serialization is proven by
+	// the store's own log, not a queue-internal flag.
+	st := h.Service().St()
+	st.SetTxnHook(func() {
+		s.txnMu.Lock()
+		s.txnLog = append(s.txnLog, len(s.txnLog)+1)
+		s.txnMu.Unlock()
+	})
 	// Build the underlying mcp-go server with the profile-filtered tools.
 	s.mcp = server.NewMCPServer(serverName, serverVersion, server.WithInstructions(instructions))
 	s.calls = s.buildToolDispatch()
@@ -73,6 +89,24 @@ func NewServer(h *handler.Handler, profile Profile) *Server {
 		s.mcp.AddTool(tool.def, s.mcpToolHandler(tool.name))
 	}
 	return s
+}
+
+// txnOrder returns a copy of the committed-transaction sequence (the test
+// hook for TestWriteQueueSerializes: strictly monotonic, one per write).
+func (s *Server) txnOrder() []int {
+	s.txnMu.Lock()
+	defer s.txnMu.Unlock()
+	out := make([]int, len(s.txnLog))
+	copy(out, s.txnLog)
+	return out
+}
+
+// txnCount returns the number of committed transactions (the test hook for
+// TestJudgeManyWritesOnceInQueue: one queued write = one transaction).
+func (s *Server) txnCount() int {
+	s.txnMu.Lock()
+	defer s.txnMu.Unlock()
+	return len(s.txnLog)
 }
 
 // Start blocks on the stdio MCP loop until the client disconnects
@@ -195,9 +229,10 @@ func (s *Server) SetDeadlockForTest() {
 	s.queue.SetDeadlockForTest()
 }
 
-// Close stops the write queue worker (the test cleanup; the cmd layer
-// calls this on shutdown).
+// Close stops the write queue worker and detaches the store's transaction
+// hook (the test cleanup; the cmd layer calls this on shutdown).
 func (s *Server) Close() {
+	s.h.Service().St().SetTxnHook(func() {})
 	s.queue.Close()
 }
 
