@@ -78,6 +78,16 @@ func Impact(ctx context.Context, st store.Store, symID int64, minConfidence stri
 	queue := []visit{{id: symID, depth: 0}}
 	dependentsKinds := []string{"calls", "imports", "references", "extends", "implements"}
 
+	// trailIDs accumulates the symbol ids the read touched, for the trail.
+	var trailIDs []int64
+	trailSeen := map[int64]bool{symID: true}
+	addTrailID := func(id int64) {
+		if id != 0 && !trailSeen[id] {
+			trailSeen[id] = true
+			trailIDs = append(trailIDs, id)
+		}
+	}
+
 	for len(queue) > 0 {
 		cur := queue[0]
 		queue = queue[1:]
@@ -94,28 +104,37 @@ func Impact(ctx context.Context, st store.Store, symID int64, minConfidence stri
 		// Reverse dependents: edges where to_id = cur.id (resolved)
 		edges, err := st.EdgesByTo(ctx, cur.id, dependentsKinds)
 		if err != nil {
+			// A read that failed is still a degraded retrieval (INV-5).
+			RecordTrail(ctx, st, "code_impact", string(rune(symID)), "edges_by_to: "+err.Error(), trailIDs...)
 			return out, err
 		}
 
 		// Also fetch name-only edges where to_name = curSym.Name
 		nameOnlyEdges, err := st.EdgesByNameOnlyToName(ctx, curSym.Name, dependentsKinds)
 		if err != nil {
+			RecordTrail(ctx, st, "code_impact", string(rune(symID)), "name_only: "+err.Error(), trailIDs...)
 			return out, err
 		}
 
 		// Process resolved edges
 		for _, e := range edges {
+			addTrailID(e.FromID)
 			queue, _ = processEdge(ctx, st, &out, seen, queue, cur, e, minConfidence)
 		}
 
 		// Process name-only edges
 		for _, e := range nameOnlyEdges {
-			// A name-only edge is traversed only if it resolves to exactly one symbol
+			// A name-only edge is traversed only if it resolves to exactly one
+			// symbol. CI-INV-3: a name-only edge with 0 or >1 candidates is
+			// dropped, never guessed (drop-not-guess). This is the intended
+			// reading of the v1 NOT-PORT tightening: the blast radius only
+			// follows a name-only hop when the name is unambiguous.
 			cands, err := st.SymbolByName(ctx, e.ToName)
 			if err != nil || len(cands) != 1 || cands[0].ID != cur.id {
-				continue // not a match or ambiguous
+				continue // not a match, or 0/>1 candidates (CI-INV-3: drop, don't guess)
 			}
 			// This edge points to cur.id (name-only match)
+			addTrailID(e.FromID)
 			queue, _ = processEdge(ctx, st, &out, seen, queue, cur, e, minConfidence)
 		}
 	}
@@ -129,8 +148,8 @@ func Impact(ctx context.Context, st store.Store, symID int64, minConfidence stri
 			out.Likely[i].Symbol.Name < out.Likely[j].Symbol.Name
 	})
 
-	// Record the trail
-	RecordTrail(ctx, st, "code_impact", string(rune(symID)), "")
+	// Record the trail with the returned symbol ids.
+	RecordTrail(ctx, st, "code_impact", string(rune(symID)), "", trailIDs...)
 
 	return out, nil
 }

@@ -128,8 +128,8 @@ func orientPackage(ctx context.Context, st store.Store, path string, depth int) 
 		}
 	}
 
-	// Record the trail
-	RecordTrail(ctx, st, "code_orient", "package:"+path, "")
+	// Record the trail with the TOC + outbound target ids.
+	RecordTrail(ctx, st, "code_orient", "package:"+path, "", orientTrailIDs(res)...)
 
 	return res, nil
 }
@@ -182,8 +182,8 @@ func orientFile(ctx context.Context, st store.Store, path string, depth int) (Or
 		}
 	}
 
-	// Record the trail
-	RecordTrail(ctx, st, "code_orient", "file:"+path, "")
+	// Record the trail with the TOC + outbound target ids.
+	RecordTrail(ctx, st, "code_orient", "file:"+path, "", orientTrailIDs(res)...)
 
 	return res, nil
 }
@@ -232,10 +232,30 @@ func orientSymbol(ctx context.Context, st store.Store, symID int64, depth int) (
 		})
 	}
 
-	// Record the trail
-	RecordTrail(ctx, st, "code_orient", "symbol:"+sym.Name, "")
+	// Record the trail with the TOC + outbound target ids.
+	RecordTrail(ctx, st, "code_orient", "symbol:"+sym.Name, "", orientTrailIDs(res)...)
 
 	return res, nil
+}
+
+// orientTrailIDs collects the TOC symbol ids + outbound edge target ids for
+// the trail (the audit answer to "which rows did this orient read touch?").
+func orientTrailIDs(res OrientResult) []int64 {
+	seen := map[int64]bool{}
+	var ids []int64
+	add := func(id int64) {
+		if id != 0 && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	for _, s := range res.TOC {
+		add(s.ID)
+	}
+	for _, e := range res.Outbound {
+		add(e.ToID)
+	}
+	return ids
 }
 
 // sortTOC sorts the TOC by file path, then start_line.

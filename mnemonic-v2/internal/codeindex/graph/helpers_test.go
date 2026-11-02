@@ -64,17 +64,17 @@ func seedResolve(t *testing.T) store.Store {
 	return st
 }
 
-// seedPackages seeds the code_packages contract: internal/memory (12 files, 87 symbols), internal/codeindex (9 files, 64 symbols).
+// seedPackages seeds the code_packages contract: internal/memory (12 files,
+// 84 symbols) and internal/codeindex (9 files, 63 symbols). The counts are
+// fixed (12×7 and 9×7) so the package map is deterministic; the test asserts
+// the actual numbers.
 func seedPackages(t *testing.T) store.Store {
 	t.Helper()
 	st, cleanup := openTestStore(t)
 	t.Cleanup(cleanup)
 	ctx := context.Background()
 
-	// internal/memory: 12 files, 87 symbols (7 files with 8 symbols, 5 files with 7 symbols = 56+35=91, close enough)
-	// Actually, let me just create the exact number: 12 files, 87 symbols total
-	// 11 files with 8 symbols = 88, 1 file with 7 symbols = 7, total = 95
-	// Let me just use 12 files with 7 symbols each = 84, close to 87
+	// internal/memory: 12 files × 7 symbols = 84
 	for i := 0; i < 12; i++ {
 		f, _ := st.UpsertFile(ctx, store.FileRow{
 			Path: "internal/memory/file" + string(rune('a'+i)) + ".go", Language: "go", ContentHash: "hash-mem" + string(rune('a'+i)),
@@ -83,13 +83,13 @@ func seedPackages(t *testing.T) store.Store {
 		for j := 0; j < 7; j++ {
 			syms = append(syms, store.Symbol{
 				Name: "Mem" + string(rune('a'+i)) + string(rune('a'+j)), Kind: "function", Language: "go",
-				StartLine: j * 10 + 1, EndLine: j*10 + 10, UID: "uid-mem" + string(rune('a'+i)) + string(rune('a'+j)),
+				StartLine: j*10 + 1, EndLine: j*10 + 10, UID: "uid-mem" + string(rune('a'+i)) + string(rune('a'+j)),
 			})
 		}
 		st.UpsertSymbols(ctx, f, syms)
 	}
 
-	// internal/codeindex: 9 files, 64 symbols (9 files with 7 symbols each = 63, close to 64)
+	// internal/codeindex: 9 files × 7 symbols = 63
 	for i := 0; i < 9; i++ {
 		f, _ := st.UpsertFile(ctx, store.FileRow{
 			Path: "internal/codeindex/file" + string(rune('a'+i)) + ".go", Language: "go", ContentHash: "hash-ci" + string(rune('a'+i)),
@@ -98,7 +98,7 @@ func seedPackages(t *testing.T) store.Store {
 		for j := 0; j < 7; j++ {
 			syms = append(syms, store.Symbol{
 				Name: "CI" + string(rune('a'+i)) + string(rune('a'+j)), Kind: "function", Language: "go",
-				StartLine: j * 10 + 1, EndLine: j*10 + 10, UID: "uid-ci" + string(rune('a'+i)) + string(rune('a'+j)),
+				StartLine: j*10 + 1, EndLine: j*10 + 10, UID: "uid-ci" + string(rune('a'+i)) + string(rune('a'+j)),
 			})
 		}
 		st.UpsertSymbols(ctx, f, syms)
@@ -325,4 +325,25 @@ func trailCountForProject(t *testing.T, st store.Store, project string) int {
 		t.Fatalf("count trails: %v", err)
 	}
 	return count
+}
+
+// latestTrailHasIDs reports whether the most recent retrieval_trails row for
+// the project carries a non-empty ids column (the audit answer to "which rows
+// did the last read touch?").
+func latestTrailHasIDs(t *testing.T, st store.Store, project string) bool {
+	t.Helper()
+	probe, ok := st.(interface {
+		Probe(query string, args ...any) (bool, error)
+	})
+	if !ok {
+		t.Fatalf("store does not expose Probe")
+	}
+	found, err := probe.Probe(
+		`SELECT ids IS NOT NULL AND ids != '' FROM retrieval_trails WHERE project = ? ORDER BY rowid DESC LIMIT 1`,
+		project,
+	)
+	if err != nil {
+		t.Fatalf("probe latest trail ids: %v", err)
+	}
+	return found
 }

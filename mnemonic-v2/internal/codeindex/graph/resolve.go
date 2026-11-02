@@ -27,19 +27,40 @@ func Resolve(ctx context.Context, st store.Store, name string, calledFrom *strin
 
 	syms, err := st.SymbolByName(ctx, name)
 	if err != nil {
+		// A read that failed is still a degraded retrieval worth auditing
+		// (INV-5): record the trail before returning.
+		RecordTrail(ctx, st, "code_resolve", name, "symbol_by_name: "+err.Error())
 		return res, err
 	}
 
-	// Filter by calledFrom if provided
+	// calledFrom file-hint disambiguation (v1 resolve.go:53-55, spec 004 §12):
+	// a name + a file hint that disambiguates to exactly one candidate is NOT
+	// ambiguous. Match the hint against each candidate's file path (SymbolRow.
+	// FileID + FileByID). If the hint matches no candidate, fall through to the
+	// full ambiguous list (an unsatisfied filter is not a silent drop).
 	if calledFrom != nil && *calledFrom != "" {
+		hint := *calledFrom
 		var filtered []store.SymbolRow
+		fileByID := map[int64]store.FileRow{}
 		for _, s := range syms {
-			// Get the file for this symbol
-			// SymbolRow doesn't have FileID, so we need to look it up
-			// For now, skip the filter (the caller can do it)
-			filtered = append(filtered, s)
+			if s.FileID == 0 {
+				continue
+			}
+			f, ok := fileByID[s.FileID]
+			if !ok {
+				f, err = st.FileByID(ctx, s.FileID)
+				if err != nil {
+					continue
+				}
+				fileByID[s.FileID] = f
+			}
+			if f.Path == hint {
+				filtered = append(filtered, s)
+			}
 		}
-		syms = filtered
+		if len(filtered) > 0 {
+			syms = filtered
+		}
 	}
 
 	switch len(syms) {
@@ -63,8 +84,16 @@ func Resolve(ctx context.Context, st store.Store, name string, calledFrom *strin
 		res.Candidates = syms
 	}
 
-	// Record the trail
-	RecordTrail(ctx, st, "code_resolve", name, "")
+	// Record the trail with the resolved/candidate ids.
+	var trailIDs []int64
+	if res.Exists {
+		trailIDs = append(trailIDs, syms[0].ID)
+	} else if res.Ambiguous {
+		for _, c := range res.Candidates {
+			trailIDs = append(trailIDs, c.ID)
+		}
+	}
+	RecordTrail(ctx, st, "code_resolve", name, "", trailIDs...)
 
 	return res, nil
 }

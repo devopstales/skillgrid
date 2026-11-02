@@ -100,8 +100,20 @@ func Explain(ctx context.Context, st store.Store, symID int64) (ExplainResult, e
 		}
 	}
 
-	// Record the trail
-	RecordTrail(ctx, st, "code_explain", sym.Name, "")
+	// Record the trail with the symbol + neighbor ids.
+	var trailIDs []int64
+	trailSeen := map[int64]bool{}
+	addID := func(id int64) {
+		if id != 0 && !trailSeen[id] {
+			trailSeen[id] = true
+			trailIDs = append(trailIDs, id)
+		}
+	}
+	addID(sym.ID)
+	for _, c := range res.Connections {
+		addID(c.Neighbor.ID)
+	}
+	RecordTrail(ctx, st, "code_explain", sym.Name, "", trailIDs...)
 
 	return res, nil
 }

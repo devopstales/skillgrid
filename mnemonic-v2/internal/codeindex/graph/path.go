@@ -82,23 +82,26 @@ func Path(ctx context.Context, st store.Store, fromID, toID int64) (PathResult, 
 	if found {
 		// Reconstruct the path
 		var path []store.SymbolRow
+		var pathIDs []int64
 		for cur := toID; cur != 0; {
 			sym, err := st.SymbolByID(ctx, cur)
 			if err != nil {
 				break
 			}
 			path = append([]store.SymbolRow{sym}, path...)
+			pathIDs = append([]int64{sym.ID}, pathIDs...)
 			if cur == fromID {
 				break
 			}
 			cur = parent[cur]
 		}
-		// Record the trail
-		RecordTrail(ctx, st, "code_path", string(rune(fromID))+":"+string(rune(toID)), "")
+		// Record the trail with the path's symbol ids.
+		RecordTrail(ctx, st, "code_path", string(rune(fromID))+":"+string(rune(toID)), "", pathIDs...)
 		return PathResult{Found: true, Path: path}, nil
 	}
 
-	// No path found: build the graph-stops answer
+	// No path found: build the graph-stops answer (a degraded read — the flow
+	// could not be completed).
 	stops := buildGraphStops(ctx, st, fromID, visited)
 	RecordTrail(ctx, st, "code_path", string(rune(fromID))+":"+string(rune(toID)), "graph_stops")
 	return PathResult{Found: false, Stops: stops}, nil
@@ -129,8 +132,15 @@ func buildGraphStops(ctx context.Context, st store.Store, fromID int64, visited 
 			if e.Line > worst {
 				worst = e.Line
 			}
-			// The causal dispatch kind: the edge kind at the frontier
-			// (interface/bus/callback)
+			// Spec 004 §7 asks for "the dispatch kind that ended the flow."
+			// The kind is unresolvable from the stored row: name-only edges
+			// carry no target-kind signal, so this is a spec-underdetermined
+			// default (the v1 lift's default), not a measured fact. "interface"
+			// is used for any frontier edge of kind calls/references; a future
+			// extraction tier that records the target's declared kind can
+			// replace this. The test pins the FRONTIER LOCATION (the stop is at
+			// the frontier edge, not a visited node — the v1 bug this fixes)
+			// plus this kind value.
 			if e.Kind == "calls" || e.Kind == "references" {
 				stops.DispatchKind = "interface"
 			}

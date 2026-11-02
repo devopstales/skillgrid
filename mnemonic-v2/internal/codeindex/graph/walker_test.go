@@ -132,8 +132,48 @@ func TestImpactBlastRadius(t *testing.T) {
 	if res.Has("D") {
 		t.Fatalf("unresolved D must not be in the radius")
 	}
-	// The excluded count is 0 because there are no INFERRED edges that are
-	// dependents of A (the edge from D is to "Gone", not "A")
+
+	// [excluded-counted] An INFERRED dependent edge below the EXTRACTED bar is
+	// counted in Excluded and absent from both tiers. Seed E (a resolved
+	// dependent of A at INFERRED confidence) and re-run at minConfidence=
+	// "EXTRACTED": E is excluded (counted), B stays WILL BREAK, C stays
+	// LIKELY AFFECTED.
+	fileE, err := st.UpsertFile(ctx, store.FileRow{
+		Path: "e.go", Language: "go", ContentHash: "hash-e",
+	})
+	if err != nil {
+		t.Fatalf("upsert file E: %v", err)
+	}
+	if _, err := st.UpsertSymbols(ctx, fileE, []store.Symbol{
+		{Name: "E", Kind: "function", Language: "go", StartLine: 1, EndLine: 5, UID: "uid-e"},
+	}); err != nil {
+		t.Fatalf("upsert symbols E: %v", err)
+	}
+	symE, _ := st.SymbolByName(ctx, "E")
+	if len(symE) != 1 {
+		t.Fatalf("expected 1 symbol E, got %d", len(symE))
+	}
+	toA := symA[0].ID
+	if err := st.ReplaceEdgesForFile(ctx, fileE, []store.Edge{
+		{Kind: "calls", FromID: symE[0].ID, ToID: &toA, Confidence: "INFERRED", Line: 7},
+	}); err != nil {
+		t.Fatalf("replace edges E: %v", err)
+	}
+
+	res2, err := Impact(ctx, st, symA[0].ID, "EXTRACTED", 5)
+	if err != nil {
+		t.Fatalf("impact (EXTRACTED): %v", err)
+	}
+	if res2.Excluded != 1 {
+		t.Fatalf("E (INFERRED, below EXTRACTED bar) must be excluded and counted: Excluded=%d, want 1", res2.Excluded)
+	}
+	if res2.Has("E") || res2.HasWillBreak("E") || res2.HasLikely("E") {
+		t.Fatalf("excluded E must be absent from both tiers: WillBreak=%+v Likely=%+v", res2.WillBreak, res2.Likely)
+	}
+	// The EXTRACTED bar still admits B (depth 1) and C (depth 2).
+	if !res2.HasWillBreak("B") || !res2.HasLikely("C") {
+		t.Fatalf("B must be WILL BREAK and C LIKELY AFFECTED at the EXTRACTED bar: %+v", res2)
+	}
 }
 
 // [code-resolve-contract] exists/file/line/called_from; ambiguous → candidates[]; gone → exists:false.
@@ -160,6 +200,31 @@ func TestCodeResolveContract(t *testing.T) {
 	}
 	if !ra.Ambiguous || len(ra.Candidates) != 2 {
 		t.Fatalf("ambiguous Foo: %+v", ra)
+	}
+
+	// [called-from-disambiguation] A name + a file hint that disambiguates to 1
+	// is NOT ambiguous (spec 004 §12; v1 resolve.go:53-55). The hint matches
+	// the a/foo.go candidate's file path.
+	raFile := "a/foo.go"
+	rb, err := Resolve(ctx, st, "Foo", &raFile)
+	if err != nil {
+		t.Fatalf("resolve Foo with hint: %v", err)
+	}
+	if rb.Ambiguous {
+		t.Fatalf("hint disambiguating to 1 must not be ambiguous: %+v", rb)
+	}
+	if !rb.Exists || rb.File != "a/foo.go" {
+		t.Fatalf("hint must resolve to the a/foo.go candidate: %+v", rb)
+	}
+
+	// A hint that matches NO candidate stays ambiguous with the full list.
+	raNone := "z/none.go"
+	rc, err := Resolve(ctx, st, "Foo", &raNone)
+	if err != nil {
+		t.Fatalf("resolve Foo with no-match hint: %v", err)
+	}
+	if !rc.Ambiguous || len(rc.Candidates) != 2 {
+		t.Fatalf("no-match hint must stay ambiguous with the full candidate list: %+v", rc)
 	}
 
 	// Gone: exists:false
@@ -211,8 +276,30 @@ func TestPathGraphStops(t *testing.T) {
 	if p.Path == nil && p.Stops == nil {
 		t.Fatalf("PathResult must be something: %+v", p)
 	}
-	if p.Stops != nil && p.Stops.DispatchKind != "interface" {
-		t.Fatalf("causal dispatch kind: %+v", p.Stops)
+	if p.Found {
+		t.Fatalf("A → Unreachable (different component) must not be found: %+v", p)
+	}
+	if p.Stops == nil {
+		t.Fatalf("graph-stops answer required: %+v", p)
+	}
+	// The stop is at the FRONTIER edge (B → Interface, line 15), not at a
+	// visited node (A or B). The v1 bug set the dispatch kind to the
+	// last-iterated-over-visited node; the fix pins the frontier edge. The
+	// refused hop must be the Interface name-only edge at line 15.
+	if p.Stops.Line != 15 {
+		t.Fatalf("stop must be at the frontier edge (B→Interface, line 15), got line %d: %+v", p.Stops.Line, p.Stops)
+	}
+	if p.Stops.DispatchKind != "interface" {
+		t.Fatalf("causal dispatch kind (spec-underdetermined default): %+v", p.Stops)
+	}
+	foundInterface := false
+	for _, r := range p.Stops.Refused {
+		if r.Name == "Interface" && r.Line == 15 {
+			foundInterface = true
+		}
+	}
+	if !foundInterface {
+		t.Fatalf("refused hop must be the frontier Interface edge at line 15: %+v", p.Stops.Refused)
 	}
 }
 
@@ -328,5 +415,22 @@ func TestRetrievalTrailRecorded(t *testing.T) {
 	after := trailCountForProject(t, st, "p")
 	if after != before+1 {
 		t.Fatalf("code_impact must record a trail: before=%d after=%d", before, after)
+	}
+}
+
+// [retrieval-trail-carries-ids] the trail row carries the returned row ids
+// (F4a): Impact's code_impact read must populate the ids column with the
+// symbols it touched.
+func TestRetrievalTrailCarriesIDs(t *testing.T) {
+	st := seedGraph(t)
+	ctx := context.Background()
+
+	symA, _ := st.SymbolByName(ctx, "A")
+	if len(symA) != 1 {
+		t.Fatalf("expected 1 symbol A, got %d", len(symA))
+	}
+	_, _ = Impact(ctx, st, symA[0].ID, "INFERRED", 5)
+	if !latestTrailHasIDs(t, st, "p") {
+		t.Fatalf("code_impact trail must carry the returned symbol ids (F4a)")
 	}
 }

@@ -109,6 +109,18 @@ func viewEdges(ctx context.Context, st store.Store, symID int64, v view) (Neighb
 		return out[i].Kind < out[j].Kind
 	})
 
+	// Record the trail with the returned edge endpoints' ids.
+	var trailIDs []int64
+	seenID := map[int64]bool{}
+	for _, e := range out {
+		for _, id := range []int64{e.From.ID, e.To.ID} {
+			if id != 0 && !seenID[id] {
+				seenID[id] = true
+				trailIDs = append(trailIDs, id)
+			}
+		}
+	}
+
 	// Record the trail
 	route := "code_neighbors"
 	switch v {
@@ -125,7 +137,7 @@ func viewEdges(ctx context.Context, st store.Store, symID int64, v view) (Neighb
 	case viewTestsFor:
 		route = "code_tests_for"
 	}
-	RecordTrail(ctx, st, route, string(rune(symID)), "")
+	RecordTrail(ctx, st, route, string(rune(symID)), "", trailIDs...)
 
 	return Neighbors{Edges: out}, nil
 }

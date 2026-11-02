@@ -60,7 +60,8 @@ func Packages(ctx context.Context, st store.Store) ([]PackageInfo, error) {
 	}
 	sortPackages(out)
 
-	// Record the trail
+	// Record the trail (the packages read returns no per-symbol ids — the
+	// PackageInfo carries counts, not rows).
 	RecordTrail(ctx, st, "code_packages", "", "")
 
 	return out, nil

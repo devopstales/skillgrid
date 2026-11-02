@@ -100,6 +100,17 @@ func Affected(ctx context.Context, st store.Store, opts AffectedOpts) (AffectedR
 	dependentsKinds := []string{"calls", "imports", "references", "extends", "implements", "tests_for", "tested_by"}
 	testFiles := map[string]bool{}
 
+	// trailIDs accumulates the test symbols flagged by this read (for the
+	// trail).
+	var trailIDs []int64
+	trailSeen := map[int64]bool{}
+	addTrailID := func(id int64) {
+		if id != 0 && !trailSeen[id] {
+			trailSeen[id] = true
+			trailIDs = append(trailIDs, id)
+		}
+	}
+
 	for len(queue) > 0 {
 		cur := queue[0]
 		queue = queue[1:]
@@ -154,6 +165,7 @@ func Affected(ctx context.Context, st store.Store, opts AffectedOpts) (AffectedR
 			if from.FileID != 0 {
 				if file, ok := fileByID[from.FileID]; ok && isTestPath(file.Path) {
 					testFiles[file.Path] = true
+					addTrailID(from.ID)
 					res.Relationships = append(res.Relationships, Relationship{
 						From:       file.Path,
 						To:         from.Name,
@@ -179,8 +191,9 @@ func Affected(ctx context.Context, st store.Store, opts AffectedOpts) (AffectedR
 	}
 	sortStrings(res.AffectedTests)
 
-	// Record the trail
-	RecordTrail(ctx, st, "code_affected", strings.Join(opts.Changed, ","), "")
+	// Record the trail with the affected test symbols' ids (the audit answer
+	// to "which test symbols did this read flag?").
+	RecordTrail(ctx, st, "code_affected", strings.Join(opts.Changed, ","), "", trailIDs...)
 
 	return res, nil
 }
