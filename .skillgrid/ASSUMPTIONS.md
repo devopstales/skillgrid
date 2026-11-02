@@ -75,8 +75,12 @@ The ADR index. One row per decision: a short description and a link to the full 
 | 0040 | Mnemonic v2 module extraction: fresh `mnemonic-v2/` module (path `github.com/devopstales/skillgrid/mnemonic-v2`), v1 renamed to `mnemonic_back/`, coexistence until v2 ships | yes | `.skillgrid/artifacts/04-adr-0040-mnemonic-v2-module-extraction.md` |
 | 0041 | Mnemonic v2 Postgres driver: `lib/pq` (pure-Go, `database/sql`-confined to `postgres.go`) | yes | `.skillgrid/artifacts/04-adr-0041-mnemonic-v2-postgres-driver.md` |
 | 0042 | Goldfish plan review: before-code document review is a fresh-context 3-stage subflow of writing-blueprints (zoom-out / comprehension / critic), not a new phase and not part of qa | yes | `.skillgrid/artifacts/04-adr-0042-goldfish-plan-review.md` |
+| 0043 | Code-index tree-sitter dependency: `gotreesitter` v0.55.1 (pure-Go, cgo-free) for the rich-6 + map-tier extraction ladder | yes | `.skillgrid/artifacts/04-adr-0043-code-index-tree-sitter-dep.md` |
+| 0044 | Code-index fsnotify dependency: `fsnotify` v1.10.1 for the watch loop (trigger-not-a-poll) | yes | `.skillgrid/artifacts/04-adr-0044-code-index-fsnotify-dep.md` |
+| 0045 | Code-index conditional ONNX dependency: `onnxer` v0.7.0 only if the 768-dim ONNX embedder is wired (hash-64 is the default, no dep) | yes (conditional) | `.skillgrid/artifacts/04-adr-0045-code-index-onnxer-conditional.md` |
+| 0046 | Code-index `Store` interface extension: additive code-index write/read + vector + trail + ExecDDL + Begin/Txn methods (one-way doors D2/D3) | yes | `.skillgrid/artifacts/04-adr-0046-code-index-store-extension.md` |
 
-**Highest sequence in use:** 0042 (next ADR is `04-adr-0043-slug.md`). This index is a pointer — the body of each decision is the linked file (ADR-0019).
+**Highest sequence in use:** 0046 (next ADR is `04-adr-0047-slug.md`). This index is a pointer — the body of each decision is the linked file (ADR-0019).
 
 Operational rules (the hard limits a change must respect — build toolchain, commit format, dependency policy, spec/code zone order) live in `AGENTS.md`, not here. `AGENTS.md` is the real source for those; the onboarding skill renders them into the agent prompt. A rule that is actually a decision belongs in this index as an ADR instead.
 
