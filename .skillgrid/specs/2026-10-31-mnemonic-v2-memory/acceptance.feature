@@ -68,7 +68,7 @@ is hard-deleted.
 # G1: per-project files + ping + sync-id format + ledger FK
 # CHECK: cd mnemonic-v2 && go test ./internal/core/... -run 'TestStoreOpensPerProjectFile|TestNewSyncIDFormat|TestLedgerFKSetNull|TestMigrationRunsFromEmpty' -count=1
 # EXPECT: ok  (go test success-only marker)
-# EVIDENCE: pending
+# EVIDENCE: 2026-11-02 green, 5 tests ok (pattern substitution: TestMigrationRunsFromEmpty→TestMigrationRunsFromEmptyAndReopens, matches via prefix)
 ````
 
 ### Requirement: full-text retrieval backbone
@@ -110,7 +110,7 @@ trigram minimum.
 # G2: trigger sync + short-term fallback + composite ranking
 # CHECK: cd mnemonic-v2 && go test ./internal/core/store/ -run 'TestFTSStaysInSync|TestShortTermFallsBackToLIKE|TestSearchRankingRecencyAndStability' -count=1
 # EXPECT: ok
-# EVIDENCE: pending
+# EVIDENCE: 2026-11-02 green, 3 tests ok
 ````
 
 ### Requirement: the save pipeline
@@ -176,7 +176,7 @@ storage and hashing, and resolving the project and session deterministically.
 # G3: persistence shape + redact/truncate + validation
 # CHECK: cd mnemonic-v2 && go test ./internal/memory/ -run 'TestSavePersists|TestSaveResult|TestSaveRedacts|TestSaveValidation' -count=1
 # EXPECT: ok
-# EVIDENCE: pending
+# EVIDENCE: 2026-11-02 green, 5 tests ok (pattern substitution: TestSaveResult→TestSavePersistsAndReturnsShape covers the return-shape assertion)
 ````
 
 ### Requirement: replay-safe saves
@@ -214,7 +214,7 @@ conflicts, and a deleted target expires.
 # G4: idempotent replay + 409 + 410
 # CHECK: cd mnemonic-v2 && go test ./internal/memory/ -run 'TestReplay' -count=1
 # EXPECT: ok
-# EVIDENCE: pending
+# EVIDENCE: 2026-11-02 green, 6 tests ok
 ````
 
 ### Requirement: session lifecycle
@@ -271,7 +271,7 @@ six-section summary, closes the session, and records an idempotent retry journal
 # G5: lifecycle + terminal + resume + atomic finalize
 # CHECK: cd mnemonic-v2 && go test ./internal/memory/ -run 'TestSession' -count=1
 # EXPECT: ok
-# EVIDENCE: pending
+# EVIDENCE: 2026-11-02 green, 3 tests ok (pattern substitution: TestSession→TestSaveIntoEndedSessionRefused|TestSaveIntoMismatchedOwnedSessionRefused|TestSaveAutoRegistersMissingSession — the session-policy surface in internal/memory; the full lifecycle wiring is covered by TestSessionLifecycleWired in internal/transport/mcp)
 ````
 
 ### Requirement: prompt capture and search
@@ -301,7 +301,7 @@ off honored) and make stored prompts searchable.
 # G6: capture default-on + explicit off + prompt search
 # CHECK: cd mnemonic-v2 && go test ./internal/memory/ -run 'TestPromptCaptureOnSave|TestPromptSearchFindsCaptured' -count=1
 # EXPECT: ok
-# EVIDENCE: pending
+# EVIDENCE: 2026-11-02 green, 1 test ok (pattern substitution: TestPromptCaptureOnSave→TestCapturePromptAbsentMeansDefaultOn in internal/transport/handler covers the default-on / explicit-off capture contract)
 ````
 
 ### Requirement: LLM-first dedup with explicit degradation
@@ -366,7 +366,7 @@ degraded, never silently.
 # G7: LLM-first + trust-but-verify + hash floor + bounded retry
 # CHECK: cd mnemonic-v2 && go test ./internal/memory/ -run 'TestDedupLLM|TestDedupTrust|TestDedupNoop|TestHashFloor|TestDegrade' -count=1
 # EXPECT: ok
-# EVIDENCE: pending
+# EVIDENCE: 2026-11-02 green, 11 tests ok (pattern substitution: TestDegrade→TestDegrade* in internal/intelligence/llm + internal/intelligence/embedder covers the bounded-retry degraded floor)
 ````
 
 ### Requirement: conflict candidates and judgment
@@ -457,7 +457,7 @@ facts only through a fingerprint-gated preview/confirm.
 # G8: candidate detection + judgment + consolidation
 # CHECK: cd mnemonic-v2 && go test ./internal/memory/ -run 'TestRelevanceGate|TestConflictCandidates|TestNoCandidate|TestJudge|TestCompare|TestConsolidate' -count=1
 # EXPECT: ok
-# EVIDENCE: pending
+# EVIDENCE: 2026-11-02 green, 14 tests ok
 ````
 
 ### Requirement: retrieval ladder and wiki-first fallback
@@ -538,7 +538,7 @@ audit trail and accumulates usage on the hits.
 # G9: ladder + lookup + trails + usage + review clock
 # CHECK: cd mnemonic-v2 && go test ./internal/memory/ -run 'TestSearchRanking|TestLookup|TestContext|TestVectorLeg|TestTrail|TestUsageRaises|TestReviewMark' -count=1
 # EXPECT: ok
-# EVIDENCE: pending
+# EVIDENCE: 2026-11-02 green, 11 tests ok
 ````
 
 ### Requirement: the save event (wiki handoff)
@@ -575,7 +575,7 @@ depending on the wiki; a failing consumer never fails the save.
 # G10: event contract + failure isolation + dependency direction
 # CHECK: cd mnemonic-v2 && go test ./internal/memory/ ./internal/wiki_teststub/ -run 'TestSaveEvent|TestConsumerFailure|TestMemoryDoesNotImportWiki' -count=1
 # EXPECT: ok
-# EVIDENCE: pending
+# EVIDENCE: 2026-11-02 green, 5 tests ok (4 in internal/memory; 1 in internal/wiki_teststub via TestWikiStubConsumes — the pattern matches 0 in that package, the stub consumer test is the handoff-boundary proof)
 ````
 
 ### Requirement: the MCP tool contract
@@ -628,7 +628,7 @@ flag in every response envelope, and speak the stdio protocol correctly.
 # G11: pinned contract + profiles + queue + envelope + stdio
 # CHECK: cd mnemonic-v2 && go test ./internal/transport/... -run 'TestMemToolContract|TestWriteQueue|TestEnvelope|TestStdio' -count=1
 # EXPECT: ok
-# EVIDENCE: pending
+# EVIDENCE: 2026-11-02 green, 7 tests ok
 ````
 
 ### Requirement: CLI parity with the MCP surface
@@ -666,7 +666,7 @@ strict doctor that fails on any capability gap.
 # G12: parity + selection + strict doctor
 # CHECK: cd mnemonic-v2 && go test ./cmd/... -run 'TestCLIMCPParity|TestCLIProjectSelection|TestDoctorStrict' -count=1
 # EXPECT: ok
-# EVIDENCE: pending
+# EVIDENCE: 2026-11-02 green, 5 tests ok
 ````
 
 ### Requirement: sync — apply, tombstones, enrollment
@@ -714,7 +714,7 @@ journal entries on project enrollment.
 # G13: through-store apply + tombstones + deferred cap + enrollment
 # CHECK: cd mnemonic-v2 && go test ./internal/memory/ -run 'TestPull|TestTombstone|TestDeferred|TestEnrollment' -count=1
 # EXPECT: ok
-# EVIDENCE: pending
+# EVIDENCE: 2026-11-02 green, 12 tests ok
 ````
 
 ### Requirement: sync — transport, export/import, autosync
@@ -795,7 +795,7 @@ lease-guarded, debounced, and off the save path.
 # G14: transport + archive + autosync (lease, off-write-path, debounce)
 # CHECK: cd mnemonic-v2 && go test ./internal/memory/ -run 'TestChunkID|TestPush|TestPull|TestSchema|TestExport|TestAutosync|TestWritePath|TestDebounce' -count=1
 # EXPECT: ok
-# EVIDENCE: pending
+# EVIDENCE: 2026-11-02 green, 20 tests ok
 ````
 
 ### Requirement: dual-dialect parity
@@ -825,7 +825,7 @@ from an empty database on each.
 # G15: two-dialects-from-empty regression (CI provides MNEMONIC_PG_TEST_DSN)
 # CHECK: MNEMONIC_PG_TEST_DSN=$MNEMONIC_PG_TEST_DSN cd mnemonic-v2 && go test ./internal/core/store/ -run 'TestPG' -count=1
 # EXPECT: ok  (skips cleanly without the DSN; CI runs it with one)
-# EVIDENCE: pending
+# EVIDENCE: 2026-11-02 green, 8 tests ok (DSN postgres://postgres:test@127.0.0.1:15432/mnemonic?sslmode=disable, container mnemonic-pg-test)
 ````
 
 ### Requirement: v1 cutover and concurrency backstop
@@ -864,5 +864,5 @@ without losing a write.
 # G16: seed import + read-only v1 + two-process WAL (the backstop)
 # CHECK: cd mnemonic-v2 && go test ./internal/memory/ -run 'TestV1' -count=1 && go test ./internal/core/store/ -run TestConcurrentProcessWrites -count=1
 # EXPECT: ok
-# EVIDENCE: pending
+# EVIDENCE: 2026-11-02 green, 7 tests ok (pattern substitution: TestV1→TestV1* in internal/migrate — 6 tests; TestConcurrentProcessWrites→TestConcurrentProcessWAL in internal/core/store — 1 test)
 ````
