@@ -736,7 +736,7 @@ func (s *sqliteStore) DeleteObservationForProject(ctx context.Context, id int64,
 		var proj string
 		err = tx.QueryRow(`SELECT ifnull(project,'') FROM observations WHERE id = ? AND deleted_at IS NULL`, id).Scan(&proj)
 		if err == sql.ErrNoRows {
-			return fmt.Errorf("store: observation %d not found", id)
+			return fmt.Errorf("%w: %d", ErrObservationNotFound, id)
 		}
 		if err != nil {
 			return err

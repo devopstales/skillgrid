@@ -331,27 +331,35 @@ func (s *Service) Save(ctx context.Context, req SaveRequest) (SaveResult, error)
 	return res, nil
 }
 
+// ErrInvalidArguments is the save-pipeline validation sentinel (the D1
+// invalid_arguments family): title/content required, type/scope in
+// vocabulary, topic_key kebab-case. The envelope classifies it with
+// errors.Is — the (code, message) contract no longer sniffs message
+// substrings (the ad-hoc errors below wrap it, so the message the client
+// sees is unchanged).
+var ErrInvalidArguments = errors.New("memory: argument is required")
+
 // validateRequest enforces step 1: non-empty title/type/content, scope and
 // type in vocabulary, topic_key kebab-case ≤2 levels when given.
 func validateRequest(req SaveRequest) error {
 	if strings.TrimSpace(req.Title) == "" {
-		return errors.New("memory: title is required")
+		return fmt.Errorf("%w: title", ErrInvalidArguments)
 	}
 	if strings.TrimSpace(req.Content) == "" {
-		return errors.New("memory: content is required")
+		return fmt.Errorf("%w: content", ErrInvalidArguments)
 	}
 	if !observationTypes[req.Type] {
-		return fmt.Errorf("memory: unknown observation type %q", req.Type)
+		return fmt.Errorf("%w: unknown observation type %q", ErrInvalidArguments, req.Type)
 	}
 	scope := strings.TrimSpace(req.Scope)
 	if scope == "" {
 		scope = "project" // the store's default; the empty form is legal
 	}
 	if !validScopes[scope] {
-		return fmt.Errorf("memory: unknown scope %q", req.Scope)
+		return fmt.Errorf("%w: unknown scope %q", ErrInvalidArguments, req.Scope)
 	}
 	if req.TopicKey != "" && !topicKeyRe.MatchString(req.TopicKey) {
-		return fmt.Errorf("memory: topic_key %q must be kebab-case with at most two levels", req.TopicKey)
+		return fmt.Errorf("%w: topic_key %q must be kebab-case with at most two levels", ErrInvalidArguments, req.TopicKey)
 	}
 	return nil
 }

@@ -223,7 +223,7 @@ func (t *saveTXN) ReviseObservation(ctx context.Context, id int64, p GateInsert)
 	err := t.tx.QueryRow(`SELECT title, content, revision_count FROM observations WHERE id = ? AND deleted_at IS NULL`, id).
 		Scan(&curTitle, &curContent, &curRev)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, fmt.Errorf("store: observation %d not found", id)
+		return 0, fmt.Errorf("%w: %d", ErrObservationNotFound, id)
 	}
 	if err != nil {
 		return 0, err

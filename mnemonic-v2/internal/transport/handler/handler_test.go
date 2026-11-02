@@ -8,8 +8,10 @@ package handler
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -183,6 +185,29 @@ func TestSaveValidationErrorIsInvalidArguments(t *testing.T) {
 	code, _ := envelope.MapError(err)
 	if code != envelope.CodeInvalidArguments {
 		t.Fatalf("validation error code = %q, want %q", code, envelope.CodeInvalidArguments)
+	}
+}
+
+// TestMapErrorIsNotSubstringBased (review fix round) pins the sentinel
+// classification: a not-found error whose message happens to contain
+// "is required" is still not_found (the old substring matcher would have
+// misclassified it as invalid_arguments), and an internal error whose
+// message contains "not found" is still internal_error.
+func TestMapErrorIsNotSubstringBased(t *testing.T) {
+	nf := fmt.Errorf("store: session lookup: %w — title is required in the call", sql.ErrNoRows)
+	code, _ := envelope.MapError(nf)
+	if code != envelope.CodeNotFound {
+		t.Fatalf("not-found error misclassified as %q, want %q", code, envelope.CodeNotFound)
+	}
+	internal := fmt.Errorf("memory: opening store file at /tmp/not found dir: permission denied")
+	code, _ = envelope.MapError(internal)
+	if code != envelope.CodeInternal {
+		t.Fatalf("internal error misclassified as %q, want %q", code, envelope.CodeInternal)
+	}
+	// the sentinel itself still maps.
+	code, _ = envelope.MapError(fmt.Errorf("%w: title", memory.ErrInvalidArguments))
+	if code != envelope.CodeInvalidArguments {
+		t.Fatalf("ErrInvalidArguments wrapped error = %q, want %q", code, envelope.CodeInvalidArguments)
 	}
 }
 

@@ -14,7 +14,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/store"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/memory"
@@ -58,39 +57,24 @@ func MapError(err error) (code, message string) {
 		return CodeConsolidationRefused, err.Error()
 	case errors.Is(err, store.ErrObservationNotFound), isNotFound(err):
 		return CodeNotFound, err.Error()
-	case isValidationError(err):
+	case errors.Is(err, memory.ErrInvalidArguments):
 		return CodeInvalidArguments, err.Error()
 	default:
 		return CodeInternal, err.Error()
 	}
 }
 
-// isNotFound recognizes the store's not-found family: sql.ErrNoRows (the
-// store's GetObservation returns it raw on a missing id) and the store's
-// formatted "observation N not found" (the Delete/Update ownership
-// assertion's missing-row path).
+// isNotFound recognizes the store's not-found family by sentinel, not by
+// message substring (the substring matcher misclassified internal errors
+// that merely mentioned "not found" — e.g. a missing file path — as
+// not_found): sql.ErrNoRows (the store's GetObservation returns it raw on
+// a missing id) and store.ErrObservationNotFound (the Delete/Update
+// ownership assertion's missing-row path wraps it).
 func isNotFound(err error) bool {
-	if errors.Is(err, errNoRows) {
-		return true
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "no rows") || strings.Contains(msg, "not found")
+	return errors.Is(err, errNoRows) || errors.Is(err, store.ErrObservationNotFound)
 }
 
-// isValidationError recognizes the pipeline's validation errors: they are
-// plain errors.New with the "memory: … required / unknown …" shape, not
-// sentinels. The prefix + the two shapes are the contract; a future
-// sentinel (memory.ErrInvalidArguments) would replace this check.
-func isValidationError(err error) bool {
-	msg := err.Error()
-	if !strings.HasPrefix(msg, "memory:") {
-		return false
-	}
-	return strings.Contains(msg, " is required") ||
-		strings.Contains(msg, "unknown observation type") ||
-		strings.Contains(msg, "unknown scope") ||
-		strings.Contains(msg, "must be kebab-case")
-}
+
 
 // errNoRows is the store's no-rows sentinel (database/sql.ErrNoRows — the
 // store's GetObservation returns it raw on a missing id).

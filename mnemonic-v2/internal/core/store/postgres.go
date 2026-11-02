@@ -611,7 +611,7 @@ func (s *pgStore) DeleteObservationForProject(ctx context.Context, id int64, exp
 	var proj string
 	err = tx.QueryRowContext(ctx, `SELECT COALESCE(project,'') FROM `+s.qualified("observations")+` WHERE id = $1 AND deleted_at IS NULL`, id).Scan(&proj)
 	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("store: observation %d not found", id)
+		return fmt.Errorf("%w: %d", ErrObservationNotFound, id)
 	}
 	if err != nil {
 		return err
@@ -1476,7 +1476,7 @@ func (t *pgSaveTXN) ReviseObservation(ctx context.Context, id int64, p GateInser
 	err := t.tx.QueryRowContext(ctx, `SELECT title, content, revision_count FROM `+t.st.qualified("observations")+` WHERE id = $1 AND deleted_at IS NULL`, id).
 		Scan(&curTitle, &curContent, &curRev)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, fmt.Errorf("store: observation %d not found", id)
+		return 0, fmt.Errorf("%w: %d", ErrObservationNotFound, id)
 	}
 	if err != nil {
 		return 0, err

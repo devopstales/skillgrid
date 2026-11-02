@@ -6,10 +6,13 @@ package envelope
 // K6 byte-identical seam — so its tests are the contract's guard.
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/store"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/memory"
 )
 
@@ -47,7 +50,13 @@ func TestMapErrorPinsSentinels(t *testing.T) {
 		{memory.ErrSessionProjectMismatch, CodeProjectMismatch},
 		{memory.ErrConsolidateFingerprintMismatch, CodeFingerprintMismatch},
 		{memory.ErrConsolidateRefused, CodeConsolidationRefused},
-		{errors.New("store: observation 5 not found"), CodeNotFound},
+		// the store's not-found sentinel (and its sql.ErrNoRows anchor) —
+		// the classification is sentinel-based, not message-substring: a
+		// bare error that merely says "not found" is internal, not 404.
+		{store.ErrObservationNotFound, CodeNotFound},
+		{fmt.Errorf("%w: 5", store.ErrObservationNotFound), CodeNotFound},
+		{sql.ErrNoRows, CodeNotFound},
+		{errors.New("store: observation 5 not found"), CodeInternal},
 	}
 	for _, tc := range cases {
 		code, msg := MapError(tc.err)

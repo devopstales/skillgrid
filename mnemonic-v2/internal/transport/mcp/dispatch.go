@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/devopstales/skillgrid/mnemonic-v2/internal/memory"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/transport/handler"
 )
 
@@ -243,12 +244,12 @@ func classifyStoreError(err error) error {
 }
 
 // errMissingArg builds the envelope-invalid-arguments error for a pinned
-// required arg the adapter validated before the handler call. It carries
-// the "memory:" prefix + " is required" shape the envelope's
-// isValidationError maps to invalid_arguments (the pipeline's own
-// validation errors share that shape).
+// required arg the adapter validated before the handler call. It wraps the
+// pipeline's ErrInvalidArguments sentinel, so the envelope classifies it
+// with errors.Is (the classification is sentinel-based, not
+// message-substring).
 func errMissingArg(arg string) error {
-	return fmt.Errorf("memory: %s is required", arg)
+	return fmt.Errorf("%w: %s", memory.ErrInvalidArguments, arg)
 }
 
 // judgeArg is one entry in the mem_judge_many judgments array.
