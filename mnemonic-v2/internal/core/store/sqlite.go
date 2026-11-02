@@ -1706,3 +1706,638 @@ func deref(s *string) string {
 	}
 	return *s
 }
+
+// ── code-index (ADR-0046 — additive; the dialect render) ────────────────────
+
+const symbolColumns = `id, ifnull(sync_id,''), name, ifnull(qualified_name,''),
+	ifnull(kind,''), ifnull(language,''), ifnull(signature,''),
+	start_line, end_line, uid`
+
+const edgeColumns = `id, kind, from_id, to_id, ifnull(to_name,''),
+	file_id, ifnull(confidence,'EXTRACTED'), line, ifnull(context,'')`
+
+// scanSymbolRow scans the symbolColumns projection.
+func scanSymbolRow(row interface {
+	Scan(dest ...any) error
+}) (SymbolRow, error) {
+	var (
+		r                   SymbolRow
+		qn, kind, lang, sig sql.NullString
+	)
+	if err := row.Scan(&r.ID, &r.SyncID, &r.Name, &qn, &kind, &lang, &sig,
+		&r.StartLine, &r.EndLine, &r.UID); err != nil {
+		return r, err
+	}
+	r.QualifiedName = qn.String
+	r.Kind = kind.String
+	r.Language = lang.String
+	r.Signature = sig.String
+	return r, nil
+}
+
+// scanEdgeRow scans the edgeColumns projection.
+func scanEdgeRow(row interface {
+	Scan(dest ...any) error
+}) (EdgeRow, error) {
+	var (
+		r               EdgeRow
+		to              sql.NullInt64
+		name, conf, ctx sql.NullString
+		line            sql.NullInt64
+	)
+	if err := row.Scan(&r.ID, &r.Kind, &r.FromID, &to, &name, &r.FileID,
+		&conf, &line, &ctx); err != nil {
+		return r, err
+	}
+	if to.Valid {
+		r.ToID = &to.Int64
+	}
+	r.ToName = name.String
+	r.Confidence = conf.String
+	if line.Valid {
+		r.Line = int(line.Int64)
+	}
+	r.Context = ctx.String
+	return r, nil
+}
+
+// kindsWhere builds the optional edge-kind filter.
+func kindsWhere(kinds []string) (string, []any) {
+	if len(kinds) == 0 {
+		return "", nil
+	}
+	ph := make([]string, len(kinds))
+	args := make([]any, len(kinds))
+	for i, k := range kinds {
+		ph[i] = "?"
+		args[i] = k
+	}
+	return " AND kind IN (" + strings.Join(ph, ",") + ")", args
+}
+
+// encodeFloat32BLOB encodes a vector as the store's little-endian float32
+// blob (the spec 006 §4.1 encoding; mirrors decodeFloat32BLOB).
+func encodeFloat32BLOB(v []float32) []byte {
+	b := make([]byte, len(v)*4)
+	for i, f := range v {
+		binary.LittleEndian.PutUint32(b[i*4:], math.Float32bits(f))
+	}
+	return b
+}
+
+// UpsertFile upserts a files row by path (target-state; content_hash is the
+// change signal) and returns the file rowid (needed for the per-file symbol
+// / edge / chunk upserts, K1). SyncID + IndexedAt are owned by the store
+// (INV-6 + provenance).
+func (s *sqliteStore) UpsertFile(ctx context.Context, f FileRow) (int64, error) {
+	syncID := syncid.NewSyncID("file")
+	return s.upsertFile(ctx, s.db, f, syncID)
+}
+
+func (s *sqliteStore) upsertFile(ctx context.Context, q executor, f FileRow, syncID string) (int64, error) {
+	var id int64
+	err := s.withWriteRetry(func() error {
+		now := f.IndexedAt
+		if now == "" {
+			now = nowStamp()
+		}
+		res, err := q.ExecContext(ctx, `
+			INSERT INTO files (sync_id, path, mtime_ns, size, content_hash, language, ast_hash, indexed_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(path) DO UPDATE SET
+				mtime_ns = excluded.mtime_ns,
+				size = excluded.size,
+				content_hash = excluded.content_hash,
+				language = excluded.language,
+				ast_hash = excluded.ast_hash,
+				indexed_at = excluded.indexed_at`,
+			syncID, f.Path, f.MtimeNS, f.Size, notNullOrEmpty(f.ContentHash),
+			f.Language, notNullOrEmpty(f.ASTHash), now,
+		)
+		if err != nil {
+			return err
+		}
+		id, err = res.LastInsertId()
+		return err
+	})
+	return id, err
+}
+
+// UpsertSymbols upserts the file's symbols ON CONFLICT(uid) (CI-3 local
+// upsert key) and returns the upserted count. sync_id is minted on first
+// insert (INV-6) and preserved on conflict. fileID is the file row the
+// symbols belong to — an FK reference (0 = no file yet; a caller writing
+// standalone symbols must upsert the file first).
+func (s *sqliteStore) UpsertSymbols(ctx context.Context, fileID int64, syms []Symbol) (int64, error) {
+	return s.upsertSymbols(ctx, s.db, fileID, syms)
+}
+
+func (s *sqliteStore) upsertSymbols(ctx context.Context, q executor, fileID int64, syms []Symbol) (int64, error) {
+	var count int64
+	err := s.withWriteRetry(func() error {
+		for _, sym := range syms {
+			syncID := syncid.NewSyncID("sym")
+			res, err := q.ExecContext(ctx, `
+				INSERT INTO symbols (sync_id, file_id, name, qualified_name, kind, language,
+					signature, start_line, end_line, visibility, is_exported, return_type,
+					param_types, content_hash, uid)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				ON CONFLICT(uid) DO UPDATE SET
+					file_id = excluded.file_id,
+					qualified_name = excluded.qualified_name,
+					language = excluded.language,
+					signature = excluded.signature,
+					start_line = excluded.start_line,
+					end_line = excluded.end_line,
+					visibility = excluded.visibility,
+					is_exported = excluded.is_exported,
+					return_type = excluded.return_type,
+					param_types = excluded.param_types,
+					content_hash = excluded.content_hash`,
+				syncID, fileID, sym.Name, nullableOrEmpty(sym.QualifiedName), sym.Kind,
+				nullableOrEmpty(sym.Language), nullableOrEmpty(sym.Signature),
+				sym.StartLine, sym.EndLine, nullableOrEmpty(sym.Visibility),
+				boolInt(sym.IsExported), nullableOrEmpty(sym.ReturnType),
+				nullableOrEmpty(sym.ParamTypes), sym.ContentHash, sym.UID,
+			)
+			if err != nil {
+				return err
+			}
+			_ = res
+			count++
+		}
+		return nil
+	})
+	return count, err
+}
+
+// ReplaceEdgesForFile is the target-state edge write (spec 002 §9): DELETE
+// the file's rows, then upsert its fresh edge set. FromID/FileID default to
+// the file row when the edge carries none (the extractor emits file-scoped
+// edges). Empty set = clear.
+func (s *sqliteStore) ReplaceEdgesForFile(ctx context.Context, fileID int64, edges []Edge) error {
+	return s.replaceEdgesForFile(ctx, s.db, fileID, edges)
+}
+
+func (s *sqliteStore) replaceEdgesForFile(ctx context.Context, q executor, fileID int64, edges []Edge) error {
+	return s.withWriteRetry(func() error {
+		if _, err := q.ExecContext(ctx, `DELETE FROM edges WHERE file_id = ?`, fileID); err != nil {
+			return err
+		}
+		for _, e := range edges {
+			fromID := e.FromID
+			if fromID == 0 {
+				fromID = fileID
+			}
+			fid := e.FileID
+			if fid == 0 {
+				fid = fileID
+			}
+			_, err := q.ExecContext(ctx, `
+				INSERT INTO edges (kind, from_id, to_id, to_name, file_id, confidence, line, context)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+				ON CONFLICT(kind, from_id, file_id, to_id, to_name, line) DO NOTHING`,
+				e.Kind, fromID, e.ToID, nullableOrEmpty(e.ToName), fid,
+				edgeConfidence(e), e.Line, e.Context,
+			)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func edgeConfidence(e Edge) string {
+	if e.Confidence == "" {
+		return "EXTRACTED"
+	}
+	return e.Confidence
+}
+
+// ReplaceUnresolvedForFile is the target-state unresolved ledger write
+// (spec 001 §5): delete the file's rows, then re-insert the fresh ledger.
+// Empty set = clear.
+func (s *sqliteStore) ReplaceUnresolvedForFile(ctx context.Context, fileID int64, refs []UnresolvedRef) error {
+	return s.replaceUnresolvedForFile(ctx, s.db, fileID, refs)
+}
+
+func (s *sqliteStore) replaceUnresolvedForFile(ctx context.Context, q executor, fileID int64, refs []UnresolvedRef) error {
+	return s.withWriteRetry(func() error {
+		if _, err := q.ExecContext(ctx, `DELETE FROM unresolved_edges WHERE file_id = ?`, fileID); err != nil {
+			return err
+		}
+		now := nowStamp()
+		for _, r := range refs {
+			if _, err := q.ExecContext(ctx, `
+				INSERT INTO unresolved_edges (file_id, reference, kind, line, candidates, status, first_seen, last_seen)
+				VALUES (?, ?, ?, ?, ?, 'open', ?, ?)`,
+				fileID, r.Reference, r.Kind, nullableInt(r.Line),
+				nullableOrEmpty(r.Candidates), now, now,
+			); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// ReplaceChunksForFile is the target-state chunk write (spec 001 §3):
+// DELETE the file's chunks (the FTS triggers desync the index), then insert
+// the fresh chunk set (the triggers re-index it). Empty set = clear.
+func (s *sqliteStore) ReplaceChunksForFile(ctx context.Context, fileID int64, chunks []Chunk) error {
+	return s.replaceChunksForFile(ctx, s.db, fileID, chunks)
+}
+
+func (s *sqliteStore) replaceChunksForFile(ctx context.Context, q executor, fileID int64, chunks []Chunk) error {
+	return s.withWriteRetry(func() error {
+		if _, err := q.ExecContext(ctx, `DELETE FROM chunks WHERE file_id = ?`, fileID); err != nil {
+			return err
+		}
+		for _, c := range chunks {
+			if _, err := q.ExecContext(ctx, `
+				INSERT INTO chunks (file_id, kind, start_line, end_line, text, content_hash)
+				VALUES (?, ?, ?, ?, ?, ?)`,
+				fileID, chunkKind(c), c.StartLine, c.EndLine, c.Text, c.ContentHash,
+			); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func chunkKind(c Chunk) string {
+	if c.Kind == "" {
+		return "ast"
+	}
+	return c.Kind
+}
+
+// DeleteFile removes the files row; the FK cascades take its chunks,
+// symbols, edges, and unresolved rows (spec 001 §6 / 002 §9, M10).
+func (s *sqliteStore) DeleteFile(ctx context.Context, path string) error {
+	return s.withWriteRetry(func() error {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM files WHERE path = ?`, path)
+		return err
+	})
+}
+
+// PruneOrphanSymbols deletes symbols whose uid is not in the declared
+// target set (spec 002 §9 — the "the file changed, so its old symbols that
+// no longer exist are gone" cleanup; the FK cascade takes their edges).
+func (s *sqliteStore) PruneOrphanSymbols(ctx context.Context, targetUIDs []string) error {
+	return s.withWriteRetry(func() error {
+		if len(targetUIDs) == 0 {
+			_, err := s.db.ExecContext(ctx, `DELETE FROM symbols`)
+			return err
+		}
+		ph := make([]string, len(targetUIDs))
+		args := make([]any, len(targetUIDs))
+		for i, u := range targetUIDs {
+			ph[i] = "?"
+			args[i] = u
+		}
+		_, err := s.db.ExecContext(ctx,
+			`DELETE FROM symbols WHERE uid NOT IN (`+strings.Join(ph, ",")+`)`, args...)
+		return err
+	})
+}
+
+// UpdateIndexFreshness upserts the one freshness record (spec 001 §4).
+func (s *sqliteStore) UpdateIndexFreshness(ctx context.Context, f FreshnessRecord) error {
+	return s.withWriteRetry(func() error {
+		updated := f.UpdatedAt
+		if updated == "" {
+			updated = nowStamp()
+		}
+		last := nullableOrEmpty(derefString(f.LastIndexedAt))
+		_, err := s.db.ExecContext(ctx, `
+			INSERT INTO index_freshness (project, extractor_stamp, schema_fingerprint,
+				last_indexed_at, files_indexed, files_deleted, files_oversized,
+				symbols_count, edges_count, chunks_count, unresolved_count,
+				coverage_fair, capabilities, extractor_tiers, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(project) DO UPDATE SET
+				extractor_stamp = excluded.extractor_stamp,
+				schema_fingerprint = excluded.schema_fingerprint,
+				last_indexed_at = excluded.last_indexed_at,
+				files_indexed = excluded.files_indexed,
+				files_deleted = excluded.files_deleted,
+				files_oversized = excluded.files_oversized,
+				symbols_count = excluded.symbols_count,
+				edges_count = excluded.edges_count,
+				chunks_count = excluded.chunks_count,
+				unresolved_count = excluded.unresolved_count,
+				coverage_fair = excluded.coverage_fair,
+				capabilities = excluded.capabilities,
+				extractor_tiers = excluded.extractor_tiers,
+				updated_at = excluded.updated_at`,
+			f.Project, f.ExtractorStamp, f.SchemaFingerprint, last,
+			f.FilesIndexed, f.FilesDeleted, f.FilesOversized,
+			f.SymbolsCount, f.EdgesCount, f.ChunksCount, f.UnresolvedCount,
+			f.CoverageFair, f.Capabilities, nullableOrEmpty(f.ExtractorTiers), updated,
+		)
+		return err
+	})
+}
+
+// EdgesByFrom returns the edges leaving fromID (the walker's forward view).
+func (s *sqliteStore) EdgesByFrom(ctx context.Context, fromID int64, kinds []string) ([]EdgeRow, error) {
+	qStr := `SELECT ` + edgeColumns + ` FROM edges WHERE from_id = ?`
+	args := []any{fromID}
+	ks, ka := kindsWhere(kinds)
+	qStr += ks
+	args = append(args, ka...)
+	return s.queryEdgeRows(ctx, qStr, args...)
+}
+
+// EdgesByTo returns the edges entering toID (the walker's reverse view).
+func (s *sqliteStore) EdgesByTo(ctx context.Context, toID int64, kinds []string) ([]EdgeRow, error) {
+	qStr := `SELECT ` + edgeColumns + ` FROM edges WHERE to_id = ?`
+	args := []any{toID}
+	ks, ka := kindsWhere(kinds)
+	qStr += ks
+	args = append(args, ka...)
+	return s.queryEdgeRows(ctx, qStr, args...)
+}
+
+// EdgesByNameOnlyToName returns the name-only (unresolved) edges whose
+// to_name matches (CI-INV-3 — the query-time name-only resolution surface).
+func (s *sqliteStore) EdgesByNameOnlyToName(ctx context.Context, toName string, kinds []string) ([]EdgeRow, error) {
+	qStr := `SELECT ` + edgeColumns + ` FROM edges WHERE to_id IS NULL AND to_name = ?`
+	args := []any{toName}
+	ks, ka := kindsWhere(kinds)
+	qStr += ks
+	args = append(args, ka...)
+	return s.queryEdgeRows(ctx, qStr, args...)
+}
+
+// queryEdgeRows runs an edgeColumns SELECT and scans the rows.
+func (s *sqliteStore) queryEdgeRows(ctx context.Context, q string, args ...any) ([]EdgeRow, error) {
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []EdgeRow
+	for rows.Next() {
+		e, err := scanEdgeRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// SymbolByName returns every symbol named name (the name floor; the query-
+// time name-only resolution + code_resolve surface).
+func (s *sqliteStore) SymbolByName(ctx context.Context, name string) ([]SymbolRow, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+symbolColumns+` FROM symbols WHERE name = ? ORDER BY id`, name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SymbolRow
+	for rows.Next() {
+		r, err := scanSymbolRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// SymbolByUID returns one symbol by its local upsert key (ErrNoRows when
+// absent).
+func (s *sqliteStore) SymbolByUID(ctx context.Context, uid string) (SymbolRow, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT `+symbolColumns+` FROM symbols WHERE uid = ?`, uid)
+	return scanSymbolRow(row)
+}
+
+// FileByPath returns one files row by its stable key (the watch fingerprint
+// re-check + the door-check surface).
+func (s *sqliteStore) FileByPath(ctx context.Context, path string) (FileRow, error) {
+	var (
+		f   FileRow
+		aid sql.NullString
+	)
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, ifnull(sync_id,''), path, mtime_ns, size, content_hash,
+		       ifnull(language,''), ast_hash, ifnull(indexed_at,'')
+		FROM files WHERE path = ?`, path).
+		Scan(&f.ID, &f.SyncID, &f.Path, &f.MtimeNS, &f.Size, &f.ContentHash,
+			&f.Language, &aid, &f.IndexedAt)
+	if err != nil {
+		return f, err
+	}
+	f.ASTHash = aid.String
+	return f, nil
+}
+
+// ChunkIDByFile returns the file's first chunk id (ErrNoRows when the file
+// has no chunks — the EmbedChunk test seam).
+func (s *sqliteStore) ChunkIDByFile(ctx context.Context, fileID int64) (int64, error) {
+	var id int64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id FROM chunks WHERE file_id = ? ORDER BY id LIMIT 1`, fileID).Scan(&id)
+	return id, err
+}
+
+// EmbedSymbol stores a symbol's vector in the embeddings BLOB table (spec
+// 006 §4.1 — the BLOB is the source of truth; the ANN render is TICKET-08a).
+func (s *sqliteStore) EmbedSymbol(ctx context.Context, symbolID int64, model string, vec []float32) error {
+	return s.withWriteRetry(func() error {
+		_, err := s.db.ExecContext(ctx, `
+			INSERT INTO embeddings (symbol_id, model, dim, vector, language, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?)
+			ON CONFLICT(symbol_id) DO UPDATE SET
+				model = excluded.model,
+				dim = excluded.dim,
+				vector = excluded.vector,
+				updated_at = excluded.updated_at`,
+			symbolID, model, len(vec), encodeFloat32BLOB(vec), nil, nowStamp(),
+		)
+		return err
+	})
+}
+
+// EmbedChunk stores a chunk's vector in the chunk_embeddings BLOB table.
+func (s *sqliteStore) EmbedChunk(ctx context.Context, chunkID int64, model string, vec []float32) error {
+	return s.withWriteRetry(func() error {
+		_, err := s.db.ExecContext(ctx, `
+			INSERT INTO chunk_embeddings (chunk_id, model, dim, vector, language, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?)
+			ON CONFLICT(chunk_id) DO UPDATE SET
+				model = excluded.model,
+				dim = excluded.dim,
+				vector = excluded.vector,
+				updated_at = excluded.updated_at`,
+			chunkID, model, len(vec), encodeFloat32BLOB(vec), nil, nowStamp(),
+		)
+		return err
+	})
+}
+
+// ClearVectors empties both BLOB vector tables (the model-swap guard's
+// DELETE, spec 006 §4.2 — a model change makes every stored vector
+// non-comparable).
+func (s *sqliteStore) ClearVectors(ctx context.Context) error {
+	return s.withWriteRetry(func() error {
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM embeddings`); err != nil {
+			return err
+		}
+		_, err := s.db.ExecContext(ctx, `DELETE FROM chunk_embeddings`)
+		return err
+	})
+}
+
+// RecordRetrieval appends one row to the shared retrieval_trails table
+// (the memory change owns the table — migration 003; T15/INV-5).
+func (s *sqliteStore) RecordRetrieval(ctx context.Context, t RetrievalTrail) error {
+	return s.withWriteRetry(func() error {
+		ts := t.Timestamp
+		if ts == "" {
+			ts = nowStamp()
+		}
+		_, err := s.db.ExecContext(ctx, `
+			INSERT INTO retrieval_trails (route, query, project, filters, ids, degraded, timestamp)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			t.Route, t.Query, nullableOrEmpty(t.Project),
+			nullableOrEmpty(t.Filters), nullableOrEmpty(t.IDs),
+			boolInt(t.Degraded), ts,
+		)
+		return err
+	})
+}
+
+// ExecDDL executes DDL statements in order (T21 — the table-adding seam the
+// KB's KBStore uses; each statement is split internally so a multi-
+// statement blob is carried). The store knows its own dialect (no dialect
+// argument). The statements run OUTSIDE an explicit transaction: SQLite
+// DDL is transactional, and a rolled-back DDL leaves the schema half-built
+// (CREATE TABLE visible, then rolled back) — the KB's table-adding seam
+// must be durable per statement.
+func (s *sqliteStore) ExecDDL(ctx context.Context, statements []string) error {
+	for _, stmt := range statements {
+		for _, sub := range splitSQLStatements(stmt) {
+			if sub == "" {
+				continue
+			}
+			if _, err := s.db.ExecContext(ctx, sub); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// Begin opens the per-file transaction (K1 — the idempotency claim rests on
+// it: one file's write all commits or all rolls back).
+func (s *sqliteStore) Begin(ctx context.Context) (Txn, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &sqliteTxn{store: s, tx: tx}, nil
+}
+
+// sqliteTxn carries the per-file code-index writes over one open
+// transaction (K1). Commit settles it; any error path must Rollback.
+type sqliteTxn struct {
+	store *sqliteStore
+	tx    *sql.Tx
+}
+
+// UpsertFile is the Txn twin of UpsertFile (inside the per-file tx).
+func (t *sqliteTxn) UpsertFile(ctx context.Context, f FileRow) (int64, error) {
+	return t.store.upsertFile(ctx, t.tx, f, syncid.NewSyncID("file"))
+}
+
+// UpsertSymbols is the Txn twin of UpsertSymbols.
+func (t *sqliteTxn) UpsertSymbols(ctx context.Context, fileID int64, syms []Symbol) (int64, error) {
+	return t.store.upsertSymbols(ctx, t.tx, fileID, syms)
+}
+
+// ReplaceEdgesForFile is the Txn twin of ReplaceEdgesForFile.
+func (t *sqliteTxn) ReplaceEdgesForFile(ctx context.Context, fileID int64, edges []Edge) error {
+	return t.store.replaceEdgesForFile(ctx, t.tx, fileID, edges)
+}
+
+// ReplaceUnresolvedForFile is the Txn twin of ReplaceUnresolvedForFile.
+func (t *sqliteTxn) ReplaceUnresolvedForFile(ctx context.Context, fileID int64, refs []UnresolvedRef) error {
+	return t.store.replaceUnresolvedForFile(ctx, t.tx, fileID, refs)
+}
+
+// ReplaceChunksForFile is the Txn twin of ReplaceChunksForFile.
+func (t *sqliteTxn) ReplaceChunksForFile(ctx context.Context, fileID int64, chunks []Chunk) error {
+	return t.store.replaceChunksForFile(ctx, t.tx, fileID, chunks)
+}
+
+// Commit settles the per-file tx (and fires the committed-transaction
+// hook, the memory change's discipline).
+func (t *sqliteTxn) Commit(ctx context.Context) error {
+	err := t.tx.Commit()
+	if err == nil && t.store.txnHook != nil {
+		t.store.txnHook()
+	}
+	return err
+}
+
+// Rollback undoes the per-file tx.
+func (t *sqliteTxn) Rollback(ctx context.Context) error {
+	return t.tx.Rollback()
+}
+
+// executor is the *sql.DB / *sql.Tx surface the code-index render runs
+// over (the tx twins share the store's helpers, K1).
+type executor interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// nullableOrEmpty maps "" → NULL and keeps a non-empty string (the columns
+// the spec marks nullable; NOT NULL columns pass their value through).
+func nullableOrEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// notNullOrEmpty maps "" → ” (the NOT NULL columns with a default-empty
+// shape: ast_hash, content_hash, uid — the spec's NOT NULL DEFAULT ” is
+// the column's own contract, not a nullable marker).
+func notNullOrEmpty(s string) string {
+	if s == "" {
+		return ""
+	}
+	return s
+}
+
+// boolInt renders a bool as the 0/1 the INTEGER boolean columns expect.
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// nullableInt maps 0 → NULL for the line columns (0 = line unknown).
+func nullableInt(i int) any {
+	if i == 0 {
+		return nil
+	}
+	return i
+}
+
+// derefString returns the pointed-to string or "".
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}

@@ -70,4 +70,52 @@ type Store interface {
 	Migrate(ctx context.Context) error
 	Close() error
 	Ping(ctx context.Context) error
+
+	// code-index (ADR-0046 — additive to the memory change's Store; the
+	// write path is the per-file target-state tx the Index driver composes,
+	// K1: the caller wraps the five per-file writes in ONE tx via Begin).
+	UpsertFile(ctx context.Context, f FileRow) (int64, error)
+	UpsertSymbols(ctx context.Context, fileID int64, syms []Symbol) (int64, error)
+	ReplaceEdgesForFile(ctx context.Context, fileID int64, edges []Edge) error
+	ReplaceUnresolvedForFile(ctx context.Context, fileID int64, refs []UnresolvedRef) error
+	ReplaceChunksForFile(ctx context.Context, fileID int64, chunks []Chunk) error
+	DeleteFile(ctx context.Context, path string) error
+	PruneOrphanSymbols(ctx context.Context, targetUIDs []string) error
+	UpdateIndexFreshness(ctx context.Context, f FreshnessRecord) error
+	// graph reads (the dialect-agnostic walker's surface, spec 004)
+	EdgesByFrom(ctx context.Context, fromID int64, kinds []string) ([]EdgeRow, error)
+	EdgesByTo(ctx context.Context, toID int64, kinds []string) ([]EdgeRow, error)
+	EdgesByNameOnlyToName(ctx context.Context, toName string, kinds []string) ([]EdgeRow, error)
+	SymbolByName(ctx context.Context, name string) ([]SymbolRow, error)
+	SymbolByUID(ctx context.Context, uid string) (SymbolRow, error)
+	FileByPath(ctx context.Context, path string) (FileRow, error)
+	ChunkIDByFile(ctx context.Context, fileID int64) (int64, error)
+	// vectors (M2: the vectorstore.Engine holds the Store, not a *sql.DB —
+	// the vector SQL is dialect-rendered; BLOB tables here, ANN in 08a)
+	EmbedSymbol(ctx context.Context, symbolID int64, model string, vec []float32) error
+	EmbedChunk(ctx context.Context, chunkID int64, model string, vec []float32) error
+	ClearVectors(ctx context.Context) error
+	// trail (T15/INV-5 — the shared retrieval_trails table, migration 003)
+	RecordRetrieval(ctx context.Context, t RetrievalTrail) error
+	// the table-adding seam (T21 — the KB's KBStore adds its kb_* tables
+	// through this without forking the dialect code; multi-statement)
+	ExecDDL(ctx context.Context, statements []string) error
+	// K1 — the single per-file tx surface: Begin opens the transaction the
+	// driver composes the five per-file writes inside (the idempotency
+	// claim rests on it — one file's write all commits or all rolls back).
+	Begin(ctx context.Context) (Txn, error)
+}
+
+// Txn is the per-file transaction surface (K1). It carries the code-index
+// write methods over the open transaction; Commit/Rollback settle it. The
+// caller composes UpsertFile → UpsertSymbols → ReplaceEdgesForFile →
+// ReplaceUnresolvedForFile → ReplaceChunksForFile inside one Txn.
+type Txn interface {
+	UpsertFile(ctx context.Context, f FileRow) (int64, error)
+	UpsertSymbols(ctx context.Context, fileID int64, syms []Symbol) (int64, error)
+	ReplaceEdgesForFile(ctx context.Context, fileID int64, edges []Edge) error
+	ReplaceUnresolvedForFile(ctx context.Context, fileID int64, refs []UnresolvedRef) error
+	ReplaceChunksForFile(ctx context.Context, fileID int64, chunks []Chunk) error
+	Commit(ctx context.Context) error
+	Rollback(ctx context.Context) error
 }

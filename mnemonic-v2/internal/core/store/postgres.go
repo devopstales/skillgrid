@@ -1589,3 +1589,99 @@ func (t *pgSaveTXN) enqueueUpsert(project, syncID string) error {
 		syncID, payload, project)
 	return err
 }
+
+// ── code-index (ADR-0046) — compile stubs ───────────────────────────────────
+// The PG code-index render is TICKET-08c's scope (M4: the same-number
+// migrations_pg/100_code_index.sql mirror + the pgStore code-index methods,
+// DSN-gated by G-15). The Store interface is shared, so pgStore must compile
+// against the extension; until the render lands, the methods report
+// ErrNotImplemented (the ApplyPulledMutation pattern) rather than silently
+// behaving differently.
+
+func pgCodeIndexNotImplemented(method string) error {
+	return ErrNotImplemented{Method: "pgStore." + method + " (TICKET-08c: PG code-index render)"}
+}
+
+func (s *pgStore) UpsertFile(ctx context.Context, f FileRow) (int64, error) {
+	return 0, pgCodeIndexNotImplemented("UpsertFile")
+}
+
+func (s *pgStore) UpsertSymbols(ctx context.Context, fileID int64, syms []Symbol) (int64, error) {
+	return 0, pgCodeIndexNotImplemented("UpsertSymbols")
+}
+
+func (s *pgStore) ReplaceEdgesForFile(ctx context.Context, fileID int64, edges []Edge) error {
+	return pgCodeIndexNotImplemented("ReplaceEdgesForFile")
+}
+
+func (s *pgStore) ReplaceUnresolvedForFile(ctx context.Context, fileID int64, refs []UnresolvedRef) error {
+	return pgCodeIndexNotImplemented("ReplaceUnresolvedForFile")
+}
+
+func (s *pgStore) ReplaceChunksForFile(ctx context.Context, fileID int64, chunks []Chunk) error {
+	return pgCodeIndexNotImplemented("ReplaceChunksForFile")
+}
+
+func (s *pgStore) DeleteFile(ctx context.Context, path string) error {
+	return pgCodeIndexNotImplemented("DeleteFile")
+}
+
+func (s *pgStore) PruneOrphanSymbols(ctx context.Context, targetUIDs []string) error {
+	return pgCodeIndexNotImplemented("PruneOrphanSymbols")
+}
+
+func (s *pgStore) UpdateIndexFreshness(ctx context.Context, f FreshnessRecord) error {
+	return pgCodeIndexNotImplemented("UpdateIndexFreshness")
+}
+
+func (s *pgStore) EdgesByFrom(ctx context.Context, fromID int64, kinds []string) ([]EdgeRow, error) {
+	return nil, pgCodeIndexNotImplemented("EdgesByFrom")
+}
+
+func (s *pgStore) EdgesByTo(ctx context.Context, toID int64, kinds []string) ([]EdgeRow, error) {
+	return nil, pgCodeIndexNotImplemented("EdgesByTo")
+}
+
+func (s *pgStore) EdgesByNameOnlyToName(ctx context.Context, toName string, kinds []string) ([]EdgeRow, error) {
+	return nil, pgCodeIndexNotImplemented("EdgesByNameOnlyToName")
+}
+
+func (s *pgStore) SymbolByName(ctx context.Context, name string) ([]SymbolRow, error) {
+	return nil, pgCodeIndexNotImplemented("SymbolByName")
+}
+
+func (s *pgStore) SymbolByUID(ctx context.Context, uid string) (SymbolRow, error) {
+	return SymbolRow{}, pgCodeIndexNotImplemented("SymbolByUID")
+}
+
+func (s *pgStore) FileByPath(ctx context.Context, path string) (FileRow, error) {
+	return FileRow{}, pgCodeIndexNotImplemented("FileByPath")
+}
+
+func (s *pgStore) ChunkIDByFile(ctx context.Context, fileID int64) (int64, error) {
+	return 0, pgCodeIndexNotImplemented("ChunkIDByFile")
+}
+
+func (s *pgStore) EmbedSymbol(ctx context.Context, symbolID int64, model string, vec []float32) error {
+	return pgCodeIndexNotImplemented("EmbedSymbol")
+}
+
+func (s *pgStore) EmbedChunk(ctx context.Context, chunkID int64, model string, vec []float32) error {
+	return pgCodeIndexNotImplemented("EmbedChunk")
+}
+
+func (s *pgStore) ClearVectors(ctx context.Context) error {
+	return pgCodeIndexNotImplemented("ClearVectors")
+}
+
+func (s *pgStore) RecordRetrieval(ctx context.Context, t RetrievalTrail) error {
+	return pgCodeIndexNotImplemented("RecordRetrieval")
+}
+
+func (s *pgStore) ExecDDL(ctx context.Context, statements []string) error {
+	return pgCodeIndexNotImplemented("ExecDDL")
+}
+
+func (s *pgStore) Begin(ctx context.Context) (Txn, error) {
+	return nil, pgCodeIndexNotImplemented("Begin")
+}
