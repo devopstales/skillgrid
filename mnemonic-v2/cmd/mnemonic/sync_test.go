@@ -7,8 +7,10 @@ package main
 // survive across the two commands a test runs).
 
 import (
+	"compress/gzip"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -168,13 +170,48 @@ func TestSyncExportImportCLI(t *testing.T) {
 	if _, code := captureRun(t, "sync", "import", "--project", "p", "--dir", dir); code != exitOK {
 		t.Fatalf("sync import must succeed")
 	}
+	// the archive's chunk carries the saved content (the round-trip is
+	// proven where the import applies it — the memory package's
+	// TestExportImportRoundTrip asserts store-state reproduction; this
+	// CLI test asserts the archive the CLI wrote actually contains the
+	// exported row).
+	chunkFiles, err := os.ReadDir(dir + "/chunks")
+	if err != nil {
+		t.Fatalf("export must write a chunks dir: %v", err)
+	}
+	found := false
+	for _, cf := range chunkFiles {
+		f, err := os.Open(dir + "/chunks/" + cf.Name())
+		if err != nil {
+			t.Fatalf("open chunk: %v", err)
+		}
+		gz, err := gzip.NewReader(f)
+		if err != nil {
+			f.Close()
+			t.Fatalf("gunzip chunk: %v", err)
+		}
+		data, err := io.ReadAll(gz)
+		gz.Close()
+		f.Close()
+		if err != nil {
+			t.Fatalf("read chunk: %v", err)
+		}
+		if strings.Contains(string(data), "export me") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("the exported chunk must carry the saved row's content (title 'export me' not in any chunk)")
+	}
 }
 
 // TestSyncPushFailsLoud (TRIANGULATE, error path): a transport failure on
 // push exits non-zero and leaves the outbox intact (nothing is acked on a
 // failed push — the next cycle retries the same batch).
 func TestSyncPushFailsLoud(t *testing.T) {
-	st := installSharedStore(t, &testPGTransport{failPush: true})
+	tr := &testPGTransport{failPush: true}
+	st := installSharedStore(t, tr)
 	if _, err := newTestHandlerWithStore(t, st).Save(context.Background(),
 		handler.SaveRequest{SessionID: "s", Type: "decision", Title: "fail push",
 			Content: "stays pending", Project: "p"}); err != nil {
@@ -183,6 +220,18 @@ func TestSyncPushFailsLoud(t *testing.T) {
 	_, code := captureRun(t, "sync", "push", "--project", "p")
 	if code == exitOK {
 		t.Fatalf("a failed push must exit non-zero")
+	}
+	// the outbox stays intact (nothing is acked on a failed push — the
+	// next cycle retries the same batch).
+	pending, err := st.ListPendingMutations(context.Background(), 0, memory.MaxBatch)
+	if err != nil {
+		t.Fatalf("list pending: %v", err)
+	}
+	if len(pending) == 0 {
+		t.Fatalf("a failed push must leave the outbox intact (pending: %d)", len(pending))
+	}
+	if len(tr.pushed) != 0 {
+		t.Fatalf("a failed push must not ack any batch (pushed: %d)", len(tr.pushed))
 	}
 }
 

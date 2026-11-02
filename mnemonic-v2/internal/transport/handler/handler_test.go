@@ -117,6 +117,19 @@ func TestSaveResolvesExplicitProject(t *testing.T) {
 	if res.SyncID == "" {
 		t.Fatal("save returned no sync_id")
 	}
+	// The row must land in the explicitly requested project, not the
+	// detector's default (testProject).
+	got, err := h.Get(ctx, 0, res.SyncID, false, 0)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Project == nil || *got.Project != "other-project" {
+		p := "<nil>"
+		if got.Project != nil {
+			p = *got.Project
+		}
+		t.Fatalf("row landed in project %q, want the explicit %q", p, "other-project")
+	}
 }
 
 // TestSaveWithoutProjectUsesDetector proves the detector fallback: no
