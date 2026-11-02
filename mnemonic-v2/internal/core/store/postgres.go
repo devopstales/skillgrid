@@ -1654,8 +1654,24 @@ func (s *pgStore) SymbolByUID(ctx context.Context, uid string) (SymbolRow, error
 	return SymbolRow{}, pgCodeIndexNotImplemented("SymbolByUID")
 }
 
+func (s *pgStore) SymbolByID(ctx context.Context, id int64) (SymbolRow, error) {
+	return SymbolRow{}, pgCodeIndexNotImplemented("SymbolByID")
+}
+
+func (s *pgStore) SymbolsByFile(ctx context.Context, fileID int64) ([]SymbolRow, error) {
+	return nil, pgCodeIndexNotImplemented("SymbolsByFile")
+}
+
+func (s *pgStore) FileByID(ctx context.Context, id int64) (FileRow, error) {
+	return FileRow{}, pgCodeIndexNotImplemented("FileByID")
+}
+
 func (s *pgStore) FileByPath(ctx context.Context, path string) (FileRow, error) {
 	return FileRow{}, pgCodeIndexNotImplemented("FileByPath")
+}
+
+func (s *pgStore) FilesByLanguage(ctx context.Context, lang string) ([]FileRow, error) {
+	return nil, pgCodeIndexNotImplemented("FilesByLanguage")
 }
 
 func (s *pgStore) EmbedSymbol(ctx context.Context, symbolID int64, model string, vec []float32) error {
@@ -1668,6 +1684,10 @@ func (s *pgStore) EmbedChunk(ctx context.Context, chunkID int64, model string, v
 
 func (s *pgStore) ClearVectors(ctx context.Context) error {
 	return pgCodeIndexNotImplemented("ClearVectors")
+}
+
+func (s *pgStore) CountRetrievals(ctx context.Context, project string) (int, error) {
+	return 0, pgCodeIndexNotImplemented("CountRetrievals")
 }
 
 func (s *pgStore) RecordRetrieval(ctx context.Context, t RetrievalTrail) error {

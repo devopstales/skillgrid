@@ -160,4 +160,5 @@ type SymbolRow struct {
 	StartLine     int
 	EndLine       int
 	UID           string
+	FileID        int64
 }

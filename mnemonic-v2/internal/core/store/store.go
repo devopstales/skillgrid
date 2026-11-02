@@ -114,7 +114,11 @@ type Store interface {
 	EdgesByNameOnlyToName(ctx context.Context, toName string, kinds []string) ([]EdgeRow, error)
 	SymbolByName(ctx context.Context, name string) ([]SymbolRow, error)
 	SymbolByUID(ctx context.Context, uid string) (SymbolRow, error)
+	SymbolByID(ctx context.Context, id int64) (SymbolRow, error)
+	SymbolsByFile(ctx context.Context, fileID int64) ([]SymbolRow, error)
+	FileByID(ctx context.Context, id int64) (FileRow, error)
 	FileByPath(ctx context.Context, path string) (FileRow, error)
+	FilesByLanguage(ctx context.Context, lang string) ([]FileRow, error)
 	// vectors (M2: the vectorstore.Engine holds the Store, not a *sql.DB —
 	// the vector SQL is dialect-rendered; BLOB tables here, ANN in 08a)
 	EmbedSymbol(ctx context.Context, symbolID int64, model string, vec []float32) error
@@ -122,6 +126,7 @@ type Store interface {
 	ClearVectors(ctx context.Context) error
 	// trail (T15/INV-5 — the shared retrieval_trails table, migration 003)
 	RecordRetrieval(ctx context.Context, t RetrievalTrail) error
+	CountRetrievals(ctx context.Context, project string) (int, error)
 	// the table-adding seam (T21 — the KB's KBStore adds its kb_* tables
 	// through this without forking the dialect code; multi-statement)
 	ExecDDL(ctx context.Context, statements []string) error

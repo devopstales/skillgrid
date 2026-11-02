@@ -1767,7 +1767,7 @@ func deref(s *string) string {
 
 const symbolColumns = `id, ifnull(sync_id,''), name, ifnull(qualified_name,''),
 	ifnull(kind,''), ifnull(language,''), ifnull(signature,''),
-	start_line, end_line, uid`
+	start_line, end_line, uid, file_id`
 
 const edgeColumns = `id, kind, from_id, to_id, ifnull(to_name,''),
 	file_id, ifnull(confidence,'EXTRACTED'), line, ifnull(context,'')`
@@ -1781,7 +1781,7 @@ func scanSymbolRow(row interface {
 		qn, kind, lang, sig sql.NullString
 	)
 	if err := row.Scan(&r.ID, &r.SyncID, &r.Name, &qn, &kind, &lang, &sig,
-		&r.StartLine, &r.EndLine, &r.UID); err != nil {
+		&r.StartLine, &r.EndLine, &r.UID, &r.FileID); err != nil {
 		return r, err
 	}
 	r.QualifiedName = qn.String
@@ -2175,6 +2175,32 @@ func (s *sqliteStore) SymbolByUID(ctx context.Context, uid string) (SymbolRow, e
 	return scanSymbolRow(row)
 }
 
+// SymbolByID returns one symbol by its local ID (ErrNoRows when absent).
+func (s *sqliteStore) SymbolByID(ctx context.Context, id int64) (SymbolRow, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT `+symbolColumns+` FROM symbols WHERE id = ?`, id)
+	return scanSymbolRow(row)
+}
+
+// SymbolsByFile returns all symbols in a file, ordered by start_line.
+func (s *sqliteStore) SymbolsByFile(ctx context.Context, fileID int64) ([]SymbolRow, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+symbolColumns+` FROM symbols WHERE file_id = ? ORDER BY start_line`, fileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SymbolRow
+	for rows.Next() {
+		r, err := scanSymbolRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // FileByPath returns one files row by its stable key (the watch fingerprint
 // re-check + the door-check surface).
 func (s *sqliteStore) FileByPath(ctx context.Context, path string) (FileRow, error) {
@@ -2193,6 +2219,51 @@ func (s *sqliteStore) FileByPath(ctx context.Context, path string) (FileRow, err
 	}
 	f.ASTHash = aid.String
 	return f, nil
+}
+
+// FileByID returns one files row by its local ID (ErrNoRows when absent).
+func (s *sqliteStore) FileByID(ctx context.Context, id int64) (FileRow, error) {
+	var (
+		f   FileRow
+		aid sql.NullString
+	)
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, ifnull(sync_id,''), path, mtime_ns, size, content_hash,
+		       ifnull(language,''), ast_hash, ifnull(indexed_at,'')
+		FROM files WHERE id = ?`, id).
+		Scan(&f.ID, &f.SyncID, &f.Path, &f.MtimeNS, &f.Size, &f.ContentHash,
+			&f.Language, &aid, &f.IndexedAt)
+	if err != nil {
+		return f, err
+	}
+	f.ASTHash = aid.String
+	return f, nil
+}
+
+// FilesByLanguage returns all files with the given language, ordered by path.
+func (s *sqliteStore) FilesByLanguage(ctx context.Context, lang string) ([]FileRow, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, ifnull(sync_id,''), path, mtime_ns, size, content_hash,
+		       ifnull(language,''), ast_hash, ifnull(indexed_at,'')
+		FROM files WHERE language = ? ORDER BY path`, lang)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []FileRow
+	for rows.Next() {
+		var (
+			f   FileRow
+			aid sql.NullString
+		)
+		if err := rows.Scan(&f.ID, &f.SyncID, &f.Path, &f.MtimeNS, &f.Size, &f.ContentHash,
+			&f.Language, &aid, &f.IndexedAt); err != nil {
+			return nil, err
+		}
+		f.ASTHash = aid.String
+		out = append(out, f)
+	}
+	return out, rows.Err()
 }
 
 // EmbedSymbol stores a symbol's vector in the embeddings BLOB table (spec
@@ -2241,6 +2312,14 @@ func (s *sqliteStore) ClearVectors(ctx context.Context) error {
 		_, err := s.db.ExecContext(ctx, `DELETE FROM chunk_embeddings`)
 		return err
 	})
+}
+
+// CountRetrievals counts the retrieval_trails rows for a project.
+func (s *sqliteStore) CountRetrievals(ctx context.Context, project string) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM retrieval_trails WHERE project = ?`, project).Scan(&count)
+	return count, err
 }
 
 // RecordRetrieval appends one row to the shared retrieval_trails table
