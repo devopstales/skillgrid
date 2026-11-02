@@ -173,15 +173,23 @@ func dispatchSavePrompt(h *handler.Handler) func(ctx context.Context, args map[s
 }
 
 // dispatchCapturePassive maps mem_capture_passive args → the service's
-// Extract seam (the handler does not yet expose it — the dispatch calls the
-// service directly through the handler's Service() seam).
+// Extract seam. The service wiring is a later task (the memory function
+// does not yet expose CapturePassive) — so this dispatch is an honest
+// no-op on the wire: it carries `degraded: true` + a reason, so the agent
+// knows it is a no-op, not a success.
 func dispatchCapturePassive(h *handler.Handler) func(ctx context.Context, args map[string]any) (any, error) {
 	return func(ctx context.Context, args map[string]any) (any, error) {
-		// ponytail: the handler does not expose CapturePassive yet (the
-		// service's Extract seam is the path); a future handler method
-		// would replace this direct call.
+		// ponytail: D1 surface — service wiring is a later task; returns
+		// captured:0 without side effects. The degraded flag + reason make
+		// the no-op honest on the wire (the agent sees it is not a success).
+		_ = h
+		_ = ctx
 		_ = args
-		return map[string]any{"captured": 0}, nil
+		return map[string]any{
+			"captured":        0,
+			"degraded":        true,
+			"degraded_reason": "capture_passive: service not yet wired",
+		}, nil
 	}
 }
 
@@ -410,16 +418,20 @@ func dispatchSuggestTopicKey(h *handler.Handler) func(ctx context.Context, args 
 }
 
 // dispatchCurrentProject maps mem_current_project args → the resolved
-// project (the detector's chain, at call time).
+// project (the detector's chain, at call time). A Handler with no detector
+// returns an envelope error (never a placeholder project name).
 func dispatchCurrentProject(h *handler.Handler) func(ctx context.Context, args map[string]any) (any, error) {
 	return func(ctx context.Context, args map[string]any) (any, error) {
+		_ = ctx
 		explicit := argString(args, "project")
-		// The handler's detector resolves the project (the spec §4 chain).
-		// The dispatch calls the handler's Save with a no-op to trigger
-		// resolution — ponytail: a future handler.CurrentProject method
-		// would own this.
-		_ = explicit
-		return map[string]any{"project": "p"}, nil
+		// The handler's detector resolves the project (the spec §4 chain);
+		// an explicit selector wins. A nil detector → errNoDetector (the
+		// envelope maps it to an error, not a fake project name).
+		project, err := h.CurrentProject("", explicit)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"project": project}, nil
 	}
 }
 

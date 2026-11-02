@@ -59,6 +59,18 @@ func newTestHandlerWithNoLLM(t *testing.T) *handler.Handler {
 	return newTestHandlerWithStore(t, openTestStore(t, t.TempDir()))
 }
 
+// newTestHandlerNoDetector builds a Handler with NO detector (the fixture
+// for mem_current_project's no-detector error path: the dispatch must
+// return an envelope error, never a placeholder project name).
+func newTestHandlerNoDetector(t *testing.T) *handler.Handler {
+	t.Helper()
+	c := config.Default()
+	c.DataDir = t.TempDir()
+	c.Project.Detect = false
+	st := openTestStore(t, t.TempDir())
+	return handler.NewHandler(memory.NewService(st, c, memory.NewEventBus(), nil, nil), c, nil)
+}
+
 // saveArgs builds one valid mem_save arg set (the queue tests' input).
 func saveArgs(i int) map[string]any {
 	return map[string]any{

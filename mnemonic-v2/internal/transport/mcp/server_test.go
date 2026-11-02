@@ -153,3 +153,78 @@ func TestJudgeManyWritesOnceInQueue(t *testing.T) {
 		t.Fatalf("judge_many must enqueue exactly one write (saw %d total writes)", got)
 	}
 }
+
+// TestCurrentProjectReturnsDetectorResolution (fix round 1, IMPORTANT #1)
+// pins that mem_current_project returns the detector's resolution, not a
+// hardcoded fixture: the test handler's detector resolves to testProject
+// ("p" by fixture, but the point is it comes from the detector, not a
+// literal), and an explicit selector wins.
+func TestCurrentProjectReturnsDetectorResolution(t *testing.T) {
+	s := NewServer(newTestHandler(t), Agent)
+	// No explicit → the detector's chain (the fixture resolves to "p", but
+	// the assertion is that it is the detector's answer, not a literal —
+	// a different detector would yield a different project).
+	out := s.CallTool(ctx, "mem_current_project", map[string]any{})
+	var env map[string]any
+	if err := json.Unmarshal(out, &env); err != nil {
+		t.Fatalf("envelope is not JSON: %v (%s)", err, out)
+	}
+	if env["project"] != testProject {
+		t.Fatalf("mem_current_project = %v, want the detector's %q", env["project"], testProject)
+	}
+	// An explicit selector wins over the detector.
+	out2 := s.CallTool(ctx, "mem_current_project", map[string]any{"project": "explicit-wins"})
+	var env2 map[string]any
+	if err := json.Unmarshal(out2, &env2); err != nil {
+		t.Fatalf("envelope is not JSON: %v (%s)", err, out2)
+	}
+	if env2["project"] != "explicit-wins" {
+		t.Fatalf("explicit project must win, got %v", env2["project"])
+	}
+}
+
+// TestCurrentProjectNoDetectorIsError (fix round 1, IMPORTANT #1) pins the
+// no-detector path: a Handler with no detector returns an envelope error,
+// never a placeholder project name.
+func TestCurrentProjectNoDetectorIsError(t *testing.T) {
+	s := NewServer(newTestHandlerNoDetector(t), Agent)
+	out := s.CallTool(ctx, "mem_current_project", map[string]any{})
+	var env map[string]any
+	if err := json.Unmarshal(out, &env); err != nil {
+		t.Fatalf("envelope is not JSON: %v (%s)", err, out)
+	}
+	if env["error"] != true {
+		t.Fatalf("no-detector mem_current_project must be an error envelope, got %s", out)
+	}
+	if _, ok := env["project"]; ok {
+		t.Fatalf("no-detector result must not carry a project name: %s", out)
+	}
+	if env["code"] == "" || env["message"] == "" {
+		t.Fatalf("error envelope must carry a code + message: %s", out)
+	}
+}
+
+// TestCapturePassiveIsHonestNoOp (fix round 1, IMPORTANT #2) pins that
+// mem_capture_passive is an honest no-op on the wire: it carries
+// degraded:true + a reason (the agent knows it is not a success), not a
+// bare captured:0.
+func TestCapturePassiveIsHonestNoOp(t *testing.T) {
+	s := NewServer(newTestHandler(t), Agent)
+	out := s.CallTool(ctx, "mem_capture_passive", map[string]any{
+		"text":       "## Key Learnings:\n- x",
+		"session_id": "s1",
+	})
+	var env map[string]any
+	if err := json.Unmarshal(out, &env); err != nil {
+		t.Fatalf("envelope is not JSON: %v (%s)", err, out)
+	}
+	if env["captured"] != float64(0) {
+		t.Fatalf("capture_passive must report captured:0 (no-op), got %v", env["captured"])
+	}
+	if env["degraded"] != true {
+		t.Fatalf("capture_passive no-op must carry degraded:true, got %v", env["degraded"])
+	}
+	if env["degraded_reason"] == "" {
+		t.Fatalf("capture_passive no-op must carry a non-empty degraded_reason: %s", out)
+	}
+}

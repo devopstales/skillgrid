@@ -13,6 +13,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -69,11 +70,28 @@ func (h *Handler) resolveProject(cwd, explicit string) (string, error) {
 	if strings.TrimSpace(explicit) != "" {
 		return strings.TrimSpace(explicit), nil
 	}
+	if h.det == nil {
+		return "", errNoDetector
+	}
 	name, err := h.det.Resolve(cwd, "")
 	if err != nil {
 		return "", err
 	}
 	return name, nil
+}
+
+// errNoDetector is the (code, message) for a Handler with no detector
+// (mem_current_project cannot resolve the project — an envelope error, not
+// a fake project name).
+var errNoDetector = errors.New("handler: no project detector configured")
+
+// CurrentProject resolves the current project at call time (spec
+// 004-transport-mcp §3 mem_current_project: "Project discovery"). The
+// explicit selector wins (an empty explicit runs the detector's chain); a
+// Handler with no detector returns errNoDetector (the dispatch maps it to
+// an envelope error, never a placeholder project name).
+func (h *Handler) CurrentProject(cwd, explicit string) (string, error) {
+	return h.resolveProject(cwd, explicit)
 }
 
 // ── request / result shapes (the D1 tool-contract surface) ─────────────────
