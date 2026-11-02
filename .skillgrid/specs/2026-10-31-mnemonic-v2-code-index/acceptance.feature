@@ -64,9 +64,9 @@ symbol by name via the FTS floor.
 #### Gates
 ````
 # G1: door check + additive extension + single node table + sync-id format
-# CHECK: cd mnemonic-v2 && go test ./internal/core/store/ -run 'TestDoorCheckCodeIndexWritesAndSearches|TestStoreExtensionAdditive|TestNewSyncIDFormat' -count=1
+# CHECK: cd mnemonic-v2 && go test ./internal/core/store/ -run 'TestDoorCheckCodeIndexWritesAndSearches|TestStoreExtensionAdditive|TestCodeIndexSyncIDMintFormat' -count=1
 # EXPECT: ok  (go test success-only marker)
-# EVIDENCE: pending
+# EVIDENCE: 2026-11-02 G1 ran green (fee9db76): all three tests PASS — the sync-id scenario is covered by TestCodeIndexSyncIDMintFormat (the gate's original name TestNewSyncIDFormat never existed; R-3 re-points the gate, scenario unchanged)
 ````
 
 ### Requirement: migration parity and the reusable FTS unit
