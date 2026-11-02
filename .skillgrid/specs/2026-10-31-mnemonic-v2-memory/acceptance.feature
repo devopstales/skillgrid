@@ -68,7 +68,7 @@ is hard-deleted.
 # G1: per-project files + ping + sync-id format + ledger FK
 # CHECK: cd mnemonic-v2 && go test ./internal/core/... -run 'TestStoreOpensPerProjectFile|TestNewSyncIDFormat|TestLedgerFKSetNull|TestMigrationRunsFromEmpty' -count=1
 # EXPECT: ok  (go test success-only marker)
-# EVIDENCE: 2026-11-02 green, 5 tests ok (pattern substitution: TestMigrationRunsFromEmpty→TestMigrationRunsFromEmptyAndReopens, matches via prefix)
+# EVIDENCE: 2026-11-02 green, 4 tests ok (TestStoreOpensPerProjectFile, TestLedgerFKSetNull, TestNewSyncIDFormat, TestMigrationRunsFromEmptyAndReopens — pattern substitution: TestMigrationRunsFromEmpty→TestMigrationRunsFromEmptyAndReopens, matches via prefix)
 ````
 
 ### Requirement: full-text retrieval backbone
@@ -862,7 +862,7 @@ without losing a write.
 #### Gates
 ````
 # G16: seed import + read-only v1 + two-process WAL (the backstop)
-# CHECK: cd mnemonic-v2 && go test ./internal/memory/ -run 'TestV1' -count=1 && go test ./internal/core/store/ -run TestConcurrentProcessWrites -count=1
+# CHECK: cd mnemonic-v2 && go test ./internal/migrate/ -run 'TestV1' -count=1 && go test ./internal/core/store/ -run TestConcurrentProcessWAL -count=1
 # EXPECT: ok
-# EVIDENCE: 2026-11-02 green, 7 tests ok (pattern substitution: TestV1→TestV1* in internal/migrate — 6 tests; TestConcurrentProcessWrites→TestConcurrentProcessWAL in internal/core/store — 1 test)
+# EVIDENCE: 2026-11-02 green, 7 tests ok (pattern substitution: TestV1→TestV1* in internal/migrate — 6 tests; TestConcurrentProcessWrites→TestConcurrentProcessWAL in internal/core/store — 1 test; the original CHECK ran the TestV1 pattern against ./internal/memory, where it matched 0 tests — no-tests-to-run still exits 0, so the chain was green but misleading — CHECK corrected to the real package)
 ````
