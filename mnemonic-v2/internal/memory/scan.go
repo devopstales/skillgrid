@@ -167,3 +167,32 @@ func (s *Service) addPendingRelation(ctx context.Context, r scanRow, cand store.
 	})
 	return err == nil
 }
+
+// MigrationState is the v1→v2 seed migration state reader (the doctor's
+// migration-state check, TICKET-19 doctor completeness). It is a one-way
+// hook the internal/migrate package registers in its init (the dependency
+// direction memory → migrate forbids the Service from importing migrate
+// directly — the same one-way wire as the store's
+// SetApplyPulledMutationHook; the doctor calls it with the configured v1
+// dir, a missing v1 dir is not an error, the check stays advisory-ok).
+var MigrationState func(ctx context.Context, v1Dir, project string) (any, error)
+
+// MigrationStateHook is the v1→v2 seed migration state reader (the
+// doctor's migration-state check, TICKET-19 doctor completeness). It is a
+// one-way hook the internal/migrate package registers in its init (the
+// dependency direction memory → migrate keeps the Service from importing
+// migrate directly — the store's SetApplyPulledMutationHook pattern). The
+// doctor calls the Service's MigrationState with the configured v1 dir; a
+// missing v1 dir is not an error (the check stays advisory-ok).
+var MigrationStateHook func(ctx context.Context, v1Dir, project string) (any, error)
+
+// MigrationState runs the seed-migration state check for the service's
+// project (the doctor's wiring point). It delegates to the hook the
+// internal/migrate package registers; a missing v1 dir is not an error
+// (the check stays advisory-ok).
+func (s *Service) MigrationState(ctx context.Context, v1Dir, project string) (any, error) {
+	if MigrationStateHook == nil {
+		return nil, nil // hook not bound (no v1 dir to check)
+	}
+	return MigrationStateHook(ctx, v1Dir, project)
+}

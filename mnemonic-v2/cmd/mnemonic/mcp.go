@@ -54,14 +54,26 @@ func runMCP(fl config.Flags, args []string) int {
 	// the save commit's onWrite hook (the store's committed-txn seam),
 	// holds the SQLite-backed lease (one worker per data dir), and runs
 	// push→pull in its own goroutine — network I/O never blocks a save.
-	// The stdio ctx (SIGINT/SIGTERM) is the manager's lifetime.
+	// The stdio ctx (SIGINT/SIGTERM) is the manager's lifetime. A startup
+	// failure is NOT fatal to the server: autosync is a feature, the MCP
+	// loop must still serve (a warning to stderr, the store keeps serving).
+	var auto *memory.Autosync
+	var autoTr memory.MutationTransport
 	if h.Config().Sync.Auto {
-		if err := startAutosync(ctx, h, st); err != nil {
-			fmt.Fprintf(outW(), "error: autosync: %s\n", err.Error())
-			return exitErr
+		var err error
+		auto, autoTr, err = startAutosync(ctx, h, st)
+		if err != nil {
+			fmt.Fprintf(outW(), "warning: autosync disabled: %s\n", err.Error())
 		}
 	}
 	if err := srv.Start(ctx); err != nil && ctx.Err() == nil {
+		// stop the autosync manager and close its transport BEFORE the
+		// store closes (the deferred st.Close): the run loop reads the
+		// store, and the transport's connection is the manager's own.
+		if auto != nil {
+			auto.Stop()
+			_ = autoTr.Close()
+		}
 		fmt.Fprintf(outW(), "error: mcp server: %s\n", err.Error())
 		return exitErr
 	}
@@ -74,12 +86,21 @@ func runMCP(fl config.Flags, args []string) int {
 // store's committed-transaction hook with the manager's NotifyDirty (the
 // onWrite hook — the commit path's only cross-goroutine touch), and starts
 // the run loop on the given ctx (Stop on cancel releases the lease and
-// closes the transport).
-func startAutosync(ctx context.Context, h *handler.Handler, st store.Store) error {
+// closes the transport). It returns the started manager + transport so the
+// caller can stop them on an error path that skips the ctx teardown.
+//
+// The lease leg is SQLite-only (the sync_state lease rows use the SQLite
+// dialect's raw-SQL shape): a non-SQLite dialect refuses to start (a
+// warning, not a fatal — the MCP server still serves) until the PG lease
+// leg is ported (sync.go documents the PG upgrade path).
+func startAutosync(ctx context.Context, h *handler.Handler, st store.Store) (*memory.Autosync, memory.MutationTransport, error) {
 	cfg := h.Config()
+	if cfg.Datasource.Dialect != store.SQLite {
+		return nil, nil, fmt.Errorf("PG dialect not supported yet (SQLite only)")
+	}
 	tr, err := openTransport(cfg)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	svc := memory.NewSyncService(st, cfg)
 	a := memory.NewAutosync(svc, tr, cfg)
@@ -93,7 +114,7 @@ func startAutosync(ctx context.Context, h *handler.Handler, st store.Store) erro
 		a.Stop()
 		_ = tr.Close()
 	}()
-	return nil
+	return a, tr, nil
 }
 
 // runServe runs `serve`: the deprecated no-op alias (the v2 HTTP

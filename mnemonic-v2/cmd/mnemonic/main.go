@@ -204,8 +204,7 @@ func run(args []string) int {
 		fmt.Fprintln(outW(), "mnemonic index delegates to the code-index change (not yet in this build).")
 		return exitOK
 	case "migrate":
-		fmt.Fprintln(outW(), "mnemonic migrate delegates to the v1→v2 seed migration (TICKET-19, not yet in this build).")
-		return exitOK
+		return runMigrate(fl, cwd, args)
 	case "setup":
 		fmt.Fprintln(outW(), "mnemonic setup delegates to the agent-plugin change (not yet in this build).")
 		return exitOK

@@ -261,7 +261,19 @@ func (a *Autosync) drain(t *time.Timer) {
 // it). The lease is HELD after the cycle (not released): the TTL (60 s) is
 // the release mechanism (a dead worker's lease expires; a live worker
 // renews on the next cycle). Stop() releases on shutdown.
+//
+// runCycle never returns to the run loop carrying a panic (a store seam or
+// transport bug would otherwise kill the run goroutine — and with it the
+// lease guard, the debounce, and the backoff tracking): the panic is
+// recovered and recorded as a cycle failure (logged through the manager's
+// status surface, LastError), so a future cycle bug degrades to backoff,
+// not a dead worker.
 func (a *Autosync) runCycle(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			a.recordFailure(fmt.Errorf("cycle panic: %v", r))
+		}
+	}()
 	if ctx.Err() != nil {
 		return
 	}
@@ -288,10 +300,14 @@ func (a *Autosync) runCycle(ctx context.Context) {
 		if err == errLeaseHeld {
 			// a live peer holds the lease: stand down (no backoff — the
 			// next dirty mark re-checks; the TTL is the release mechanism).
+			// The stand-down counts as a cycled pass (the single-lease test
+			// asserts both workers cycled; the loser's proof is that it
+			// cycled and contributed no transport calls).
 			a.mu.Lock()
 			if a.status.phase == PhasePushing || a.status.phase == PhasePulling {
 				a.status.phase = PhaseIdle
 			}
+			a.status.cycles++
 			a.mu.Unlock()
 			return
 		}
@@ -407,7 +423,7 @@ func (a *Autosync) lastPulledSeq() int64 {
 	// with target_key='cloud' — the transport's PullAndApply applies
 	// them through the SyncService, which records the cursor on the
 	// mutation's target key).
-	n, err := seam.ProbeInt(`SELECT ifnull(last_pulled_seq, 0) FROM sync_state WHERE target_key = 'cloud'`)
+	n, err := seam.ProbeInt(`SELECT COALESCE(last_pulled_seq, 0) FROM sync_state WHERE target_key = 'cloud'`)
 	if err != nil {
 		return 0
 	}
@@ -419,22 +435,63 @@ func (a *Autosync) lastPulledSeq() int64 {
 // acquireLease takes the lease when the stored lease is absent, ours, or
 // expired (the Engram semantics: a dead worker's lease is re-acquirable
 // once its TTL passes; a live peer's lease stands the worker down).
+//
+// The takeover is ATOMIC, not SELECT-then-UPSERT: the conditional UPDATE
+// fires only when the row holds no live peer lease (absent, ours, or
+// expired), and its effect is the arbiter — RowsAffected==0 means a live
+// peer holds it, so two workers racing the same window cannot both win
+// (the SELECT-then-UPSERT form let both workers upsert and last writer
+// won; the UPDATE's WHERE clause closes the TOCTOU). The upsert after a
+// successful takeover only guarantees the row exists for a fresh store.
 func (a *Autosync) acquireLease(ttl time.Duration) error {
 	seam := applyPulledSeam(a.svc.st)
 	now := time.Now().UTC()
-	owner, until := leasePair(seam, targetKeyLocal)
-	if owner != "" && owner != a.owner {
-		if ts, err := time.Parse("2006-01-02 15:04:05", until); err == nil && !ts.Before(now) {
-			return errLeaseHeld // a live peer holds it: stand down
-		}
-	}
+	nowStamp := now.Format("2006-01-02 15:04:05")
 	untilStamp := now.Add(ttl).Format("2006-01-02 15:04:05")
-	err := seam.RawExec(
-		`INSERT INTO sync_state (target_key, lease_owner, lease_until) VALUES (?, ?, ?)
-		 ON CONFLICT(target_key) DO UPDATE SET lease_owner = excluded.lease_owner, lease_until = excluded.lease_until`,
-		targetKeyLocal, a.owner, untilStamp)
+	// The WHERE clause: the row is available when it holds no live peer
+	// lease. A row is "live peer" when lease_owner is set, != us, and
+	// lease_until > now. The UPDATE matches (and thus takes the row)
+	// when:
+	//   lease_owner IS NULL     → no one holds it (fresh / released)
+	//   lease_owner = ?         → we already hold it (renew)
+	//   lease_until IS NULL     → no expiry (treat as unheld, take it)
+	//   lease_until <= ?        → expired (dead worker's lease, <= now)
+	// A live peer (owner set, != us, until > now) does NOT match →
+	// RowsAffected==0. The row's existence then decides between "fresh
+	// store" (create it) and "peer holds it" (stand down).
+	res, err := seam.RawExecRowsAffected(
+		`UPDATE sync_state SET lease_owner = ?, lease_until = ?
+		 WHERE target_key = ?
+		   AND (lease_owner IS NULL
+		        OR lease_owner = ?
+		        OR lease_until IS NULL
+		        OR lease_until <= ?)`,
+		a.owner, untilStamp, targetKeyLocal, a.owner, nowStamp)
 	if err != nil {
 		return fmt.Errorf("acquire lease: %w", err)
+	}
+	if res == 0 {
+		// The UPDATE matched nothing: the row exists and a live peer
+		// holds it (lease_owner != us, lease_until > now). The probe
+		// confirms (it excludes our own owner, so a stale row owned by
+		// us with an unparseable expiry counts as absent — the upsert
+		// below takes it back). The probe's QueryRow returns
+		// sql.ErrNoRows when no row matches: any probe error means "no
+		// live peer" (a real DB error is surfaced by the upsert).
+		peerHeld, _ := seam.Probe(
+			`SELECT 1 FROM sync_state WHERE target_key = ? AND lease_owner IS NOT NULL AND lease_owner != ?`,
+			targetKeyLocal, a.owner)
+		if peerHeld {
+			return errLeaseHeld // a live peer holds the lease: stand down
+		}
+		// no live peer: take (or create) the row with our lease.
+		if err := seam.RawExec(
+			`INSERT INTO sync_state (target_key, lease_owner, lease_until) VALUES (?, ?, ?)
+			 ON CONFLICT(target_key) DO UPDATE SET lease_owner = excluded.lease_owner, lease_until = excluded.lease_until`,
+			targetKeyLocal, a.owner, untilStamp); err != nil {
+			return fmt.Errorf("acquire lease (takeover): %w", err)
+		}
+		return nil
 	}
 	return nil
 }

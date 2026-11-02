@@ -52,6 +52,17 @@ func (s *sqliteStore) RawExec(query string, args ...any) error {
 	return err
 }
 
+// RawExecRowsAffected runs a raw statement and returns the rows it
+// affected (the autosync lease takeover's arbiter — the conditional
+// UPDATE's row count decides who won the window; RawExec cannot carry it).
+func (s *sqliteStore) RawExecRowsAffected(query string, args ...any) (int64, error) {
+	res, err := s.db.Exec(query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // RawQuery runs a raw SELECT and returns every row (a read seam alongside
 // Probe/ProbeInt — the conflict pre-filter's FTS MATCH + JOIN needs a
 // multi-row, multi-column read surface, which Probe/ProbeInt's

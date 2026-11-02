@@ -13,17 +13,29 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/config"
+	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/store"
+	"github.com/devopstales/skillgrid/mnemonic-v2/internal/migrate"
+	"github.com/devopstales/skillgrid/mnemonic-v2/internal/transport/handler"
 )
 
-// runDoctor runs `doctor` (and `mem doctor`, the same check).
+// runDoctor runs `doctor` (and `mem doctor`, the same check). The
+// migration-state check (TICKET-19 doctor completeness) is advisory: a v1
+// dir detected but not migrated renders a `migrate-pending` line (the
+// operator reads it and runs `mnemonic migrate`); it never fails the
+// doctor (a pending migration is a report line, not a capability gap).
 func runDoctor(fl config.Flags, cwd string, args []string) int {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	jsonOut := jsonFlag(fs)
-	var strict bool
+	var (
+		strict bool
+		v1Dir  string
+	)
 	fs.BoolVar(&strict, "strict", false, "exit 1 on any capability gap (CI)")
+	fs.StringVar(&v1Dir, "v1-dir", "", "the v1 store's data dir (the migration-state check's selector — absent when the v1 cutover is not in play)")
 	if err := fs.Parse(reorderArgs(args)); err != nil {
 		return exitUsage
 	}
@@ -37,6 +49,23 @@ func runDoctor(fl config.Flags, cwd string, args []string) int {
 	if err != nil {
 		return finish(fs, *jsonOut, dispatchResult{err: err})
 	}
+	// The migration-state check (TICKET-19 doctor completeness): when a
+	// --v1-dir is given, the doctor reports the v1 dir's migration state
+	// (migrate-pending / migrate-done / advisory-ok when absent). The
+	// check is advisory — it never fails the doctor (a pending migration
+	// is a report line, not a capability gap), so it is not part of the
+	// strict gate.
+	if v1Dir != "" {
+		if line, ok := migrationStateLine(h, st, v1Dir); ok {
+			if *jsonOut {
+				// Fold into the result's checks (the JSON shape is the
+				// contract — the advisory line is a check entry).
+				appendDoctorCheck(result, line)
+			} else {
+				fmt.Fprintln(outW(), line)
+			}
+		}
+	}
 	if *jsonOut {
 		out := finish(fs, true, dispatchResult{result: result})
 		if strict && doctorDegraded(result) {
@@ -49,6 +78,53 @@ func runDoctor(fl config.Flags, cwd string, args []string) int {
 		return exitErr
 	}
 	return exitOK
+}
+
+// migrationStateLine runs the v1→v2 seed migration state check for the
+// doctor's resolved project and renders the advisory line ("", false when
+// the v1 store is absent — the check stays advisory-ok, no line). It calls
+// migrate.State directly (the cutover's own package owns the layout
+// knowledge); the service's MigrationState hook is the library's wiring
+// point, the CLI's direct call is the doctor's wiring point.
+func migrationStateLine(h *handler.Handler, st store.Store, v1Dir string) (string, bool) {
+	resolved, err := h.CurrentProject("", "")
+	if err != nil {
+		return "", false // a project-resolution gap is the doctor's own check's concern
+	}
+	cfg := h.Config()
+	sts, err := migrate.Report(context.Background(), v1Dir, cfg.DataDir, resolved, st)
+	if err != nil || !sts.V1Present {
+		return "", false // no v1 store (or a read gap): advisory-ok, no line
+	}
+	line := fmt.Sprintf("migrate\t%s\tv1=%d rows, seeded=%d ledger rows",
+		sts.MigrationState, sts.V1Rows, sts.SeededRows)
+	return line, true
+}
+
+// appendDoctorCheck appends one check entry to the doctor's result (the
+// JSON shape is the contract: the advisory line is a check entry with
+// ok=true — a pending migration is not a capability gap, so the strict
+// gate never fires on it).
+func appendDoctorCheck(result any, line string) {
+	m, ok := result.(map[string]any)
+	if !ok {
+		return
+	}
+	checks, ok := m["checks"].([]any)
+	if !ok {
+		return
+	}
+	// Parse the line's fields (name\tstate\tdetail).
+	parts := strings.SplitN(line, "\t", 3)
+	if len(parts) != 3 {
+		return
+	}
+	checks = append(checks, map[string]any{
+		"name":   "migrate",
+		"ok":     true, // advisory
+		"detail": parts[1] + " — " + parts[2],
+	})
+	m["checks"] = checks
 }
 
 // doctorDegraded reports whether any capability check failed (the gap

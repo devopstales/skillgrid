@@ -111,27 +111,38 @@ func TestAutosyncSingleLease(t *testing.T) {
 	defer a2.Stop()
 
 	a1.NotifyDirty()
+	// wait for a1 (the winner) to cycle and hold the lease, THEN notify a2
+	// (the loser): a2's cycle must see the live lease and stand down.
+	waitForCycles(t, a1)
+	if c := a1.CycleCount(); c < 1 {
+		t.Fatalf("worker 1 must have cycled (attempted the lease), got %d", c)
+	}
 	a2.NotifyDirty()
-	// both workers wake on the shared debounce window; each tries to cycle.
-	waitForCycles(t, a1, a2)
-
-	// the lease row is the single-worker proof: after both settled, the row
-	// holds at most one owner and the cycles completed without error.
-	if n := a1.CycleCount() + a2.CycleCount(); n < 1 {
-		t.Fatalf("no cycle ran (a1=%d a2=%d)", a1.CycleCount(), a2.CycleCount())
+	// wait for a2 to cycle (a stand-down counts as a cycled pass) — one
+	// acquires the lease, the other must stand down; the proof is that the
+	// loser cycled (it attempted) and contributed nothing.
+	waitForCycles(t, a2)
+	if c := a2.CycleCount(); c < 1 {
+		t.Fatalf("worker 2 must have cycled (attempted the lease and stood down), got %d", c)
 	}
 	if err := a1.LastError(); err != nil {
 		t.Fatalf("worker 1 cycle errored: %v", err)
 	}
 	if err := a2.LastError(); err != nil {
-		t.Fatalf("worker 2 cycle errored: %v", err)
+		t.Fatalf("worker 2 cycle errored (a stand-down is not a failure): %v", err)
 	}
-	// the lease row is the single-worker proof: it names at most one
-	// owner at a time (the row holds the last worker that acquired —
-	// either a1 or a2, not both, not a foreign owner).
+	// exactly ONE worker pushed: the loser stood down on the live lease
+	// (its LastError is nil, so the split is visible only in the winner's
+	// count). If both pushed, the split was never proven and this fails.
+	if a1.CycleCount() != 1 {
+		t.Fatalf("exactly one worker must win the lease and push, got a1=%d a2=%d",
+			a1.CycleCount(), a2.CycleCount())
+	}
+	// the lease row is the single-worker proof: it names exactly one owner
+	// (the winner — either a1 or a2, not both, not a foreign owner).
 	owner, until := syncLeaseOf(t, st)
 	if owner == "" || until == "" {
-		t.Fatalf("the lease row must record a worker (owner=%q until=%q)", owner, until)
+		t.Fatalf("the lease row must record the winner (owner=%q until=%q)", owner, until)
 	}
 	if owner != a1.Owner() && owner != a2.Owner() {
 		t.Fatalf("lease row holds a foreign owner %q", owner)
@@ -149,19 +160,25 @@ func TestWritePathNeverBlocksOnNetwork(t *testing.T) {
 	st := openTestStore(t)
 	tr := newFakeTransport(t)
 	tr.Slow(500 * time.Millisecond) // the network is slower than the save
-	a := NewAutosync(NewSyncService(st, syncCfg(true)), tr, syncCfgAuto())
+	cfg := syncCfgAuto()
+	cfg.Project.Name = "p"
+	svc := NewSyncService(st, syncCfg(true))
+	if err := svc.Enroll(context.Background(), "p", true); err != nil {
+		t.Fatalf("enroll: %v", err)
+	}
+	a := NewAutosync(svc, tr, cfg)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	a.Start(ctx)
 	defer a.Stop()
 
-	svc := newTestServiceWithStore(t, st)
+	s := newTestServiceWithStore(t, st)
 	// the manager replaces the pipeline's onWrite hook implementation with
 	// its NotifyDirty (the store's committed-txn seam fires after commit).
-	svc.St().SetTxnHook(a.NotifyDirty)
+	st.SetTxnHook(a.NotifyDirty)
 
 	start := time.Now()
-	if _, err := svc.Save(ctx, SaveRequest{
+	if _, err := s.Save(ctx, SaveRequest{
 		SessionID: "s", Type: "decision", Title: "T slow",
 		Content: "content slow", Project: "p",
 	}); err != nil {
@@ -174,6 +191,9 @@ func TestWritePathNeverBlocksOnNetwork(t *testing.T) {
 	// returned — the transport's counter proves the round-trip ran without
 	// delaying the commit.
 	waitForCycles(t, a)
+	if tr.Calls() < 1 {
+		t.Fatalf("the debounced cycle must have run in the background (transport calls: %d)", tr.Calls())
+	}
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -191,9 +211,12 @@ func TestDebounceCoalescesBursts(t *testing.T) {
 		t.Fatalf("enroll: %v", err)
 	}
 	// one journaled save (the outbox must be non-empty for the push to
-	// reach the transport — an empty outbox is a no-op cycle).
+	// reach the transport — an empty outbox is a no-op cycle). One local
+	// ctx for both the save and the manager (no package-global ctx mixing).
+	dctx, dcancel := context.WithCancel(context.Background())
+	defer dcancel()
 	s := newTestServiceWithStore(t, st)
-	if _, err := s.Save(ctx, SaveRequest{
+	if _, err := s.Save(dctx, SaveRequest{
 		SessionID: "s", Type: "decision", Title: "T burst",
 		Content: "content burst", Project: "p",
 	}); err != nil {
@@ -201,9 +224,7 @@ func TestDebounceCoalescesBursts(t *testing.T) {
 	}
 	tr := newFakeTransport(t)
 	a := NewAutosync(svc, tr, cfg)
-	ctx2, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	a.Start(ctx2)
+	a.Start(dctx)
 	defer a.Stop()
 	for i := 0; i < 10; i++ {
 		a.NotifyDirty()
@@ -434,23 +455,30 @@ func (a *Autosync) Phase() string {
 	return a.status.phase
 }
 
-// waitForCycles polls the workers' cycle counters until at least one cycle
-// has run, or the 2× debounce window passes (the brief: no timing
-// assertions — the poll is the debounce proof; the coalescing assertion is
-// the caller's tr.Calls() check, not the counter).
+// waitForCycles polls the workers' cycle counters until every worker has
+// cycled at least once (a stand-down counts as a cycled pass), or the 2 s
+// window passes (the brief: no timing assertions — the poll is the
+// debounce proof; the coalescing/split assertions are the caller's, not the
+// counter's). A window pass with a worker not yet cycled is not itself a
+// failure: the caller's counter assertions are the proof.
 func waitForCycles(t *testing.T, a ...*Autosync) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second) // 4× the 500 ms window
 	for time.Now().Before(deadline) {
+		all := true
 		for _, m := range a {
-			if m.CycleCount() >= 1 {
-				return
+			if m.CycleCount() < 1 {
+				all = false
+				break
 			}
+		}
+		if all {
+			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	// the window passed: the caller asserts (a zero-count wait is the
-	// disabled-manager test; a non-zero wait is the coalescing/lease tests).
+	// the window passed: the caller asserts (the lease test's 1-vs-0 split
+	// assertion is the proof of which worker stood down).
 }
 
 // errFakeTransport is the fake transport's injected failure (the backoff

@@ -97,6 +97,10 @@ type syncSeam interface {
 	ProbeInt(query string, args ...any) (int, error)
 	RawQuery(query string, args ...any) ([][]any, error)
 	RawExec(query string, args ...any) error
+	// RawExecRowsAffected runs a raw statement and returns its row count
+	// (the autosync lease takeover's arbiter — the conditional UPDATE's
+	// RowsAffected decides who wins the window).
+	RawExecRowsAffected(query string, args ...any) (int64, error)
 	AddPulledObservation(ctx context.Context, p store.AddObservationParams, syncID string) (store.AddObservationResult, error)
 	AddPulledRelation(ctx context.Context, p store.AddRelationParams, syncID string) (store.Relation, error)
 }

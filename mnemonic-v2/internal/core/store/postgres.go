@@ -40,6 +40,18 @@ func (s *pgStore) RawExec(query string, args ...any) error {
 	return err
 }
 
+// RawExecRowsAffected runs a raw statement and returns the rows it
+// affected (the SQLite store's seam shape — the autosync lease takeover
+// uses it; the PG dialect is gated out of autosync until the lease leg is
+// ported, so this path is parity for the seam, not exercised yet).
+func (s *pgStore) RawExecRowsAffected(query string, args ...any) (int64, error) {
+	res, err := s.db.Exec(query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // RawQuery runs a raw SELECT and returns every row (the SQLite store's
 // RawQuery seam shape, so the memory package's dialect-agnostic fixtures
 // work unchanged).
