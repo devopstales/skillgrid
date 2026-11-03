@@ -7,7 +7,7 @@
  * can only grow by a small delta per change (ratchet).
  *
  * Usage:
- *   node .agents/skills/verification/qa/scripts/skill-size-budget.mjs check [--write] [project-root]
+ *   node .agents/skills/qa/scripts/skill-size-budget.mjs check [--write] [project-root]
  *
  * Exit codes:
  *   0 — all skills within ceiling (or no budget file)

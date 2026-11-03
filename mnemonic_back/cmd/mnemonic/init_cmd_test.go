@@ -33,7 +33,7 @@ func TestMain(m *testing.M) {
 		return "../../../.agents/skills/_shared/agent-config/block.md"
 	}
 	agentsPreamblePath = func(dir string) string {
-		return "../../../.agents/skills/lifecycle/onboarding/templates/agents-preamble.md"
+		return "../../../.agents/skills/onboarding/templates/agents-preamble.md"
 	}
 	prevEmb, hadEmb := os.LookupEnv("SKILLGRID_MNEMONIC_EMBEDDER")
 	os.Setenv("SKILLGRID_MNEMONIC_EMBEDDER", "off")

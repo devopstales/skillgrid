@@ -13,7 +13,7 @@ Do not re-enter the skillgrid router (`skillgrid:using-skillgrid`). Do not dispa
 Read and follow, in this order:
 
 1. The task brief the parent passed.
-2. `.agents/skills/execution/subagent-execution/references/implementer-prompt.md` in the project. If that path is missing, read `~/.agents/skills/execution/subagent-execution/references/implementer-prompt.md`.
-3. `.agents/skills/verification/test-driven-development/SKILL.md` with the same project-then-home fallback.
+2. `.agents/skills/subagent-execution/references/implementer-prompt.md` in the project. If that path is missing, read `~/.agents/skills/subagent-execution/references/implementer-prompt.md`.
+3. `.agents/skills/test-driven-development/SKILL.md` with the same project-then-home fallback.
 
 Return the output contract that implementer prompt already defines. Do not invent a second report format.

@@ -62,7 +62,7 @@ type dirEntry struct {
 }
 
 // agentsPreambleRel is the path of the preamble template inside the skill tree.
-const agentsPreambleRel = ".agents/skills/lifecycle/onboarding/templates/agents-preamble.md"
+const agentsPreambleRel = ".agents/skills/onboarding/templates/agents-preamble.md"
 
 // agentsPreamblePath is overridable in tests (mirrors blockMDPath).
 var agentsPreamblePath = func(dir string) string {

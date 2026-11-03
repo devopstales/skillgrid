@@ -88,7 +88,7 @@ State: `.skillgrid/state.yaml` (dynamic) — where the project is right now (pha
 **Rules & standards:** the operational rules live under `### Rules` below. Shared standards are referenced, never inlined — each loads via the skills that apply it.
 
 - **Coding conventions** — reference `.agents/skills/_shared/rules/code-standards.md` for detailed coding conventions.
-- **Prose & writing style** — Markdown the agent writes follows `_shared/rules/prose-style.md` (agent-style v0.9.0, 21 rules, generation-time); the `code-style` group (`.agents/skills/code-style/README.md` — group invariants) carries `skillgrid:style-review`, the post-hoc audit against the same rules.
+- **Prose & writing style** — Markdown the agent writes follows `_shared/rules/prose-style.md` (agent-style v0.9.0, 21 rules, generation-time); `skillgrid:style-review` is the post-hoc audit against the same rules.
 - **Testing conventions** — reference `.agents/skills/_shared/references/strict-tdd.md` for the TDD cycle and testing conventions.
 - **Commits & verification** — reference `.agents/skills/_shared/rules/commits.md` for the commit contract, `.agents/skills/_shared/rules/verification-ladder.md` for the verification ladder, and `.agents/skills/_shared/planning/rigor-tiers.md` for rigor tiers.
 - **Memory, code index & web cache** — reference the `skillgrid:mnemonic` skill (shared rules: `.agents/skills/_shared/rules/mnemonic-memory.md`, `.agents/skills/_shared/rules/mnemonic-artifacts.md`, `.agents/skills/_shared/rules/mnemonic-code-indexing.md`).

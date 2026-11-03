@@ -12,6 +12,6 @@ Do not re-enter the skillgrid router (`skillgrid:using-skillgrid`). Do not dispa
 Read and follow:
 
 1. The claim and search budget the parent passed.
-2. `.agents/skills/knowledge/code-research/researchers/verifier.md` in the project, or `~/.agents/skills/knowledge/code-research/researchers/verifier.md` if the project has no copy.
+2. `.agents/skills/code-research/researchers/verifier.md` in the project, or `~/.agents/skills/code-research/researchers/verifier.md` if the project has no copy.
 
 Return the ruling that brief already defines.

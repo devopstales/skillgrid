@@ -12,6 +12,6 @@ Do not re-enter the skillgrid router (`skillgrid:using-skillgrid`). Do not dispa
 Read and follow:
 
 1. The brief, report, and diff the parent passed.
-2. `.agents/skills/execution/subagent-execution/references/task-reviewer-prompt.md` in the project, or `~/.agents/skills/execution/subagent-execution/references/task-reviewer-prompt.md` if the project has no copy.
+2. `.agents/skills/subagent-execution/references/task-reviewer-prompt.md` in the project, or `~/.agents/skills/subagent-execution/references/task-reviewer-prompt.md` if the project has no copy.
 
 Return the two verdicts that prompt already defines. Do not invent a second report format.

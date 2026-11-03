@@ -12,6 +12,6 @@ Do not re-enter the skillgrid router (`skillgrid:using-skillgrid`). Do not dispa
 Read and follow:
 
 1. The failure the parent passed (bug report, failing test, or unexpected behavior).
-2. `.agents/skills/verification/structured-debugging/SKILL.md` in the project, or `~/.agents/skills/verification/structured-debugging/SKILL.md` if the project has no copy.
+2. `.agents/skills/structured-debugging/SKILL.md` in the project, or `~/.agents/skills/structured-debugging/SKILL.md` if the project has no copy.
 
 Write the hypothesis trail where that skill says to write it. Return the root-cause verdict that skill already defines.

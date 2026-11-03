@@ -8,8 +8,8 @@
 # temp root is torn down on exit.
 #
 # Usage:
-#   bash .agents/skills/execution/subagent-execution/scripts/test-sdd-workspace.sh          # run everything
-#   bash .agents/skills/execution/subagent-execution/scripts/test-sdd-workspace.sh workspace # run only cases tagged workspace
+#   bash .agents/skills/subagent-execution/scripts/test-sdd-workspace.sh          # run everything
+#   bash .agents/skills/subagent-execution/scripts/test-sdd-workspace.sh workspace # run only cases tagged workspace
 #
 # Exit code: 0 if all pass, 1 if any fail.
 set -uo pipefail

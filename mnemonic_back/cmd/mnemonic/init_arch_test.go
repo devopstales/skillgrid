@@ -9,7 +9,7 @@ import (
 
 func TestLoadArchitectureTemplateFromSkillTree(t *testing.T) {
 	dir := t.TempDir()
-	rel := ".agents/skills/lifecycle/onboarding/templates/architecture.md"
+	rel := ".agents/skills/onboarding/templates/architecture.md"
 	// The real scaffold contains the full 17-section structure.
 	body := "# ARCHITECTURE.md\n\n**Project:** {project}\n\n## 1. Architecture Overview\n\n<detect>\n\n## 17. Known Gaps & TODOs\n"
 	if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, rel)), 0o755); err != nil {
@@ -78,7 +78,7 @@ func TestRenderArchitectureDetectFallback(t *testing.T) {
 func TestWriteArchitectureFileCreatesScaffold(t *testing.T) {
 	dir := t.TempDir()
 	// Put the real scaffold template where the resolver finds it.
-	rel := ".agents/skills/lifecycle/onboarding/templates/architecture.md"
+	rel := ".agents/skills/onboarding/templates/architecture.md"
 	body := "# ARCHITECTURE.md\n\n**Project:** {project}\n\n## 1. Architecture Overview\n<detect>\n"
 	if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, rel)), 0o755); err != nil {
 		t.Fatal(err)

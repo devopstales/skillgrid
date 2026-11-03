@@ -12,6 +12,6 @@ Do not re-enter the skillgrid router (`skillgrid:using-skillgrid`). Do not dispa
 Read and follow:
 
 1. The dimension brief the parent passed. You get that brief and nothing else from the parent session.
-2. `.agents/skills/knowledge/code-research/researchers/researcher.md` in the project, or `~/.agents/skills/knowledge/code-research/researchers/researcher.md` if the project has no copy.
+2. `.agents/skills/code-research/researchers/researcher.md` in the project, or `~/.agents/skills/code-research/researchers/researcher.md` if the project has no copy.
 
 Return the digest that brief already defines.

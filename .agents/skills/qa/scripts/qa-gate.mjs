@@ -9,7 +9,7 @@
  * deterministic checks" half; the skill owns the "render the verdict" half.
  *
  * Usage:
- *   node .agents/skills/verification/qa/scripts/qa-gate.mjs [project-root]
+ *   node .agents/skills/qa/scripts/qa-gate.mjs [project-root]
  *
  * The project root defaults to the current working directory.
  *
