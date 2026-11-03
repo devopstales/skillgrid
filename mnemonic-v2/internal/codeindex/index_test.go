@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"testing"
 
+	"github.com/devopstales/skillgrid/mnemonic-v2/internal/codeindex/vectorstore"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/store"
 )
 
@@ -324,6 +325,64 @@ func TestIncrementalNoOpCountsUnchanged(t *testing.T) {
 	}
 	if rep2.FilesIndexed != 0 || rep2.FilesUnchanged != 1 {
 		t.Fatalf("incremental no-op must report 0 indexed / 1 unchanged: %+v", rep2)
+	}
+}
+
+// [index-writes-vectors] the semantic leg: when a Vectors engine is wired,
+// the driver embeds each file's symbols + chunks through it after the per-file
+// tx commits. This closes the pre-08a gap — the store's vector methods existed
+// but the driver never called them, so the embeddings table stayed empty even
+// with a configured embedder (search was stuck on degraded: no_vector).
+// A nil Vectors (the absent floor) must write ZERO vectors (regression guard
+// for the FTS-only default). Uses the real HashEmbedder (64-dim,
+// deterministic, no network).
+func TestIndexWritesVectorsWhenEngineWired(t *testing.T) {
+	root := t.TempDir()
+	writeTree := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	writeTree("pay.go", "package pay\n\nfunc CapturePayment() {}\n")
+	writeTree("billing.go", "package billing\n\nfunc ApplyDiscount() {}\n")
+
+	// wired: the HashEmbedder engine over a fresh store.
+	wireRun := func(t *testing.T, withEngine bool) (store.Store, *vectorstore.Engine) {
+		t.Helper()
+		dir := t.TempDir()
+		st, err := store.Open(context.Background(), dir, "proj-vec", store.SQLite, "")
+		if err != nil {
+			t.Fatalf("open: %v", err)
+		}
+		t.Cleanup(func() { st.Close() })
+		eng := vectorstore.NewEngine(st, vectorstore.HashEmbedder{})
+		opts := IndexOpts{Project: "proj-vec", ExtractFn: func(p, c string) (store.FileGraph, error) { return fakeExtract(p), nil }}
+		if withEngine {
+			opts.Vectors = eng
+		}
+		if _, err := Index(context.Background(), root, st, opts); err != nil {
+			t.Fatalf("index run: %v", err)
+		}
+		return st, eng
+	}
+
+	// With the engine wired, the 2 symbols + 2 chunks are embedded.
+	st, eng := wireRun(t, true)
+	if n := eng.CountVectors(); n != 4 {
+		t.Fatalf("wired run must embed 2 symbols + 2 chunks = 4 vectors, got %d (the pre-08a gap: the driver never wrote them)", n)
+	}
+	raw := st.(interface{ RawQuery(q string, args ...any) ([][]any, error) })
+	rows, err := raw.RawQuery(`SELECT symbol_id, model FROM embeddings`)
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("embeddings must hold the 2 symbol vectors: %+v (%v)", rows, err)
+	}
+
+	// Without the engine (nil Vectors — the absent floor), ZERO vectors.
+	st2, eng2 := wireRun(t, false)
+	_ = st2
+	if n := eng2.CountVectors(); n != 0 {
+		t.Fatalf("nil-Vectors run must embed nothing (the FTS-only floor), got %d", n)
 	}
 }
 

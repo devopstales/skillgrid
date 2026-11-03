@@ -204,6 +204,15 @@ bdd:
 mnemonic:
   enabled: true
   data_dir: ~/.skillgrid/mnemonic
+  # Semantic embeddings (the code-index vector leg). Ollama is an OpenAI-compatible
+  # host, so v2 points its openai-compat client at the /v1 root (POST /v1/embeddings).
+  # The model must be pulled: `ollama pull embeddinggemma:300m` (currently absent).
+  # embeddinggemma:300m is 768-dim -> activates the ANN (HNSW/vec0) indexes.
+  # The API key is unused for Ollama (BuildEmbedder reads it from env, empty is fine).
+  embedder:
+    provider: openai-compat
+    base_url: http://localhost:11434/v1
+    model: embeddinggemma:300m
   # Context Harness CLM (ADR-0027) — OPT-IN, off by default. Uncomment to
   # enable; Go owns state/config/mirror, the Node plugin owns the request path.
   # Env overrides (win when present + parseable): SKILLGRID_CTX_CLM (on/off),

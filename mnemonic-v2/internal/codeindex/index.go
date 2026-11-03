@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/codeindex/extract"
+	"github.com/devopstales/skillgrid/mnemonic-v2/internal/codeindex/vectorstore"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/store"
 )
 
@@ -61,6 +62,14 @@ type IndexOpts struct {
 	// Best-effort: a failing/timing-out server warns + continues (the static
 	// name-only edge stands, never a partial edge set).
 	LSP *extract.LSPConfig
+	// Vectors, when non-nil, is the semantic-leg engine. After each file's
+	// per-file tx commits, the driver embeds the file's symbols + chunks
+	// through it (EmbedSymbol/EmbedChunk). A nil Vectors is the "absent
+	// embedder" floor (no vector leg, the FTS-only degraded: no_vector).
+	// This is the pre-08a gap the config alone can't close: the store's
+	// vector methods existed but the driver never called them, so the
+	// embeddings table stayed empty even with a configured embedder.
+	Vectors *vectorstore.Engine
 	// Progress, when non-nil, is called once per file committed this run,
 	// after its per-file tx succeeds: (done, total, path). `done` counts the
 	// files indexed so far this run (1..N); `total` is the eligible-file
@@ -246,6 +255,19 @@ func Index(ctx context.Context, root string, st store.Store, opts IndexOpts) (In
 		}
 		if err := tx.Commit(ctx); err != nil {
 			return rep, fmt.Errorf("codeindex.Index: commit %s: %w", rel, err)
+		}
+
+		// the semantic leg (the pre-08a gap): embed the file's symbols + chunks
+		// through the Vectors engine (nil = absent floor). Best-effort: a
+		// failing embedder degrades that file's vectors, never the run (the
+		// FTS leg still answers; the file's symbols/chunks are already committed).
+		if opts.Vectors != nil {
+			for _, s := range g.Symbols {
+				_ = opts.Vectors.EmbedSymbol(ctx, fid, s.UID, s.Name+" "+s.Signature)
+			}
+			for i := range g.Chunks {
+				_ = opts.Vectors.EmbedChunk(ctx, fid, i, g.Chunks[i].Text)
+			}
 		}
 
 		rep.FilesIndexed++

@@ -397,9 +397,13 @@ func (h *CodeHandler) Index(ctx context.Context, project string, full, lsp, pdg,
 	// freshness record) + the LSP pass when --lsp is set (the optional passes
 	// pdg/communities/process are the v2.1 deferrals).
 	rep, err := fn(ctx, root, h.st, codeindex.IndexOpts{
-		Project:  p,
-		Stamp:    extract.Stamp(),
-		Full:     full, // the --full flag: a full-run no-op must report, not silently skip
+		Project: p,
+		Stamp:   extract.Stamp(),
+		Full:    full, // the --full flag: a full-run no-op must report, not silently skip
+		// The semantic leg: the vector engine over the store + the configured
+		// embedder. A nil embedder (absent) → the engine is the no-op floor
+		// (no vector written, the FTS leg still answers, degraded: no_vector).
+		Vectors: vectorstore.NewEngine(h.st, h.emb),
 		LSP:      lspCfg,
 		Progress: progress, // nil on MCP + watch (no stream); the CLI sets it
 	})
