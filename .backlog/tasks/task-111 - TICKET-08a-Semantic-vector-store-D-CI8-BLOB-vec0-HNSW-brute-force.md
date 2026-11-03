@@ -1,10 +1,10 @@
 ---
 id: TASK-111
 title: 'TICKET-08a Semantic vector store (D-CI8: BLOB + vec0 + HNSW + brute-force)'
-status: done
+status: in-progress
 assignee: []
 created_date: '2026-11-02 15:52'
-updated_date: '2026-11-03 18:24'
+updated_date: '2026-11-03 18:55'
 labels: []
 milestone: 2026-10-31-mnemonic-v2-code-index
 dependencies: []
