@@ -465,9 +465,9 @@ func scanFileRowPG(row interface {
 	Scan(dest ...any) error
 }) (FileRow, error) {
 	var (
-		f          FileRow
-		astHash    sql.NullString
-		indexedAt  sql.NullTime
+		f         FileRow
+		astHash   sql.NullString
+		indexedAt sql.NullTime
 	)
 	if err := row.Scan(&f.ID, &f.SyncID, &f.Path, &f.MtimeNS, &f.Size, &f.ContentHash,
 		&f.Language, &astHash, &indexedAt); err != nil {
@@ -662,4 +662,3 @@ func (t *pgCodeTxn) Commit(ctx context.Context) error {
 func (t *pgCodeTxn) Rollback(ctx context.Context) error {
 	return t.tx.Rollback()
 }
-
