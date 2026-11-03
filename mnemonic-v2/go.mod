@@ -3,6 +3,7 @@ module github.com/devopstales/skillgrid/mnemonic-v2
 go 1.26.0
 
 require (
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/lib/pq v1.12.3
 	github.com/mark3labs/mcp-go v1.5.0
 	github.com/odvcencio/gotreesitter v0.55.1
