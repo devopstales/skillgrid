@@ -33,8 +33,8 @@ Agent-Reach fills all three gaps with a single CLI that wraps platform-specific 
 | Agent-Reach README | `github.com/Panniantong/Agent-Reach` | Python CLI, 14 channels (bilibili, v2ex, github, youtube, web, xiaohongshu, xueqiu, boss, xiaoyuzhou, linkedin, reddit, twitter, facebook, instagram). Default channels work without login. Optional channels need login (dedicated browser, reuses Chrome login). Experimental channels (twitter, facebook, instagram) may break. Install via `uv tool install agent-reach --from git+...`. PyPI `agent-reach` is a DIFFERENT project — must use GitHub URL. State in `~/.agent-reach/`. Read-only. |
 | Agent-Reach install doc | `github.com/Panniantong/Agent-Reach/blob/main/docs/install.md` | Install is agent-driven: the agent reads install.md and executes the steps. Manages `uv` dependency, per-channel tools, login state. Upgrade/uninstall are also agent-driven one-liners. |
 | skillgrid install flow | `skillgrid-cli/internal/install/install.go` | `installSecurityTools` pattern: `SecTool` struct with `Manager` (uv/go) + `InstallArgs` + `Bin` + `Hint`. Non-fatal: missing manager warns and skips. `uv` is already a hard prerequisite (line 216). |
-| skillgrid research skill | `.agents/skills/knowledge/research/SKILL.md` | Sourcing rules name tooling inline. `web_cache_lookup`/`web_cache_save` bracket every remote call. `research.sources` config block does not yet exist. |
-| skillgrid mnemonic skill | `.agents/skills/knowledge/mnemonic/SKILL.md` | Web cache source enum: `context7|exa|deepwiki|fetch|manual`. TTL 168h, cap 256 KB. |
+| skillgrid research skill | `.agents/skills/research/SKILL.md` | Sourcing rules name tooling inline. `web_cache_lookup`/`web_cache_save` bracket every remote call. `research.sources` config block does not yet exist. |
+| skillgrid mnemonic skill | `.agents/skills/mnemonic/SKILL.md` | Web cache source enum: `context7|exa|deepwiki|fetch|manual`. TTL 168h, cap 256 KB. |
 | skillgrid config | `.skillgrid/config.yaml` | `research:` block has `default`, `output_dir`, `code_research_preset`. No `sources` list yet. |
 
 ## Design Decisions
@@ -61,9 +61,9 @@ Agent-Reach fills all three gaps with a single CLI that wraps platform-specific 
 | 2 | Add `installResearchTools()`, call in `Run` | Install step for research CLIs (non-fatal) | `skillgrid-cli/internal/install/install.go` |
 | 3 | Add `TestResearchTools` | Unit test mirroring `TestSecurityTools` | `skillgrid-cli/internal/install/install_test.go` |
 | 4 | Add `research.sources` to config | Authoritative tooling budget | `.skillgrid/config.yaml` |
-| 5 | Update `research/SKILL.md` sourcing rules | Tooling line + routing note | `.agents/skills/knowledge/research/SKILL.md` |
-| 6 | Update `mnemonic/SKILL.md` web cache source enum | Add `agent-reach` to source list | `.agents/skills/knowledge/mnemonic/SKILL.md` |
-| 7 | Update `youtube-transcript/SKILL.md` | Delegate to `agent-reach` when available | `.agents/skills/craft/youtube-transcript/SKILL.md` |
+| 5 | Update `research/SKILL.md` sourcing rules | Tooling line + routing note | `.agents/skills/research/SKILL.md` |
+| 6 | Update `mnemonic/SKILL.md` web cache source enum | Add `agent-reach` to source list | `.agents/skills/mnemonic/SKILL.md` |
+| 7 | Update `youtube-transcript/SKILL.md` | Delegate to `agent-reach` when available | `.agents/skills/youtube-transcript/SKILL.md` |
 
 **Zone order:** Steps 4–7 (spec zone) commit before steps 1–3 (code zone).
 

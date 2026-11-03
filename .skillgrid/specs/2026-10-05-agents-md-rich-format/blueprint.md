@@ -44,12 +44,12 @@ status: draft
 - `block.md`'s `## Skillgrid` block and its Artifacts table (4 rows) are unchanged (regression: `TestInitSentinelTemplateComesFromBlockMD` still green).
 
 **Artifacts** (files that must exist with real implementation, not stubs):
-- `.agents/skills/lifecycle/onboarding/templates/agents-preamble.md` — fenced preamble template with placeholders (mirrors the kubedash_4 section order).
+- `.agents/skills/onboarding/templates/agents-preamble.md` — fenced preamble template with placeholders (mirrors the kubedash_4 section order).
 - `skillgrid-cli/cmd/skillgrid/init_preamble.go` — renders the preamble from config + template (load/parse/render, with `<detect>` fallbacks).
 - `skillgrid-cli/cmd/skillgrid/init_boot.go` (modified) — `writeBootFile` calls the new preamble renderer; `upsertPreamble` operates on the rendered region.
 - `skillgrid-cli/cmd/skillgrid/init_preamble_test.go` — tests for config→preamble rendering, `<detect>` fallback, `Key Directories` conditional, idempotence, sentinel preservation, regression (sentinel block + index intact).
-- `.agents/skills/lifecycle/onboarding/templates/config.yaml` (modified) — new optional `agents:` block (directories, security boundaries, dependency policies, architecture constraints, definition of done, engineering standards) with commented examples.
-- `.agents/skills/lifecycle/onboarding/SKILL.md` (modified) — onboarding detects the new `agents.*` facts; Step 3 writes them to config; Step 4 verifies the rendered preamble; "Keep the AGENTS.md block lean" reconciled with "preamble sections are repo-specific, not the ## Skillgrid block".
+- `.agents/skills/onboarding/templates/config.yaml` (modified) — new optional `agents:` block (directories, security boundaries, dependency policies, architecture constraints, definition of done, engineering standards) with commented examples.
+- `.agents/skills/onboarding/SKILL.md` (modified) — onboarding detects the new `agents.*` facts; Step 3 writes them to config; Step 4 verifies the rendered preamble; "Keep the AGENTS.md block lean" reconciled with "preamble sections are repo-specific, not the ## Skillgrid block".
 
 **Key links** (critical connections between artifacts that must work together):
 - `writeBootFile` (init_boot.go) must call the preamble renderer with the parsed config before `upsertPreamble`, and pass the rendered body as the region.
@@ -71,19 +71,19 @@ status: draft
 
 ## File Structure
 
-- `.agents/skills/lifecycle/onboarding/templates/agents-preamble.md` — single source of truth for the preamble structure (fenced, with `{placeholders}`). Created by Task 1.
+- `.agents/skills/onboarding/templates/agents-preamble.md` — single source of truth for the preamble structure (fenced, with `{placeholders}`). Created by Task 1.
 - `skillgrid-cli/cmd/skillgrid/init_preamble.go` — `loadAgentsPreambleTemplate`, `parseAgentsConfig`, `renderPreamble`. One file, one responsibility: turn config → rendered preamble. Created by Task 2.
 - `skillgrid-cli/cmd/skillgrid/init_boot.go` — modified: `writeBootFile` uses the rendered preamble; `preambleBody`/`commandSkeleton` removed or superseded. Task 5.
 - `skillgrid-cli/cmd/skillgrid/init_preamble_test.go` — all new preamble tests. Tasks 2, 4, 6.
-- `.agents/skills/lifecycle/onboarding/templates/config.yaml` — adds `agents:` block. Task 3.
-- `.agents/skills/lifecycle/onboarding/SKILL.md` — onboarding detects + writes `agents.*`, re-runs `skillgrid init`, reconciles the lean guidance. Task 4.
+- `.agents/skills/onboarding/templates/config.yaml` — adds `agents:` block. Task 3.
+- `.agents/skills/onboarding/SKILL.md` — onboarding detects + writes `agents.*`, re-runs `skillgrid init`, reconciles the lean guidance. Task 4.
 
 ---
 
 ### Task 1: Preamble template (single source of truth)
 
 **Files:**
-- Create: `.agents/skills/lifecycle/onboarding/templates/agents-preamble.md`
+- Create: `.agents/skills/onboarding/templates/agents-preamble.md`
 - Test: `skillgrid-cli/cmd/skillgrid/init_preamble_test.go`
 
 **Interfaces:**
@@ -103,7 +103,7 @@ func TestLoadAgentsPreambleTemplate(t *testing.T) {
 	prev := agentsPreamblePath
 	t.Cleanup(func() { agentsPreamblePath = prev })
 	agentsPreamblePath = func(dir string) string {
-		return "../../../.agents/skills/lifecycle/onboarding/templates/agents-preamble.md"
+		return "../../../.agents/skills/onboarding/templates/agents-preamble.md"
 	}
 	tmpl, _, err := loadAgentsPreambleTemplate(t.TempDir())
 	if err != nil {
@@ -128,7 +128,7 @@ Expected: FAIL — `agentsPreamblePath` / `loadAgentsPreambleTemplate` undefined
 
 - [ ] **Step 3: Write the template file**
 
-`.agents/skills/lifecycle/onboarding/templates/agents-preamble.md` — the fenced block mirrors kubedash_4 verbatim in section order/headings, with `{placeholders}`. Example skeleton (fill the real kubedash_4 headings/bullet labels; shared-standards pointers use real installed paths):
+`.agents/skills/onboarding/templates/agents-preamble.md` — the fenced block mirrors kubedash_4 verbatim in section order/headings, with `{placeholders}`. Example skeleton (fill the real kubedash_4 headings/bullet labels; shared-standards pointers use real installed paths):
 
 ````markdown
 <!-- skillgrid-preamble:start -->
@@ -202,7 +202,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add .agents/skills/lifecycle/onboarding/templates/agents-preamble.md skillgrid-cli/cmd/skillgrid/init_preamble_test.go
+git add .agents/skills/onboarding/templates/agents-preamble.md skillgrid-cli/cmd/skillgrid/init_preamble_test.go
 git commit -m "feat: add agents-preamble template (kubedash_4 format)"
 ```
 
@@ -218,7 +218,7 @@ git commit -m "feat: add agents-preamble template (kubedash_4 format)"
   - `type agentsConfig struct` — yaml-tagged: `Commands{Build,Lint,Format,Typecheck}`, `Testing{Runner,Setup,Layers,Coverage,Mutation}`, `Security{Trivy{Command,Severities,ScanTypes}}`, `Agents{Directories []DirEntry, SecurityBoundaries []string, DependencyPolicies []string, ArchitectureConstraints []string, DefinitionOfDone []string, EngineeringStandards []string}`; `DirEntry{Path,Purpose string}`.
   - `func loadAgentsConfig(dir string) (agentsConfig, error)` — reads + unmarshals `.skillgrid/config.yaml` (mirrors `loadProjectName`'s yaml read; returns a zero struct on a missing file, not an error).
   - `func renderPreamble(cfg agentsConfig, template string) string` — fills `{placeholders}` from cfg; any empty value → `<detect>` (for command bullets) or the section is dropped (for `Key Directories` when `directories` empty).
-  - `var agentsPreamblePath func(dir string) string` — default resolves `dir/.agents/skills/lifecycle/onboarding/templates/agents-preamble.md`, then `setup.FindRepoRoot(dir)` + rel path (mirrors `blockMDPath`).
+  - `var agentsPreamblePath func(dir string) string` — default resolves `dir/.agents/skills/onboarding/templates/agents-preamble.md`, then `setup.FindRepoRoot(dir)` + rel path (mirrors `blockMDPath`).
   - `func loadAgentsPreambleTemplate(dir string) (template, path string, err error)`.
 - Seam: `agentsPreamblePath` (test-overridable, like `blockMDPath`).
 - Deletion test: delete the file → `writeBootFile` (Task 5) has no renderer.
@@ -290,7 +290,7 @@ git commit -m "feat: render agents preamble from config"
 ### Task 3: Config template — add optional `agents:` block
 
 **Files:**
-- Modify: `.agents/skills/lifecycle/onboarding/templates/config.yaml` (after the `commands:` block, ~line 80)
+- Modify: `.agents/skills/onboarding/templates/config.yaml` (after the `commands:` block, ~line 80)
 
 **Interfaces:**
 - Consumes: nothing.
@@ -321,7 +321,7 @@ agents:
 
 ```go
 func TestConfigTemplateHasAgentsBlock(t *testing.T) {
-	body, err := os.ReadFile("../../../.agents/skills/lifecycle/onboarding/templates/config.yaml")
+	body, err := os.ReadFile("../../../.agents/skills/onboarding/templates/config.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,14 +352,14 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add .agents/skills/lifecycle/onboarding/templates/config.yaml skillgrid-cli/cmd/skillgrid/init_preamble_test.go
+git add .agents/skills/onboarding/templates/config.yaml skillgrid-cli/cmd/skillgrid/init_preamble_test.go
 git commit -m "feat: add agents block to onboarding config template"
 ```
 
 ### Task 4: Onboarding skill — detect + write `agents.*`, re-run init
 
 **Files:**
-- Modify: `.agents/skills/lifecycle/onboarding/SKILL.md`
+- Modify: `.agents/skills/onboarding/SKILL.md`
 
 **Interfaces:**
 - Consumes: the new `agents.*` config shape (Task 3), the template (Task 1), `skillgrid init` (existing).
@@ -408,7 +408,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add .agents/skills/lifecycle/onboarding/SKILL.md skillgrid-cli/cmd/skillgrid/init_preamble_test.go
+git add .agents/skills/onboarding/SKILL.md skillgrid-cli/cmd/skillgrid/init_preamble_test.go
 git commit -m "docs: onboarding detects + writes agents.* preamble fields"
 ```
 

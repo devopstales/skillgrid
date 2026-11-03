@@ -120,23 +120,23 @@ candidate ADR row only if the review deems the scripts cross-change infra).
 
 **Artifacts** (files that must exist with real implementation, not stubs):
 
-- `.agents/skills/execution/parallel-execution/scripts/compute-waves` — Node
+- `.agents/skills/parallel-execution/scripts/compute-waves` — Node
   script, stdlib only, parses `tasks.md` `Blocked by:` bullets (primary) +
   `## Dependency graph` mermaid (cross-check), prints ordered waves +
   `CYCLE:`/`DROPPED:`/`MISMATCH:`/`DUP:` lines.
-- `.agents/skills/execution/parallel-execution/tests/compute-waves.test.mjs` —
+- `.agents/skills/parallel-execution/tests/compute-waves.test.mjs` —
   fixture-based test (subprocess) covering linear, diamond, cycle, self/unknown
   edge, bullets-vs-mermaid mismatch, duplicate id, empty, unparseable.
-- `.agents/skills/execution/isolated-workspace/scripts/classify-dirty` — Node
+- `.agents/skills/isolated-workspace/scripts/classify-dirty` — Node
   script, stdlib only, reads `git status --porcelain` + `Owns:` globs, prints
   buckets + `CHECKPOINT:` + `AUTO_RESOLVABLE:`.
-- `.agents/skills/execution/isolated-workspace/tests/classify-dirty.test.mjs` —
+- `.agents/skills/isolated-workspace/tests/classify-dirty.test.mjs` —
   fixture-repo test (creates a temp git repo) covering mixed, volatile-only,
   all-related, no-git.
-- `.agents/skills/execution/parallel-execution/scripts/churn-check` — Node
+- `.agents/skills/parallel-execution/scripts/churn-check` — Node
   script, stdlib only, computes the reappear fraction over two rounds' issue
   lists, prints `REAPPEAR n/m (frac)` + `FIRES: true|false`.
-- `.agents/skills/execution/parallel-execution/tests/churn-check.test.mjs` —
+- `.agents/skills/parallel-execution/tests/churn-check.test.mjs` —
   fixture test (fires at ≥0.5, not below, empty-prev).
 - `concurrent-leaves.md` — wave step naming `compute-waves` (gated ≥4 leaves) +
   a **Churn breaker** section naming `churn-check`.
@@ -205,29 +205,29 @@ before implementing):
 
 ## File Structure
 
-- `.agents/skills/execution/parallel-execution/scripts/compute-waves`
+- `.agents/skills/parallel-execution/scripts/compute-waves`
   — pure graph→waves CLI (parse `Blocked by:` bullets + mermaid cross-check,
   Kahn order, cycle break). One responsibility: given a `tasks.md` graph, print
   dispatch order.
-- `.agents/skills/execution/parallel-execution/tests/compute-waves.test.mjs`
+- `.agents/skills/parallel-execution/tests/compute-waves.test.mjs`
   — subprocess test over fixture task lists.
-- `.agents/skills/execution/isolated-workspace/scripts/classify-dirty`
+- `.agents/skills/isolated-workspace/scripts/classify-dirty`
   — `git status` → related/volatile/unrelated buckets + checkpoint message. One
   responsibility: classify a dirty tree against `Owns:` globs.
-- `.agents/skills/execution/isolated-workspace/tests/classify-dirty.test.mjs`
+- `.agents/skills/isolated-workspace/tests/classify-dirty.test.mjs`
   — temp-git-repo test over fixture dirty trees.
-- `.agents/skills/execution/parallel-execution/scripts/churn-check`
+- `.agents/skills/parallel-execution/scripts/churn-check`
   — reappear-fraction CLI (`REAPPEAR n/m (frac)` + `FIRES:`). One
   responsibility: given two rounds' issue lists, report whether the breaker
   fires.
-- `.agents/skills/execution/parallel-execution/tests/churn-check.test.mjs`
+- `.agents/skills/parallel-execution/tests/churn-check.test.mjs`
   — fixture test (fires ≥0.5, not below, empty-prev).
-- `.agents/skills/execution/parallel-execution/references/concurrent-leaves.md`
+- `.agents/skills/parallel-execution/references/concurrent-leaves.md`
   — modify: add the wave-computation step (name `compute-waves`, gated ≥4
   leaves) + a **Churn breaker** section naming `churn-check`.
-- `.agents/skills/execution/isolated-workspace/SKILL.md`
+- `.agents/skills/isolated-workspace/SKILL.md`
   — modify: add the preflight-classify step (name `classify-dirty`).
-- `.agents/skills/execution/subagent-execution/SKILL.md` (or its
+- `.agents/skills/subagent-execution/SKILL.md` (or its
   `references/task-loop.md` if the fix loop is described there — the implementer
   must locate the actual fix-loop text and reference the breaker at that spot)
   — modify: one reference line to the churn breaker.
@@ -249,8 +249,8 @@ before implementing):
 > `tasks.md`).
 
 **Files:**
-- Create: `.agents/skills/execution/parallel-execution/scripts/compute-waves`
-- Test: `.agents/skills/execution/parallel-execution/tests/compute-waves.test.mjs`
+- Create: `.agents/skills/parallel-execution/scripts/compute-waves`
+- Test: `.agents/skills/parallel-execution/tests/compute-waves.test.mjs`
 - Read (format source, do not edit): the real sample
   `.skillgrid/specs/2026-10-06-second-brain-learnings/tasks.md` — it carries
   the `## Dependency graph` mermaid block and per-ticket `- **Blocked by:**
@@ -343,7 +343,7 @@ before implementing):
 
 - [ ] **Step 2: Run test to verify it fails.**
 
-  Run: `node --test .agents/skills/execution/parallel-execution/tests/compute-waves.test.mjs`
+  Run: `node --test .agents/skills/parallel-execution/tests/compute-waves.test.mjs`
   Expected: FAIL (script not found / `WAVES:` lines absent).
   Also confirm the `[compute-waves-orders-independent-and-dependent]` scenario
   is RED in `acceptance.feature` once authored (dry-run).
@@ -383,22 +383,22 @@ before implementing):
 
 - [ ] **Step 4: Run test to verify it passes.**
 
-  Run: `node --test .agents/skills/execution/parallel-execution/tests/compute-waves.test.mjs`
+  Run: `node --test .agents/skills/parallel-execution/tests/compute-waves.test.mjs`
   Expected: PASS (all cases).
 
 - [ ] **Step 5: Commit.**
 
   ```bash
-  git add .agents/skills/execution/parallel-execution/scripts/compute-waves \
-          .agents/skills/execution/parallel-execution/tests/compute-waves.test.mjs
+  git add .agents/skills/parallel-execution/scripts/compute-waves \
+          .agents/skills/parallel-execution/tests/compute-waves.test.mjs
   git commit -m "feat(skills): add compute-waves deterministic dispatch-order script"
   ```
 
 ### Task 2: `classify-dirty` script + test
 
 **Files:**
-- Create: `.agents/skills/execution/isolated-workspace/scripts/classify-dirty`
-- Test: `.agents/skills/execution/isolated-workspace/tests/classify-dirty.test.mjs`
+- Create: `.agents/skills/isolated-workspace/scripts/classify-dirty`
+- Test: `.agents/skills/isolated-workspace/tests/classify-dirty.test.mjs`
 
 **Interfaces:**
 - Consumes: none (self-contained); reads `git status --porcelain` from the repo.
@@ -469,7 +469,7 @@ before implementing):
 
 - [ ] **Step 2: Run test to verify it fails.**
 
-  Run: `node --test .agents/skills/execution/isolated-workspace/tests/classify-dirty.test.mjs`
+  Run: `node --test .agents/skills/isolated-workspace/tests/classify-dirty.test.mjs`
   Expected: FAIL (script not found).
 
 - [ ] **Step 3: Write minimal implementation.** `classify-dirty`:
@@ -494,14 +494,14 @@ before implementing):
 
 - [ ] **Step 4: Run test to verify it passes.**
 
-  Run: `node --test .agents/skills/execution/isolated-workspace/tests/classify-dirty.test.mjs`
+  Run: `node --test .agents/skills/isolated-workspace/tests/classify-dirty.test.mjs`
   Expected: PASS.
 
 - [ ] **Step 5: Commit.**
 
   ```bash
-  git add .agents/skills/execution/isolated-workspace/scripts/classify-dirty \
-          .agents/skills/execution/isolated-workspace/tests/classify-dirty.test.mjs
+  git add .agents/skills/isolated-workspace/scripts/classify-dirty \
+          .agents/skills/isolated-workspace/tests/classify-dirty.test.mjs
   git commit -m "feat(skills): add classify-dirty preflight bucket script"
   ```
 
@@ -511,16 +511,16 @@ before implementing):
 > `acceptance.feature` scenario), not a subprocess test.
 
 **Files:**
-- Modify: `.agents/skills/execution/parallel-execution/references/concurrent-leaves.md`
+- Modify: `.agents/skills/parallel-execution/references/concurrent-leaves.md`
   — add a **Churn breaker** section (after the Parent re-verify section).
 - Modify: the `subagent-execution` fix-loop text (locate where rounds 1–5 /
   the breaker adjudication are described — `SKILL.md` and/or
   `references/task-loop.md`; reference the churn breaker at that exact spot).
-- Create: `.agents/skills/execution/parallel-execution/scripts/churn-check` —
+- Create: `.agents/skills/parallel-execution/scripts/churn-check` —
   the deterministic half of the breaker (critic: the reappear-fraction is
   repeated logic that belongs in a script per `skill-write`). The prose states
   the *decision* (stop-park-escalate); the script states the *calculation*.
-- Test: `.agents/skills/execution/parallel-execution/tests/churn-check.test.mjs`
+- Test: `.agents/skills/parallel-execution/tests/churn-check.test.mjs`
 
 **Interfaces:**
 - Produces: a named, checkable rule **plus** a deterministic checker. The rule
@@ -608,25 +608,25 @@ before implementing):
 - [ ] **Step 8: Commit.**
 
   ```bash
-  git add .agents/skills/execution/parallel-execution/references/concurrent-leaves.md \
-          .agents/skills/execution/parallel-execution/scripts/churn-check \
-          .agents/skills/execution/parallel-execution/tests/churn-check.test.mjs \
-          .agents/skills/execution/parallel-execution/tests/churn-breaker-prose.test.mjs \
-          .agents/skills/execution/subagent-execution/
+  git add .agents/skills/parallel-execution/references/concurrent-leaves.md \
+          .agents/skills/parallel-execution/scripts/churn-check \
+          .agents/skills/parallel-execution/tests/churn-check.test.mjs \
+          .agents/skills/parallel-execution/tests/churn-breaker-prose.test.mjs \
+          .agents/skills/subagent-execution/
   git commit -m "feat(skills): add review churn breaker (churn-check + concurrent-leaves rule)"
   ```
 
 ### Task 4: Wire the skill prose to the scripts
 
 **Files:**
-- Modify: `.agents/skills/execution/parallel-execution/references/concurrent-leaves.md`
+- Modify: `.agents/skills/parallel-execution/references/concurrent-leaves.md`
   — in the **Dispatch** section, add: when the plan has **≥4 leaves in flight
   (or ≥2 `Blocked by:` edges)**, run `scripts/compute-waves <tasks-file>` before
   the first dispatch; dispatch only the current wave; re-run after each wave
   completes to get the next. Below that threshold, order by hand (the prose
   contract is enough — matches `concurrent-leaves.md`'s existing "only pays off
   at 4+ leaves" note).
-- Modify: `.agents/skills/execution/isolated-workspace/SKILL.md`
+- Modify: `.agents/skills/isolated-workspace/SKILL.md`
   — in the preflight/clean-tree step, add: if the tree is dirty, run
   `scripts/classify-dirty <repo> <Owns-globs...>`; present the three buckets to
   the operator with the five actions (checkpoint / stash-unrelated /
@@ -657,9 +657,9 @@ before implementing):
 - [ ] **Step 5: Commit.**
 
   ```bash
-  git add .agents/skills/execution/parallel-execution/references/concurrent-leaves.md \
-          .agents/skills/execution/isolated-workspace/SKILL.md \
-          .agents/skills/execution/parallel-execution/tests/
+  git add .agents/skills/parallel-execution/references/concurrent-leaves.md \
+          .agents/skills/isolated-workspace/SKILL.md \
+          .agents/skills/parallel-execution/tests/
   git commit -m "docs(skills): wire compute-waves and classify-dirty into dispatch + preflight"
   ```
 

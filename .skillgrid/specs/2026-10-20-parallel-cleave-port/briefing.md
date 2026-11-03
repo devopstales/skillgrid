@@ -109,14 +109,14 @@ not OS subprocesses).
   - Churn breaker: `review.ts` → the review loop's reappearing-issue fraction
     bail (default threshold 0.5), severity-gated fix iterations.
 - **Existing skillgrid surfaces this extends (all present, verified in-repo):**
-  - `.agents/skills/execution/parallel-execution/SKILL.md` +
+  - `.agents/skills/parallel-execution/SKILL.md` +
     `references/concurrent-leaves.md` — the `Owns:`/`Needs:` contract, wave
     dispatch, branch integration gate, parent re-verify. **`Needs:` already
     exists** as a per-task ledger line in both skills; the wave *ordering*
     script consumes it.
-  - `.agents/skills/execution/isolated-workspace/` — worktree isolation before
+  - `.agents/skills/isolated-workspace/` — worktree isolation before
     execution; currently a clean-tree requirement, no classification.
-  - `.agents/skills/execution/subagent-execution/` — the fix loop (rounds 1–5,
+  - `.agents/skills/subagent-execution/` — the fix loop (rounds 1–5,
     breaker adjudication); the churn breaker composes with its existing cap.
   - `.skillgrid/config.yaml` `ticketing:` — Backlog.md tracker; task status
     already advances at wave transitions (no change needed here).
@@ -236,9 +236,9 @@ not OS subprocesses).
 - **Modules to build/modify:**
   - New scripts (dependency-free Node, run at plan/execution time, not in the
     Go binary):
-    - `.agents/skills/execution/parallel-execution/scripts/compute-waves`
-    - `.agents/skills/execution/isolated-workspace/scripts/classify-dirty`
-    - `.agents/skills/execution/parallel-execution/scripts/churn-check`
+    - `.agents/skills/parallel-execution/scripts/compute-waves`
+    - `.agents/skills/isolated-workspace/scripts/classify-dirty`
+    - `.agents/skills/parallel-execution/scripts/churn-check`
   - New skill prose edits:
     - `concurrent-leaves.md` (wave step gated ≥4 leaves + Churn breaker section
       naming `churn-check`)
@@ -296,7 +296,7 @@ not OS subprocesses).
   unparseable) and `classify-dirty` (mixed buckets, volatile-only auto-resolve,
   all-related, no-git) at the CLI seam (subprocess, assert stdout + exit).
 - **Prior art:** the repo's read-only Node verifiers
-  `.agents/skills/verification/qa/scripts/state-drift-check.mjs` /
+  `.agents/skills/qa/scripts/state-drift-check.mjs` /
   `ship-drift-check.mjs` (each emits a machine-parseable `SCOPE:`/`DRIFT:` line)
   — model the output contract the same way: a stable line format the skill
   prose and the test both parse.

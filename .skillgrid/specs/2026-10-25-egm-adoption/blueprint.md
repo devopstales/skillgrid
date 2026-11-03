@@ -100,20 +100,20 @@ Per `_shared/references/threat-matrix.md`. Only the Skillgrid-specific boundarie
 - **Spec zone before code zone** (per `AGENTS.md § Rules`): all commits for this change are spec-zone (skills + `.skillgrid/`); the pre-commit zone guard applies.
 - **Conventional commits only; no AI-attribution trailers** (per `AGENTS.md § Rules`).
 - **No new dependencies** (per `AGENTS.md § Rules`): zero new runtime or dev dependencies — this change adds no code at all.
-- **Byte budget** (`_shared/rules/sdd-structure.md` § Byte budget): `writing-blueprints` and `brainstorming` sit in the `large` tier (38 KB ceiling) per `_shared/skill-size-budget.json`; the edits net out to roughly +2 KB and −1.5 KB respectively (validation section replaced, no new section) — both stay under ceiling. After Task 4, run `node .agents/skills/verification/qa/scripts/skill-size-budget.mjs check` and confirm no new overage WARNING for the two skills; if over, trim prose in the touched sections before committing.
+- **Byte budget** (`_shared/rules/sdd-structure.md` § Byte budget): `writing-blueprints` and `brainstorming` sit in the `large` tier (38 KB ceiling) per `_shared/skill-size-budget.json`; the edits net out to roughly +2 KB and −1.5 KB respectively (validation section replaced, no new section) — both stay under ceiling. After Task 4, run `node .agents/skills/qa/scripts/skill-size-budget.mjs check` and confirm no new overage WARNING for the two skills; if over, trim prose in the touched sections before committing.
 - **ADR IRON RULE** (per `ASSUMPTIONS.md`): never delete an ADR file or its row; 0050 is additive.
 - **Language** (persona scope rule from `~/.config/opencode/AGENTS.md`): all artifact text (skill prose, rule text, ADR) is neutral English.
 
 ## File Structure
 
 - `.agents/skills/_shared/rules/goldfish-protocol.md` (new) — owns the protocol: Roles (Elephant/Goldfish), the four stages in order with each stage's persona + audit vectors + pass criteria, the common mandates, the gating table, the Zero-Decision Rule, the synthesizer, the 2-round loop. The single authority every skill cites.
-- `.agents/skills/planning/writing-blueprints/SKILL.md` (edit) — the dispatch owner: which artifact each stage receives, the tier gate application, the synthesizer → user-decide-loop handoff, the header recording format. Cites the rule.
-- `.agents/skills/planning/brainstorming/SKILL.md` (edit) — No-Code Rule section + protocol cross-reference.
-- `.agents/skills/verification/structured-debugging/SKILL.md` (edit) — Goldfish Diagnosis step in Phase 1.
-- `.agents/skills/verification/receiving-code-review/SKILL.md` (edit) — loop cap (cited), verbatim-rebuttal requirement, escalation shape.
+- `.agents/skills/writing-blueprints/SKILL.md` (edit) — the dispatch owner: which artifact each stage receives, the tier gate application, the synthesizer → user-decide-loop handoff, the header recording format. Cites the rule.
+- `.agents/skills/brainstorming/SKILL.md` (edit) — No-Code Rule section + protocol cross-reference.
+- `.agents/skills/structured-debugging/SKILL.md` (edit) — Goldfish Diagnosis step in Phase 1.
+- `.agents/skills/receiving-code-review/SKILL.md` (edit) — loop cap (cited), verbatim-rebuttal requirement, escalation shape.
 - `.agents/skills/_shared/planning/rigor-tiers.md` (edit) — T2 row + tier-entry naming; T3 fresh-model extension to the Stage 2 goldfish.
 - `.agents/skills/_shared/rules/sdd-structure.md` (edit) — rename in Phase Order chain, skill table, Resume markers.
-- `.agents/skills/lifecycle/using-skillgrid/SKILL.md` (edit) — rename in artifact-creation-order item 3.
+- `.agents/skills/using-skillgrid/SKILL.md` (edit) — rename in artifact-creation-order item 3.
 - `.skillgrid/knowledge/decisions/04-adr-0050-egm-goldfish-protocol.md` (new) — the adoption ADR.
 - `.skillgrid/knowledge/ASSUMPTIONS.md` (edit) — one index row for 0050.
 - `.skillgrid/config.yaml` (edit) — comment block under `rules:` only.
@@ -329,7 +329,7 @@ Decisions: 4-stage fresh-context validation rule adopted from EGM; Zero-Decision
 ### Task 2: Rewire `writing-blueprints` to the protocol
 
 **Files:**
-- Modify: `.agents/skills/planning/writing-blueprints/SKILL.md` (the "Blueprint validation" block, currently lines 32–64)
+- Modify: `.agents/skills/writing-blueprints/SKILL.md` (the "Blueprint validation" block, currently lines 32–64)
 
 **Interfaces:**
 - Consumes: `goldfish-protocol.md` (stages, gating, synthesis, loop — cited, not restated).
@@ -347,7 +347,7 @@ Decisions: 4-stage fresh-context validation rule adopted from EGM; Zero-Decision
 
 **Step 1: Replace the validation block.**
 
-In `.agents/skills/planning/writing-blueprints/SKILL.md`, replace the entire
+In `.agents/skills/writing-blueprints/SKILL.md`, replace the entire
 "Blueprint validation (after writing, before proceeding)" block (from the
 line `**Blueprint validation (after writing, before proceeding) — the critic stage is` through the line `The critic stage itself may be skipped only under the T0/T1 / fast-track condition above (and must be recorded as skipped).`) with this:
 
@@ -410,15 +410,15 @@ new mechanism (grep the file for `critic subagent` and `Critic: skipped`
 
 **Step 2: Verify consistency.**
 
-- `grep -n "critic subagent" .agents/skills/planning/writing-blueprints/SKILL.md` → zero hits.
-- `grep -n "Critic: skipped" .agents/skills/planning/writing-blueprints/SKILL.md` → zero hits.
+- `grep -n "critic subagent" .agents/skills/writing-blueprints/SKILL.md` → zero hits.
+- `grep -n "Critic: skipped" .agents/skills/writing-blueprints/SKILL.md` → zero hits.
 - The file's `## Verification` checklist now checks for the `Goldfish:` header line.
-- Run `node .agents/skills/verification/qa/scripts/skill-size-budget.mjs check` → no new overage for `writing-blueprints` (large tier, 38 KB). If over, trim redundant prose in the replaced section (the old block is longer than the new one; a net overage means the surrounding text also grew — fix before commit).
+- Run `node .agents/skills/qa/scripts/skill-size-budget.mjs check` → no new overage for `writing-blueprints` (large tier, 38 KB). If over, trim redundant prose in the replaced section (the old block is longer than the new one; a net overage means the surrounding text also grew — fix before commit).
 
 **Step 3: Commit.**
 
 ```bash
-git add .agents/skills/planning/writing-blueprints/SKILL.md
+git add .agents/skills/writing-blueprints/SKILL.md
 git commit -m "feat(skills): rewire writing-blueprints validation to the goldfish protocol
 
 [skillgrid-context]
@@ -431,7 +431,7 @@ Decisions: 4 fresh-context goldfish stages + synthesizer replace the single crit
 ### Task 3: Brainstorming No-Code Rule + cross-reference
 
 **Files:**
-- Modify: `.agents/skills/planning/brainstorming/SKILL.md`
+- Modify: `.agents/skills/brainstorming/SKILL.md`
 
 **Interfaces:**
 - Consumes: `goldfish-protocol.md` (cross-reference only).
@@ -443,7 +443,7 @@ Decisions: 4 fresh-context goldfish stages + synthesizer replace the single crit
 
 **Step 1: Add the No-Code Rule section.**
 
-In `.agents/skills/planning/brainstorming/SKILL.md`, immediately after the
+In `.agents/skills/brainstorming/SKILL.md`, immediately after the
 `<HARD-GATE>` block (the existing no-implementation gate), insert:
 
 ```markdown
@@ -468,12 +468,12 @@ before it is committed (per `_shared/rules/goldfish-protocol.md`)."
 
 **Step 3: Verify + commit.**
 
-- `grep -c "No Code" .agents/skills/planning/brainstorming/SKILL.md` ≥ 1; the cross-reference appears in both full paths.
-- Run `node .agents/skills/verification/qa/scripts/skill-size-budget.mjs check` → no new overage for `brainstorming` (large tier).
+- `grep -c "No Code" .agents/skills/brainstorming/SKILL.md` ≥ 1; the cross-reference appears in both full paths.
+- Run `node .agents/skills/qa/scripts/skill-size-budget.mjs check` → no new overage for `brainstorming` (large tier).
 - Commit:
 
 ```bash
-git add .agents/skills/planning/brainstorming/SKILL.md
+git add .agents/skills/brainstorming/SKILL.md
 git commit -m "feat(skills): add No-Code Rule to brainstorming (Elephant boundary)
 
 [skillgrid-context]
@@ -486,7 +486,7 @@ Decisions: Elephant session stays design-only; handoff prose names the goldfish 
 ### Task 4: Debugging asymmetry (goldfish diagnosis)
 
 **Files:**
-- Modify: `.agents/skills/verification/structured-debugging/SKILL.md` (Phase 1, after "Reproduce Consistently")
+- Modify: `.agents/skills/structured-debugging/SKILL.md` (Phase 1, after "Reproduce Consistently")
 
 **Interfaces:**
 - Consumes: the existing Debug State file format (`.skillgrid/sdd/debug/<date>-<slug>/state.md`, entries `hypothesis | evidence | verdict`).
@@ -526,7 +526,7 @@ In Phase 1, after the "2. Reproduce Consistently" item, insert as new item 3
 - Commit:
 
 ```bash
-git add .agents/skills/verification/structured-debugging/SKILL.md
+git add .agents/skills/structured-debugging/SKILL.md
 git commit -m "feat(skills): add goldfish diagnosis step to structured-debugging
 
 [skillgrid-context]
@@ -539,7 +539,7 @@ Decisions: fresh subagent diagnoses from symptom+repro only (vshvedov asymmetry)
 ### Task 5: Review loop cap + verbatim rebuttal
 
 **Files:**
-- Modify: `.agents/skills/verification/receiving-code-review/SKILL.md`
+- Modify: `.agents/skills/receiving-code-review/SKILL.md`
 
 **Interfaces:**
 - Consumes: `_shared/planning/rigor-tiers.md` § Fix loop cap (cited — the single source for the number 3).
@@ -576,11 +576,11 @@ and every finding is accounted for:
 
 **Step 2: Verify + commit.**
 
-- `grep -n "3 rounds" .agents/skills/verification/receiving-code-review/SKILL.md` → the cap is cited to `rigor-tiers.md`, not defined independently (the section names the citation).
+- `grep -n "3 rounds" .agents/skills/receiving-code-review/SKILL.md` → the cap is cited to `rigor-tiers.md`, not defined independently (the section names the citation).
 - Commit:
 
 ```bash
-git add .agents/skills/verification/receiving-code-review/SKILL.md
+git add .agents/skills/receiving-code-review/SKILL.md
 git commit -m "feat(skills): cap review fix loops and require verbatim rebuttal
 
 [skillgrid-context]
@@ -764,7 +764,7 @@ Decisions: method adopted, plugin not; Zero-Decision Rule; staged follow-ups par
 
 **Files:**
 - Modify: `.agents/skills/_shared/rules/sdd-structure.md` (3 sites: Phase Order chain line 10; skill table row for `writing-blueprints`; Resume markers / phase-derivation rows that name the phase)
-- Modify: `.agents/skills/lifecycle/using-skillgrid/SKILL.md` (artifact-creation-order item 3)
+- Modify: `.agents/skills/using-skillgrid/SKILL.md` (artifact-creation-order item 3)
 - Modify: `.skillgrid/config.yaml` (comment block under `rules:` only — no new key)
 - Modify: `AGENTS.md` (workflow line inside the `<!-- skillgrid:start/end -->` block)
 
@@ -814,7 +814,7 @@ replace `writing-blueprints →` … `→` segment so it reads
 - Commit (single commit: the sweep is one logically atomic change — partial renames leave the drift in place):
 
 ```bash
-git add .agents/skills/_shared/rules/sdd-structure.md .agents/skills/lifecycle/using-skillgrid/SKILL.md .skillgrid/config.yaml AGENTS.md
+git add .agents/skills/_shared/rules/sdd-structure.md .agents/skills/using-skillgrid/SKILL.md .skillgrid/config.yaml AGENTS.md
 git commit -m "feat(skills): rename blueprint-validation to goldfish protocol; add pointers
 
 [skillgrid-context]

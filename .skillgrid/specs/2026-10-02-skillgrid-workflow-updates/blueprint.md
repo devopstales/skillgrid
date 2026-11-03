@@ -73,7 +73,7 @@ None beyond the spec's. The Release/2 term list in `briefing.md` §15 (Execution
 
 | Boundary | Applicability | Design response | Planned RED test |
 |---|---|---|---|
-| Shared-convention drift (edit to `_shared/` or skill SKILL.md) | Applicable: Task 7 edits `.agents/skills/planning/writing-blueprints/SKILL.md`, binding the skill to the new script path + exit-code contract | One-line impact statement: `writing-blueprints` is now the source of truth for the validation-matrix gate — any skill that references the script by old path breaks. Named skills: none (new script, new path). | Grep check (in `scripts/test-skill-wiring.mjs`, committed with the skill edit so the test is never red between tasks): `writing-blueprints/SKILL.md` contains `validation-matrix-check.mjs` and the exit-1-as-fail contract; link-resolution: the named path exists |
+| Shared-convention drift (edit to `_shared/` or skill SKILL.md) | Applicable: Task 7 edits `.agents/skills/writing-blueprints/SKILL.md`, binding the skill to the new script path + exit-code contract | One-line impact statement: `writing-blueprints` is now the source of truth for the validation-matrix gate — any skill that references the script by old path breaks. Named skills: none (new script, new path). | Grep check (in `scripts/test-skill-wiring.mjs`, committed with the skill edit so the test is never red between tasks): `writing-blueprints/SKILL.md` contains `validation-matrix-check.mjs` and the exit-1-as-fail contract; link-resolution: the named path exists |
 | Git repository selection | N/A: `skillgrid validate` reads the spec folder relative to the project root it is invoked from; no `git -C`, no repo resolution in this slice | — | — |
 | Commit state / Push state / PR commands | N/A: the slice neither commits, pushes, nor opens PRs; it only reads spec artifacts | — | — |
 | Documentation-like paths | N/A: no executable-file classification; artifacts are read as markdown/YAML text | — | — |
@@ -91,7 +91,7 @@ None beyond the spec's. The Release/2 term list in `briefing.md` §15 (Execution
 - `scripts/test-validation-matrix.mjs` — fixture tests (temp trees: complete matrix → 0; missing row → 1 + named req; usage error → 2; **Go/JS contract fixture**: the same `briefing.md` + `blueprint.md` parsed by both implementations yields identical req-ID sets).
 - `scripts/test-skill-wiring.mjs` — grep tests for the `writing-blueprints` SKILL.md binding (script path named + exit-1-as-fail contract); committed in the same task as the skill edit so no task leaves a red test behind.
 - `.skillgrid/decisions/04-adr-0046-release2-runtime-home.md` — ADR body (frontmatter `status: accepted`, `date: 2026-10-17`): context (Release/2 needs a Go runtime home; open question in briefing §13; plan.md §5 named this ADR-0032, which is in force for the plugin architecture, so this decision records as 0046), decision (`skillgrid-cli/internal/<engine>` packages in the existing module; no new module; `mnemonic/` untouched), consequences (module boundary unchanged; ADR-0033's three-module workspace is unaffected — it governs the `ctx/` library module, this adds packages inside `skillgrid-cli/`).
-- `.agents/skills/planning/writing-blueprints/SKILL.md` — validation section: add the script invocation + exit-code contract to the "Blueprint validation (mandatory, two-stage)" block (modify only that block; no other edits).
+- `.agents/skills/writing-blueprints/SKILL.md` — validation section: add the script invocation + exit-code contract to the "Blueprint validation (mandatory, two-stage)" block (modify only that block; no other edits).
 
 ---
 
@@ -1230,7 +1230,7 @@ git commit -m "docs(adr): 0046 Release/2 Go runtime home — skillgrid-cli inter
 
 **Files:**
 - Create: `scripts/test-skill-wiring.mjs`
-- Modify: `.agents/skills/planning/writing-blueprints/SKILL.md` (the "Blueprint validation (mandatory, two-stage)" block only)
+- Modify: `.agents/skills/writing-blueprints/SKILL.md` (the "Blueprint validation (mandatory, two-stage)" block only)
 
 **Interfaces:**
 - Consumes: `scripts/validation-matrix-check.mjs` exit-code contract (Task 4)
@@ -1304,7 +1304,7 @@ Expected: all green.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add .agents/skills/planning/writing-blueprints/SKILL.md scripts/test-skill-wiring.mjs
+git add .agents/skills/writing-blueprints/SKILL.md scripts/test-skill-wiring.mjs
 git commit -m "feat(skills): writing-blueprints gates on validation-matrix-check.mjs"
 ```
 
