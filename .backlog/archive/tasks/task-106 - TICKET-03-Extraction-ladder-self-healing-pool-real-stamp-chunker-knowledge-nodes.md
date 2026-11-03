@@ -3,9 +3,10 @@ id: TASK-106
 title: >-
   TICKET-03 Extraction ladder + self-healing pool + real stamp + chunker +
   knowledge nodes
-status: needs-triage
+status: in-progress
 assignee: []
 created_date: '2026-11-02 15:51'
+updated_date: '2026-11-02 17:06'
 labels: []
 milestone: 2026-10-31-mnemonic-v2-code-index
 dependencies: []

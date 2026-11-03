@@ -3,9 +3,10 @@ id: TASK-108
 title: >-
   TICKET-05 Hybrid search (RRF K=60) + structural grep + code_read +
   T-CI-1/T-CI-2
-status: needs-triage
+status: in-progress
 assignee: []
 created_date: '2026-11-02 15:52'
+updated_date: '2026-11-02 19:12'
 labels: []
 milestone: 2026-10-31-mnemonic-v2-code-index
 dependencies: []

@@ -3,9 +3,10 @@ id: TASK-109
 title: >-
   TICKET-06 Watch loop (fsnotify + debounce + burst-collapse + re-check +
   isolation)
-status: needs-triage
+status: in-progress
 assignee: []
 created_date: '2026-11-02 15:52'
+updated_date: '2026-11-02 21:05'
 labels: []
 milestone: 2026-10-31-mnemonic-v2-code-index
 dependencies: []

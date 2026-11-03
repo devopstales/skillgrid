@@ -3,9 +3,10 @@ id: TASK-107
 title: >-
   TICKET-04 Graph walker (impact + neighbors + code_resolve + code_packages +
   path + affected + code_orient map)
-status: needs-triage
+status: in-progress
 assignee: []
 created_date: '2026-11-02 15:52'
+updated_date: '2026-11-02 17:54'
 labels: []
 milestone: 2026-10-31-mnemonic-v2-code-index
 dependencies: []

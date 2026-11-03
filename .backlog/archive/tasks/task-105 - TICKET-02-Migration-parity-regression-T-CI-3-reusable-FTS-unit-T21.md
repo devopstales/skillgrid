@@ -1,9 +1,10 @@
 ---
 id: TASK-105
 title: TICKET-02 Migration-parity regression (T-CI-3) + reusable FTS unit (T21)
-status: needs-triage
+status: in-progress
 assignee: []
 created_date: '2026-11-02 15:51'
+updated_date: '2026-11-02 16:37'
 labels: []
 milestone: 2026-10-31-mnemonic-v2-code-index
 dependencies: []

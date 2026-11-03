@@ -1,9 +1,10 @@
 ---
 id: TASK-104
 title: TICKET-01 Store extension + 9-table migration + Index driver + door check
-status: needs-triage
+status: in-progress
 assignee: []
 created_date: '2026-11-02 15:51'
+updated_date: '2026-11-02 15:56'
 labels: []
 milestone: 2026-10-31-mnemonic-v2-code-index
 dependencies: []
