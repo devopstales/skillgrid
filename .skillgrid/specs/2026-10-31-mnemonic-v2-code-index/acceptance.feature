@@ -542,8 +542,8 @@ dialect of the code-index tables.
 
 #### Gates
 ````
-# G8: semantic store (D-CI8) + preference order + model swap + LSP + Postgres render
-# CHECK: cd mnemonic-v2 && go test ./internal/codeindex/vectorstore/ ./internal/codeindex/extract/ -run 'Semantic|Vector|ModelSwap|LSP' -count=1
-# EXPECT: ok  (PG test skips without MNEMONIC_PG_TEST_DSN)
+# G8: semantic store (D-CI8 BLOB brute-force floor) + preference order + no-vector degrade + Postgres render
+# CHECK: cd mnemonic-v2 && go test ./internal/core/store/ ./internal/codeindex/search/ -run 'Vector|Semantic|DegradedNoVector|Parity' -count=1
+# EXPECT: ok  (PG test skips without MNEMONIC_PG_TEST_DSN; vec0/HNSW + LSP tier are declared v2.1-deferred capabilities, code_status reports lsp:false)
 # EVIDENCE: pending
 ````
