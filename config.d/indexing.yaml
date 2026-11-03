@@ -34,3 +34,19 @@ exclude:
 # Web cache TTL overrides (days). Defaults: context7 30, exa 7, deepwiki 14,
 # fetch 7, manual 0 (never expires). Empty section = built-in defaults.
 web_ttl_days: {}
+
+# Global fact store char budgets (the bounded __global__ store, change
+# 2026-10-24-global-llm-wiki TICKET-04). memory: agent operational notes
+# (Hermes MEMORY.md budget); user: user profile (Hermes USER.md budget).
+# The batch ops layer enforces these on the FINAL result of each batch;
+# project-store facts are unbounded.
+global_memory:
+  memory_char_limit: 2200
+  user_char_limit: 1375
+  # Write approval for passive (background distill) fact writes (change
+  # 2026-10-24-global-llm-wiki TICKET-06). When true, distill writes are
+  # staged in the pending_facts queue (durable, survives restart) and applied
+  # only on explicit approval; explicit agent writes (fact_add) bypass the
+  # queue. Defaults to false — the Hermes write_approval pattern: the first
+  # days of global memory are LLM-written, human-unreviewed.
+  write_approval: false

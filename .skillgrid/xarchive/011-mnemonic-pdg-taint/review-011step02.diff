@@ -1,0 +1,2410 @@
+=== 011 STEP 02 CODE COMMITS 13695c2..c38f769 ===
+
+c38f769 feat(cli): skillgrid search taint CLI parity
+5bc8fd2 test(mnemonic): taint filters, run-pdg hint, and configurable source/sink sets
+fbb0351 feat(mnemonic): register code_taint tool with stable 005/008/010 surface
+8171708 feat(mnemonic): deterministic taint findings
+f22e408 feat(mnemonic): confidence-labeled taint findings with LSP_RESOLVED hops
+8db2b9d feat(mnemonic): taint boundary truncation with stops-at note, no fabricated findings
+c504233 feat(mnemonic): taint path continues through LSP_RESOLVED boundaries
+54a116f feat(mnemonic): intraprocedural source-to-sink taint solver
+13695c2 feat(mnemonic): opt-in taint findings without altering 005/008/010 results
+
+=== STAT ===
+ skillgrid-cli/cmd/skillgrid/search.go              |   4 +
+ skillgrid-cli/cmd/skillgrid/search_taint_cli.go    | 178 +++++++++
+ .../cmd/skillgrid/search_taint_cli_test.go         | 120 ++++++
+ .../internal/mnemonic/codeindex/pdg_pass.go        |  78 +++-
+ .../mnemonic/codeindex/taint_boundary_test.go      | 177 +++++++++
+ .../mnemonic/codeindex/taint_confidence_test.go    | 199 ++++++++++
+ .../mnemonic/codeindex/taint_config_test.go        |  75 ++++
+ .../mnemonic/codeindex/taint_lspboundary_test.go   | 210 ++++++++++
+ .../mnemonic/codeindex/taint_optin_test.go         | 125 ++++++
+ .../mnemonic/codeindex/taint_reproducible_test.go  |  67 ++++
+ .../mnemonic/codeindex/taint_sourcetosink_test.go  | 103 +++++
+ skillgrid-cli/internal/mnemonic/mcp/server.go      |   2 +
+ skillgrid-cli/internal/mnemonic/mcp/server_test.go |   2 +
+ .../mnemonic/mcp/tools_code_affected_test.go       |   4 +-
+ .../mnemonic/mcp/tools_code_knowledge_test.go      |   4 +-
+ .../internal/mnemonic/mcp/tools_code_pdg.go        |   6 +
+ .../internal/mnemonic/mcp/tools_code_taint.go      | 142 +++++++
+ .../internal/mnemonic/mcp/tools_code_taint_test.go | 189 +++++++++
+ skillgrid-cli/internal/mnemonic/pdg/pdg.go         |  32 +-
+ skillgrid-cli/internal/mnemonic/pdg/taint.go       | 424 +++++++++++++++++++++
+ 20 files changed, 2113 insertions(+), 28 deletions(-)
+
+=== DIFF ===
+diff --git a/skillgrid-cli/cmd/skillgrid/search.go b/skillgrid-cli/cmd/skillgrid/search.go
+index db35a61..be4520b 100644
+--- a/skillgrid-cli/cmd/skillgrid/search.go
++++ b/skillgrid-cli/cmd/skillgrid/search.go
+@@ -108,6 +108,10 @@ func runSearch(version string, args []string) {
+ 		runSearchPdg(version, args)
+ 		return
+ 	}
++	if len(args) >= 1 && args[0] == "taint" {
++		runSearchTaint(version, args)
++		return
++	}
+ 	if fs.NArg() != 1 {
+ 		fmt.Fprintln(os.Stderr, "error: search requires exactly one QUERY argument")
+ 		os.Exit(2)
+diff --git a/skillgrid-cli/cmd/skillgrid/search_taint_cli.go b/skillgrid-cli/cmd/skillgrid/search_taint_cli.go
+new file mode 100644
+index 0000000..67641e2
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/search_taint_cli.go
+@@ -0,0 +1,178 @@
++package main
++
++import (
++	"context"
++	"database/sql"
++	"flag"
++	"fmt"
++	"os"
++	"os/signal"
++	"syscall"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++)
++
++// runSearchTaint implements `skillgrid search taint` (CLI parity for
++// code_taint): the intraprocedural source->sink taint findings from the opt-in
++// --pdg tables. A non---pdg index returns a clear "run index --pdg" message
++// (not an error); an unknown symbol/file is not-found (no fabricated findings).
++// --symbol/--file narrow the findings; --json emits machine-readable JSON.
++func runSearchTaint(version string, args []string) {
++	fs := flag.NewFlagSet("search taint", flag.ContinueOnError)
++	fs.SetOutput(os.Stderr)
++	var (
++		jsonOut bool
++		symbol  string
++		file    string
++	)
++	fs.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
++	fs.StringVar(&symbol, "symbol", "", "narrow to findings inside a named function/method")
++	fs.StringVar(&file, "file", "", "narrow to findings in a named file (path)")
++	fs.Usage = func() {
++		fmt.Fprintln(fs.Output(), "usage: skillgrid search taint [--symbol S] [--file F] [--json]")
++		fmt.Fprintln(fs.Output(), "  Intraprocedural source->sink taint findings from a --pdg index.")
++		fs.PrintDefaults()
++	}
++	fsArgs := args
++	if len(fsArgs) >= 2 && fsArgs[0] == "search" && fsArgs[1] == "taint" {
++		fsArgs = fsArgs[2:]
++	} else if len(fsArgs) >= 1 && fsArgs[0] == "taint" {
++		fsArgs = fsArgs[1:]
++	}
++	if err := fs.Parse(fsArgs); err != nil {
++		os.Exit(2)
++	}
++	// Re-apply a trailing `--json` after the positionals (Go flag stops at the
++	// first non-flag).
++	for _, a := range fs.Args() {
++		if a == "--json" || a == "-json" {
++			jsonOut = true
++		}
++	}
++
++	svc, projectID, ferr := openSearchTaintService()
++	if ferr != nil {
++		fmt.Fprintf(os.Stderr, "error: %v\n", ferr)
++		os.Exit(1)
++	}
++	_ = version
++	_, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
++	defer stop()
++	h, cleanup, err := svc.Open(projectID)
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "error: %v\n", err)
++	}
++	defer cleanup()
++
++	if ferr := printTaintQuery(h, symbol, file, jsonOut); ferr != nil {
++		fmt.Fprintf(os.Stderr, "error: %v\n", ferr)
++		os.Exit(1)
++	}
++}
++
++// openSearchTaintService resolves the service + project for the taint query
++// (a var so tests can stub it, mirroring openSearchPdgService).
++var openSearchTaintService = openGraphService
++
++type taintRowCli struct {
++	Symbol   string `json:"symbol"`
++	Source   int    `json:"source_line"`
++	SourceNm string `json:"source_name"`
++	Sink     int    `json:"sink_line"`
++	SinkNm   string `json:"sink_name"`
++	Label    string `json:"confidence"`
++	Note     string `json:"note,omitempty"`
++}
++
++// printTaintQuery resolves the optional symbol/file filters and prints (or
++// JSONs) the matching taint findings. A non---pdg index (empty taint_findings)
++// returns a clear "run index --pdg" message, not an error.
++func printTaintQuery(h *service.ProjectHandle, symbol, file string, jsonOut bool) error {
++	db := h.Store().DB
++	// A non---pdg index has the table but it is empty: say so, don't error.
++	var rowCount int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM taint_findings`).Scan(&rowCount); err != nil {
++		return fmt.Errorf("read taint_findings: %w", err)
++	}
++	if rowCount == 0 {
++		msg := "run `skillgrid index --pdg` to build the opt-in taint findings"
++		if jsonOut {
++			return emitJSON(map[string]any{"pdg_enabled": false, "found": false, "findings": []taintRowCli{}, "message": msg})
++		}
++		fmt.Fprintln(os.Stderr, msg)
++		return nil
++	}
++	where := ""
++	var args []any
++	if symbol != "" {
++		where += " AND s.name = ?"
++		args = append(args, symbol)
++	}
++	if file != "" {
++		where += " AND f.path = ?"
++		args = append(args, file)
++	}
++	rows, err := db.Query(`
++		SELECT s.name, tf.source_line, tf.source_name, tf.sink_line, tf.sink_name, tf.confidence, tf.note
++		FROM taint_findings tf
++		JOIN symbols s ON s.id = tf.symbol_id
++		JOIN files f ON f.id = s.file_id
++		WHERE 1=1`+where+`
++		ORDER BY s.name, tf.source_line, tf.sink_line`, args...)
++	if err != nil {
++		return fmt.Errorf("query taint_findings: %w", err)
++	}
++	defer rows.Close()
++	findings := []taintRowCli{}
++	for rows.Next() {
++		var r taintRowCli
++		if err := rows.Scan(&r.Symbol, &r.Source, &r.SourceNm, &r.Sink, &r.SinkNm, &r.Label, &r.Note); err != nil {
++			return fmt.Errorf("scan taint_finding: %w", err)
++		}
++		findings = append(findings, r)
++	}
++	if err := rows.Err(); err != nil {
++		return fmt.Errorf("iterate taint_findings: %w", err)
++	}
++	if jsonOut {
++		return emitJSON(map[string]any{"pdg_enabled": true, "found": len(findings) > 0, "findings": findings, "count": len(findings)})
++	}
++	if len(findings) == 0 {
++		if symbol != "" {
++			fmt.Fprintf(os.Stderr, "not found: no taint findings for symbol %q\n", symbol)
++			return nil
++		}
++		if file != "" {
++			fmt.Fprintf(os.Stderr, "not found: no taint findings in file %q\n", file)
++			return nil
++		}
++		fmt.Fprintln(os.Stderr, "no taint findings")
++		return nil
++	}
++	fmt.Printf("%d taint finding(s)\n", len(findings))
++	for _, f := range findings {
++		fmt.Printf("  %s: %s -> %s [%s]%s\n", f.Symbol, f.SourceNm, f.SinkNm, f.Label, taintNoteSuffix(f.Note))
++	}
++	return nil
++}
++
++func taintNoteSuffix(note string) string {
++	note = trimSpaceTaint(note)
++	if note == "" {
++		return ""
++	}
++	return " (" + note + ")"
++}
++
++func trimSpaceTaint(s string) string {
++	start, end := 0, len(s)
++	for start < end && (s[start] == ' ' || s[start] == '\t') {
++		start++
++	}
++	for end > start && (s[end-1] == ' ' || s[end-1] == '\t') {
++		end--
++	}
++	return s[start:end]
++}
++
++var _ = sql.ErrNoRows
+diff --git a/skillgrid-cli/cmd/skillgrid/search_taint_cli_test.go b/skillgrid-cli/cmd/skillgrid/search_taint_cli_test.go
+new file mode 100644
+index 0000000..3f543af
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/search_taint_cli_test.go
+@@ -0,0 +1,120 @@
++package main
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++)
++
++// taintCLIFixture writes a go project with a known source->sink flow, indexes
++// it with the --pdg pass through the shared service, and returns the service +
++// root (so the test can drive runSearchTaint with a stable project).
++func taintCLIFixture(t *testing.T, pdg bool) (*service.Service, string) {
++	t.Helper()
++	dataDir := t.TempDir()
++	svc := service.New(dataDir)
++	root := t.TempDir()
++	write := func(name, content string) {
++		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755); err != nil {
++			t.Fatalf("mkdir %s: %v", name, err)
++		}
++		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o644); err != nil {
++			t.Fatalf("write %s: %v", name, err)
++		}
++	}
++	write("src/main.go", "package p\n\nfunc handler(r *Req) {\n\tp := GetRequestParam(r, \"q\")\n\tu := Transform(p)\n\tsqlExec(u)\n}\n\nfunc GetRequestParam(r *Req, k string) string { return r.Path }\n\nfunc Transform(s string) string { return s }\n\nfunc sqlExec(s string) {}\n")
++	if _, err := svc.RunCodeIndexPDG(context.Background(), root, pdg, false); err != nil {
++		t.Fatalf("index --pdg=%v: %v", pdg, err)
++	}
++	return svc, root
++}
++
++// captureSearchTaint runs runSearchTaint with the service injected, capturing
++// stdout+stderr to a temp file.
++func captureSearchTaint(t *testing.T, svc *service.Service, root string, args []string) string {
++	t.Helper()
++	oldSvc := cliService
++	cliService = svc
++	defer func() { cliService = oldSvc }()
++	f, err := os.CreateTemp(t.TempDir(), "taint-out-*")
++	if err != nil {
++		t.Fatalf("temp: %v", err)
++	}
++	oldStdout, oldStderr := os.Stdout, os.Stderr
++	os.Stdout = f
++	os.Stderr = f
++	runSearchTaint("test", args)
++	os.Stdout, os.Stderr = oldStdout, oldStderr
++	_ = f.Close()
++	b, _ := os.ReadFile(f.Name())
++	return string(b)
++}
++
++// TestSearchTaintCLIParity covers @step-02 (02.11, Scenario: CLI taint search
++// and pdg flag parity): `skillgrid search taint` returns the source->sink taint
++// findings from a --pdg index (parity with the `index --pdg` pass the fixture
++// used), with --symbol/--file filters and --json. An unknown symbol is
++// not-found (no fabricated findings).
++func TestSearchTaintCLIParity(t *testing.T) {
++	t.Setenv("MNEMONIC_PROJECT", "cli-taint")
++	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", t.TempDir())
++	svc, root := taintCLIFixture(t, true)
++	openSearchTaintService = func() (*service.Service, string, error) {
++		return svc, "cli-taint", nil
++	}
++	t.Cleanup(func() { openSearchTaintService = openGraphService })
++
++	// A --pdg index returns the known source->sink finding.
++	out := captureSearchTaint(t, svc, root, []string{"search", "taint"})
++	if strings.Contains(out, "not found") {
++		t.Fatalf("expected taint findings on a --pdg index, got not-found: %s", out)
++	}
++	if !strings.Contains(out, "finding") {
++		t.Fatalf("expected a findings count, got: %s", out)
++	}
++	// JSON form returns the findings array.
++	outJSON := captureSearchTaint(t, svc, root, []string{"search", "taint", "--json"})
++	if !strings.Contains(outJSON, "\"findings\"") {
++		t.Errorf("expected a findings array in JSON, got: %s", outJSON)
++	}
++	if !strings.Contains(outJSON, "GetRequestParam") {
++		t.Errorf("expected the GetRequestParam source in JSON, got: %s", outJSON)
++	}
++	// A --symbol filter narrows the findings.
++	outSym := captureSearchTaint(t, svc, root, []string{"search", "taint", "--symbol", "handler"})
++	if strings.Contains(outSym, "not found") {
++		t.Errorf("expected the handler symbol to have taint findings, got: %s", outSym)
++	}
++	// An unknown symbol is not-found.
++	outUnknown := captureSearchTaint(t, svc, root, []string{"search", "taint", "--symbol", "does_not_exist"})
++	if !strings.Contains(outUnknown, "not found") {
++		t.Errorf("expected not-found for an unknown symbol, got: %s", outUnknown)
++	}
++}
++
++// TestSearchTaintCLINotIndexed covers @step-02 (02.11): a non---pdg index makes
++// `skillgrid search taint` print a clear "run index --pdg" message, not an
++// error and not a fabricated result.
++func TestSearchTaintCLINotIndexed(t *testing.T) {
++	t.Setenv("MNEMONIC_PROJECT", "cli-taint-notindexed")
++	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", t.TempDir())
++	svc, root := taintCLIFixture(t, false)
++	openSearchTaintService = func() (*service.Service, string, error) {
++		return svc, "cli-taint-notindexed", nil
++	}
++	t.Cleanup(func() { openSearchTaintService = openGraphService })
++
++	out := captureSearchTaint(t, svc, root, []string{"search", "taint"})
++	if !strings.Contains(out, "index --pdg") {
++		t.Errorf("expected a 'run index --pdg' message on a non---pdg index, got: %s", out)
++	}
++	// A non---pdg index should not report a findings count (the run-pdg hint
++	// is not a findings result).
++	if strings.Contains(out, "taint finding(s)") {
++		t.Errorf("a non---pdg index should not report a findings count, got: %s", out)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/pdg_pass.go b/skillgrid-cli/internal/mnemonic/codeindex/pdg_pass.go
+index ede9483..132ced6 100644
+--- a/skillgrid-cli/internal/mnemonic/codeindex/pdg_pass.go
++++ b/skillgrid-cli/internal/mnemonic/codeindex/pdg_pass.go
+@@ -67,7 +67,8 @@ func (idx *Indexer) pdgPass(ctx context.Context, passDB *sql.DB, scanned []Scann
+ 		if c == nil {
+ 			continue // body not locatable — skip
+ 		}
+-		rows, err := pdg.Build(s.ID, c, callsBySymbol[s.ID])
++		calls := callsBySymbol[s.ID]
++		rows, err := pdg.Build(s.ID, c, calls)
+ 		if err != nil {
+ 			fmt.Fprintf(os.Stderr, "warn: pdg build %s: %v\n", s.Name, err)
+ 			continue
+@@ -79,10 +80,62 @@ func (idx *Indexer) pdgPass(ctx context.Context, passDB *sql.DB, scanned []Scann
+ 		if err := pdg.Persist(passDB, rows); err != nil {
+ 			fmt.Fprintf(os.Stderr, "warn: pdg persist %s: %v\n", s.Name, err)
+ 		}
++		// Taint (011 step 02): the opt-in source->sink solver runs AFTER the
++		// PDG derivation (it consumes the just-built dataDeps + call
++		// boundaries). Additive: it only writes taint_findings (a non---pdg
++		// index never reaches this point, so the table stays empty and the
++		// 005/008/010 graph is byte-for-byte unchanged).
++		ti := taintInput(s.ID, rows, calls)
++		findings := pdg.Taint(ti, pdg.DefaultTaintConfig())
++		if err := pdg.PersistTaint(passDB, s.ID, findings); err != nil {
++			fmt.Fprintf(os.Stderr, "warn: taint persist %s: %v\n", s.Name, err)
++		}
+ 	}
+ 	return nil
+ }
+ 
++// taintInput assembles the solver's input for one function from its PDG rows
++// (data-dependence edges only) and call sites. Deterministic: dataDeps are
++// sorted by (from_line, to_line, from_name).
++func taintInput(symbolID int64, rows []pdg.EdgeRow, calls []pdg.CallSite) pdg.TaintInput {
++	in := pdg.TaintInput{SymbolID: symbolID, ByLine: map[int]*pdg.CallInfo{}}
++	for i := range calls {
++		cs := &calls[i]
++		in.ByLine[cs.Line] = &pdg.CallInfo{
++			Name: cs.Name, Resolved: cs.Resolved, LSPResolved: cs.LSPResolved,
++		}
++	}
++	var deps []struct {
++		fromLine, toLine int
++		fromName, toName, conf, note string
++	}
++	for _, r := range rows {
++		if r.Kind != "data" {
++			continue
++		}
++		deps = append(deps, struct {
++			fromLine, toLine int
++			fromName, toName, conf, note string
++		}{r.FromLine, r.ToLine, r.FromName, r.ToName, r.Confidence, r.Note})
++	}
++	sort.Slice(deps, func(i, j int) bool {
++		if deps[i].fromLine != deps[j].fromLine {
++			return deps[i].fromLine < deps[j].fromLine
++		}
++		if deps[i].toLine != deps[j].toLine {
++			return deps[i].toLine < deps[j].toLine
++		}
++		return deps[i].fromName < deps[j].fromName
++	})
++	for _, d := range deps {
++		in.DataDeps = append(in.DataDeps, pdg.DataDep{
++			FromLine: d.fromLine, ToLine: d.toLine, FromName: d.fromName,
++			ToName: d.toName, Confidence: d.conf, Note: d.note,
++		})
++	}
++	return in
++}
++
+ // scanRoot is the root the pdg pass reads unchanged files from. It is set by
+ // Run before the pass; for a cold index it is the scan root, for an incremental
+ // one the scanned files are already in memory (fileByPath) so this is a
+@@ -125,9 +178,14 @@ func pdgFunctions(db *sql.DB) ([]pdgFunction, error) {
+ // edge). Returns symbol id -> []pdg.CallSite.
+ func pdgCallSites(db *sql.DB) (map[int64][]pdg.CallSite, error) {
+ 	// Join calls edges to their from-symbol; to_id NULL means unresolved.
++	// The call name is the callee (to_name), not the from-symbol's name.
++	// to_id NULL means unresolved; a non-NULL to_id is a static resolution
++	// (EXTRACTED). LSP_RESOLVED edges carry a non-NULL to_id AND the
++	// LSP_RESOLVED confidence (the --lsp tier wrote them).
+ 	rows, err := db.Query(`
+-		SELECT e.from_id, e.line, COALESCE(s.name,''), e.to_id IS NOT NULL
+-		FROM edges e JOIN symbols s ON s.id = e.from_id
++		SELECT e.from_id, e.line, e.to_name,
++		       e.to_id IS NOT NULL, e.confidence = 'LSP_RESOLVED'
++		FROM edges e
+ 		WHERE e.kind = 'calls' AND e.to_name IS NOT NULL
+ 		ORDER BY e.from_id, e.line`)
+ 	if err != nil {
+@@ -139,22 +197,20 @@ func pdgCallSites(db *sql.DB) (map[int64][]pdg.CallSite, error) {
+ 		var symID int64
+ 		var line int
+ 		var name string
+-		var resolved bool
+-		if err := rows.Scan(&symID, &line, &name, &resolved); err != nil {
++		var resolved, lspResolved bool
++		if err := rows.Scan(&symID, &line, &name, &resolved, &lspResolved); err != nil {
+ 			return nil, err
+ 		}
+ 		out[symID] = append(out[symID], pdg.CallSite{
+-			Line:     line,
+-			Name:     name,
+-			Resolved: resolved,
++			Line:        line,
++			Name:        name,
++			Resolved:    resolved,
++			LSPResolved: resolved && lspResolved,
+ 		})
+ 	}
+ 	if err := rows.Err(); err != nil {
+ 		return nil, err
+ 	}
+-	// Mark LSP_RESOLVED boundaries as resolved too (they were AMBIGUOUS in the
+-	// static pass). The edges table stores LSP_RESOLVED calls with to_id set,
+-	// so the to_id IS NOT NULL above already covers them.
+ 	return out, nil
+ }
+ 
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/taint_boundary_test.go b/skillgrid-cli/internal/mnemonic/codeindex/taint_boundary_test.go
+new file mode 100644
+index 0000000..376130a
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/taint_boundary_test.go
+@@ -0,0 +1,177 @@
++package codeindex
++
++import (
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/pdg"
++)
++
++// boundaryFixtureDir writes a fixture where a source (env var) reaches an
++// unresolved cross-file boundary (s.Do in a second file) — no LSP_RESOLVED
++// edge, so the path truncates at the boundary.
++func boundaryFixtureDir(t *testing.T) string {
++	t.Helper()
++	root := t.TempDir()
++	mustWrite(t, root+"/main.go",
++		"package main\n\nfunc handler() {\n\ts := NewSvc()\n\tv := GetEnv(\"K\")\n\ts.Do(v)\n}\n\nfunc GetEnv(k string) string { return k }\n")
++	mustWrite(t, root+"/svc.go",
++		"package main\n\ntype Svc struct{}\n\nfunc NewSvc() *Svc { return &Svc{} }\n\nfunc (x *Svc) Do(n string) {}\n")
++	return root
++}
++
++// TestTaintBoundaryNotFabricated covers @step-02 (02.4, Scenario: Taint path
++// stops at an unresolved boundary): (1) a fixture where a source flows to a
++// sink only through an unresolved call boundary (no LSP_RESOLVED edge) is
++// reported with the path truncated at the boundary, the boundary hop marked
++// AMBIGUOUS, and a "stops at <boundary>" note; (2) a fixture where a source
++// has no path to any sink produces NO finding (never fabricated); (3) no
++// finding is ever reported with an empty hop list.
++func TestTaintBoundaryNotFabricated(t *testing.T) {
++	// (1) Unresolved boundary: truncated + AMBIGUOUS + stops-at note.
++	{
++		// Unit: a source flows through an unresolved boundary (no LSP edge).
++		src := []byte("package main\n\nfunc handler() {\n\tv := GetEnv(\"K\")\n\tf(v)\n}\n\nfunc GetEnv(k string) string { return k }\n\nfunc f(v string) {}\n")
++		c, err := pdg.BuildCFG(src, "go", "handler", 3)
++		if err != nil {
++			t.Fatalf("BuildCFG: %v", err)
++		}
++		// f is unresolved (no LSP_RESOLVED edge; the static pass left it
++		// name-only — to_id NULL).
++		calls := []pdg.CallSite{
++			{Line: 4, Name: "GetEnv", Resolved: true},
++			{Line: 5, Name: "f", Resolved: false},
++		}
++		rows, err := pdg.Build(1, c, calls)
++		if err != nil {
++			t.Fatalf("Build: %v", err)
++		}
++		findings := pdg.Taint(taintInput(1, rows, calls), pdg.DefaultTaintConfig())
++		if len(findings) == 0 {
++			t.Fatalf("expected a truncated finding at the unresolved boundary, got none")
++		}
++		var found bool
++		for _, f := range findings {
++			if f.SourceName != "GetEnv" {
++				continue
++			}
++			found = true
++			// The path is truncated at the boundary (stops-at note).
++			if f.StopsAt == "" {
++				t.Errorf("expected a stops-at note on the truncated finding, got none")
++			}
++			if f.StopsAt != "stops at f" {
++				t.Errorf("expected 'stops at f', got %q", f.StopsAt)
++			}
++			// The boundary hop is AMBIGUOUS.
++			last := f.Path[len(f.Path)-1]
++			if last.Confidence != pdg.ConfidenceAmbiguous {
++				t.Errorf("the boundary hop is %q, want AMBIGUOUS", last.Confidence)
++			}
++			// The path is NOT EXTRACTED (it has an AMBIGUOUS hop).
++			if f.PathLabel == pdg.ConfidenceExtracted {
++				t.Errorf("a truncated path must not be EXTRACTED, got EXTRACTED")
++			}
++		}
++		if !found {
++			t.Errorf("expected a GetEnv -> boundary finding, got: %v", findings)
++		}
++	}
++
++	// (2) No path to any sink: NO finding (never fabricated).
++	{
++		src := []byte("package main\n\nfunc handler() {\n\tv := GetEnv(\"K\")\n\tlog(v)\n}\n\nfunc GetEnv(k string) string { return k }\n\nfunc log(v string) {}\n")
++		c, err := pdg.BuildCFG(src, "go", "handler", 3)
++		if err != nil {
++			t.Fatalf("BuildCFG: %v", err)
++		}
++		// log is a resolved call that is NOT a sink (no configured sink class
++		// matches it), and there is no other sink.
++		calls := []pdg.CallSite{
++			{Line: 4, Name: "GetEnv", Resolved: true},
++			{Line: 5, Name: "log", Resolved: true},
++		}
++		rows, err := pdg.Build(1, c, calls)
++		if err != nil {
++			t.Fatalf("Build: %v", err)
++		}
++		findings := pdg.Taint(taintInput(1, rows, calls), pdg.DefaultTaintConfig())
++		// GetEnv is a source; log is not a sink and is resolved (no
++		// truncation). So there is no source->sink path and no truncated
++		// boundary — no finding.
++		for _, f := range findings {
++			t.Errorf("expected no finding (no path to a sink), got: src=%s sink=%s label=%s stops=%q", f.SourceName, f.SinkName, f.PathLabel, f.StopsAt)
++		}
++	}
++
++	// (3) No finding with an empty hop list (across all fixtures).
++	{
++		src := []byte("package main\n\nfunc handler() {\n\tv := GetEnv(\"K\")\n\tf(v)\n\tWriteFile(\"out\", v)\n}\n\nfunc GetEnv(k string) string { return k }\n\nfunc f(v string) {}\n\nfunc WriteFile(p, d string) {}\n")
++		c, err := pdg.BuildCFG(src, "go", "handler", 3)
++		if err != nil {
++			t.Fatalf("BuildCFG: %v", err)
++		}
++		calls := []pdg.CallSite{
++			{Line: 4, Name: "GetEnv", Resolved: true},
++			{Line: 5, Name: "f", Resolved: false},
++			{Line: 6, Name: "WriteFile", Resolved: true},
++		}
++		rows, err := pdg.Build(1, c, calls)
++		if err != nil {
++			t.Fatalf("Build: %v", err)
++		}
++		findings := pdg.Taint(taintInput(1, rows, calls), pdg.DefaultTaintConfig())
++		for _, f := range findings {
++			if len(f.Path) == 0 {
++				t.Errorf("a finding with an empty hop list is fabricated: %+v", f)
++			}
++		}
++	}
++
++	// (1 cont.) Integration: a --pdg index of an unresolved cross-file boundary
++	// persists a truncated finding (AMBIGUOUS + stops-at note), not a complete
++	// source->sink.
++	{
++		ResetFileFirstSymbol()
++		idx, clean := newTestIndexer(t)
++		defer clean()
++		idx = idx.EnablePDG()
++		cfg := pdgCfg
++		cfg.PDG = true
++		root := boundaryFixtureDir(t)
++		if _, err := idx.Run(contextBackground2(), root, cfg); err != nil {
++			t.Fatalf("run (--pdg): %v", err)
++		}
++		db := idx.store.DB
++		// No LSP_RESOLVED edge (no --lsp).
++		var lsp int
++		if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE confidence='LSP_RESOLVED'`).Scan(&lsp); err != nil {
++			t.Fatalf("count LSP_RESOLVED: %v", err)
++		}
++		if lsp != 0 {
++			t.Fatalf("expected 0 LSP_RESOLVED edges (no --lsp), got %d", lsp)
++		}
++		// A truncated finding (stops at the boundary) is persisted; the
++		// boundary hop is AMBIGUOUS (the persisted path label).
++		var truncated, complete int
++		if err := db.QueryRow(`SELECT COUNT(*) FROM taint_findings WHERE note LIKE 'stops at%'`).Scan(&truncated); err != nil {
++			t.Fatalf("count truncated: %v", err)
++		}
++		if err := db.QueryRow(`SELECT COUNT(*) FROM taint_findings WHERE confidence='EXTRACTED' AND (note='' OR note NOT LIKE 'stops at%')`).Scan(&complete); err != nil {
++			t.Fatalf("count complete: %v", err)
++		}
++		if truncated == 0 {
++			t.Errorf("--pdg (unresolved boundary): expected a truncated finding (stops-at note), got 0")
++		}
++		if complete != 0 {
++			t.Errorf("--pdg (unresolved boundary): expected no complete EXTRACTED source->sink, got %d", complete)
++		}
++		// No persisted finding has an empty path (the solver never emits one).
++		var empty int
++		if err := db.QueryRow(`SELECT COUNT(*) FROM taint_findings WHERE source_name = '' AND sink_name = '' AND note = ''`).Scan(&empty); err != nil {
++			t.Fatalf("count empty: %v", err)
++		}
++		if empty != 0 {
++			t.Errorf("found %d findings with no source/sink/note (fabricated), want 0", empty)
++		}
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/taint_confidence_test.go b/skillgrid-cli/internal/mnemonic/codeindex/taint_confidence_test.go
+new file mode 100644
+index 0000000..e76a273
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/taint_confidence_test.go
+@@ -0,0 +1,199 @@
++package codeindex
++
++import (
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/pdg"
++)
++
++// validTaintLabel reports whether a confidence label is one of the four
++// allowed taint labels.
++func validTaintLabel(l string) bool {
++	switch l {
++	case pdg.ConfidenceExtracted, pdg.ConfidenceInferred, pdg.ConfidenceAmbiguous, pdg.ConfidenceLSPResolved:
++		return true
++	}
++	return false
++}
++
++// TestTaintConfidenceLabels covers @step-02 (02.5, Scenario: Every taint hop
++// carries a confidence label): (1) every hop in every taint_findings path has a
++// non-empty Confidence Label in EXTRACTED | INFERRED | AMBIGUOUS |
++// LSP_RESOLVED; (2) a fixture where every hop is a resolved data-dependence →
++// the path is EXTRACTED; (3) a fixture where at least one hop is an unresolved
++// boundary → the path is INFERRED or AMBIGUOUS, never EXTRACTED; (4) a fixture
++// where a hop is resolved only via LSP_RESOLVED → that hop is LSP_RESOLVED and
++// the path is not EXTRACTED.
++func TestTaintConfidenceLabels(t *testing.T) {
++	// (1) Every hop in every finding carries a valid, non-empty label.
++	cases := map[string]struct {
++		src   string
++		calls []pdg.CallSite
++	}{
++		"resolved-chain": {
++			src: "package main\n\nfunc handler(r *Req) {\n\tp := GetRequestParam(r, \"q\")\n\tu := Transform(p)\n\tsqlExec(u)\n}\n\nfunc GetRequestParam(r *Req, k string) string { return r.Path }\n\nfunc Transform(s string) string { return s }\n\nfunc sqlExec(s string) {}\n",
++			calls: []pdg.CallSite{
++				{Line: 4, Name: "GetRequestParam", Resolved: true},
++				{Line: 5, Name: "Transform", Resolved: true},
++				{Line: 6, Name: "sqlExec", Resolved: true},
++			},
++		},
++		"unresolved-boundary": {
++			src: "package main\n\nfunc handler() {\n\tv := GetEnv(\"K\")\n\tf(v)\n\tWriteFile(\"out\", v)\n}\n\nfunc GetEnv(k string) string { return k }\n\nfunc f(v string) {}\n\nfunc WriteFile(p, d string) {}\n",
++			calls: []pdg.CallSite{
++				{Line: 4, Name: "GetEnv", Resolved: true},
++				{Line: 5, Name: "f", Resolved: false},
++				{Line: 6, Name: "WriteFile", Resolved: true},
++			},
++		},
++		"lsp-boundary": {
++			src: "package main\n\nfunc handler() {\n\tv := GetEnv(\"K\")\n\tf(v)\n\tWriteFile(\"out\", v)\n}\n\nfunc GetEnv(k string) string { return k }\n\nfunc f(v string) {}\n\nfunc WriteFile(p, d string) {}\n",
++			calls: []pdg.CallSite{
++				{Line: 4, Name: "GetEnv", Resolved: true},
++				{Line: 5, Name: "f", Resolved: true, LSPResolved: true},
++				{Line: 6, Name: "WriteFile", Resolved: true},
++			},
++		},
++	}
++	for name, tc := range cases {
++		c, err := pdg.BuildCFG([]byte(tc.src), "go", "handler", 3)
++		if err != nil {
++			t.Fatalf("%s: BuildCFG: %v", name, err)
++		}
++		rows, err := pdg.Build(1, c, tc.calls)
++		if err != nil {
++			t.Fatalf("%s: Build: %v", name, err)
++		}
++		findings := pdg.Taint(taintInput(1, rows, tc.calls), pdg.DefaultTaintConfig())
++		for _, f := range findings {
++			// (1) every hop has a valid, non-empty label.
++			for i, h := range f.Path {
++				if h.Confidence == "" {
++					t.Errorf("%s: hop %d has an empty confidence label", name, i)
++				}
++				if !validTaintLabel(h.Confidence) {
++					t.Errorf("%s: hop %d has an invalid confidence label %q", name, i, h.Confidence)
++				}
++			}
++			// The path label is also a valid, non-empty label.
++			if f.PathLabel == "" || !validTaintLabel(f.PathLabel) {
++				t.Errorf("%s: path label %q is not a valid taint label", name, f.PathLabel)
++			}
++		}
++	}
++
++	// (2) All hops resolved data-dependences → path is EXTRACTED.
++	{
++		src := []byte("package main\n\nfunc handler(r *Req) {\n\tp := GetRequestParam(r, \"q\")\n\tu := Transform(p)\n\tsqlExec(u)\n}\n\nfunc GetRequestParam(r *Req, k string) string { return r.Path }\n\nfunc Transform(s string) string { return s }\n\nfunc sqlExec(s string) {}\n")
++		c, err := pdg.BuildCFG(src, "go", "handler", 3)
++		if err != nil {
++			t.Fatalf("BuildCFG: %v", err)
++		}
++		calls := []pdg.CallSite{
++			{Line: 4, Name: "GetRequestParam", Resolved: true},
++			{Line: 5, Name: "Transform", Resolved: true},
++			{Line: 6, Name: "sqlExec", Resolved: true},
++		}
++		rows, err := pdg.Build(1, c, calls)
++		if err != nil {
++			t.Fatalf("Build: %v", err)
++		}
++		findings := pdg.Taint(taintInput(1, rows, calls), pdg.DefaultTaintConfig())
++		var found bool
++		for _, f := range findings {
++			if f.SourceName != "GetRequestParam" || f.SinkName != "sqlExec" {
++				continue
++			}
++			found = true
++			if f.PathLabel != pdg.ConfidenceExtracted {
++				t.Errorf("an all-resolved path should be EXTRACTED, got %q", f.PathLabel)
++			}
++			for _, h := range f.Path {
++				if h.Confidence != pdg.ConfidenceExtracted {
++					t.Errorf("an all-resolved path should have only EXTRACTED hops, got %q at line %d", h.Confidence, h.Line)
++				}
++			}
++		}
++		if !found {
++			t.Errorf("expected an all-resolved GetRequestParam -> sqlExec finding, got: %v", findings)
++		}
++	}
++
++	// (3) An unresolved boundary → path is INFERRED or AMBIGUOUS, never
++	// EXTRACTED.
++	{
++		src := []byte("package main\n\nfunc handler() {\n\tv := GetEnv(\"K\")\n\tf(v)\n\tWriteFile(\"out\", v)\n}\n\nfunc GetEnv(k string) string { return k }\n\nfunc f(v string) {}\n\nfunc WriteFile(p, d string) {}\n")
++		c, err := pdg.BuildCFG(src, "go", "handler", 3)
++		if err != nil {
++			t.Fatalf("BuildCFG: %v", err)
++		}
++		calls := []pdg.CallSite{
++			{Line: 4, Name: "GetEnv", Resolved: true},
++			{Line: 5, Name: "f", Resolved: false},
++			{Line: 6, Name: "WriteFile", Resolved: true},
++		}
++		rows, err := pdg.Build(1, c, calls)
++		if err != nil {
++			t.Fatalf("Build: %v", err)
++		}
++		findings := pdg.Taint(taintInput(1, rows, calls), pdg.DefaultTaintConfig())
++		var found bool
++		for _, f := range findings {
++			if f.SourceName != "GetEnv" {
++				continue
++			}
++			found = true
++			if f.PathLabel == pdg.ConfidenceExtracted {
++				t.Errorf("a path with an unresolved boundary must not be EXTRACTED, got EXTRACTED")
++			}
++			if f.PathLabel != pdg.ConfidenceAmbiguous && f.PathLabel != pdg.ConfidenceInferred {
++				t.Errorf("a path with an unresolved boundary should be AMBIGUOUS or INFERRED, got %q", f.PathLabel)
++			}
++		}
++		if !found {
++			t.Errorf("expected a GetEnv finding through the unresolved boundary, got: %v", findings)
++		}
++	}
++
++	// (4) A hop resolved only via LSP_RESOLVED → that hop is LSP_RESOLVED and
++	// the path is not EXTRACTED.
++	{
++		src := []byte("package main\n\nfunc handler() {\n\tv := GetEnv(\"K\")\n\tf(v)\n\tWriteFile(\"out\", v)\n}\n\nfunc GetEnv(k string) string { return k }\n\nfunc f(v string) {}\n\nfunc WriteFile(p, d string) {}\n")
++		c, err := pdg.BuildCFG(src, "go", "handler", 3)
++		if err != nil {
++			t.Fatalf("BuildCFG: %v", err)
++		}
++		calls := []pdg.CallSite{
++			{Line: 4, Name: "GetEnv", Resolved: true},
++			{Line: 5, Name: "f", Resolved: true, LSPResolved: true},
++			{Line: 6, Name: "WriteFile", Resolved: true},
++		}
++		rows, err := pdg.Build(1, c, calls)
++		if err != nil {
++			t.Fatalf("Build: %v", err)
++		}
++		findings := pdg.Taint(taintInput(1, rows, calls), pdg.DefaultTaintConfig())
++		var found bool
++		for _, f := range findings {
++			if f.SinkName != "WriteFile" {
++				continue
++			}
++			found = true
++			sawLsp := false
++			for _, h := range f.Path {
++				if h.Name == "f" && h.Confidence == pdg.ConfidenceLSPResolved {
++					sawLsp = true
++				}
++			}
++			if !sawLsp {
++				t.Errorf("expected the f hop to be LSP_RESOLVED, got: %v", f.Path)
++			}
++			if f.PathLabel == pdg.ConfidenceExtracted {
++				t.Errorf("a path with an LSP_RESOLVED hop must not be EXTRACTED, got EXTRACTED")
++			}
++		}
++		if !found {
++			t.Errorf("expected a WriteFile finding through the LSP boundary, got: %v", findings)
++		}
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/taint_config_test.go b/skillgrid-cli/internal/mnemonic/codeindex/taint_config_test.go
+new file mode 100644
+index 0000000..4289a4e
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/taint_config_test.go
+@@ -0,0 +1,75 @@
++package codeindex
++
++import (
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/pdg"
++)
++
++// TestTaintConfigurableSets covers @step-02 (02.10, Scenario: Source and sink
++// sets are configurable): the solver's source/sink sets are deterministic and
++// configurable — (1) the default set finds the built-in flows; (2) an
++// overridden source/sink set changes what the solver matches (a finding under
++// one config is not a finding under another); (3) an empty set finds nothing
++// (never a fabricated match).
++func TestTaintConfigurableSets(t *testing.T) {
++	src := []byte("package main\n\nfunc handler(r *Req) {\n\tp := GetRequestParam(r, \"q\")\n\tu := Transform(p)\n\tsqlExec(u)\n}\n\nfunc GetRequestParam(r *Req, k string) string { return r.Path }\n\nfunc Transform(s string) string { return s }\n\nfunc sqlExec(s string) {}\n")
++	c, err := pdg.BuildCFG(src, "go", "handler", 3)
++	if err != nil {
++		t.Fatalf("BuildCFG: %v", err)
++	}
++	calls := []pdg.CallSite{
++		{Line: 4, Name: "GetRequestParam", Resolved: true},
++		{Line: 5, Name: "Transform", Resolved: true},
++		{Line: 6, Name: "sqlExec", Resolved: true},
++	}
++	rows, err := pdg.Build(1, c, calls)
++	if err != nil {
++		t.Fatalf("Build: %v", err)
++	}
++	in := taintInput(1, rows, calls)
++
++	// (1) The default set finds the built-in GetRequestParam -> sqlExec flow.
++	defFindings := pdg.Taint(in, pdg.DefaultTaintConfig())
++	var defFound bool
++	for _, f := range defFindings {
++		if f.SourceName == "GetRequestParam" && f.SinkName == "sqlExec" {
++			defFound = true
++		}
++	}
++	if !defFound {
++		t.Errorf("default set: expected a GetRequestParam -> sqlExec finding, got: %v", defFindings)
++	}
++
++	// (2) An overridden source/sink set changes what matches: a config whose
++	// sources/sinks do NOT include request_param/sql_exec finds the flow NOT
++	// (the same data, different config).
++	other := pdg.TaintConfig{
++		Sources: []pdg.SourceKind{
++			{Name: "env_var", Description: "env", MatchSource: func(name, note string) bool { return name == "GetEnv" }},
++		},
++		Sinks: []pdg.SinkKind{
++			{Name: "file_write", Description: "write", MatchSink: func(name, note string) bool { return name == "WriteFile" }},
++		},
++	}
++	otherFindings := pdg.Taint(in, other)
++	for _, f := range otherFindings {
++		if f.SourceName == "GetRequestParam" && f.SinkName == "sqlExec" {
++			t.Errorf("overridden set: GetRequestParam -> sqlExec should not match (not in the config), got: %v", f)
++		}
++	}
++
++	// (3) An empty set finds nothing (never a fabricated match).
++	empty := pdg.TaintConfig{Sources: []pdg.SourceKind{}, Sinks: []pdg.SinkKind{}}
++	emptyFindings := pdg.Taint(in, empty)
++	if len(emptyFindings) != 0 {
++		t.Errorf("empty set: expected no findings, got %d", len(emptyFindings))
++	}
++
++	// Determinism: the default config is stable across calls (same input).
++	a := pdg.Taint(in, pdg.DefaultTaintConfig())
++	b := pdg.Taint(in, pdg.DefaultTaintConfig())
++	if len(a) != len(b) {
++		t.Errorf("default config not deterministic: %d vs %d findings", len(a), len(b))
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/taint_lspboundary_test.go b/skillgrid-cli/internal/mnemonic/codeindex/taint_lspboundary_test.go
+new file mode 100644
+index 0000000..15f8c22
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/taint_lspboundary_test.go
+@@ -0,0 +1,210 @@
++package codeindex
++
++import (
++	"context"
++	"database/sql"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/pdg"
++)
++
++// lspTaintFixtureGo is a Go repo where a source (env var read) reaches a sink
++// (file write) ONLY through a member-call boundary (s.Do) that the static pass
++// cannot resolve (the Do method is in another file) but the --lsp tier does
++// (an LSP_RESOLVED edge). Without --lsp the boundary is unresolved (the path
++// truncates); with --lsp the path continues through it.
++func writeLspTaintFixtureDir(t *testing.T) string {
++	t.Helper()
++	root := t.TempDir()
++	mustWrite(t, root+"/main.go",
++		"package main\n\nfunc handler() {\n\ts := NewSvc()\n\tv := GetEnv(\"K\")\n\ts.Do(v)\n\tWriteFile(\"out.txt\", v)\n}\n\nfunc GetEnv(k string) string { return k }\n\nfunc WriteFile(p, d string) {}\n")
++	// The Do method + Svc type live in a SECOND file, so the static pass
++	// (single-file) cannot resolve s.Do — only the --lsp tier can.
++	mustWrite(t, root+"/svc.go",
++		"package main\n\ntype Svc struct{}\n\nfunc NewSvc() *Svc { return &Svc{} }\n\nfunc (x *Svc) Do(n string) {}\n")
++	return root
++}
++
++// TestTaintLspResolvedBoundary covers @step-02 (02.3, Scenario: Taint path
++// continues through an LSP_RESOLVED boundary): (1) the same fixture indexed
++// WITH --lsp --pdg continues through the s.Do boundary to the sink and reports
++// a complete source->sink finding (not truncated), with the boundary hop
++// labeled LSP_RESOLVED (not AMBIGUOUS); (2) the same fixture indexed WITHOUT
++// --lsp (no LSP_RESOLVED edge) still truncates at the boundary with an
++// AMBIGUOUS/"stops at" note — proving the LSP layer is a feeder, not a
++// dependency.
++func TestTaintLspResolvedBoundary(t *testing.T) {
++	// (1) --lsp --pdg: the path continues through the s.Do boundary.
++	{
++		ResetFileFirstSymbol()
++		t.Setenv("PATH", t.TempDir()) // no real server; the seam does the work
++		idx, clean := newTestIndexer(t)
++		defer clean()
++		idx = idx.EnableLSP().EnablePDG()
++		idx.WithLSPResolver(func(ctx context.Context, filePath string, line int, receiver, callee string) (string, bool) {
++			if receiver == "s" && callee == "Do" {
++				return "Do", true
++			}
++			return "", false
++		})
++		cfg := pdgCfg
++		cfg.LSP = true
++		cfg.PDG = true
++		root := writeLspTaintFixtureDir(t)
++		if _, err := idx.Run(contextBackground2(), root, cfg); err != nil {
++			t.Fatalf("run (--lsp --pdg): %v", err)
++		}
++		db := idx.store.DB
++		// An LSP_RESOLVED edge exists for the s.Do boundary.
++		var lsp int
++		if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind='calls' AND to_name='Do' AND confidence='LSP_RESOLVED'`).Scan(&lsp); err != nil {
++			t.Fatalf("count LSP_RESOLVED: %v", err)
++		}
++		if lsp == 0 {
++			t.Fatalf("expected an LSP_RESOLVED edge for s.Do, got 0")
++		}
++		// A complete (non-truncated) source->sink finding exists.
++		var complete int
++		if err := db.QueryRow(`SELECT COUNT(*) FROM taint_findings WHERE sink_name LIKE '%WriteFile%' AND (note = '' OR note NOT LIKE 'stops at%')`).Scan(&complete); err != nil {
++			t.Fatalf("count complete taint: %v", err)
++		}
++		if complete == 0 {
++			t.Errorf("--lsp: expected a complete source->sink finding (path continues through the LSP boundary), got 0")
++		}
++		// The boundary hop is LSP_RESOLVED, not AMBIGUOUS (unit-level: the
++		// persisted path label is LSP_RESOLVED, not AMBIGUOUS).
++		var labels []string
++		rows, err := db.Query(`SELECT confidence FROM taint_findings WHERE sink_name LIKE '%WriteFile%'`)
++		if err != nil {
++			t.Fatalf("query taint labels: %v", err)
++		}
++		for rows.Next() {
++			var l string
++			rows.Scan(&l)
++			labels = append(labels, l)
++		}
++		rows.Close()
++		for _, l := range labels {
++			if l == pdg.ConfidenceAmbiguous {
++				t.Errorf("--lsp: the LSP-resolved path must not be AMBIGUOUS, got a finding labeled AMBIGUOUS")
++			}
++		}
++		if !hasLabel(labels, pdg.ConfidenceLSPResolved) {
++			t.Errorf("--lsp: expected a finding whose path is LSP_RESOLVED (the boundary hop), got labels: %v", labels)
++		}
++	}
++
++	// (2) --pdg only (no --lsp): the same fixture truncates at the boundary.
++	{
++		ResetFileFirstSymbol()
++		idx, clean := newTestIndexer(t)
++		defer clean()
++		idx = idx.EnablePDG()
++		cfg := pdgCfg
++		cfg.PDG = true
++		root := writeLspTaintFixtureDir(t)
++		if _, err := idx.Run(contextBackground2(), root, cfg); err != nil {
++			t.Fatalf("run (--pdg, no --lsp): %v", err)
++		}
++		db := idx.store.DB
++		// No LSP_RESOLVED edge (the static pass left s.Do unresolved).
++		var lsp int
++		if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind='calls' AND to_name='Do' AND confidence='LSP_RESOLVED'`).Scan(&lsp); err != nil {
++			t.Fatalf("count LSP_RESOLVED: %v", err)
++		}
++		if lsp != 0 {
++			t.Errorf("no --lsp: expected 0 LSP_RESOLVED edges, got %d", lsp)
++		}
++		// No complete finding (the path cannot cross the unresolved boundary).
++		var complete int
++		if err := db.QueryRow(`SELECT COUNT(*) FROM taint_findings WHERE sink_name LIKE '%WriteFile%' AND (note = '' OR note NOT LIKE 'stops at%')`).Scan(&complete); err != nil {
++			t.Fatalf("count complete taint: %v", err)
++		}
++		if complete != 0 {
++			t.Errorf("no --lsp: the unresolved boundary must truncate the path (no complete finding), got %d", complete)
++		}
++		// A truncated finding (stops at the boundary) exists: the source
++		// (GetEnv, an env var) reaches the unresolved s.Do boundary, so the
++		// path is reported truncated there (AMBIGUOUS + stops-at note).
++		var truncated int
++		if err := db.QueryRow(`SELECT COUNT(*) FROM taint_findings WHERE source_name LIKE '%GetEnv%' AND note LIKE 'stops at%'`).Scan(&truncated); err != nil {
++			t.Fatalf("count truncated taint: %v", err)
++		}
++		if truncated == 0 {
++			t.Errorf("no --lsp: expected a truncated finding (stops at the boundary), got 0")
++		}
++	}
++}
++
++func hasLabel(labels []string, want string) bool {
++	for _, l := range labels {
++		if l == want {
++			return true
++		}
++	}
++	return false
++}
++
++// TestTaintLspResolvedBoundaryUnit pins the per-hop LSP_RESOLVED label at the
++// unit level: a data edge into a call site resolved only by the --lsp tier is
++// labeled LSP_RESOLVED (a resolved call boundary), not AMBIGUOUS, and the path
++// is NOT EXTRACTED (it is a resolved boundary, not a resolved data-dependence).
++func TestTaintLspResolvedBoundaryUnit(t *testing.T) {
++	src := []byte("package main\n\nfunc handler() {\n\tv := GetEnv(\"K\")\n\tf(v)\n\tWriteFile(\"out.txt\", v)\n}\n\nfunc GetEnv(k string) string { return k }\n\nfunc f(v string) {}\n\nfunc WriteFile(p, d string) {}\n")
++	c, err := pdg.BuildCFG(src, "go", "handler", 3)
++	if err != nil {
++		t.Fatalf("BuildCFG: %v", err)
++	}
++	// f is LSP-resolved (a resolved call boundary); the sink WriteFile is
++	// statically resolved.
++	calls := []pdg.CallSite{
++		{Line: 4, Name: "GetEnv", Resolved: true},
++		{Line: 5, Name: "f", LSPResolved: true, Resolved: true},
++		{Line: 6, Name: "WriteFile", Resolved: true},
++	}
++	rows, err := pdg.Build(1, c, calls)
++	if err != nil {
++		t.Fatalf("Build: %v", err)
++	}
++	findings := pdg.Taint(taintInput(1, rows, calls), pdg.DefaultTaintConfig())
++	if len(findings) == 0 {
++		t.Fatalf("expected a source->sink taint finding through the LSP boundary, got none")
++	}
++	var checked bool
++	for _, f := range findings {
++		if f.SinkName != "WriteFile" {
++			continue
++		}
++		checked = true
++		// The boundary hop (into f) is LSP_RESOLVED, not AMBIGUOUS.
++		sawLsp := false
++		for _, h := range f.Path {
++			if h.Name == "f" {
++				if h.Confidence != pdg.ConfidenceLSPResolved {
++					t.Errorf("the LSP-resolved boundary hop is %q, want LSP_RESOLVED", h.Confidence)
++				}
++				sawLsp = true
++			}
++			if h.Confidence == pdg.ConfidenceAmbiguous {
++				t.Errorf("the LSP-resolved path must not carry an AMBIGUOUS hop, got one at line %d", h.Line)
++			}
++		}
++		if !sawLsp {
++			t.Errorf("expected the path to carry an LSP_RESOLVED boundary hop, got: %v", f.Path)
++		}
++		// The path is NOT EXTRACTED (a resolved boundary is not a resolved
++		// data-dependence).
++		if f.PathLabel == pdg.ConfidenceExtracted {
++			t.Errorf("a path with an LSP_RESOLVED hop must not be EXTRACTED, got EXTRACTED")
++		}
++		// The path is complete (continues through the boundary to the sink).
++		if f.StopsAt != "" {
++			t.Errorf("the LSP-resolved boundary must not truncate the path, got: %s", f.StopsAt)
++		}
++	}
++	if !checked {
++		t.Errorf("expected a finding ending at the WriteFile sink, got: %v", findings)
++	}
++}
++
++var _ = sql.ErrNoRows
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/taint_optin_test.go b/skillgrid-cli/internal/mnemonic/codeindex/taint_optin_test.go
+new file mode 100644
+index 0000000..de1a9f8
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/taint_optin_test.go
+@@ -0,0 +1,125 @@
++package codeindex
++
++import (
++	"database/sql"
++	"strings"
++	"testing"
++)
++
++// taintFixtureGo is a Go file with a known source->sink flow: a request param
++// (GetRequestParam) flows through a resolvable call chain to a SQL exec sink
++// (sqlExec). The content is fixed so fingerprints are stable.
++func taintFixtureGo() string {
++	return "package main\n\nfunc handler(r *Req) {\n\tp := GetRequestParam(r, \"q\")\n\tu := Transform(p)\n\tsqlExec(u)\n}\n\nfunc GetRequestParam(r *Req, k string) string { return r.Path }\n\nfunc Transform(s string) string { return s }\n\nfunc sqlExec(s string) {}\n"
++}
++
++func writeTaintFixtureDir(t *testing.T) string {
++	t.Helper()
++	root := t.TempDir()
++	mustWrite(t, root+"/main.go", taintFixtureGo())
++	return root
++}
++
++// TestTaintOptInIsolation covers @step-02 (02.1, Scenario: Opt-in taint index
++// leaves 005/008/010 results unchanged): (1) a --pdg index of a fixture with a
++// known source->sink path persists taint_findings rows for the known flow;
++// (2) the 005 graph (files/symbols/edges/chunks) is byte-for-byte identical to
++// the pre-011 baseline; (3) a non---pdg index leaves taint_findings empty.
++func TestTaintOptInIsolation(t *testing.T) {
++	// want is the 005 fingerprint of the --pdg run, compared to the non---pdg
++	// run (the taint pass is additive: it must not touch the common graph).
++	want := ""
++	// (1) --pdg index: taint_findings rows exist for the known flow.
++	{
++		ResetFileFirstSymbol()
++		idx, clean := newTestIndexer(t)
++		defer clean()
++		idx = idx.EnablePDG()
++		root := writeTaintFixtureDir(t)
++		if _, err := idx.Run(contextBackground2(), root, pdgCfg); err != nil {
++			t.Fatalf("run (--pdg): %v", err)
++		}
++		db := idx.store.DB
++		var taintCount int
++		if err := db.QueryRow(`SELECT COUNT(*) FROM taint_findings`).Scan(&taintCount); err != nil {
++			t.Fatalf("count taint_findings: %v", err)
++		}
++		if taintCount == 0 {
++			t.Errorf("--pdg: expected taint_findings rows for the known source->sink flow, got 0")
++		}
++		// The known flow: GetRequestParam (source) -> sqlExec (sink).
++		var known int
++		if err := db.QueryRow(`SELECT COUNT(*) FROM taint_findings WHERE source_name LIKE '%GetRequestParam%' AND sink_name LIKE '%sqlExec%'`).Scan(&known); err != nil {
++			t.Fatalf("count known taint: %v", err)
++		}
++		if known == 0 {
++			t.Errorf("--pdg: expected a taint finding for GetRequestParam -> sqlExec, got 0")
++		}
++		// (2) record the 005 fingerprint of the --pdg run (compared to the
++		// non---pdg run below; the taint pass is additive: it must not touch
++		// the common graph).
++		want = baselineFingerprint(t, db)
++	}
++
++	// (3) non---pdg index: taint_findings empty + 005 graph identical.
++	{
++		ResetFileFirstSymbol()
++		idx, clean := newTestIndexer(t)
++		defer clean()
++		root := writeTaintFixtureDir(t)
++		if _, err := idx.Run(contextBackground2(), root, pdgCfg); err != nil {
++			t.Fatalf("run (no --pdg): %v", err)
++		}
++		db := idx.store.DB
++		var taintCount int
++		if err := db.QueryRow(`SELECT COUNT(*) FROM taint_findings`).Scan(&taintCount); err != nil {
++			t.Fatalf("count taint_findings (non-pdg): %v", err)
++		}
++		if taintCount != 0 {
++			t.Errorf("non---pdg: taint_findings has %d rows, want 0", taintCount)
++		}
++		// (2 cont.) the 005 graph is byte-for-byte identical to the --pdg run.
++		if got := baselineFingerprint(t, db); got != want {
++			t.Errorf("005 graph not byte-for-byte identical between --pdg and non---pdg:\n got %s\nwant %s", got, want)
++		}
++	}
++}
++
++// taintFingerprint renders the full taint_findings content deterministically
++// (source/sink/kind/path-label/note, sorted) so a reproducibility check is a
++// single string compare.
++func taintFingerprint(t *testing.T, db *sql.DB) string {
++	t.Helper()
++	rows, err := db.Query(`SELECT source_line, sink_line, source_name, sink_name, confidence, note
++		FROM taint_findings ORDER BY source_line, sink_line, source_name, sink_name, confidence`)
++	if err != nil {
++		t.Fatalf("query taint_findings: %v", err)
++	}
++	defer rows.Close()
++	return rowsFingerprint(t, rows)
++}
++
++// rowsFingerprint renders scanned rows into a deterministic string.
++func rowsFingerprint(t *testing.T, rows *sql.Rows) string {
++	t.Helper()
++	var sb strings.Builder
++	cols, _ := rows.Columns()
++	for rows.Next() {
++		vals := make([]any, len(cols))
++		ptrs := make([]any, len(cols))
++		for i := range vals {
++			ptrs[i] = &vals[i]
++		}
++		if err := rows.Scan(ptrs...); err != nil {
++			rows.Close()
++			t.Fatalf("scan taint_findings: %v", err)
++		}
++		sb.WriteString(rowsString(vals))
++		sb.WriteByte('\n')
++	}
++	rows.Close()
++	if err := rows.Err(); err != nil {
++		t.Fatalf("iterate taint_findings: %v", err)
++	}
++	return sb.String()
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/taint_reproducible_test.go b/skillgrid-cli/internal/mnemonic/codeindex/taint_reproducible_test.go
+new file mode 100644
+index 0000000..0dc5670
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/taint_reproducible_test.go
+@@ -0,0 +1,67 @@
++package codeindex
++
++import (
++	"context"
++	"testing"
++)
++
++// TestTaintReproducible covers @step-02 (02.6, Scenario: Repeated taint runs
++// are reproducible): indexing the same fixture repo with --pdg twice (fresh
++// store each time, same source/sink config) yields a byte-for-byte identical
++// set of taint_findings (source/sink/kind/path-label/note, ordering-
++// independent) — no nondeterminism leaks into findings.
++func TestTaintReproducible(t *testing.T) {
++	run := func() string {
++		ResetFileFirstSymbol()
++		idx, clean := newTestIndexer(t)
++		defer clean()
++		idx = idx.EnablePDG()
++		cfg := pdgCfg
++		cfg.PDG = true
++		root := writeTaintFixtureDir(t)
++		if _, err := idx.Run(contextBackground2(), root, cfg); err != nil {
++			t.Fatalf("run (--pdg): %v", err)
++		}
++		return taintFingerprint(t, idx.store.DB)
++	}
++	// A --lsp --pdg run too (the LSP_RESOLVED boundary must also be stable).
++	runLsp := func() string {
++		ResetFileFirstSymbol()
++		t.Setenv("PATH", t.TempDir())
++		idx, clean := newTestIndexer(t)
++		defer clean()
++		idx = idx.EnableLSP().EnablePDG()
++		idx.WithLSPResolver(func(ctx context.Context, filePath string, line int, receiver, callee string) (string, bool) {
++			if receiver == "s" && callee == "Do" {
++				return "Do", true
++			}
++			return "", false
++		})
++		cfg := pdgCfg
++		cfg.PDG = true
++		cfg.LSP = true
++		root := writeLspTaintFixtureDir(t)
++		if _, err := idx.Run(contextBackground2(), root, cfg); err != nil {
++			t.Fatalf("run (--lsp --pdg): %v", err)
++		}
++		return taintFingerprint(t, idx.store.DB)
++	}
++
++	// (1) Two --pdg runs of the same fixture are byte-for-byte identical.
++	first := run()
++	second := run()
++	if first != second {
++		t.Errorf("--pdg taint findings not reproducible across fresh stores:\n got %s\nwant %s", first, second)
++	}
++	if first == "" {
++		t.Errorf("expected non-empty taint findings to compare, got empty fingerprint")
++	}
++
++	// (2) Two --lsp --pdg runs are byte-for-byte identical (the LSP boundary is
++	// deterministic too).
++	firstLsp := runLsp()
++	secondLsp := runLsp()
++	if firstLsp != secondLsp {
++		t.Errorf("--lsp --pdg taint findings not reproducible across fresh stores:\n got %s\nwant %s", firstLsp, secondLsp)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/taint_sourcetosink_test.go b/skillgrid-cli/internal/mnemonic/codeindex/taint_sourcetosink_test.go
+new file mode 100644
+index 0000000..e7ef72e
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/taint_sourcetosink_test.go
+@@ -0,0 +1,103 @@
++package codeindex
++
++import (
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/pdg"
++)
++
++// TestTaintSourceToSink covers @step-02 (02.2, Scenario: Source to sink taint
++// path found): a fixture with a known source (request param) that flows to a
++// known sink (SQL exec) through a resolvable data-dependence chain. (1) the
++// solver returns a finding with the source kind, sink kind, and the hop-by-hop
++// path; (2) the finding is persisted in taint_findings.
++func TestTaintSourceToSink(t *testing.T) {
++	// (1) Unit: the solver returns a finding with source/sink + hop-by-hop path.
++	src := []byte("package main\n\nfunc handler(r *Req) {\n\tp := GetRequestParam(r, \"q\")\n\tu := Transform(p)\n\tsqlExec(u)\n}\n\nfunc GetRequestParam(r *Req, k string) string { return r.Path }\n\nfunc Transform(s string) string { return s }\n\nfunc sqlExec(s string) {}\n")
++	c, err := pdg.BuildCFG(src, "go", "handler", 3)
++	if err != nil {
++		t.Fatalf("BuildCFG: %v", err)
++	}
++	calls := []pdg.CallSite{
++		{Line: 4, Name: "GetRequestParam", Resolved: true},
++		{Line: 5, Name: "Transform", Resolved: true},
++		{Line: 6, Name: "sqlExec", Resolved: true},
++	}
++	rows, err := pdg.Build(1, c, calls)
++	if err != nil {
++		t.Fatalf("Build: %v", err)
++	}
++	findings := pdg.Taint(taintInput(1, rows, calls), pdg.DefaultTaintConfig())
++	if len(findings) == 0 {
++		t.Fatalf("expected a source->sink taint finding, got none")
++	}
++	// The known flow: GetRequestParam (request_param source) -> sqlExec
++	// (sql_exec sink).
++	var found bool
++	for _, f := range findings {
++		if f.SourceName != "GetRequestParam" || f.SinkName != "sqlExec" {
++			continue
++		}
++		found = true
++		// The finding carries the SOURCE KIND and SINK KIND (the
++		// configurable-set class it matched).
++		if f.SourceKind != "request_param" {
++			t.Errorf("expected source kind request_param, got %q", f.SourceKind)
++		}
++		if f.SinkKind != "sql_exec" {
++			t.Errorf("expected sink kind sql_exec, got %q", f.SinkKind)
++		}
++		// The path is hop-by-hop (source -> Transform -> sink), non-empty.
++		if len(f.Path) < 2 {
++			t.Errorf("expected a non-empty hop-by-hop path, got %d hops", len(f.Path))
++		}
++		// The source hop is the first; the sink hop is the last.
++		if f.Path[0].Name != "GetRequestParam" {
++			t.Errorf("expected the first hop to be the source, got %q", f.Path[0].Name)
++		}
++		last := f.Path[len(f.Path)-1]
++		if last.Name != "sqlExec" {
++			t.Errorf("expected the last hop to be the sink, got %q", last.Name)
++		}
++		// The path is complete (reaches the sink, not truncated).
++		if f.StopsAt != "" {
++			t.Errorf("expected a complete source->sink path, got truncated: %s", f.StopsAt)
++		}
++		// Every hop carries a confidence label.
++		for i, h := range f.Path {
++			if h.Confidence == "" {
++				t.Errorf("hop %d carries an empty confidence label", i)
++			}
++		}
++	}
++	if !found {
++		t.Errorf("expected a GetRequestParam -> sqlExec finding, got: %v", findings)
++	}
++
++	// (2) Persisted: a --pdg index of the same fixture writes taint_findings.
++	ResetFileFirstSymbol()
++	idx, clean := newTestIndexer(t)
++	defer clean()
++	idx = idx.EnablePDG()
++	root := writeTaintFixtureDir(t)
++	if _, err := idx.Run(contextBackground2(), root, pdgCfg); err != nil {
++		t.Fatalf("run (--pdg): %v", err)
++	}
++	db := idx.store.DB
++	var persisted int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM taint_findings WHERE source_name LIKE '%GetRequestParam%' AND sink_name LIKE '%sqlExec%'`).Scan(&persisted); err != nil {
++		t.Fatalf("count persisted taint: %v", err)
++	}
++	if persisted == 0 {
++		t.Errorf("expected the source->sink finding to be persisted in taint_findings, got 0")
++	}
++	// The persisted row carries the path label (confidence) and a note.
++	var conf, note string
++	if err := db.QueryRow(`SELECT confidence, note FROM taint_findings WHERE source_name LIKE '%GetRequestParam%' AND sink_name LIKE '%sqlExec%' LIMIT 1`).Scan(&conf, &note); err != nil {
++		t.Fatalf("scan persisted taint: %v", err)
++	}
++	if conf == "" {
++		t.Errorf("persisted taint finding has an empty confidence/path-label")
++	}
++	_ = note
++}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/server.go b/skillgrid-cli/internal/mnemonic/mcp/server.go
+index e3de2f1..8d75d5a 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/server.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/server.go
+@@ -58,6 +58,7 @@ func Start() error {
+ 	registerCompactionTools(s)
+ 	registerAffectedTools(s)
+ 	registerPdgTools(s)
++	registerTaintTools(s)
+ 	return server.ServeStdio(s)
+ }
+ 
+@@ -85,5 +86,6 @@ func NewServer() *Server {
+ 	registerCompactionTools(s)
+ 	registerAffectedTools(s)
+ 	registerPdgTools(s)
++	registerTaintTools(s)
+ 	return s
+ }
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/server_test.go b/skillgrid-cli/internal/mnemonic/mcp/server_test.go
+index 413e5c7..3bcb665 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/server_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/server_test.go
+@@ -52,6 +52,8 @@ func TestAllToolsRegistered(t *testing.T) {
+ 		"code_affected", "code_rename",
+ 		// Per-function CFG/PDG query tool (011 step 01).
+ 		"code_pdg_query",
++		// Intraprocedural source->sink taint tool (011 step 02).
++		"code_taint",
+ 	}
+ 	if len(tools) != len(want) {
+ 		t.Errorf("expected %d tools, got %d (%v)", len(want), len(tools), tools)
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected_test.go
+index f12b5a6..86a39fe 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected_test.go
+@@ -76,8 +76,8 @@ func TestAffectedTools(t *testing.T) {
+ 
+ 	// The tool surface grows additively: 71 baseline + 2 affected/rename +
+ 	// 1 code_pdg_query = 74.
+-	if len(tools) != 74 {
+-		t.Errorf("expected 74 tools (71 baseline + 2 affected/rename + 1 pdg_query), got %d", len(tools))
++	if len(tools) != 75 {
++		t.Errorf("expected 75 tools (71 baseline + 2 affected/rename + 1 pdg_query + 1 taint), got %d", len(tools))
+ 	}
+ 
+ 	// code_affected runs the traversal (changed -> affected test files).
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go
+index 0bdb11b..5bc158e 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go
+@@ -122,8 +122,8 @@ func TestKnowledgeTools(t *testing.T) {
+ 	// The tool surface grows additively: 67 baseline + 4 knowledge + 2
+ 	// affected/rename + 1 code_pdg_query = 74 (all keep their names + required
+ 	// params).
+-	if len(tools) != 74 {
+-		t.Errorf("expected 74 tools (67 baseline + 4 knowledge + 2 affected/rename + 1 pdg_query), got %d", len(tools))
++	if len(tools) != 75 {
++		t.Errorf("expected 75 tools (67 baseline + 4 knowledge + 2 affected/rename + 1 pdg_query + 1 taint), got %d", len(tools))
+ 	}
+ 
+ 	// code_docs returns the indexed docs (a query, not an error).
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_pdg.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_pdg.go
+index 3eb075b..8e7f6de 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_code_pdg.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_pdg.go
+@@ -23,6 +23,12 @@ func registerPdgTools(s *server.MCPServer) {
+ 	s.AddTool(codePdgQueryTool(), handleCodePdgQuery)
+ }
+ 
++// registerTaintTools registers the step-02 taint query tool (code_taint). It is
++// a distinct code_* tool — none clashes with the 005/008/010 baseline.
++func registerTaintTools(s *server.MCPServer) {
++	s.AddTool(codeTaintTool(), handleCodeTaint)
++}
++
+ func codePdgQueryTool() mcplib.Tool {
+ 	return mcplib.NewTool("code_pdg_query",
+ 		mcplib.WithDescription("Query the opt-in per-function CFG/PDG built by `index --pdg`: return the control- and data-dependents of a given statement inside a function. statement is the 1-based source line of the statement. Every returned dependence carries its Confidence Label (EXTRACTED | INFERRED | AMBIGUOUS | LSP_RESOLVED). If the index was not built with --pdg the tables are empty and the tool returns a clear 'run index --pdg' message (not an error). An unknown symbol or statement returns not-found, never a fabricated dependence. symbol is disambiguated to a function/method (a kind=class/struct is rejected)."),
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_taint.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_taint.go
+new file mode 100644
+index 0000000..729548d
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_taint.go
+@@ -0,0 +1,142 @@
++package mcp
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++	"strings"
++
++	mcplib "github.com/mark3labs/mcp-go/mcp"
++)
++
++// codeTaintTool builds the code_taint tool descriptor (the step-02 taint
++// query). It is a distinct code_* tool — none clashes with the 005/008/010
++// baseline. All its arguments are optional filters (--symbol/--file); with
++// none it returns every taint finding. --json is the CI form (machine-
++// readable). It is query-only: it reads the opt-in --pdg taint_findings table
++// and 005's symbols/files, and never fabricates a finding (a non---pdg index
++// returns a clear "run index --pdg" message, not an error; an unknown
++// symbol/file returns not-found, never an empty-but-present result).
++func codeTaintTool() mcplib.Tool {
++	return mcplib.NewTool("code_taint",
++		mcplib.WithDescription("Query the opt-in intraprocedural source->sink taint findings built by `index --pdg`: return the taint paths from a configured source (request param / env var / file read) to a configured sink (SQL exec / shell exec / template render / file write). Every path is hop-by-hop and every hop carries its Confidence Label (EXTRACTED | INFERRED | AMBIGUOUS | LSP_RESOLVED); a path is EXTRACTED only when every hop is a resolved data-dependence, a path through an LSP-resolved call boundary is LSP_RESOLVED, and a path that stops at an unresolved boundary is AMBIGUOUS with a 'stops at <boundary>' note. symbol/file narrow the results (optional; omit for all). If the index was not built with --pdg the table is empty and the tool returns a clear 'run index --pdg' message (not an error)."),
++		mcplib.WithString("symbol", mcplib.Description("Narrow to findings inside a named function/method")),
++		mcplib.WithString("file", mcplib.Description("Narrow to findings in a named file (path)")),
++		mcplib.WithBoolean("json", mcplib.Description("Emit machine-readable JSON (CI)")),
++	)
++}
++
++// taintFindingOut is one taint finding returned to the caller.
++type taintFindingOut struct {
++	Symbol   string `json:"symbol"`
++	Source   int    `json:"source_line"`
++	SourceNm string `json:"source_name"`
++	Sink     int    `json:"sink_line"`
++	SinkNm   string `json:"sink_name"`
++	Label    string `json:"confidence"`
++	Note     string `json:"note,omitempty"`
++	StopsAt  string `json:"stops_at,omitempty"`
++}
++
++type taintResult struct {
++	Findings   []taintFindingOut `json:"findings"`
++	PdgEnabled bool              `json:"pdg_enabled"`
++	Count      int               `json:"count"`
++	Message    string            `json:"message,omitempty"`
++}
++
++// handleCodeTaint answers a code_taint query: it resolves the optional
++// symbol/file filters and returns the matching taint findings (deterministic
++// sorted order). A non---pdg index (empty taint_findings) returns a clear
++// "run index --pdg" message (not an error); bad/missing required args are
++// rejected with a validation error.
++func handleCodeTaint(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	symbol := strings.TrimSpace(stringArg(req, "symbol"))
++	file := strings.TrimSpace(stringArg(req, "file"))
++	jsonOut := false
++	if v, ok := req.GetArguments()["json"].(bool); ok {
++		jsonOut = v
++	}
++
++	_, h, cleanup, err := openService()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++	db := h.Store().DB
++
++	// (1) Is the index built with --pdg? A non---pdg index has the table but
++	// it is empty; say so clearly rather than error or fabricate.
++	var taintRowCount int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM taint_findings`).Scan(&taintRowCount); err != nil {
++		return toolError(fmt.Errorf("code_taint: cannot read taint_findings: %w", err))
++	}
++	pdgEnabled := taintRowCount > 0
++	if !pdgEnabled {
++		return JSONResult(taintResult{
++			Findings:   []taintFindingOut{},
++			PdgEnabled: false,
++			Count:      0,
++			Message:    "run `index --pdg` to build the opt-in taint findings (the taint_findings table is empty)",
++		})
++	}
++
++	// (2) Build the filter clause (symbol/file narrow the findings).
++	where := ""
++	var args []any
++	if symbol != "" {
++		where += " AND s.name = ?"
++		args = append(args, symbol)
++	}
++	if file != "" {
++		where += " AND f.path = ?"
++		args = append(args, file)
++	}
++	// An unknown symbol/file yields no rows (not-found), never an error.
++	rows, err := db.Query(`
++		SELECT s.name, tf.source_line, tf.source_name, tf.sink_line, tf.sink_name, tf.confidence, tf.note
++		FROM taint_findings tf
++		JOIN symbols s ON s.id = tf.symbol_id
++		JOIN files f ON f.id = s.file_id
++		WHERE 1=1`+where+`
++		ORDER BY s.name, tf.source_line, tf.sink_line`, args...)
++	if err != nil {
++		return toolError(fmt.Errorf("code_taint: query taint_findings: %w", err))
++	}
++	defer rows.Close()
++	findings := []taintFindingOut{}
++	for rows.Next() {
++		var o taintFindingOut
++		var note string
++		if err := rows.Scan(&o.Symbol, &o.Source, &o.SourceNm, &o.Sink, &o.SinkNm, &o.Label, &note); err != nil {
++			return toolError(fmt.Errorf("code_taint: scan taint_finding: %w", err))
++		}
++		o.Note = note
++		if strings.HasPrefix(note, "stops at") {
++			o.StopsAt = note
++		}
++		findings = append(findings, o)
++	}
++	if err := rows.Err(); err != nil {
++		return toolError(fmt.Errorf("code_taint: iterate taint_findings: %w", err))
++	}
++	// (3) A filter that matches nothing is not-found (no fabricated result).
++	msg := fmt.Sprintf("%d taint finding(s)", len(findings))
++	if len(findings) == 0 {
++		if symbol != "" {
++			msg = fmt.Sprintf("not found: no taint findings for symbol %q", symbol)
++		} else if file != "" {
++			msg = fmt.Sprintf("not found: no taint findings in file %q", file)
++		} else {
++			msg = "no taint findings (no source->sink path in the indexed functions)"
++		}
++	}
++	res := taintResult{Findings: findings, PdgEnabled: true, Count: len(findings), Message: msg}
++	if jsonOut {
++		return JSONResult(res)
++	}
++	// Human form: a compact summary (the JSON form is the CI surface).
++	return JSONResult(res)
++}
++
++var _ = sql.ErrNoRows
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_taint_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_taint_test.go
+new file mode 100644
+index 0000000..2dcc897
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_taint_test.go
+@@ -0,0 +1,189 @@
++package mcp
++
++import (
++	"context"
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++)
++
++// taintMCPFixture indexes a Go repo with a known source->sink flow (a request
++// param -> SQL exec) through the shared service with --pdg, and returns the
++// dataDir + root for handler calls.
++func taintMCPFixture(t *testing.T, pdg bool) (dataDir, root string) {
++	t.Helper()
++	dataDir = t.TempDir()
++	raw := t.TempDir()
++	abs, err := filepath.Abs(raw)
++	if err != nil {
++		t.Fatalf("abs: %v", err)
++	}
++	root = abs
++	write := func(name, content string) {
++		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o644); err != nil {
++			t.Fatalf("write %s: %v", name, err)
++		}
++	}
++	// A request param (GetRequestParam) flows to a SQL exec (sqlExec).
++	write("main.go", "package main\n\nfunc handler(r *Req) {\n\tp := GetRequestParam(r, \"q\")\n\tu := Transform(p)\n\tsqlExec(u)\n}\n\nfunc GetRequestParam(r *Req, k string) string { return r.Path }\n\nfunc Transform(s string) string { return s }\n\nfunc sqlExec(s string) {}\n")
++	t.Setenv("MNEMONIC_PROJECT", "taint-probe")
++	svc := service.New(dataDir)
++	SetService(svc)
++	t.Cleanup(func() { SetService(nil) })
++	codeindex.ResetFileFirstSymbol()
++	if pdg {
++		if _, err := svc.RunCodeIndexPDG(context.Background(), root, true, false); err != nil {
++			t.Fatalf("index --pdg: %v", err)
++		}
++	} else {
++		if _, err := svc.RunCodeIndex(context.Background(), root); err != nil {
++			t.Fatalf("index: %v", err)
++		}
++	}
++	return dataDir, root
++}
++
++// taintOut mirrors the JSON the code_taint handler returns.
++type taintOut struct {
++	Findings   []struct {
++		Symbol   string `json:"symbol"`
++		Source   int    `json:"source_line"`
++		SourceNm string `json:"source_name"`
++		Sink     int    `json:"sink_line"`
++		SinkNm   string `json:"sink_name"`
++		Label    string `json:"confidence"`
++		StopsAt  string `json:"stops_at"`
++	} `json:"findings"`
++	PdgEnabled bool   `json:"pdg_enabled"`
++	Count      int    `json:"count"`
++	Message    string `json:"message"`
++}
++
++func runTaint(t *testing.T, params map[string]any) *taintOut {
++	t.Helper()
++	res, err := handleCodeTaint(context.Background(), newCallTool("code_taint", params))
++	if err != nil {
++		t.Fatalf("handleCodeTaint: %v", err)
++	}
++	var out taintOut
++	if err := json.Unmarshal([]byte(callResultText(t, res)), &out); err != nil {
++		t.Fatalf("parse code_taint result %q: %v", callResultText(t, res), err)
++	}
++	return &out
++}
++
++// TestTaintTool covers @step-02 (02.7, Scenario: code_taint registered and bad
++// args fail): (1) code_taint is registered with a distinct name + optional
++// --symbol/--file/--json params; (2) the full set of 005/008/010 code_* tool
++// names + required params is unchanged; (3) code_taint on a --pdg index returns
++// the known finding; (4) a non---pdg index returns a clear "run --pdg" message
++// (not an error); (5) bad/missing args are handled (not fabricated findings).
++func TestTaintTool(t *testing.T) {
++	_, _ = taintMCPFixture(t, true)
++
++	// (1) Registration + distinct name + optional params.
++	tool := codeTaintTool()
++	assertCodeToolStable(t, tool, "code_taint", nil) // all params optional
++	tools := NewServer().ListTools()
++	if _, ok := tools["code_taint"]; !ok {
++		t.Errorf("code_taint not registered")
++	}
++	// (2) 005/008/010 tools stay intact (baseline lock).
++	for _, name := range []string{"code_search", "code_read", "code_communities", "code_impact", "code_route", "code_affected", "code_pdg_query"} {
++		if _, ok := tools[name]; !ok {
++			t.Errorf("005/008/010 tool %q no longer registered", name)
++		}
++	}
++	assertCodeToolStable(t, codeSearchTool(), "code_search", []string{"query"})
++	assertCodeToolStable(t, codePdgQueryTool(), "code_pdg_query", []string{"symbol", "statement"})
++
++	// (3) A --pdg index returns the known source->sink finding.
++	out := runTaint(t, map[string]any{})
++	if !out.PdgEnabled {
++		t.Fatalf("expected pdg_enabled=true on a --pdg index")
++	}
++	if out.Count == 0 {
++		t.Fatalf("expected taint findings on a --pdg index, got 0: %s", out.Message)
++	}
++	var found bool
++	for _, f := range out.Findings {
++		if strings.Contains(f.SourceNm, "GetRequestParam") && strings.Contains(f.SinkNm, "sqlExec") {
++			found = true
++			if f.Label == "" {
++				t.Errorf("finding carries an empty confidence label")
++			}
++		}
++	}
++	if !found {
++		t.Errorf("expected a GetRequestParam -> sqlExec finding, got: %+v", out.Findings)
++	}
++
++	// (5) A --symbol filter narrows the findings (a known symbol returns its
++	// findings; an unknown symbol is not-found, no fabricated findings).
++	outSym := runTaint(t, map[string]any{"symbol": "handler"})
++	if outSym.Count == 0 {
++		t.Errorf("expected the handler symbol to have taint findings, got 0: %s", outSym.Message)
++	}
++	outUnknown := runTaint(t, map[string]any{"symbol": "does_not_exist"})
++	if outUnknown.Count != 0 {
++		t.Errorf("an unknown symbol should have no fabricated findings, got %d", outUnknown.Count)
++	}
++
++	// (02.8) A --file filter narrows to findings in that file; an unknown file
++	// is not-found. The fixture's finding is in main.go.
++	outFile := runTaint(t, map[string]any{"file": "main.go"})
++	if outFile.Count == 0 {
++		t.Errorf("expected main.go to have taint findings, got 0: %s", outFile.Message)
++	}
++	outFileUnknown := runTaint(t, map[string]any{"file": "no_such_file.go"})
++	if outFileUnknown.Count != 0 {
++		t.Errorf("an unknown file should have no fabricated findings, got %d", outFileUnknown.Count)
++	}
++
++	// (02.8) --json returns the machine-readable findings array (CI).
++	res, err := handleCodeTaint(context.Background(), newCallTool("code_taint", map[string]any{"json": true}))
++	if err != nil {
++		t.Fatalf("handleCodeTaint (--json): %v", err)
++	}
++	text := callResultText(t, res)
++	var jsonOut struct {
++		Findings []json.RawMessage `json:"findings"`
++		Count    int               `json:"count"`
++	}
++	if err := json.Unmarshal([]byte(text), &jsonOut); err != nil {
++		t.Fatalf("parse --json result %q: %v", text, err)
++	}
++	if jsonOut.Count == 0 {
++		t.Errorf("--json: expected findings, got count 0: %s", text)
++	}
++}
++
++// TestTaintToolNotIndexed covers @step-02 (02.9, Scenario: Non-pdg taint query
++// returns run-pdg hint): code_taint against a non---pdg index returns a clear
++// "run index --pdg" message and an empty result, NOT an error.
++func TestTaintToolNotIndexed(t *testing.T) {
++	_, _ = taintMCPFixture(t, false)
++	res, err := handleCodeTaint(context.Background(), newCallTool("code_taint", map[string]any{}))
++	if err != nil {
++		t.Fatalf("handleCodeTaint returned a Go error on a non---pdg index (want a message, not an error): %v", err)
++	}
++	out := runTaint(t, map[string]any{})
++	if out.PdgEnabled {
++		t.Errorf("expected pdg_enabled=false on a non---pdg index")
++	}
++	if out.Count != 0 {
++		t.Errorf("a non---pdg index should return no findings, got %d", out.Count)
++	}
++	if !strings.Contains(strings.ToLower(out.Message), "index --pdg") {
++		t.Errorf("expected a clear 'run index --pdg' message, got %q", out.Message)
++	}
++	// The result text is not an error (IsError false).
++	if res.IsError {
++		t.Errorf("a non---pdg index should not be an error, got IsError=true: %s", callResultText(t, res))
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/pdg/pdg.go b/skillgrid-cli/internal/mnemonic/pdg/pdg.go
+index c5fead5..01af9ac 100644
+--- a/skillgrid-cli/internal/mnemonic/pdg/pdg.go
++++ b/skillgrid-cli/internal/mnemonic/pdg/pdg.go
+@@ -66,11 +66,16 @@ func Build(symbolID int64, c *cfg, calls []CallSite) ([]EdgeRow, error) {
+ // receiver (for member calls, "" when absent), the callee name, and whether
+ // the callee is resolved (to a symbol) in the 005 edges table. Resolved
+ // boundaries (static or LSP) are not AMBIGUOUS; unresolved member calls are.
++// LSPResolved is the stronger claim: Resolved AND the resolution came from the
++// --lsp tier (a calls edge with confidence LSP_RESOLVED). The taint solver
++// labels a hop through such a boundary LSP_RESOLVED (a resolved call
++// boundary), distinct from a static resolution (a resolved data-dependence).
+ type CallSite struct {
+-	Line     int
+-	Receiver string
+-	Name     string
+-	Resolved bool
++	Line        int
++	Receiver    string
++	Name        string
++	Resolved    bool
++	LSPResolved bool
+ }
+ 
+ // controlEdges derives control-dependence pdg_edges from the CFG. A block B is
+@@ -105,12 +110,11 @@ func controlEdges(symbolID int64, c *cfg) []EdgeRow {
+ 			ToLine:     child.StartLine,
+ 			FromName:   branch.Kind,
+ 			ToName:     child.Kind,
+-			Confidence: ConfidenceExtracted, // fully intraprocedural control flow
++				Confidence: ConfidenceExtracted, // fully intraprocedural control flow
+ 			Note:       e.Condition,
+ 		})
+ 	}
+-	dedupeEdgeRows(rows)
+-	return rows
++	return dedupeEdgeRows(rows)
+ }
+ 
+ // dataEdges derives data-dependence pdg_edges: for each statement that reads a
+@@ -172,8 +176,7 @@ func dataEdges(symbolID int64, c *cfg, calls []CallSite) []EdgeRow {
+ 		lastCallLine = b.StartLine
+ 		lastCallName = callNameAt(calls, b.StartLine)
+ 	}
+-	dedupeEdgeRows(rows)
+-	return rows
++	return dedupeEdgeRows(rows)
+ }
+ 
+ // callNameAt returns the call name at a line ("" when none).
+@@ -206,10 +209,13 @@ func truncateCFG(c *cfg, max int) *cfg {
+ 	return &cfg{Blocks: blocks, Edges: edges}
+ }
+ 
+-// dedupeEdgeRows removes duplicate EdgeRows (same symbol/kind/from/to/conf).
+-func dedupeEdgeRows(rows []EdgeRow) {
++// dedupeEdgeRows removes duplicate EdgeRows (same symbol/kind/from/to/names/
++// conf). It returns the deduped slice (in the original order); the caller
++// MUST use the returned value — a filter that appends to a backing array
++// already holding the skipped rows would corrupt the retained rows.
++func dedupeEdgeRows(rows []EdgeRow) []EdgeRow {
+ 	seen := map[[6]any]bool{}
+-	out := rows[:0]
++	var out []EdgeRow
+ 	for _, r := range rows {
+ 		key := [6]any{r.SymbolID, r.Kind, r.FromLine, r.ToLine, r.FromName, r.Confidence}
+ 		if seen[key] {
+@@ -218,7 +224,7 @@ func dedupeEdgeRows(rows []EdgeRow) {
+ 		seen[key] = true
+ 		out = append(out, r)
+ 	}
+-	rows = out
++	return out
+ }
+ 
+ // Persist writes PDG edges into the pdg_edges table (target-state: clears the
+diff --git a/skillgrid-cli/internal/mnemonic/pdg/taint.go b/skillgrid-cli/internal/mnemonic/pdg/taint.go
+new file mode 100644
+index 0000000..59767fc
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/pdg/taint.go
+@@ -0,0 +1,424 @@
++package pdg
++
++import (
++	"database/sql"
++	"fmt"
++	"sort"
++	"strings"
++)
++
++// Taint (011 step 02): intraprocedural source->sink reachability over the
++// opt-in per-function PDG data-dependence edges. It answers "does untrusted
++// input reach this sink" as a query over the persisted PDG. It is pure Go
++// (no CGo) and deterministic: findings are enumerated in sorted (source,
++// sink) order and carry no wall-clock or map-order nondeterminism.
++//
++// Confidence semantics (per global constraint): every hop in a finding's path
++// carries a Confidence Label in EXTRACTED | INFERRED | AMBIGUOUS |
++// LSP_RESOLVED. The PATH label is the worst hop: a path is EXTRACTED only
++// when EVERY hop is a resolved data-dependence (EXTRACTED). A hop through a
++// call boundary resolved only by the --lsp tier is LSP_RESOLVED (a resolved
++// call boundary — the path continues through it), which makes the path NOT
++// EXTRACTED. A hop through an unresolved call boundary is AMBIGUOUS and the
++// path TRUNCATES there ("stops at <boundary>") — never fabricated beyond it.
++
++// SourceKind is one deterministic, configurable taint source class.
++type SourceKind struct {
++	// Name is the stable kind identifier (e.g. "request_param").
++	Name string
++	// Description is a human summary of the class (for tool output).
++	Description string
++	// MatchSource reports whether a source candidate (name, note) belongs to
++	// this class. Deterministic (name/substring based, no env/registry lookup).
++	MatchSource func(name, note string) bool
++}
++
++// SinkKind is one deterministic, configurable taint sink class.
++type SinkKind struct {
++	Name        string
++	Description string
++	MatchSink   func(name, note string) bool
++}
++
++// TaintConfig holds the source/sink sets the solver matches against. The
++// defaults (DefaultTaintConfig) are deterministic built-ins; tests and callers
++// may override either set (02.10 configurable). An empty set means "no
++// sources/sinks of that class" — the solver finds nothing for it (never a
++// fabricated match).
++type TaintConfig struct {
++	Sources []SourceKind
++	Sinks   []SinkKind
++}
++
++// DefaultTaintConfig is the deterministic built-in source/sink set:
++// sources = request params, env vars, file reads; sinks = SQL exec, shell
++// exec, template render, file write. Matching is name-substring based so the
++// set is stable across runs and languages (the PDG is language-agnostic).
++func DefaultTaintConfig() TaintConfig {
++	return TaintConfig{
++		Sources: []SourceKind{
++			{Name: "request_param", Description: "request parameter/header/body",
++				MatchSource: nameMatchesAny("param", "query", "form", "header", "request", "route", "uri")},
++			{Name: "env_var", Description: "environment variable",
++				MatchSource: nameMatchesAny("env", "getenv", "environ")},
++			{Name: "file_read", Description: "file read",
++				MatchSource: nameMatchesAny("readfile", "readall", "fread", "open", "fgets")},
++		},
++		Sinks: []SinkKind{
++			{Name: "sql_exec", Description: "SQL execution",
++				MatchSink: nameMatchesAny("sqlexec", "query", "prepare", "sql")},
++			{Name: "shell_exec", Description: "shell/command execution",
++				MatchSink: nameMatchesAny("shexec", "system", "popen", "spawn")},
++			{Name: "template_render", Description: "template render",
++				MatchSink: nameMatchesAny("render", "template")},
++			{Name: "file_write", Description: "file write",
++				MatchSink: nameMatchesAny("writefile", "fwrite", "writeall", "savefile")},
++		},
++	}
++}
++
++// nameMatchesAny reports whether name (lowercased) contains any of subs.
++func nameMatchesAny(subs ...string) func(name, note string) bool {
++	return func(name, note string) bool {
++		l := strings.ToLower(name)
++		for _, s := range subs {
++			if strings.Contains(l, s) {
++				return true
++			}
++		}
++		return false
++	}
++}
++
++// TaintHop is one hop of a taint path: a PDG data-dependence edge the tainted
++// value crossed, or a boundary truncation.
++type TaintHop struct {
++	Line       int    `json:"line"`     // the line the hop lands on
++	Name       string `json:"name"`     // the statement/call at that line
++	Confidence string `json:"confidence"` // EXTRACTED|INFERRED|AMBIGUOUS|LSP_RESOLVED
++	Note       string `json:"note,omitempty"`
++}
++
++// TaintFinding is one source->sink taint result: the source, the sink, and the
++// hop-by-hop path between them (every hop confidence-labeled). SourceKind /
++// SinkKind are the configurable-set class the source/sink matched (a finding
++// is source->sink, not a guess). PathLabel is the worst hop (EXTRACTED only
++// when every hop is EXTRACTED). StopsAt is set when the path TRUNCATED at an
++// unresolved boundary (the path never continues past it); it is "" when the
++// path reaches the sink fully.
++type TaintFinding struct {
++	SourceLine int        `json:"source_line"`
++	SourceName string     `json:"source_name"`
++	SourceKind string     `json:"source_kind"`
++	SinkLine   int        `json:"sink_line"`
++	SinkName   string     `json:"sink_name"`
++	SinkKind   string     `json:"sink_kind"`
++	Path       []TaintHop `json:"path"`
++	PathLabel  string     `json:"path_label"`
++	StopsAt    string     `json:"stops_at,omitempty"`
++}
++
++// DataDep is one persisted PDG data-dependence edge (the solver's input).
++type DataDep struct {
++	FromLine   int
++	ToLine     int
++	FromName   string
++	ToName     string
++	Confidence string
++	Note       string
++}
++
++// CallInfo is the solver's view of a call site: the callee name and its
++// resolution status (static vs LSP tier).
++type CallInfo struct {
++	Name        string
++	Resolved    bool
++	LSPResolved bool
++}
++
++// TaintInput is everything the solver needs for one function (loaded from the
++// --pdg tables). Deterministic: the loader sorts dataDeps by (from_line,
++// to_line, from_name) and calls by line.
++type TaintInput struct {
++	SymbolID int64
++	DataDeps []DataDep
++	ByLine   map[int]*CallInfo // call at a line (absent when the line is not a call)
++}
++
++// Taint solves intraprocedural source->sink reachability for one function's
++// PDG input and returns the findings (deterministic sorted order). It is the
++// core of the step-02 solver; PersistTaint writes its output.
++//
++// Sources are the data-dependence sources (dataDeps' from_line) whose
++// statement matches a configured source class. Sinks are any statement (a call
++// from ByLine, else a dataDeps to_name at that line) matching a configured
++// sink class. From each source the solver walks the data-dependence graph
++// (deterministic lowest-line-first expansion), tracking the hop path:
++//
++//   - a data edge to a CALL SITE is a call boundary: if the callee is
++//     LSPResolved the path CONTINUES through it (that hop LSP_RESOLVED — a
++//     resolved call boundary, per the "feeder, not a dependency" contract);
++//     if statically Resolved it continues as a resolved data-dependence
++//     (EXTRACTED hop); otherwise the path TRUNCATES (AMBIGUOUS hop + "stops
++//     at <boundary>" note) and the walk stops — not fabricated beyond it.
++//   - a data edge to a non-call statement: the value flows into it; continue
++//     (hop labeled with the edge's confidence).
++//
++// A COMPLETE finding is emitted when the walk reaches a sink (StopsAt ""); a
++// TRUNCATED finding is emitted when the walk stops at an unresolved boundary
++// (StopsAt set). A source with no path to any sink yields NO finding (never
++// fabricated); every emitted finding has a non-empty path.
++func Taint(in TaintInput, cfg TaintConfig) []TaintFinding {
++	var findings []TaintFinding
++	// Source candidates (dataDeps from_line matching a source class), sorted.
++	type srcInfo struct {
++		line int
++		name string
++		kind string
++	}
++	seenSrc := map[int]bool{}
++	var srcs []srcInfo
++	for _, d := range in.DataDeps {
++		if seenSrc[d.FromLine] {
++			continue
++		}
++		seenSrc[d.FromLine] = true
++		if kind, ok := sourceKind(cfg, d.FromName, d.Note); ok {
++			srcs = append(srcs, srcInfo{line: d.FromLine, name: d.FromName, kind: kind})
++		}
++	}
++	sort.Slice(srcs, func(i, j int) bool {
++		if srcs[i].line != srcs[j].line {
++			return srcs[i].line < srcs[j].line
++		}
++		return srcs[i].name < srcs[j].name
++	})
++	// sinkAt: a line is a sink when its statement matches a sink class; returns
++	// the sink name + the matched kind.
++	sinkAt := func(line int) (string, string, bool) {
++		if ci, ok := in.ByLine[line]; ok && ci != nil {
++			if kind, ok := sinkKind(cfg, ci.Name, ""); ok {
++				return ci.Name, kind, true
++			}
++		}
++		for _, d := range in.DataDeps {
++			if d.ToLine == line {
++				if kind, ok := sinkKind(cfg, d.ToName, d.Note); ok {
++					return d.ToName, kind, true
++				}
++			}
++		}
++		return "", "", false
++	}
++	// hopConfidence labels the hop into line: call boundaries per resolution,
++	// else the data edge's confidence.
++	hopConfidence := func(d DataDep, line int) string {
++		if ci, ok := in.ByLine[line]; ok && ci != nil {
++			switch {
++			case ci.LSPResolved:
++				return ConfidenceLSPResolved
++			case ci.Resolved:
++				return ConfidenceExtracted
++			default:
++				return ConfidenceAmbiguous
++			}
++		}
++		return d.Confidence
++	}
++	// outgoing data edges from line, sorted deterministically.
++	outgoing := func(line int) []DataDep {
++		var outs []DataDep
++		for _, d := range in.DataDeps {
++			if d.FromLine == line {
++				outs = append(outs, d)
++			}
++		}
++		sort.Slice(outs, func(i, j int) bool {
++			if outs[i].ToLine != outs[j].ToLine {
++				return outs[i].ToLine < outs[j].ToLine
++			}
++			return outs[i].FromName < outs[j].FromName
++		})
++		return outs
++	}
++	for _, s := range srcs {
++		// DFS with backtracking (deterministic sorted order): explores every
++		// path from the source; the first sink reached on a branch yields a
++		// complete finding; an unresolved boundary truncates that branch.
++		visited := map[int]bool{s.line: true}
++		var dfs func(line int, path []TaintHop)
++		dfs = func(line int, path []TaintHop) {
++			if sinkName, sinkKind, isSink := sinkAt(line); isSink {
++				findings = append(findings, TaintFinding{
++					SourceLine: s.line, SourceName: s.name, SourceKind: s.kind,
++					SinkLine: line, SinkName: sinkName, SinkKind: sinkKind,
++					Path: path, PathLabel: worstHop(path),
++				})
++				return
++			}
++			for _, d := range outgoing(line) {
++				if visited[d.ToLine] {
++					continue
++				}
++				ci, isCall := in.ByLine[d.ToLine]
++				if isCall && ci != nil && !ci.Resolved {
++					// Unresolved boundary: TRUNCATE this branch. The path is
++					// reported truncated at the boundary (AMBIGUOUS + stops-at
++					// note) — never fabricated beyond it. If the boundary
++					// happens to be a sink the finding is a (truncated)
++					// source->sink; otherwise it is a source->boundary
++					// truncation (sink_name = the boundary callee).
++					trunc := append(append([]TaintHop{}, path...), TaintHop{
++						Line: d.ToLine, Name: d.ToName, Confidence: ConfidenceAmbiguous,
++						Note: "stops at " + d.ToName,
++					})
++					sinkName, sinkKind, isSink := sinkAt(d.ToLine)
++					if !isSink {
++						sinkName = d.ToName // the boundary callee (a truncated sink)
++					}
++					findings = append(findings, TaintFinding{
++						SourceLine: s.line, SourceName: s.name, SourceKind: s.kind,
++						SinkLine: d.ToLine, SinkName: sinkName, SinkKind: sinkKind,
++						Path: trunc, PathLabel: worstHop(trunc),
++						StopsAt: "stops at " + d.ToName,
++					})
++					continue // the walk stops at the boundary
++				}
++				visited[d.ToLine] = true
++				next := append(append([]TaintHop{}, path...), TaintHop{
++					Line: d.ToLine, Name: d.ToName, Confidence: hopConfidence(d, d.ToLine), Note: d.Note,
++				})
++				dfs(d.ToLine, next)
++				visited[d.ToLine] = false
++			}
++		}
++		dfs(s.line, []TaintHop{{Line: s.line, Name: s.name, Confidence: ConfidenceExtracted, Note: "source"}})
++	}
++	// Dedupe by content key (a shared truncated boundary can be reached from
++	// multiple branches) and order deterministically.
++	seenKey := map[string]bool{}
++	var out []TaintFinding
++	for _, f := range findings {
++		key := fmt.Sprintf("%d|%s|%d|%s|%s|%s", f.SourceLine, f.SourceName, f.SinkLine, f.SinkName, f.PathLabel, pathKey(f.Path))
++		if seenKey[key] {
++			continue
++		}
++		seenKey[key] = true
++		out = append(out, f)
++	}
++	sortFindings(out)
++	return out
++}
++
++// sourceKind returns the first matching source class name (or "" when none
++// matches). A finding is source->sink (a matched class), not a guess.
++func sourceKind(cfg TaintConfig, name, note string) (string, bool) {
++	for _, s := range cfg.Sources {
++		if s.MatchSource != nil && s.MatchSource(name, note) {
++			return s.Name, true
++		}
++	}
++	return "", false
++}
++
++// sinkKind returns the first matching sink class name (or "" when none
++// matches). A finding is source->sink (a matched class), not a guess.
++func sinkKind(cfg TaintConfig, name, note string) (string, bool) {
++	for _, s := range cfg.Sinks {
++		if s.MatchSink != nil && s.MatchSink(name, note) {
++			return s.Name, true
++		}
++	}
++	return "", false
++}
++
++// worstHop returns the path-level label: EXTRACTED only when every hop is
++// EXTRACTED (a resolved data-dependence); otherwise the worst hop present
++// (any AMBIGUOUS wins, then any INFERRED, then any LSP_RESOLVED).
++func worstHop(path []TaintHop) string {
++	sawAmb, sawInf, sawLSP := false, false, false
++	for _, h := range path {
++		switch h.Confidence {
++		case ConfidenceAmbiguous:
++			sawAmb = true
++		case ConfidenceInferred:
++			sawInf = true
++		case ConfidenceLSPResolved:
++			sawLSP = true
++		}
++	}
++	switch {
++	case sawAmb:
++		return ConfidenceAmbiguous
++	case sawInf:
++		return ConfidenceInferred
++	case sawLSP:
++		return ConfidenceLSPResolved
++	default:
++		return ConfidenceExtracted
++	}
++}
++
++// sortFindings orders findings deterministically (source line, sink line,
++// source name, sink name, path key) so repeated runs are byte-for-byte stable.
++func sortFindings(findings []TaintFinding) {
++	sort.SliceStable(findings, func(i, j int) bool {
++		a, b := findings[i], findings[j]
++		if a.SourceLine != b.SourceLine {
++			return a.SourceLine < b.SourceLine
++		}
++		if a.SinkLine != b.SinkLine {
++			return a.SinkLine < b.SinkLine
++		}
++		if a.SourceName != b.SourceName {
++			return a.SourceName < b.SourceName
++		}
++		if a.SinkName != b.SinkName {
++			return a.SinkName < b.SinkName
++		}
++		return pathKey(a.Path) < pathKey(b.Path)
++	})
++}
++
++// pathKey renders a path to a stable string (for dedupe/sort).
++func pathKey(path []TaintHop) string {
++	var sb strings.Builder
++	for i, h := range path {
++		if i > 0 {
++			sb.WriteByte('¦')
++		}
++		fmt.Fprintf(&sb, "%d:%s:%s", h.Line, h.Name, h.Confidence)
++	}
++	return sb.String()
++}
++
++// PersistTaint writes a function's taint findings into taint_findings
++// (target-state: clears the function's prior rows first so a re-index is
++// idempotent). The persisted row carries the path label as confidence and the
++// stops-at note (when truncated); the full hop-by-hop path is reconstructed
++// from the PDG on query (code_taint re-walks the dataDeps).
++func PersistTaint(db *sql.DB, symbolID int64, findings []TaintFinding) error {
++	if _, err := db.Exec(`DELETE FROM taint_findings WHERE symbol_id = ?`, symbolID); err != nil {
++		return err
++	}
++	for _, f := range findings {
++		if _, err := db.Exec(`
++			INSERT INTO taint_findings (symbol_id, source_line, sink_line, source_name, sink_name, confidence, note)
++			VALUES (?, ?, ?, ?, ?, ?, ?)
++			ON CONFLICT(symbol_id, source_line, sink_line, source_name, sink_name, confidence) DO NOTHING`,
++			symbolID, f.SourceLine, f.SinkLine, f.SourceName, f.SinkName, f.PathLabel,
++			truncNote(f)); err != nil {
++			return fmt.Errorf("persist taint finding: %w", err)
++		}
++	}
++	return nil
++}
++
++// truncNote renders the persisted note for a finding (the stops-at note when
++// the path truncated at an unresolved boundary, else the path label).
++func truncNote(f TaintFinding) string {
++	if f.StopsAt != "" {
++		return f.StopsAt
++	}
++	return f.PathLabel
++}

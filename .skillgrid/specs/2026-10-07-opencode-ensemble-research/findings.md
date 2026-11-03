@@ -1,3 +1,10 @@
+---
+type: Spec
+title: "2026-10-07-opencode-ensemble-research — findings"
+status: draft
+
+---
+
 # Findings — opencode-ensemble research
 
 ## Research: What can skillgrid-teams (squad plugin) and the skillgrid UI learn from opencode-ensemble?
@@ -146,6 +153,6 @@ the teams plugin should be scoped to the latter.
 7. In-repo (project context — shapes the question, not the evidence for ensemble
    claims): `plugins/opencode/skillgrid-squad.ts`, `mnemonic/internal/http/teams.go`,
    `skillgrid-ui/src/features/observe/TeamsPage.tsx`,
-   `.skillgrid/artifacts/04-adr-0020-sdd-ledger-owns-execution.md`,
+   `.skillgrid/decisions/04-adr-0020-sdd-ledger-owns-execution.md`,
    `.skillgrid/specs/2026-10-07-replace-opencode-hooks-with-plugins/blueprint.md`,
-   `.skillgrid/artifacts/00-prd.md`.
+   `.skillgrid/reference/00-prd.md`.

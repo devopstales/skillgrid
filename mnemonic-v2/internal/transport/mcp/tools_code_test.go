@@ -369,46 +369,88 @@ func waitForInactive(t *testing.T, ch *handler.CodeHandler) {
 	t.Fatalf("the guard must clear after the run completes")
 }
 
-// TestLSPFlagNoOpWindow verifies the M8 contract (F2): when --lsp is set,
-// the index result REPORTS the no-op (degraded: lsp_not_built + the message
-// "LSP tier not yet built (TICKET-08b)") — a reported no-op, not a silent
-// one. It does NOT crash. The MCP code_index tool's lsp:true arg carries the
-// same degraded string (I-3).
-func TestLSPFlagNoOpWindow(t *testing.T) {
+// TestLSPFlagDrivesTier verifies the M8 window is closed (TICKET-08b):
+// --lsp RUNS the tier (NOT the declared no-op) — the flag on → the LSP pass
+// runs, capabilities.lsp:true in code_status, and the index result no longer
+// reports "lsp_not_built". A resolved member call (the mock resolver seam) →
+// an LSP_RESOLVED edge in the store. The MCP code_index tool's lsp:true arg
+// drives the same tier (I-3 — the surface parity).
+func TestLSPFlagDrivesTier(t *testing.T) {
 	ch := newTestCodeHandler(t)
 	root := t.TempDir()
-	mustWriteFile(t, root, "main.go", "package main\n\nfunc main() {}\n")
+	mustWriteFile(t, root, "main.go", "package main\n\nfunc main() {\n\ts.Do(1)\n}\n\nfunc (x *S) Do(n int) int { return n }\n\ntype S struct{}\n")
 	ch.SetRootForTest(root)
 
-	// The handler: lsp=true → the result carries the degraded string + the
-	// message (a reported no-op, the M8 contract).
+	// The mock resolver (the test double for the real gopls subprocess): it
+	// resolves the fixture's s.Do() member call → the tier's LSP_RESOLVED edge.
+	ch.SetLSPResolverForTest(func(ctx context.Context, filePath string, line int, receiver, callee string) (string, bool, error) {
+		if receiver == "s" && callee == "Do" {
+			return "Do", true, nil
+		}
+		return "", false, nil
+	})
+
+	// The handler: lsp=true → the tier RUNS (the no-op window is closed — no
+	// "lsp_not_built", no "LSP tier not yet built" message).
 	res, err := ch.Index(ctx, "", false, true, false, false, false)
 	if err != nil {
 		t.Fatalf("Index with lsp=true must not crash, got: %v", err)
 	}
-	if res.Degraded != "lsp_not_built" {
-		t.Fatalf("lsp=true must set degraded=lsp_not_built (a reported no-op), got %q", res.Degraded)
+	if res.Degraded == "lsp_not_built" {
+		t.Fatalf("lsp=true must NOT report the no-op (the window is closed — the tier runs), got degraded=%q", res.Degraded)
 	}
-	found := false
 	for _, w := range res.Warnings {
 		if w == "LSP tier not yet built (TICKET-08b)" {
-			found = true
+			t.Fatalf("lsp=true must not carry the no-op message (the tier is built), got warnings=%v", res.Warnings)
 		}
 	}
-	if !found {
-		t.Fatalf("lsp=true must include the message 'LSP tier not yet built (TICKET-08b)', got warnings=%v", res.Warnings)
+
+	// capabilities.lsp:true in code_status (the tier is wired + ran).
+	status, err := ch.Status(ctx, "")
+	if err != nil {
+		t.Fatalf("code_status: %v", err)
+	}
+	if !status.Capabilities["lsp"] {
+		t.Fatalf("code_status must report capabilities.lsp:true (--lsp ran the tier), got %v", status.Capabilities)
 	}
 
-	// The MCP surface: the code_index tool's lsp:true arg carries the same
-	// degraded string (I-3). The CallTool's envelope carries degraded
-	// (the wrapEnvelope of the IndexResult with Degraded set).
+	// The resolved member call → an LSP_RESOLVED edge in the store (the 4th
+	// confidence tier).
+	stStore := ch.Store()
+	raw, _ := stStore.(interface {
+		RawQuery(query string, args ...any) ([][]any, error)
+	})
+	if raw == nil {
+		t.Fatalf("the test store must expose the RawQuery seam")
+	}
+	rows, err := raw.RawQuery(`SELECT COUNT(*) FROM edges WHERE confidence = 'LSP_RESOLVED'`)
+	if err != nil {
+		t.Fatalf("count LSP_RESOLVED edges: %v", err)
+	}
+	if len(rows) == 0 || len(rows[0]) == 0 {
+		t.Fatalf("the LSP pass must write the resolved edge (the mock resolver resolved s.Do)")
+	}
+	if n, ok := rows[0][0].(int64); !ok || n != 1 {
+		t.Fatalf("one resolved call → one LSP_RESOLVED edge, got %v", rows[0][0])
+	}
+
+	// The MCP surface: the code_index tool's lsp:true arg drives the same
+	// tier (I-3 — the surface parity, the window closed on both surfaces).
+	ch2 := newTestCodeHandler(t)
+	ch2.SetRootForTest(root)
+	ch2.SetLSPResolverForTest(func(ctx context.Context, filePath string, line int, receiver, callee string) (string, bool, error) {
+		if receiver == "s" && callee == "Do" {
+			return "Do", true, nil
+		}
+		return "", false, nil
+	})
 	srv := NewServer(newTestHandler(t), All)
 	defer srv.Close()
-	srv.RegisterCodeTools(ch)
+	srv.RegisterCodeTools(ch2)
 	out := srv.CallTool(ctx, "code_index", map[string]any{"lsp": true})
 	resMap := mustMap(t, out)
-	if resMap["degraded"] != "lsp_not_built" {
-		t.Fatalf("the MCP code_index lsp:true must carry degraded=lsp_not_built, got: %v", resMap)
+	if resMap["degraded"] == "lsp_not_built" {
+		t.Fatalf("the MCP code_index lsp:true must NOT report the no-op (the window is closed), got: %v", resMap)
 	}
 }
 

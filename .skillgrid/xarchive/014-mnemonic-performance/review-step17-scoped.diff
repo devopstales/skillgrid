@@ -1,0 +1,702 @@
+diff --git a/skillgrid-cli/cmd/skillgrid/mem.go b/skillgrid-cli/cmd/skillgrid/mem.go
+index a2c253c..5b6667e 100644
+--- a/skillgrid-cli/cmd/skillgrid/mem.go
++++ b/skillgrid-cli/cmd/skillgrid/mem.go
+@@ -94,6 +94,8 @@ func runMem(version string, args []string) {
+ 		runMemExpire(svc, dataDir)
+ 	case "export":
+ 		runMemExport(svc, projID, exportFile, skipEmb)
++	case "distill":
++		runMemDistill(svc, projID, pos)
+ 	case "help", "-h", "--help":
+ 		printMemUsage()
+ 	default:
+@@ -104,7 +106,7 @@ func runMem(version string, args []string) {
+ }
+ 
+ func printMemUsage() {
+-	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|relations|provenance|expire|export> [args]
++	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|relations|provenance|expire|export|distill> [args]
+ 
+   layers <session_id|topic_key>   inspect the L0→L1→L2→L3 chain (mem_layers)
+   governance <id>                 governed-asset view (mem_governance)
+@@ -128,9 +130,12 @@ func printMemUsage() {
+                                        llm_reasoning); clear message when unset
+   expire                          retire expired observations across all projects
+                                    (TTL sweep; best-effort, exit 0 on missing stores)
+-  export [--file out.json] [--skip-embeddings]
+-                                   portable COGX JSON export of observations +
+-                                   graph edges + embeddings (stdout by default)
++   export [--file out.json] [--skip-embeddings]
++                                    portable COGX JSON export of observations +
++                                    graph edges + embeddings (stdout by default)
++   distill status                   show the project's distillation lock
++                                    (project_id, locked_at, locked_by; or
++                                    "no active locks" when free)
+ 
+ Flags:
+   --project ID    project bucket (defaults to CWD-resolved)
+@@ -644,6 +649,59 @@ func runMemProvenance(svc *service.Service, projID string, pos []string) {
+ 	})
+ }
+ 
++// runMemDistill is the CLI for the distillation lock status (014 step 17.4,
++// `mem distill status`): it shows the project's per-project distillation lock —
++// the project_id, locked_at, and locked_by when a lock is held — or "no active
++// locks" when the project is not locked. It is read-only: it never acquires or
++// releases a lock, so it is safe to run while a distillation is in flight.
++func runMemDistill(svc *service.Service, projID string, pos []string) {
++	sub := ""
++	if len(pos) >= 1 {
++		sub = pos[0]
++	}
++	switch sub {
++	case "status":
++		h, cleanup, err := svc.Open(projID)
++		if err != nil {
++			fmt.Fprintln(os.Stderr, "error:", err)
++			os.Exit(1)
++		}
++		defer cleanup()
++		locks := memory.NewDistillLockService(h.Memory().DB())
++		status, err := locks.DistillLockStatus(hCtx(), projID)
++		if err != nil {
++			fmt.Fprintln(os.Stderr, "error:", err)
++			os.Exit(1)
++		}
++		if !status.Held && status.LockedAt == "" {
++			printJSON(map[string]any{
++				"project": projID,
++				"status":  "no active locks",
++			})
++			return
++		}
++		out := map[string]any{
++			"project": projID,
++			"status":  map[string]any{
++				"project_id": status.ProjectID,
++				"locked_at":  status.LockedAt,
++				"locked_by":  status.LockedBy,
++				"held":       status.Held,
++			},
++		}
++		printJSON(out)
++	case "", "help", "-h", "--help":
++		fmt.Fprint(os.Stderr, `usage: skillgrid mem distill <status>
++
++  status    show the project's distillation lock (held: project_id, locked_at,
++            locked_by; or "no active locks" when free)
++`)
++	default:
++		fmt.Fprintf(os.Stderr, "error: unknown distill subcommand %q\n", sub)
++		os.Exit(2)
++	}
++}
++
+ func looksLikeSession(s string) bool {
+ 	// A session id is a UUID (36 chars with dashes) or a bare token with no
+ 	// spaces; a topic_key typically contains '/'.
+diff --git a/skillgrid-cli/cmd/skillgrid/mem_distill_test.go b/skillgrid-cli/cmd/skillgrid/mem_distill_test.go
+new file mode 100644
+index 0000000..484d934
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/mem_distill_test.go
+@@ -0,0 +1,105 @@
++package main
++
++import (
++	"context"
++	"encoding/json"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// TestDistillStatusCLI covers 17.4: `mem distill status` shows the per-project
++// distillation lock state. With a lock held it prints the lock with its
++// project_id, locked_at timestamp, and locked_by; with no lock it prints
++// "no active locks". The status is a read-only diagnostic — it never acquires
++// or releases a lock.
++func TestDistillStatusCLI(t *testing.T) {
++	dataDir := t.TempDir()
++	project := "memcli-distill-status"
++
++	st, err := store.Open(dataDir, project)
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++
++	// No lock yet → `mem distill status` reports no active locks.
++	out := runMemCLI(t, dataDir, "distill", "status", "--project", project, "--dir", dataDir)
++	if !strings.Contains(out, "no active locks") {
++		t.Fatalf("mem distill status with no lock should report no active locks, got:\n%s", out)
++	}
++
++	// Acquire a distill lock for the project (the state the CLI should show).
++	locks := memory.NewDistillLockService(st.DB)
++	if err := locks.Acquire(context.Background(), project, "status-worker"); err != nil {
++		t.Fatalf("acquire: %v", err)
++	}
++	st.Close()
++
++	// `mem distill status` now shows the lock held: project_id, locked_at, and
++	// locked_by are all present.
++	out = runMemCLI(t, dataDir, "distill", "status", "--project", project, "--dir", dataDir)
++	if !strings.Contains(out, project) {
++		t.Fatalf("mem distill status should show the project id, got:\n%s", out)
++	}
++	if !strings.Contains(out, "status-worker") {
++		t.Fatalf("mem distill status should show locked_by, got:\n%s", out)
++	}
++	for _, label := range []string{"project_id", "locked_at", "locked_by"} {
++		if !strings.Contains(out, label) {
++			t.Fatalf("mem distill status missing field %q, got:\n%s", label, out)
++		}
++	}
++
++	// Release the lock → the CLI reports no active locks again.
++	st2, err := store.Open(dataDir, project)
++	if err != nil {
++		t.Fatalf("reopen: %v", err)
++	}
++	locks2 := memory.NewDistillLockService(st2.DB)
++	if err := locks2.Release(context.Background(), project); err != nil {
++		t.Fatalf("release: %v", err)
++	}
++	st2.Close()
++
++	out = runMemCLI(t, dataDir, "distill", "status", "--project", project, "--dir", dataDir)
++	if !strings.Contains(out, "no active locks") {
++		t.Fatalf("after release, mem distill status should report no active locks, got:\n%s", out)
++	}
++}
++
++// TestDistillStatusCLITimestamp guards that the shown locked_at is a real
++// RFC3339 timestamp (not empty or a placeholder).
++func TestDistillStatusCLITimestamp(t *testing.T) {
++	dataDir := t.TempDir()
++	project := "memcli-distill-ts"
++
++	st, err := store.Open(dataDir, project)
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	locks := memory.NewDistillLockService(st.DB)
++	if err := locks.Acquire(context.Background(), project, "ts-worker"); err != nil {
++		t.Fatalf("acquire: %v", err)
++	}
++	st.Close()
++
++	out := runMemCLI(t, dataDir, "distill", "status", "--project", project, "--dir", dataDir)
++	// The locked_at value must be parseable as RFC3339 (a real timestamp).
++	var parsed struct {
++		Status struct {
++			LockedAt string `json:"locked_at"`
++		} `json:"status"`
++	}
++	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
++		t.Fatalf("mem distill status is not valid JSON: %v\n%s", err, out)
++	}
++	if parsed.Status.LockedAt == "" {
++		t.Fatalf("locked_at is empty, got:\n%s", out)
++	}
++	if _, err := time.Parse(time.RFC3339, parsed.Status.LockedAt); err != nil {
++		t.Fatalf("locked_at %q is not RFC3339: %v", parsed.Status.LockedAt, err)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/distill_lock.go b/skillgrid-cli/internal/mnemonic/memory/distill_lock.go
+new file mode 100644
+index 0000000..bca88dc
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/distill_lock.go
+@@ -0,0 +1,125 @@
++package memory
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++	"strings"
++)
++
++// DistillLockService is the per-project distillation lock exposed under its
++// distillation name (014 step 17). It is a thin alias over step 12's
++// DreamLockService: the same distill_lock table (migration 024), the same
++// 5-minute TTL, and the same atomic acquire — so the two names are the same
++// lock and a dream and a distill can never run concurrently on one project.
++// Wrapping (rather than duplicating) keeps a single source of truth for the
++// row-per-project semantics, the TTL boundary, and the auto-release on
++// staleness.
++type DistillLockService struct {
++	db    *sql.DB
++	inner *DreamLockService
++}
++
++// NewDistillLockService builds a distillation lock bound to the store's
++// *sql.DB. The DB must already have migration 024 applied (distill_lock
++// exists). It delegates to NewDreamLockService so both constructors share the
++// same clock seam default and the same row schema.
++func NewDistillLockService(db *sql.DB) *DistillLockService {
++	return &DistillLockService{db: db, inner: NewDreamLockService(db)}
++}
++
++// Acquire takes the distillation lock for projectID, owned by holder. It
++// succeeds when the project is not locked or its lock is stale (auto-released
++// after the 5-minute TTL); it fails when a fresh lock is held. One row per
++// project is created on first acquire (17.1).
++func (l *DistillLockService) Acquire(ctx context.Context, projectID, holder string) error {
++	if l == nil || l.inner == nil {
++		return errDistillLockUninit
++	}
++	return l.inner.Acquire(ctx, projectID, holder)
++}
++
++// Release removes the distillation lock for projectID. Idempotent: releasing a
++// project that is not locked is a no-op (17.1: the row is removed).
++func (l *DistillLockService) Release(ctx context.Context, projectID string) error {
++	if l == nil || l.inner == nil {
++		return errDistillLockUninit
++	}
++	return l.inner.Release(ctx, projectID)
++}
++
++// IsLocked reports whether projectID holds a FRESH (non-stale) distillation
++// lock, delegating to the dream lock's freshness check (stale = free).
++func (l *DistillLockService) IsLocked(ctx context.Context, projectID string) (bool, error) {
++	if l == nil || l.inner == nil {
++		return false, errDistillLockUninit
++	}
++	return l.inner.IsLocked(ctx, projectID)
++}
++
++// AsDreamLock exposes the underlying *DreamLockService. Step 12's DreamRollback
++// (dream_rollback.go) releases the lock through this type, so a distill rollback
++// hands it the same *DreamLockService its Acquire/Release delegate to — the
++// DistillLockService and DreamLockService are the same lock (same rows, same
++// TTL), so the release lands on the row Acquire created.
++func (l *DistillLockService) AsDreamLock() *DreamLockService {
++	if l == nil {
++		return nil
++	}
++	return l.inner
++}
++
++// DistillLockStatus is one row of the `mem distill status` report: a project's
++// lock state as of the read (014 step 17.4). Held is true when a FRESH (non-
++// stale) lock is present; LockedAt/LockedBy are the raw row values (present when
++// a row exists, whether fresh or stale — a stale lock is still visible, just not
++// "held").
++type DistillLockStatus struct {
++	ProjectID string `json:"project_id"`
++	LockedAt  string `json:"locked_at,omitempty"`
++	LockedBy  string `json:"locked_by,omitempty"`
++	Held      bool   `json:"held"`
++}
++
++// DistillLockStatus reads the project's distillation lock row (014 step 17.4).
++// It is a read-only diagnostic for `mem distill status`: it reports the lock's
++// project_id, locked_at, and locked_by, and whether the lock is currently HELD
++// (fresh, not past the 5-minute TTL). It never acquires or releases a lock.
++func (l *DistillLockService) DistillLockStatus(ctx context.Context, projectID string) (DistillLockStatus, error) {
++	if l == nil || l.db == nil {
++		return DistillLockStatus{}, errDistillLockUninit
++	}
++	projectID = strings.TrimSpace(projectID)
++	if projectID == "" {
++		return DistillLockStatus{}, fmt.Errorf("project_id is required")
++	}
++	var lockedAt, lockedBy string
++	err := l.db.QueryRowContext(ctx, `
++		SELECT locked_at, locked_by FROM distill_lock WHERE project_id = ?`,
++		projectID).Scan(&lockedAt, &lockedBy)
++	if err == sql.ErrNoRows {
++		return DistillLockStatus{ProjectID: projectID, Held: false}, nil
++	}
++	if err != nil {
++		return DistillLockStatus{}, fmt.Errorf("distill lock status %q: %w", projectID, err)
++	}
++	held, err := l.inner.IsLocked(ctx, projectID)
++	if err != nil {
++		return DistillLockStatus{}, err
++	}
++	return DistillLockStatus{ProjectID: projectID, LockedAt: lockedAt, LockedBy: lockedBy, Held: held}, nil
++}
++
++var errDistillLockUninit = newDistillLockUninitError()
++
++// newDistillLockUninitError returns the sentinel for a not-initialized distill
++// lock service (mirrors the "not initialized" wording of the dream lock).
++func newDistillLockUninitError() error {
++	return &distillLockUninitError{}
++}
++
++type distillLockUninitError struct{}
++
++func (e *distillLockUninitError) Error() string {
++	return "distill lock service not initialized"
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/distill_lock_test.go b/skillgrid-cli/internal/mnemonic/memory/distill_lock_test.go
+new file mode 100644
+index 0000000..4b93b6c
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/distill_lock_test.go
+@@ -0,0 +1,84 @@
++package memory
++
++import (
++	"context"
++	"testing"
++)
++
++// TestDistillLockRowPerProject (014 step 17.1): the DistillLockService keeps one
++// distill_lock row per project. Acquire(A) creates A's row; Acquire(B) creates
++// a SEPARATE row (the lock is per-project, not global); Acquire(A) again
++// detects the existing fresh lock and fails; Release(A) removes A's row (and
++// only A's).
++func TestDistillLockRowPerProject(t *testing.T) {
++	_, svc := newTestStore(t, "distilllockproj")
++	ctx := context.Background()
++	db := svc.DB()
++	locks := NewDistillLockService(db)
++
++	countRow := func(projectID string) int {
++		t.Helper()
++		var n int
++		if err := db.QueryRow(`SELECT COUNT(*) FROM distill_lock WHERE project_id = ?`, projectID).Scan(&n); err != nil {
++			t.Fatalf("count row %s: %v", projectID, err)
++		}
++		return n
++	}
++	countTotal := func() int {
++		t.Helper()
++		var n int
++		if err := db.QueryRow(`SELECT COUNT(*) FROM distill_lock`).Scan(&n); err != nil {
++			t.Fatalf("count total: %v", err)
++		}
++		return n
++	}
++
++	// 1. Acquire A → creates a row for A.
++	if err := locks.Acquire(ctx, "A", "w1"); err != nil {
++		t.Fatalf("acquire A: %v", err)
++	}
++	if got := countRow("A"); got != 1 {
++		t.Fatalf("acquire A created %d rows, want 1", got)
++	}
++
++	// 2. Acquire B → creates a SEPARATE row for B (A's row is untouched).
++	if err := locks.Acquire(ctx, "B", "w2"); err != nil {
++		t.Fatalf("acquire B: %v", err)
++	}
++	if got := countRow("B"); got != 1 {
++		t.Fatalf("acquire B created %d rows, want 1", got)
++	}
++	if got := countRow("A"); got != 1 {
++		t.Fatalf("acquire B disturbed A's row (A now has %d)", got)
++	}
++	if got := countTotal(); got != 2 {
++		t.Fatalf("two projects locked, want 2 total rows, got %d", got)
++	}
++
++	// 3. Acquire A again → detects the existing fresh lock (fails).
++	if err := locks.Acquire(ctx, "A", "w3"); err == nil {
++		t.Fatalf("second acquire A should fail while held and fresh")
++	}
++	if got := countRow("A"); got != 1 {
++		t.Fatalf("failed acquire A should leave exactly 1 A row, got %d", got)
++	}
++
++	// 4. Release A → removes A's row; B's row is untouched.
++	if err := locks.Release(ctx, "A"); err != nil {
++		t.Fatalf("release A: %v", err)
++	}
++	if got := countRow("A"); got != 0 {
++		t.Fatalf("release A left %d A rows, want 0", got)
++	}
++	if got := countRow("B"); got != 1 {
++		t.Fatalf("release A disturbed B (B now has %d)", got)
++	}
++	if got := countTotal(); got != 1 {
++		t.Fatalf("after release A, want 1 total row (B), got %d", got)
++	}
++
++	// Cleanup: release B so the store is not left locked.
++	if err := locks.Release(ctx, "B"); err != nil {
++		t.Fatalf("release B (cleanup): %v", err)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/distill_lock_timeout_test.go b/skillgrid-cli/internal/mnemonic/memory/distill_lock_timeout_test.go
+new file mode 100644
+index 0000000..84121b0
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/distill_lock_timeout_test.go
+@@ -0,0 +1,57 @@
++package memory
++
++import (
++	"context"
++	"testing"
++	"time"
++)
++
++// TestDistillLockTimeoutAutoRelease (014 step 17.3): a distill lock has a
++// 5-minute timeout. A lock 6 minutes old is stale — the next Acquire
++// auto-releases it and takes over. A lock only 1 minute old is fresh — the next
++// Acquire fails. This guards the dreamLockTTL boundary through the distill name.
++func TestDistillLockTimeoutAutoRelease(t *testing.T) {
++	_, svc := newTestStore(t, "distilltimeoutproj")
++	ctx := context.Background()
++	db := svc.DB()
++	locks := NewDistillLockService(db)
++
++	// Acquire a lock, then backdate it to 6 minutes ago (simulate staleness).
++	if err := locks.Acquire(ctx, "A", "holder-1"); err != nil {
++		t.Fatalf("acquire A: %v", err)
++	}
++	stale := time.Now().UTC().Add(-6 * time.Minute).Format(time.RFC3339)
++	if _, err := db.Exec(`UPDATE distill_lock SET locked_at = ? WHERE project_id = ?`, stale, "A"); err != nil {
++		t.Fatalf("backdate lock: %v", err)
++	}
++
++	// The stale lock is auto-released: a new acquisition succeeds and takes
++	// over (locked_by is now holder-2).
++	if err := locks.Acquire(ctx, "A", "holder-2"); err != nil {
++		t.Fatalf("acquire over stale lock should succeed (auto-release): %v", err)
++	}
++	var by string
++	if err := db.QueryRow(`SELECT locked_by FROM distill_lock WHERE project_id = ?`, "A").Scan(&by); err != nil {
++		t.Fatalf("read locked_by: %v", err)
++	}
++	if by != "holder-2" {
++		t.Fatalf("stale lock not auto-released: locked_by=%q want holder-2", by)
++	}
++
++	// A lock that is only 1 minute old is NOT released: a new acquisition
++	// fails (the lock is still held and fresh).
++	fresh := time.Now().UTC().Add(-1 * time.Minute).Format(time.RFC3339)
++	if _, err := db.Exec(`UPDATE distill_lock SET locked_at = ? WHERE project_id = ?`, fresh, "A"); err != nil {
++		t.Fatalf("set fresh lock: %v", err)
++	}
++	if err := locks.Acquire(ctx, "A", "holder-3"); err == nil {
++		t.Fatalf("1-minute-old lock should still be held (not auto-released)")
++	}
++	// The original holder is unchanged (the failed acquire left it alone).
++	if err := db.QueryRow(`SELECT locked_by FROM distill_lock WHERE project_id = ?`, "A").Scan(&by); err != nil {
++		t.Fatalf("read locked_by after failed acquire: %v", err)
++	}
++	if by != "holder-2" {
++		t.Fatalf("failed acquire disturbed the held lock: locked_by=%q want holder-2", by)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/dream_rollback.go b/skillgrid-cli/internal/mnemonic/memory/dream_rollback.go
+index 74f4c96..31f632a 100644
+--- a/skillgrid-cli/internal/mnemonic/memory/dream_rollback.go
++++ b/skillgrid-cli/internal/mnemonic/memory/dream_rollback.go
+@@ -2,10 +2,19 @@ package memory
+ 
+ import (
+ 	"context"
++	"database/sql"
+ 	"fmt"
+ 	"strings"
+ )
+ 
++// distillRollbackExec runs one SQL statement for the rollback's restore and
++// orphan-sweep steps, operating on the rollback's transaction. It is the seam
++// TestDistillRollbackAtomic swaps in a failing executor through: a rollback is
++// only safe if the restore and the sweep commit or roll back TOGETHER (step 12
++// finding F1). The default (txExec) runs the statement on the tx, so every
++// restore/sweep statement is part of the single atomic commit.
++type distillRollbackExec func(ctx context.Context, tx *sql.Tx, query string, args ...any) error
++
+ // ObservationSnapshot captures the full pre-distill state of a single live
+ // observation (014 step 12.5). DreamRollback uses these snapshots to restore
+ // the project to the exact state it had before consolidate/synthesize mutated
+@@ -90,37 +99,74 @@ func (de *DreamExecutor) Snapshot(ctx context.Context) ([]ObservationSnapshot, e
+ //     that is back but was not in the snapshot — e.g. a consolidated record
+ //     created during the failed run — is hard-deleted, so only the pre-distill
+ //     rows remain).
+-//  2. Release the distillation lock for the project so it can be re-dreamed.
++//  2. Remove any observation created during the failed dream (its id is not in
++//     the pre-distill snapshot) — the orphan sweep.
++//  3. Release the distillation lock for the project so it can be re-dreamed.
++//
++// Steps 1 and 2 run in a SINGLE transaction (014 step 17.2, fixing step 12
++// finding F1). The pre-17 rollback ran them as independent auto-committed
++// statements, so a crash mid-rollback left a half-restored project (some rows
++// restored, the sweep not run). Wrapping them in one transaction means a
++// failure anywhere in the restore/sweep rolls the whole thing back: the project
++// is either exactly pre-distill or exactly as the failed dream left it — never
++// partway.
+ //
+-// The lock release is best-effort-last: rollback restores data first, then
+-// frees the lock, so a restore that fails leaves the lock held (fail loud, do
+-// not free a project whose data may be half-restored).
++// The lock release (step 3) is deliberately OUTSIDE the transaction and is
++// best-effort-last: it runs only after the data commit succeeded, so a rollback
++// that fails leaves the lock HELD (fail loud — do not free a project whose data
++// may not be fully restored).
+ func (de *DreamExecutor) DreamRollback(ctx context.Context, projectID string, pre []ObservationSnapshot, locks *DreamLockService) error {
++	return de.DreamRollbackWith(ctx, projectID, pre, locks, de.txExec)
++}
++
++// DreamRollbackWith is DreamRollback with an injected executor for the
++// restore/sweep SQL (the distillRollbackExec seam). It exists so the atomicity
++// guarantee (step 17.2 / step 12 F1) is testable: TestDistillRollbackAtomic
++// injects a failing executor to prove a mid-rollback crash rolls the whole
++// transaction back rather than leaving a half-restored project.
++func (de *DreamExecutor) DreamRollbackWith(ctx context.Context, projectID string, pre []ObservationSnapshot, locks *DreamLockService, exec distillRollbackExec) error {
+ 	if de == nil || de.svc == nil || de.svc.DB() == nil {
+ 		return fmt.Errorf("dream executor not initialized")
+ 	}
+ 	if projectID == "" {
+ 		return fmt.Errorf("project_id is required")
+ 	}
++	db := de.svc.DB()
++
++	// Steps 1 + 2 in one transaction: restore then sweep, committed atomically.
++	// The injected exec is the sole SQL path — the default (txExec) runs each
++	// statement on the tx, so the restore and the sweep are one atomic commit;
++	// a test can swap it for a failing executor to simulate a mid-rollback crash.
++	tx, err := db.BeginTx(ctx, nil)
++	if err != nil {
++		return fmt.Errorf("begin rollback tx: %w", err)
++	}
++	committed := false
++	defer func() {
++		if !committed {
++			_ = tx.Rollback()
++		}
++	}()
+ 
+-	// 1. Restore the captured rows (exact column round-trip).
++	// 1. Restore the captured rows (exact column round-trip) inside the tx.
+ 	for i := range pre {
+-		if err := de.restoreSnapshot(ctx, &pre[i]); err != nil {
++		if err := execSnapshot(ctx, tx, &pre[i], exec); err != nil {
+ 			return fmt.Errorf("restore observation %d: %w", pre[i].ID, err)
+ 		}
+ 	}
+ 
+ 	// 2. Remove any observation created during the failed dream (its id is not
+-	//    in the pre-distill snapshot) — e.g. the consolidated record or a
+-	//    partial synthesis. A hard DELETE is safe here: the row is brand-new
+-	//    (absent from the pre-distill snapshot), so there is no prior state to
+-	//    preserve. SQLite has no IN-with-Go-slice, so the id list is bound
+-	//    positionally.
+-	if err := de.deleteOrphans(ctx, projectID, idsOf(pre)); err != nil {
++	//    in the pre-distill snapshot) — the orphan sweep, inside the same tx.
++	if err := deleteOrphansTx(ctx, tx, projectID, idsOf(pre), exec); err != nil {
+ 		return err
+ 	}
+ 
+-	// 3. Release the lock (best-effort, after data is restored).
++	if err := tx.Commit(); err != nil {
++		return fmt.Errorf("commit rollback: %w", err)
++	}
++	committed = true
++
++	// 3. Release the lock (outside the tx, after the data commit succeeded).
+ 	if locks != nil {
+ 		if err := locks.Release(ctx, projectID); err != nil {
+ 			return fmt.Errorf("release lock after rollback: %w", err)
+@@ -129,45 +175,20 @@ func (de *DreamExecutor) DreamRollback(ctx context.Context, projectID string, pr
+ 	return nil
+ }
+ 
+-// idsOf returns the observation ids in pre as a fresh []int64 (for the orphan
+-// sweep's NOT IN clause).
+-func idsOf(pre []ObservationSnapshot) []int64 {
+-	out := make([]int64, len(pre))
+-	for i := range pre {
+-		out[i] = pre[i].ID
+-	}
+-	return out
+-}
+-
+-// deleteOrphans hard-deletes the project's observations whose id is not in
+-// keep (the pre-distill snapshot ids) — i.e. rows created by the failed dream.
+-// An empty keep set leaves nothing to keep, so nothing is deleted (the sweep
+-// is a no-op when the dream created no new rows).
+-func (de *DreamExecutor) deleteOrphans(ctx context.Context, projectID string, keep []int64) error {
+-	if len(keep) == 0 {
+-		return nil
+-	}
+-	placeholders := make([]string, len(keep))
+-	args := make([]any, 0, len(keep)+1)
+-	args = append(args, projectID)
+-	for i, id := range keep {
+-		placeholders[i] = "?"
+-		args = append(args, id)
+-	}
+-	q := fmt.Sprintf(`
+-		DELETE FROM observations
+-		WHERE project = ? AND id NOT IN (%s)`, strings.Join(placeholders, ", "))
+-	if _, err := de.svc.DB().ExecContext(ctx, q, args...); err != nil {
+-		return fmt.Errorf("rollback sweep: %w", err)
++// txExec is the default rollback executor: it runs the statement on the
++// rollback transaction, so the restore and the sweep are one atomic commit.
++func (de *DreamExecutor) txExec(ctx context.Context, tx *sql.Tx, query string, args ...any) error {
++	if _, err := tx.ExecContext(ctx, query, args...); err != nil {
++		return err
+ 	}
+ 	return nil
+ }
+ 
+-// restoreSnapshot writes one observation back to its captured pre-distill
+-// column values, upserting by id (the row may have been soft-deleted or
+-// rewritten by the failed dream; restoring must bring it back regardless).
+-func (de *DreamExecutor) restoreSnapshot(ctx context.Context, s *ObservationSnapshot) error {
+-	_, err := de.svc.DB().ExecContext(ctx, `
++// execSnapshot writes one observation back to its captured pre-distill column
++// values, upserting by id (the row may have been soft-deleted or rewritten by
++// the failed dream; restoring must bring it back regardless).
++func execSnapshot(ctx context.Context, tx *sql.Tx, s *ObservationSnapshot, exec distillRollbackExec) error {
++	return exec(ctx, tx, `
+ 		INSERT INTO observations (
+ 			id, session_id, type, title, content, project, scope, topic_key,
+ 			normalized_hash, revision_count, owner, visibility, status,
+@@ -205,8 +226,38 @@ func (de *DreamExecutor) restoreSnapshot(ctx context.Context, s *ObservationSnap
+ 		s.RetrievalUsage, s.PromptID, s.CreatedAt, s.UpdatedAt, s.Pinned,
+ 		s.DuplicateCount, s.LastSeenAt, s.ExpiresAt, s.ToolName, s.GraphRef, s.DeletedAt,
+ 	)
+-	if err != nil {
+-		return fmt.Errorf("restore %d: %w", s.ID, err)
++}
++
++// deleteOrphansTx hard-deletes the project's observations whose id is not in
++// keep (the pre-distill snapshot ids) — i.e. rows created by the failed dream.
++// An empty keep set leaves nothing to keep, so nothing is deleted (the sweep is
++// a no-op when the dream created no new rows).
++func deleteOrphansTx(ctx context.Context, tx *sql.Tx, projectID string, keep []int64, exec distillRollbackExec) error {
++	if len(keep) == 0 {
++		return nil
++	}
++	placeholders := make([]string, len(keep))
++	args := make([]any, 0, len(keep)+1)
++	args = append(args, projectID)
++	for i, id := range keep {
++		placeholders[i] = "?"
++		args = append(args, id)
++	}
++	q := fmt.Sprintf(`
++		DELETE FROM observations
++		WHERE project = ? AND id NOT IN (%s)`, strings.Join(placeholders, ", "))
++	if err := exec(ctx, tx, q, args...); err != nil {
++		return fmt.Errorf("rollback sweep: %w", err)
+ 	}
+ 	return nil
+ }
++
++// idsOf returns the observation ids in pre as a fresh []int64 (for the orphan
++// sweep's NOT IN clause).
++func idsOf(pre []ObservationSnapshot) []int64 {
++	out := make([]int64, len(pre))
++	for i := range pre {
++		out[i] = pre[i].ID
++	}
++	return out
++}

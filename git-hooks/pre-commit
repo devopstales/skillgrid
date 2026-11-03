@@ -1,0 +1,74 @@
+#!/bin/sh
+# pre-commit — all pre-commit checks in one script.
+# Single source of truth for pre-commit; .git/hooks/pre-commit should be
+# empty or a thin shim after consolidation.
+#
+# Order: gitleaks → taskwright worktree guard → ADR invariants → gofmt → checkpoint-state guards
+set -uo pipefail
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+cd "$root" || exit 0
+
+# 1. gitleaks (fail-closed when installed and .skip_gitleaks absent)
+if [ ! -f ".skip_gitleaks" ] && command -v gitleaks >/dev/null 2>&1; then
+    if [ -f ".gitleaks-report.json" ]; then
+        gitleaks detect --baseline-path ".gitleaks-report.json" || exit 1
+    else
+        gitleaks detect -vls || exit 1
+    fi
+fi
+
+# 2. taskwright worktree guard
+if [ -f ".taskwright/hooks/worktree-guard.js" ]; then
+    node ".taskwright/hooks/worktree-guard.js" || exit 1
+fi
+
+# 3. ADR invariants
+if [ -f "scripts/check-adr-invariants.mjs" ]; then
+    node scripts/check-adr-invariants.mjs || {
+        echo ""
+        echo "ADR invariant check failed — fix the drift above (or run: node scripts/check-adr-invariants.mjs)"
+        exit 1
+    }
+fi
+
+# 3b. STATUS banner contract (advisory — surfaces banner drift without blocking,
+#     since pre-existing briefings may predate the contract).
+if [ -f "scripts/status-banner.mjs" ]; then
+    if ! banner_out=$(node scripts/status-banner.mjs check . 2>&1); then
+        echo ""
+        echo "STATUS banner drift (advisory — run: node scripts/status-banner.mjs check):"
+        echo "$banner_out"
+    fi
+fi
+
+# 4. checkpoint-state guards (zone guard, cwd-drift, protected-ref, etc.)
+if [ -f "$root/git-hooks/pre-commit.js" ]; then
+    node "$root/git-hooks/pre-commit.js" || exit 1
+fi
+
+# 5. backlog task filenames: ASCII only (em dashes, accented chars, etc.
+#    survive the backlog CLI's slugify and produce unquotable filenames).
+backlog_files=$(git -c core.quotepath=false diff --cached --name-only 2>/dev/null | grep '^\.backlog/tasks/.*\.md$' || true)
+if [ -n "$backlog_files" ]; then
+    bad=$(echo "$backlog_files" | LC_ALL=C grep '[^ -~]' 2>/dev/null || true)
+    if [ -n "$bad" ]; then
+        echo "backlog: non-ASCII characters in task filename (use hyphens, not em dashes):"
+        echo "$bad"
+        exit 1
+    fi
+fi
+
+# 6. gofmt on staged Go files
+gofmt_files=$(git diff --cached --name-only 2>/dev/null | grep '\.go$')
+if [ -n "$gofmt_files" ]; then
+    unformatted=$(echo "$gofmt_files" | xargs gofmt -l 2>/dev/null)
+    if [ -n "$unformatted" ]; then
+        echo "gofmt: unformatted files:"
+        echo "$unformatted"
+        echo "Run: gofmt -w <file>"
+        exit 1
+    fi
+fi
+
+exit 0

@@ -55,6 +55,16 @@ type CodeHandler struct {
 	indexFn func(ctx context.Context, root string, st store.Store, opts codeindex.IndexOpts) (codeindex.IndexReport, error)
 	// watch is the live watcher (code_watch starts it; nil when inactive).
 	watcher *watch.Watcher
+	// lspResolver is the LSP tier's per-call resolution seam (TICKET-08b —
+	// the mock seam, the test double for the real subprocess). Nil = the real
+	// server on PATH (gopls/pyright/...). Set via SetLSPResolverForTest.
+	lspResolver extract.LSPResolver
+	// lspWarn is the run's LSP degradation-note sink (the warn + continue
+	// contract's buffer; the Index result's Warnings surface it).
+	lspWarn struct {
+		sync.Mutex
+		notes []string
+	}
 }
 
 // NewCodeHandler builds a CodeHandler over a store. The detector owns project
@@ -355,25 +365,56 @@ func (h *CodeHandler) Index(ctx context.Context, project string, full, lsp, pdg,
 		}
 	}
 
+	// The LSP tier (TICKET-08b, CI-6 — the --lsp flag drives the tier; the
+	// TICKET-07 no-op window is closed): the cfg runs the member-call
+	// resolution in the core index's LSP pass (a resolved call → an
+	// LSP_RESOLVED edge). The tier is best-effort — a missing server degrades
+	// (lsp_unavailable:<lang>), never blocks; a nil handler resolver is the
+	// real server on PATH (gopls/pyright/typescript-language-server/
+	// rust-analyzer/clangd).
+	var lspCfg *extract.LSPConfig
+	if lsp {
+		lspCfg = &extract.LSPConfig{
+			Resolver: h.lspResolver, // nil = the real server on PATH
+			Warn:     func(s string) { h.lspWarn.Lock(); h.lspWarn.notes = append(h.lspWarn.notes, s); h.lspWarn.Unlock() },
+		}
+	}
+
 	// The core index run (the per-file extract tx + the orphan prune + the
-	// freshness record). The optional passes (lsp/pdg/communities/process)
-	// are the v2.1 deferrals — the core run is the v2 scope.
+	// freshness record) + the LSP pass when --lsp is set (the optional passes
+	// pdg/communities/process are the v2.1 deferrals).
 	if _, err := fn(ctx, root, h.st, codeindex.IndexOpts{
 		Project: p,
 		Stamp:   extract.Stamp(),
+		LSP:     lspCfg,
 	}); err != nil {
 		return IndexResult{RunID: runID, Status: "error"}, err
 	}
 
 	// The optional-pass degradation (F2 — the M8 contract: a REPORTED no-op,
-	// not a silent one). The v2 core run does not build the LSP/PDG/
-	// communities/process tiers; when a flag is set, the result carries the
-	// degraded string + the message (the agent sees the no-op, not a ghost).
+	// not a silent one). The LSP tier is BUILT (TICKET-08b): --lsp runs it; a
+	// missing server degrades (lsp_unavailable:<lang>, the run's warnings
+	// carry the note) — NOT "lsp_not_built" (that was the no-op window). The
+	// PDG/communities/process tiers remain the v2.1 deferrals.
 	res := IndexResult{RunID: runID, Status: "done"}
-	if lsp {
-		res.Degraded = "lsp_not_built"
-		res.Warnings = append(res.Warnings, "LSP tier not yet built (TICKET-08b)")
+	h.lspWarn.Lock()
+	res.Warnings = append(res.Warnings, h.lspWarn.notes...)
+	for _, w := range h.lspWarn.notes {
+		// A per-language unavailable note (the server binary for that
+		// language is missing) → the degraded flag carries the language
+		// (lsp_unavailable:<lang> — the tier ran but could not resolve that
+		// language's calls).
+		if i := strings.Index(w, "no server on PATH for "); i >= 0 {
+			rest := w[i+len("no server on PATH for "):]
+			if j := strings.IndexByte(rest, ' '); j >= 0 {
+				rest = rest[:j]
+			}
+			if rest != "" {
+				res.Degraded = "lsp_unavailable:" + rest
+			}
+		}
 	}
+	h.lspWarn.Unlock()
 	if pdg {
 		res.Warnings = append(res.Warnings, "PDG tier not yet built (v2.1) — run code_index --pdg in v2.1")
 	}
@@ -393,6 +434,15 @@ func (h *CodeHandler) Index(ctx context.Context, project string, full, lsp, pdg,
 func (h *CodeHandler) SetIndexFnForTest(fn func(ctx context.Context, root string, st store.Store, opts codeindex.IndexOpts) (codeindex.IndexReport, error)) {
 	h.mu.Lock()
 	h.indexFn = fn
+	h.mu.Unlock()
+}
+
+// SetLSPResolverForTest injects the LSP tier's per-call resolution seam (the
+// mock seam — the test double for the real subprocess, TICKET-08b). A nil
+// resolver is the default (the real server on PATH).
+func (h *CodeHandler) SetLSPResolverForTest(r extract.LSPResolver) {
+	h.mu.Lock()
+	h.lspResolver = r
 	h.mu.Unlock()
 }
 

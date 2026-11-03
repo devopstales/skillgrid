@@ -1,0 +1,282 @@
+=== 006 STEP 05 CODE COMMIT d529769 ===
+
+d529769 feat(mnemonic): optional session handoff watchdog
+
+=== STAT ===
+ skillgrid-cli/internal/mnemonic/relay/watchdog.go  |  92 +++++++++++
+ .../internal/mnemonic/relay/watchdog_test.go       | 168 +++++++++++++++++++++
+ 2 files changed, 260 insertions(+)
+
+=== DIFF ===
+diff --git a/skillgrid-cli/internal/mnemonic/relay/watchdog.go b/skillgrid-cli/internal/mnemonic/relay/watchdog.go
+new file mode 100644
+index 0000000..9e28ccc
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/relay/watchdog.go
+@@ -0,0 +1,92 @@
++package relay
++
++import (
++	"context"
++	"fmt"
++	"os"
++	"strconv"
++	"strings"
++)
++
++// Watchdog env vars (change 006, step 05). The watchdog is OFF BY DEFAULT:
++// with no enable gate set, Check is a no-op and never auto-hands-off. It is
++// never always-on — an explicit opt-in is required.
++//
++//	EnvWatchdog           — enable gate. Any value other than ""/off enables.
++//	EnvWatchdogThreshold  — the context-usage fraction (0.0–1.0) at/above
++//	                       which an enabled watchdog hands off.
++const (
++	EnvWatchdog          = "SKILLGRID_HANDOFF_WATCHDOG"
++	EnvWatchdogThreshold = "SKILLGRID_HANDOFF_WATCHDOG_THRESHOLD"
++)
++
++// isOff reports whether an enable-gate value means "off" (unset or falsy).
++func isOff(v string) bool {
++	switch strings.ToLower(strings.TrimSpace(v)) {
++	case "", "0", "off", "false", "no":
++		return true
++	}
++	return false
++}
++
++// WatchdogResult is the outcome of a watchdog Check. HandedOff is true only
++// when the watchdog actually invoked the SAME Relay.Handoff path (a row + the
++// cleave bundle were written). HandoffID/Paths mirror what Handoff returned.
++type WatchdogResult struct {
++	HandedOff bool
++	HandoffID string
++	Paths     []string
++}
++
++// Check is the optional, flag/env-gated context-limit watchdog (step 05). It
++// reads the enable gate (EnvWatchdog) + threshold (EnvWatchdogThreshold) and,
++// when enabled AND the current context-usage fraction is at/past the
++// threshold, triggers the SAME Relay.Handoff path (this is not a
++// re-implementation — it calls Handoff, so a session_handoffs row + the
++// .cleave/ bundle appear exactly as they would for an operator handoff).
++//
++// Usage-signal decision (05.1): Check takes the usage as a caller-supplied
++// fraction (usage, 0.0–1.0) rather than computing a token estimate internally.
++// The fraction is a client context-`%` / token-ratio supplied by the caller —
++// the same interface shape works whether the caller reports a context
++// percentage or a token ratio. This keeps the watchdog dependency-free and
++// hermetic: the fraction is an input, not something computed from a model, so
++// tests can drive it directly and the watchdog never needs a tokenizer.
++//
++// Semantics:
++//   - disabled (gate unset / off)  → no-op (no row, no bundle, no error).
++//   - below threshold              → no-op (no row, no bundle, no error).
++//   - enabled + at/past threshold  → SAME Relay.Handoff path.
++//   - invalid config (threshold not a number in [0,1]) → fail closed: a clear
++//     config error is returned and NO auto-handoff occurs.
++func Check(ctx context.Context, db Store, projectID, projectRoot string, usage float64, b Bundle) (WatchdogResult, error) {
++	// Off by default: no enable gate → no-op, never always-on.
++	if isOff(os.Getenv(EnvWatchdog)) {
++		return WatchdogResult{}, nil
++	}
++
++	thresholdStr := os.Getenv(EnvWatchdogThreshold)
++	if strings.TrimSpace(thresholdStr) == "" {
++		// Enabled but no threshold configured → invalid config, fail closed
++		// (we know the operator opted in, but not at what limit).
++		return WatchdogResult{}, fmt.Errorf("relay watchdog: %s is set but %s is empty; provide a threshold in [0,1]", EnvWatchdog, EnvWatchdogThreshold)
++	}
++	threshold, perr := strconv.ParseFloat(strings.TrimSpace(thresholdStr), 64)
++	if perr != nil || threshold < 0 || threshold > 1 {
++		// Malformed threshold (not a number, or out of [0,1]) → fail closed:
++		// clear config error, no auto-handoff.
++		return WatchdogResult{}, fmt.Errorf("relay watchdog: invalid %s %q; must be a number in [0,1]", EnvWatchdogThreshold, thresholdStr)
++	}
++
++	// Below threshold → no-op (never auto-handoff).
++	if usage < threshold {
++		return WatchdogResult{}, nil
++	}
++
++	// Enabled + at/past threshold → the SAME Relay.Handoff path.
++	handoffID, paths, herr := Handoff(ctx, db, projectID, "", projectRoot, b)
++	if herr != nil {
++		return WatchdogResult{}, herr
++	}
++	return WatchdogResult{HandedOff: true, HandoffID: handoffID, Paths: paths}, nil
++}
+diff --git a/skillgrid-cli/internal/mnemonic/relay/watchdog_test.go b/skillgrid-cli/internal/mnemonic/relay/watchdog_test.go
+new file mode 100644
+index 0000000..aeaf373
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/relay/watchdog_test.go
+@@ -0,0 +1,168 @@
++package relay
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++)
++
++// TestWatchdog (05.2, RED) — enabled watchdog past threshold triggers the SAME
++// Handoff path. The watchdog's Check must actually invoke Relay.Handoff: a
++// session_handoffs row AND the three .cleave/ files must appear (not just a
++// bool). The enable gate (SKILLGRID_HANDOFF_WATCHDOG) + threshold
++// (SKILLGRID_HANDOFF_WATCHDOG_THRESHOLD) come from env.
++func TestWatchdog(t *testing.T) {
++	t.Setenv(EnvWatchdog, "1")
++	t.Setenv(EnvWatchdogThreshold, "0.8")
++
++	st, root := openStore(t, "relayproj")
++	seedSession(t, st, "s-wd")
++
++	res, err := Check(context.Background(), st.DB, "relayproj", root, 0.95, Bundle{
++		Progress:      "watchdog handoff",
++		NextPrompt:    "resume after context limit",
++		SourceSession: "s-wd",
++	})
++	if err != nil {
++		t.Fatalf("watchdog check past threshold: %v", err)
++	}
++	if !res.HandedOff {
++		t.Fatalf("expected watchdog to hand off when enabled and past threshold")
++	}
++	if res.HandoffID == "" {
++		t.Errorf("expected a handoff_id to be returned")
++	}
++	if len(res.Paths) != 3 {
++		t.Fatalf("expected 3 cleave paths from the same Handoff path, got %d", len(res.Paths))
++	}
++	for _, p := range res.Paths {
++		if _, err := os.Stat(p); err != nil {
++			t.Errorf("expected cleave file on disk (same Handoff path): %v", err)
++		}
++	}
++	// The SAME Handoff path was invoked → a session_handoffs row exists.
++	if n := handoffRowCount(t, st, "relayproj"); n != 1 {
++		t.Fatalf("expected 1 session_handoffs row (same Handoff path), got %d", n)
++	}
++}
++
++// TestWatchdogDisabled (05.3) — no enable gate set (default) → no-op. NO
++// handoff row, NO cleave bundle, no error.
++func TestWatchdogDisabled(t *testing.T) {
++	// Ensure the gate is unset (default state = off).
++	t.Setenv(EnvWatchdog, "")
++	t.Setenv(EnvWatchdogThreshold, "0.8")
++
++	st, root := openStore(t, "relayproj")
++	seedSession(t, st, "s-wd-disabled")
++
++	res, err := Check(context.Background(), st.DB, "relayproj", root, 0.99, Bundle{
++		Progress:      "should not hand off",
++		NextPrompt:    "never reached",
++		SourceSession: "s-wd-disabled",
++	})
++	if err != nil {
++		t.Fatalf("disabled watchdog must be a no-op, got: %v", err)
++	}
++	if res.HandedOff {
++		t.Fatalf("disabled watchdog must NOT hand off (never auto-handoff)")
++	}
++	if n := handoffRowCount(t, st, "relayproj"); n != 0 {
++		t.Fatalf("expected 0 session_handoffs rows when disabled, got %d", n)
++	}
++	if _, err := os.Stat(filepath.Join(root, ".skillgrid", ".cleave", FileNextPrompt)); !os.IsNotExist(err) {
++		t.Errorf("expected no cleave bundle when disabled (stat err=%v)", err)
++	}
++}
++
++// TestWatchdogDefault (05.3) — no env at all (the default state) → no-op, even
++// at a usage fraction far past any sensible threshold. Proves it is never
++// always-on.
++func TestWatchdogDefault(t *testing.T) {
++	// Belt-and-suspenders: clear both env vars to the default (unset) state.
++	os.Unsetenv(EnvWatchdog)
++	os.Unsetenv(EnvWatchdogThreshold)
++	t.Setenv(EnvWatchdog, "")
++	t.Setenv(EnvWatchdogThreshold, "")
++
++	st, root := openStore(t, "relayproj")
++	seedSession(t, st, "s-wd-default")
++
++	res, err := Check(context.Background(), st.DB, "relayproj", root, 0.999, Bundle{
++		Progress:   "default no-op",
++		NextPrompt: "never reached",
++	})
++	if err != nil {
++		t.Fatalf("default (no env) watchdog must be a no-op, got: %v", err)
++	}
++	if res.HandedOff {
++		t.Fatalf("default watchdog must NOT hand off — never always-on")
++	}
++	if n := handoffRowCount(t, st, "relayproj"); n != 0 {
++		t.Fatalf("expected 0 rows in default state, got %d", n)
++	}
++	if _, err := os.Stat(filepath.Join(root, ".skillgrid", ".cleave", FileNextPrompt)); !os.IsNotExist(err) {
++		t.Errorf("expected no cleave bundle in default state (stat err=%v)", err)
++	}
++}
++
++// TestWatchdogBelow (05.3) — enabled but the usage fraction is below the
++// threshold → no-op. NO handoff row, NO cleave bundle, no error.
++func TestWatchdogBelow(t *testing.T) {
++	t.Setenv(EnvWatchdog, "1")
++	t.Setenv(EnvWatchdogThreshold, "0.8")
++
++	st, root := openStore(t, "relayproj")
++	seedSession(t, st, "s-wd-below")
++
++	res, err := Check(context.Background(), st.DB, "relayproj", root, 0.5, Bundle{
++		Progress:      "below threshold",
++		NextPrompt:    "never reached",
++		SourceSession: "s-wd-below",
++	})
++	if err != nil {
++		t.Fatalf("below-threshold watchdog must be a no-op, got: %v", err)
++	}
++	if res.HandedOff {
++		t.Fatalf("below-threshold watchdog must NOT hand off")
++	}
++	if n := handoffRowCount(t, st, "relayproj"); n != 0 {
++		t.Fatalf("expected 0 rows when below threshold, got %d", n)
++	}
++	if _, err := os.Stat(filepath.Join(root, ".skillgrid", ".cleave", FileNextPrompt)); !os.IsNotExist(err) {
++		t.Errorf("expected no cleave bundle when below threshold (stat err=%v)", err)
++	}
++}
++
++// TestWatchdogInvalidConfig (05.4) — a malformed threshold fails closed: a
++// clear config error, and NO auto-handoff (no row, no bundle).
++func TestWatchdogInvalidConfig(t *testing.T) {
++	t.Setenv(EnvWatchdog, "1")
++	t.Setenv(EnvWatchdogThreshold, "not-a-number")
++
++	st, root := openStore(t, "relayproj")
++	seedSession(t, st, "s-wd-invalid")
++
++	res, err := Check(context.Background(), st.DB, "relayproj", root, 0.99, Bundle{
++		Progress:      "invalid config",
++		NextPrompt:    "never reached",
++		SourceSession: "s-wd-invalid",
++	})
++	if err == nil {
++		t.Fatalf("expected a config error for a malformed threshold")
++	}
++	if !strings.Contains(strings.ToLower(err.Error()), "threshold") {
++		t.Errorf("config error should name the threshold, got: %v", err)
++	}
++	if res.HandedOff {
++		t.Fatalf("invalid config must fail closed — no auto-handoff")
++	}
++	if n := handoffRowCount(t, st, "relayproj"); n != 0 {
++		t.Fatalf("expected 0 rows when config is invalid (fail closed), got %d", n)
++	}
++	if _, err := os.Stat(filepath.Join(root, ".skillgrid", ".cleave", FileNextPrompt)); !os.IsNotExist(err) {
++		t.Errorf("expected no cleave bundle when config is invalid (stat err=%v)", err)
++	}
++}

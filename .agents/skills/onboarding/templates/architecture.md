@@ -7,7 +7,7 @@
 > This file describes the **live structure** of the codebase and is the source
 > of truth for "how the system is built". It does **not** re-argue decisions —
 > architectural decisions are recorded as `### ADR-NNNN` entries in
-> `.skillgrid/ASSUMPTIONS.md` (LOCKED) and this file points at them.
+> `.skillgrid/knowledge/ASSUMPTIONS.md` (LOCKED) and this file points at them.
 >
 > **Keep it factual and verifiable.** Every diagram, table row, and code snippet
 > must correspond to something real in the repo (a package, a file:line, a

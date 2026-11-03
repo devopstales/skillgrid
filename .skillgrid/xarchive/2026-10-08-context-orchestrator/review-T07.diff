@@ -1,0 +1,1778 @@
+REVIEW PACKAGE: T07 (TASK-095) — ctx wrap <agent> tier-2 launcher
+Commit: ba1e4ab1 (7 files, +1128)
+Owned set: internal/ctx/wrap/{wrap,agents,config-inject,backup}.go, wrap_test.go, cmd/mnemonic/ctx_wrap.go, +3 lines ctx.go dispatch
+
+=== OWNED FILE SET (for completeness, not just the diff) ===
+##### FILE: mnemonic/internal/ctx/wrap/wrap.go #####
+package wrap
+
+import (
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"time"
+
+	ctxconfig "github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
+	ctxproxy "github.com/devopstales/skillgrid/mnemonic/internal/ctx/proxy"
+)
+
+// Options configures one Wrap run.
+type Options struct {
+	// Cfg is the resolved CTX config (wrap.agents / proxy bind+port).
+	Cfg *ctxconfig.CtxConfig
+	// AgentName is the agent to wrap ("claude", "aider", ...).
+	AgentName string
+	// Binary is the executable to launch as the agent (tests inject a
+	// stub; the CLI resolves the real binary name from the agent table).
+	Binary string
+	// Args are passed after Binary.
+	Args []string
+	// Env is the parent environment for the subprocess (tests inject a
+	// controlled env; the CLI passes os.Environ()).
+	Env []string
+	// BackupDir overrides the default backup dir (tests use t.TempDir()).
+	BackupDir string
+	// Port overrides the proxy port; 0 means "use the configured port
+	// (cfg.Proxy.Port, default 8787)". Tests that need an ephemeral port
+	// pass EphemeralPort.
+	Port int
+	// EphemeralPort forces an ephemeral loopback port (bound as :0)
+	// regardless of Port; the actual port comes back in Result.Port.
+	EphemeralPort bool
+	// Bind is the proxy bind address (default cfg.Proxy.Bind, 127.0.0.1).
+	Bind string
+	// Log receives the launcher's log lines; nil discards them.
+	Log *slog.Logger
+
+	// Stdout/Stderr for the launched agent; nil → os.Stdout/os.Stderr.
+	Stdout io.Writer
+	Stderr io.Writer
+}
+
+// Result is the outcome of a Wrap run.
+type Result struct {
+	// Agent is the resolved agent.
+	Agent Agent
+	// ProxyBaseURL is the loopback base URL the agent was pointed at.
+	ProxyBaseURL string
+	// Port is the port the proxy is serving on (useful for ephemeral).
+	Port int
+	// Injected is true when this run wrote the injection (first wrap);
+	// false on an idempotent re-run (already wrapped).
+	Injected bool
+	// BackedUp is true when this run wrote the backup file (first wrap).
+	BackedUp bool
+	// BackupPath is where the pre-inject state lives ("", if
+	// backup_config is disabled).
+	BackupPath string
+	// Command is the launched subprocess; the caller (or the CLI) waits
+	// on it. Tests use it to capture the subprocess env.
+	Command *exec.Cmd
+}
+
+// StartProxy is a test/CLI seam for launching the proxy server: it is
+// called with the resolved cfg, bind, and port (0 = ephemeral) and must
+// return the serving base URL, the listener's actual address, and a stop
+// func. The default implementation reuses the T04 build: proxy.New +
+// net/http on a loopback listener.
+type StartProxy func(cfg *ctxconfig.CtxConfig, bind string, port int) (baseURL, addr string, stop func(), err error)
+
+// DefaultStartProxy builds and serves the loopback proxy (same build the
+// `ctx proxy` CLI uses: ctxproxy.New + http.Server). With port 0 it binds
+// an ephemeral loopback port and returns the actual address. Telemetry is
+// a no-op (nil store): wrap owns the lifecycle, not the per-turn history
+// (the proxy's own serve path records it when a store is wired).
+func DefaultStartProxy(cfg *ctxconfig.CtxConfig, bind string, port int) (string, string, func(), error) {
+	if bind == "" {
+		bind = cfg.Proxy.Bind
+	}
+	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", bind, port))
+	if err != nil {
+		return "", "", nil, fmt.Errorf("wrap: listening on %s:%d: %w", bind, port, err)
+	}
+	mode := ctxproxy.Mode(cfg.Proxy.Mode)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	p := ctxproxy.New(cfg, nil, log, mode)
+	srv := &http.Server{Handler: p.Handler()}
+	go func() { _ = srv.Serve(ln) }()
+	stop := func() {
+		_ = srv.Close()
+	}
+	addr := ln.Addr().String()
+	base := "http://" + addr
+	return base, addr, stop, nil
+}
+
+// Wrap runs the tier-2 launcher: resolve the agent (core-4 always, others
+// opt-in via cfg.Wrap.Agents), start the proxy, back up the pre-inject
+// state (first wrap only), inject the base-URL env, and launch the agent
+// subprocess. It never modifies the agent's code.
+//
+// Idempotency: if the subprocess env already targets the loopback proxy
+// (alreadyWrapped), the injection and backup are skipped (no double-inject,
+// no double-backup) but the agent still launches.
+//
+// Fail-open (ADR-0016): a proxy-start failure aborts BEFORE launch with a
+// clear error (never point the agent at a dead proxy); a launch failure
+// returns the error from Command.Start (no panic). The proxy is stopped
+// automatically when the returned stopProxy func is called; Wrap returns
+// stopProxy via the result so the caller owns the lifecycle (the CLI keeps
+// it alive for the subprocess lifetime).
+func Wrap(opts Options, startProxy StartProxy) (Result, func(), error) {
+	if opts.Cfg == nil {
+		return Result{}, nil, fmt.Errorf("wrap: nil config")
+	}
+	if opts.AgentName == "" {
+		return Result{}, nil, fmt.Errorf("wrap: agent name required")
+	}
+	if startProxy == nil {
+		startProxy = DefaultStartProxy
+	}
+	log := opts.Log
+	if log == nil {
+		log = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+
+	// 1. Resolve the agent: core-4 always; opt-in via cfg.Wrap.Agents.
+	agent, err := resolveAgent(opts.AgentName, opts.Cfg.Wrap.Agents)
+	if err != nil {
+		return Result{}, nil, err
+	}
+	res := Result{Agent: *agent}
+
+	// 2. Start the proxy BEFORE anything else (a dead proxy must never be
+	//    pointed at). Ephemeral port (0) is allowed for tests.
+	bind := opts.Bind
+	if bind == "" {
+		bind = opts.Cfg.Proxy.Bind
+	}
+	port := opts.Cfg.Proxy.Port
+	if opts.Port != 0 {
+		port = opts.Port
+	}
+	if opts.EphemeralPort {
+		port = 0
+	}
+	base, addr, stop, err := startProxy(opts.Cfg, bind, port)
+	if err != nil {
+		if stop != nil {
+			stop()
+		}
+		return Result{}, nil, fmt.Errorf("wrap: starting proxy: %w", err)
+	}
+	res.ProxyBaseURL = base
+	res.Port = portFromAddr(addr)
+
+	// The launcher stops the proxy on any error path from here on; on
+	// success the caller takes ownership via the returned stop func.
+	stopped := false
+	defer func() {
+		if !stopped {
+			stop()
+		}
+	}()
+
+	// Confirm the proxy actually serves (loopback liveness) before the
+	// agent is pointed at it.
+	if err := ping(base); err != nil {
+		return res, nil, fmt.Errorf("wrap: proxy not serving at %s: %w", base, err)
+	}
+
+	// 3. Idempotency: already wrapped? Skip inject + backup, still launch.
+	if alreadyWrapped(opts.Env, *agent) {
+		log.Info("wrap: already wrapped, skipping inject+backup", "agent", agent.Name)
+		res.Injected = false
+		res.BackedUp = false
+		cmd, err := launch(opts, *agent, base)
+		if err != nil {
+			return res, nil, err
+		}
+		res.Command = cmd
+		stopped = true
+		return res, stop, nil
+	}
+
+	// 4. Backup the pre-inject state BEFORE it takes effect (first wrap
+	//    only; a pre-existing backup is left untouched).
+	if opts.Cfg.Wrap.BackupConfig {
+		backedUp, err := writeBackupWithDir(opts, *agent)
+		if err != nil {
+			return res, nil, err
+		}
+		res.BackedUp = backedUp
+		res.BackupPath = backupPath(*agent, configPathFor(*agent))
+		if !backedUp {
+			// A backup already exists from a prior wrap: treat as
+			// already wrapped (no double-inject either).
+			log.Info("wrap: backup exists, skipping inject", "agent", agent.Name)
+			cmd, err := launch(opts, *agent, base)
+			if err != nil {
+				return res, nil, err
+			}
+			res.Command = cmd
+			stopped = true
+			return res, stop, nil
+		}
+	}
+
+	// 5. Inject: the subprocess env gets the base-URL var pointed at the
+	//    proxy (config files are untouched — env injection only, T07).
+	res.Injected = true
+
+	// 6. Launch the agent subprocess with the injected env.
+	cmd, err := launch(opts, *agent, base)
+	if err != nil {
+		return res, nil, err
+	}
+	res.Command = cmd
+	stopped = true
+	return res, stop, nil
+}
+
+// launch builds (and starts) the agent subprocess with the injected env.
+// Fail-open: Start errors are returned, never panicked.
+func launch(opts Options, agent Agent, base string) (*exec.Cmd, error) {
+	binary := opts.Binary
+	if binary == "" {
+		binary = agent.Name
+	}
+	cmd := exec.Command(binary, opts.Args...)
+	cmd.Env = InjectEnv(opts.Env, agent, base)
+	if opts.Stdout != nil {
+		cmd.Stdout = opts.Stdout
+	}
+	if opts.Stderr != nil {
+		cmd.Stderr = opts.Stderr
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("wrap: launching %s: %w", binary, err)
+	}
+	return cmd, nil
+}
+
+// writeBackupWithDir runs the backup with an optional dir override.
+func writeBackupWithDir(opts Options, agent Agent) (bool, error) {
+	if opts.BackupDir == "" {
+		return WriteBackup(agent, configPathFor(agent), envGetter(opts.Env))
+	}
+	// Mkdir the override dir and redirect the default dir for this call.
+	if err := os.MkdirAll(opts.BackupDir, 0o755); err != nil {
+		return false, fmt.Errorf("wrap: creating backup dir %s: %w", opts.BackupDir, err)
+	}
+	prev := defaultBackupDir
+	defaultBackupDir = opts.BackupDir
+	defer func() { defaultBackupDir = prev }()
+	return WriteBackup(agent, configPathFor(agent), envGetter(opts.Env))
+}
+
+// envGetter adapts a []string env to the env func the backup uses.
+func envGetter(env []string) func(string) string {
+	return func(key string) string {
+		prefix := key + "="
+		for _, kv := range env {
+			if len(kv) > len(prefix) && kv[:len(prefix)] == prefix {
+				return kv[len(prefix):]
+			}
+		}
+		return ""
+	}
+}
+
+// ping confirms the proxy answers on loopback (liveness before launch).
+func ping(base string) error {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(base + "/stats")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return nil
+}
+
+// portFromAddr extracts the port from a "host:port" address.
+func portFromAddr(addr string) int {
+	_, p, err := net.SplitHostPort(addr)
+	if err != nil {
+		return 0
+	}
+	var port int
+	_, _ = fmt.Sscanf(p, "%d", &port)
+	return port
+}
+
+##### FILE: mnemonic/internal/ctx/wrap/agents.go #####
+// Package wrap implements `ctx wrap <agent>` (T07, plan 16.8/16.10): the
+// tier-2 launcher that starts the loopback proxy, injects the agent's
+// config to point at the proxy, backs up the previous config before
+// writing, and launches the agent as a subprocess. The agent's code is
+// never modified — only its config (env). Re-running is idempotent.
+//
+// The launcher is the only component that knows about specific agents
+// (config.Wrap.Agents lists what is enabled; the agent table in agents.go
+// maps names to providers and env vars).
+package wrap
+
+import "fmt"
+
+// provider is the wire protocol family an agent speaks to the proxy. The
+// proxy itself (T04) speaks both; the provider only selects the base-URL
+// env var the launched subprocess gets (plan 16.8 Tier 1 contract).
+type provider string
+
+const (
+	providerAnthropic provider = "anthropic"
+	providerOpenAI    provider = "openai"
+)
+
+// Agent describes one wrappable agent: its canonical name, the provider it
+// speaks, and the base-URL env var that must point at the proxy.
+type Agent struct {
+	Name     string
+	Provider provider
+	EnvVar   string
+}
+
+// agentTable is the launcher's agent → config mapping (T07: keep it a small
+// table; the exact per-agent detail can grow here later). Claude is the
+// Anthropic-compatible agent; codex/cursor/opencode/aider are OpenAI-
+// compatible.
+var agentTable = []Agent{
+	{Name: "claude", Provider: providerAnthropic, EnvVar: "ANTHROPIC_BASE_URL"},
+	{Name: "codex", Provider: providerOpenAI, EnvVar: "OPENAI_BASE_URL"},
+	{Name: "cursor", Provider: providerOpenAI, EnvVar: "OPENAI_BASE_URL"},
+	{Name: "opencode", Provider: providerOpenAI, EnvVar: "OPENAI_BASE_URL"},
+	{Name: "aider", Provider: providerOpenAI, EnvVar: "OPENAI_BASE_URL"},
+}
+
+// core4 is the always-available set (no config needed): it matches the
+// default of config.Wrap.Agents.
+var core4 = map[string]bool{
+	"claude":   true,
+	"codex":    true,
+	"cursor":   true,
+	"opencode": true,
+}
+
+// lookupAgent returns the table entry for name, or nil when the name is not
+// a known agent at all (distinct from "known but not enabled").
+func lookupAgent(name string) *Agent {
+	for i := range agentTable {
+		if agentTable[i].Name == name {
+			return &agentTable[i]
+		}
+	}
+	return nil
+}
+
+// resolveAgent returns the agent to wrap and whether it is enabled.
+// Core-4 agents are always enabled; any other known agent (opt-in: aider,
+// cline, ...) is enabled only when it appears in enabledAgents (the
+// config.Wrap.Agents list). An unknown name is an error with a clear,
+// actionable message — the launcher never guesses.
+func resolveAgent(name string, enabledAgents []string) (*Agent, error) {
+	a := lookupAgent(name)
+	if a == nil {
+		return nil, fmt.Errorf("unknown agent %q (add it to wrap.agents to enable it)", name)
+	}
+	if core4[name] {
+		return a, nil
+	}
+	for _, e := range enabledAgents {
+		if e == name {
+			return a, nil
+		}
+	}
+	return nil, fmt.Errorf("agent %q is not enabled (add it to wrap.agents to enable it)", name)
+}
+
+##### FILE: mnemonic/internal/ctx/wrap/config-inject.go #####
+package wrap
+
+import "strings"
+
+// configPathFor returns the agent's config-file path, or "" for env-only
+// agents. ponytail: T07 injects via env for all agents (most testable, no
+// per-agent file format to parse); config-file rewriting is an upgrade path
+// for agents that do not honor base-URL env vars, and the backup/inject
+// seam already supports it (backup.go captures prior file bytes when
+// configPath != "").
+func configPathFor(agent Agent) string {
+	return ""
+}
+
+// InjectEnv returns a copy of env with the agent's base-URL var pointed at
+// the proxy. It never mutates the caller's slice.
+func InjectEnv(env []string, agent Agent, proxyBaseURL string) []string {
+	out := make([]string, 0, len(env)+1)
+	replaced := false
+	for _, kv := range env {
+		if strings.HasPrefix(kv, agent.EnvVar+"=") {
+			out = append(out, agent.EnvVar+"="+proxyBaseURL)
+			replaced = true
+			continue
+		}
+		out = append(out, kv)
+	}
+	if !replaced {
+		out = append(out, agent.EnvVar+"="+proxyBaseURL)
+	}
+	return out
+}
+
+// alreadyWrapped reports whether env already targets the CTX loopback proxy
+// (a 127.0.0.1/::1 base URL in the agent's base-URL var) — the idempotency
+// check. A non-loopback base URL (e.g. a real provider endpoint) is NOT
+// "wrapped": the first wrap rewrites it and takes a backup first.
+func alreadyWrapped(env []string, agent Agent) bool {
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, agent.EnvVar+"=") {
+			continue
+		}
+		val := kv[len(agent.EnvVar)+1:]
+		return isLoopbackBaseURL(val)
+	}
+	return false
+}
+
+// isLoopbackBaseURL reports whether base looks like the CTX loopback proxy
+// (a 127.0.0.1 / ::1 / localhost host, with or without a scheme or path).
+// It is a heuristic marker, not a full URL grammar: the launcher only ever
+// writes loopback URLs, so anything else is "not wrapped by us".
+func isLoopbackBaseURL(base string) bool {
+	rest := base
+	if i := strings.Index(rest, "://"); i >= 0 {
+		rest = rest[i+3:]
+	}
+	host := rest
+	// An authority without a path can contain no '/' (it would be the
+	// path separator), so use the first '/' as an "authority ends here"
+	// marker and keep everything after it (a leading path, which we
+	// discard).
+	if i := strings.IndexByte(rest, '/'); i >= 0 {
+		host = rest[:i]
+	}
+	switch {
+	case strings.HasPrefix(host, "["):
+		// Bracketed IPv6 host ([::1]:8787): keep the bracketed address.
+		if i := strings.IndexByte(host, ']'); i >= 0 {
+			host = host[:i+1]
+		}
+	case strings.Contains(host, ":"):
+		// host:port (IPv4/hostname form): drop the port.
+		host = host[:strings.LastIndexByte(host, ':')]
+	}
+	host = strings.Trim(host, "[]")
+	switch host {
+	case "127.0.0.1", "localhost", "::1":
+		return true
+	}
+	return false
+}
+
+##### FILE: mnemonic/internal/ctx/wrap/backup.go #####
+package wrap
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+)
+
+// backupPath derives the predictable backup location for an agent:
+// <config file>.ctx-backup when the agent has a config file, otherwise
+// <backup dir>/<agent>.env.bak for env-only agents.
+func backupPath(agent Agent, configPath string) string {
+	if configPath != "" {
+		return configPath + ".ctx-backup"
+	}
+	return filepath.Join(defaultBackupDir, agent.Name+".env.bak")
+}
+
+// defaultBackupDir is the fallback backup location for env-only agents
+// (the launcher's own state dir, not the agent's). ponytail: a single
+// directory per repo root is enough for the core-4; per-machine scoping
+// is an upgrade path if backups ever collide across projects.
+var defaultBackupDir = filepath.Join(".skillgrid", "ctx", "wrap-backups")
+
+// WriteBackup writes the pre-inject state (the config file's current bytes,
+// or a snapshot of the current base-URL env for env-only agents) to
+// backupPath. It runs BEFORE the injection takes effect. Idempotent: if a
+// backup already exists it is left untouched (first wrap only) and
+// (false, nil) is returned so the caller skips re-injection.
+//
+// Returns (false, err) on I/O failure; the caller treats that as
+// fail-open-abort (ADR-0016): no backup, no write, clear error.
+func WriteBackup(agent Agent, configPath string, env func(string) string) (bool, error) {
+	path := backupPath(agent, configPath)
+
+	if _, err := os.Stat(path); err == nil {
+		// Backup exists: already wrapped (or a previous wrap wrote it).
+		return false, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, fmt.Errorf("wrap: creating backup dir: %w", err)
+	}
+
+	var content []byte
+	if configPath != "" {
+		// Config-file agents: capture the prior file bytes. A missing file
+		// is the pre-wrap state — the backup records that explicitly so a
+		// restore can recreate (not corrupt) the original.
+		data, err := os.ReadFile(configPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				content = []byte("<no prior config file>\n")
+			} else {
+				return false, fmt.Errorf("wrap: reading prior config %s: %w", configPath, err)
+			}
+		} else {
+			content = data
+		}
+	} else {
+		// Env-only agents: snapshot the pre-inject base-URL value ("" when
+		// unset) so a restore can put the original value back.
+		content = []byte(agent.EnvVar + "=" + env(agent.EnvVar) + "\n")
+	}
+
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		return false, fmt.Errorf("wrap: writing backup %s: %w", path, err)
+	}
+	return true, nil
+}
+
+// RestoreBackup puts the pre-wrap state back (inverse of the injection):
+// config-file agents get their original bytes (or the file is removed when
+// none existed); env-only agents get their original env value. It exists so
+// `ctx wrap` is reversible; T14/ops surface the CLI verb.
+func RestoreBackup(agent Agent, configPath string) error {
+	path := backupPath(agent, configPath)
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("wrap: reading backup %s: %w", path, err)
+	}
+	if configPath != "" {
+		if string(content) == "<no prior config file>\n" {
+			if err := os.Remove(configPath); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("wrap: removing %s: %w", configPath, err)
+			}
+			return nil
+		}
+		if err := os.WriteFile(configPath, content, 0o644); err != nil {
+			return fmt.Errorf("wrap: restoring %s: %w", configPath, err)
+		}
+		return nil
+	}
+	// Env-only: the restore is a no-op for the process env (the subprocess
+	// gets a fresh env per launch); nothing to undo in-process.
+	return nil
+}
+
+############# DIFF (commit ba1e4ab1) #############
+commit ba1e4ab13accb5c5829dd5da96dc0ae5c3e67b18
+Author: Balazs PALDI <balazs.paldi@shiwaforce.com>
+Date:   Mon Oct 12 12:18:27 2026 +0200
+
+    feat(ctx): add tier-2 wrap launcher for agents
+    
+    - internal/ctx/wrap: agent table (core-4), env base-URL injection with
+      loopback idempotency check, first-wrap config backup, Wrap orchestrator
+      (start proxy -> inject -> backup -> exec agent), fail-open per ADR-0016
+    - cmd/mnemonic/ctx_wrap.go: 'ctx wrap <agent>' CLI entry (-bind, -port,
+      -bin, -dir); dispatch wired into runCtx
+    - tests: agent resolution, injection/idempotency, backup/restore, full
+      Wrap flow incl. proxy-failure and launch-failure paths
+    
+    [skillgrid-context]
+    change: 2026-10-08-context-orchestrator
+    ticket: TASK-095
+    wave: 5
+    pr: PR3
+    [/skillgrid-context]
+
+diff --git a/mnemonic/cmd/mnemonic/ctx.go b/mnemonic/cmd/mnemonic/ctx.go
+index f41d46bb..613881e9 100644
+--- a/mnemonic/cmd/mnemonic/ctx.go
++++ b/mnemonic/cmd/mnemonic/ctx.go
+@@ -41,6 +41,8 @@ func runCtx(args []string) {
+ 		runCtxIndex(rest)
+ 	case "proxy":
+ 		runCtxProxy(rest)
++	case "wrap":
++		runCtxWrap(rest)
+ 	case "help", "-h", "--help":
+ 		ctxUsage()
+ 	default:
+@@ -61,6 +63,7 @@ func ctxUsage() {
+ 	fmt.Fprintln(w, "  purge            Clear the session sandbox (tool_outputs, and context_revisions when present); prints rows removed (-project, -session)")
+ 	fmt.Fprintln(w, "  index <path>     Index a file (or a directory of files) into the context-harness FTS index; re-indexing is idempotent (-project)")
+ 	fmt.Fprintln(w, "  proxy            Start the loopback LLM proxy: forwards Anthropic/OpenAI requests with a mode-selected context transform, X-CTX-Savings headers, provider retry, and per-turn telemetry (-bind, -port, -mode, -dir)")
++	fmt.Fprintln(w, "  wrap <agent>     Tier-2 launcher: start the proxy, inject the agent's base-URL env to point at it, back up the prior config (first wrap only), and launch the agent subprocess (-bind, -port, -bin, -dir)")
+ }
+ 
+ // ctxSearchFlags parses search flags: -limit caps the fused results.
+diff --git a/mnemonic/cmd/mnemonic/ctx_wrap.go b/mnemonic/cmd/mnemonic/ctx_wrap.go
+new file mode 100644
+index 00000000..a297e36a
+--- /dev/null
++++ b/mnemonic/cmd/mnemonic/ctx_wrap.go
+@@ -0,0 +1,105 @@
++package main
++
++import (
++	"context"
++	"flag"
++	"fmt"
++	"log/slog"
++	"os"
++	"os/exec"
++	"os/signal"
++	"syscall"
++
++	ctxconfig "github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
++	ctxwrap "github.com/devopstales/skillgrid/mnemonic/internal/ctx/wrap"
++)
++
++// runCtxWrap is the `ctx wrap <agent>` subcommand (T07, tier-2 launcher):
++// it starts the loopback proxy, injects the agent's base-URL env to point
++// at the proxy, backs up the pre-inject config state (first wrap only), and
++// launches the agent as a subprocess with the injected env. The agent's
++// code is never modified — only its config (env). Re-running is idempotent
++// (no double-inject, no double-backup).
++//
++// Flags: -bind (default from ctx config, 127.0.0.1), -port (default from
++// ctx config, 8787), -bin (agent binary, default: the agent name),
++// -dir (repository directory for ctx config resolution). Remaining
++// positional args are passed through to the agent.
++func runCtxWrap(args []string) {
++	fs := flag.NewFlagSet("ctx wrap", flag.ContinueOnError)
++	fs.SetOutput(os.Stderr)
++	bind := fs.String("bind", "", "proxy bind address (default from ctx config, 127.0.0.1)")
++	port := fs.Int("port", 0, "proxy port (default from ctx config, 8787)")
++	bin := fs.String("bin", "", "agent binary to launch (default: the agent name)")
++	dir := fs.String("dir", ".", "repository directory (for ctx config resolution)")
++	if err := fs.Parse(args); err != nil {
++		os.Exit(2)
++	}
++	pos := fs.Args()
++	if len(pos) == 0 {
++		fmt.Fprintln(os.Stderr, "usage: mnemonic ctx wrap <agent> [agent args...] [-bind <addr>] [-port <n>] [-bin <path>] [-dir <dir>]")
++		os.Exit(2)
++	}
++	agentName := pos[0]
++	agentArgs := pos[1:]
++
++	// Load the ctx config (config.d precedence: defaults -> machine -> repo).
++	cfg, err := ctxconfig.Load(context.Background(), *dir)
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "error: loading ctx config: %v\n", err)
++		os.Exit(1)
++	}
++
++	// Resolve bind/port from flags or config.
++	b := *bind
++	if b == "" {
++		b = cfg.Proxy.Bind
++	}
++	p := *port
++
++	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
++
++	res, stopProxy, err := ctxwrap.Wrap(ctxwrap.Options{
++		Cfg:       cfg,
++		AgentName: agentName,
++		Binary:    *bin,
++		Args:      agentArgs,
++		Env:       os.Environ(),
++		Port:      p,
++		Bind:      b,
++		Log:       log,
++	}, ctxwrap.DefaultStartProxy)
++	if err != nil {
++		// Fail-open (ADR-0016): clear error, non-zero exit, no panic.
++		// Agent resolution, proxy start, and launch failures all land here.
++		fmt.Fprintf(os.Stderr, "error: %v\n", err)
++		os.Exit(1)
++	}
++	if res.BackupPath != "" {
++		log.Info("backup written", "agent", agentName, "path", res.BackupPath)
++	} else if !res.Injected {
++		log.Info("already wrapped, skipping inject+backup", "agent", agentName)
++	}
++	log.Info("agent launched", "agent", agentName, "proxy", res.ProxyBaseURL, "port", res.Port)
++
++	// Keep the proxy alive for the subprocess lifetime: SIGINT/SIGTERM on
++	// the CLI stops the proxy (and the process, via the default signal
++	// disposition after stopProxy), the agent exiting stops the proxy, and
++	// we exit with the agent's exit code.
++	ctx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
++	defer stopSignals()
++	go func() {
++		<-ctx.Done()
++		stopProxy()
++	}()
++
++	if err := res.Command.Wait(); err != nil {
++		stopProxy()
++		if ee, ok := err.(*exec.ExitError); ok {
++			os.Exit(ee.ExitCode())
++		}
++		fmt.Fprintf(os.Stderr, "error: agent exited: %v\n", err)
++		os.Exit(1)
++	}
++	stopProxy()
++}
+diff --git a/mnemonic/internal/ctx/wrap/agents.go b/mnemonic/internal/ctx/wrap/agents.go
+new file mode 100644
+index 00000000..73c9a24d
+--- /dev/null
++++ b/mnemonic/internal/ctx/wrap/agents.go
+@@ -0,0 +1,83 @@
++// Package wrap implements `ctx wrap <agent>` (T07, plan 16.8/16.10): the
++// tier-2 launcher that starts the loopback proxy, injects the agent's
++// config to point at the proxy, backs up the previous config before
++// writing, and launches the agent as a subprocess. The agent's code is
++// never modified — only its config (env). Re-running is idempotent.
++//
++// The launcher is the only component that knows about specific agents
++// (config.Wrap.Agents lists what is enabled; the agent table in agents.go
++// maps names to providers and env vars).
++package wrap
++
++import "fmt"
++
++// provider is the wire protocol family an agent speaks to the proxy. The
++// proxy itself (T04) speaks both; the provider only selects the base-URL
++// env var the launched subprocess gets (plan 16.8 Tier 1 contract).
++type provider string
++
++const (
++	providerAnthropic provider = "anthropic"
++	providerOpenAI    provider = "openai"
++)
++
++// Agent describes one wrappable agent: its canonical name, the provider it
++// speaks, and the base-URL env var that must point at the proxy.
++type Agent struct {
++	Name     string
++	Provider provider
++	EnvVar   string
++}
++
++// agentTable is the launcher's agent → config mapping (T07: keep it a small
++// table; the exact per-agent detail can grow here later). Claude is the
++// Anthropic-compatible agent; codex/cursor/opencode/aider are OpenAI-
++// compatible.
++var agentTable = []Agent{
++	{Name: "claude", Provider: providerAnthropic, EnvVar: "ANTHROPIC_BASE_URL"},
++	{Name: "codex", Provider: providerOpenAI, EnvVar: "OPENAI_BASE_URL"},
++	{Name: "cursor", Provider: providerOpenAI, EnvVar: "OPENAI_BASE_URL"},
++	{Name: "opencode", Provider: providerOpenAI, EnvVar: "OPENAI_BASE_URL"},
++	{Name: "aider", Provider: providerOpenAI, EnvVar: "OPENAI_BASE_URL"},
++}
++
++// core4 is the always-available set (no config needed): it matches the
++// default of config.Wrap.Agents.
++var core4 = map[string]bool{
++	"claude":   true,
++	"codex":    true,
++	"cursor":   true,
++	"opencode": true,
++}
++
++// lookupAgent returns the table entry for name, or nil when the name is not
++// a known agent at all (distinct from "known but not enabled").
++func lookupAgent(name string) *Agent {
++	for i := range agentTable {
++		if agentTable[i].Name == name {
++			return &agentTable[i]
++		}
++	}
++	return nil
++}
++
++// resolveAgent returns the agent to wrap and whether it is enabled.
++// Core-4 agents are always enabled; any other known agent (opt-in: aider,
++// cline, ...) is enabled only when it appears in enabledAgents (the
++// config.Wrap.Agents list). An unknown name is an error with a clear,
++// actionable message — the launcher never guesses.
++func resolveAgent(name string, enabledAgents []string) (*Agent, error) {
++	a := lookupAgent(name)
++	if a == nil {
++		return nil, fmt.Errorf("unknown agent %q (add it to wrap.agents to enable it)", name)
++	}
++	if core4[name] {
++		return a, nil
++	}
++	for _, e := range enabledAgents {
++		if e == name {
++			return a, nil
++		}
++	}
++	return nil, fmt.Errorf("agent %q is not enabled (add it to wrap.agents to enable it)", name)
++}
+diff --git a/mnemonic/internal/ctx/wrap/backup.go b/mnemonic/internal/ctx/wrap/backup.go
+new file mode 100644
+index 00000000..d99e10a4
+--- /dev/null
++++ b/mnemonic/internal/ctx/wrap/backup.go
+@@ -0,0 +1,96 @@
++package wrap
++
++import (
++	"fmt"
++	"os"
++	"path/filepath"
++)
++
++// backupPath derives the predictable backup location for an agent:
++// <config file>.ctx-backup when the agent has a config file, otherwise
++// <backup dir>/<agent>.env.bak for env-only agents.
++func backupPath(agent Agent, configPath string) string {
++	if configPath != "" {
++		return configPath + ".ctx-backup"
++	}
++	return filepath.Join(defaultBackupDir, agent.Name+".env.bak")
++}
++
++// defaultBackupDir is the fallback backup location for env-only agents
++// (the launcher's own state dir, not the agent's). ponytail: a single
++// directory per repo root is enough for the core-4; per-machine scoping
++// is an upgrade path if backups ever collide across projects.
++var defaultBackupDir = filepath.Join(".skillgrid", "ctx", "wrap-backups")
++
++// WriteBackup writes the pre-inject state (the config file's current bytes,
++// or a snapshot of the current base-URL env for env-only agents) to
++// backupPath. It runs BEFORE the injection takes effect. Idempotent: if a
++// backup already exists it is left untouched (first wrap only) and
++// (false, nil) is returned so the caller skips re-injection.
++//
++// Returns (false, err) on I/O failure; the caller treats that as
++// fail-open-abort (ADR-0016): no backup, no write, clear error.
++func WriteBackup(agent Agent, configPath string, env func(string) string) (bool, error) {
++	path := backupPath(agent, configPath)
++
++	if _, err := os.Stat(path); err == nil {
++		// Backup exists: already wrapped (or a previous wrap wrote it).
++		return false, nil
++	}
++	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
++		return false, fmt.Errorf("wrap: creating backup dir: %w", err)
++	}
++
++	var content []byte
++	if configPath != "" {
++		// Config-file agents: capture the prior file bytes. A missing file
++		// is the pre-wrap state — the backup records that explicitly so a
++		// restore can recreate (not corrupt) the original.
++		data, err := os.ReadFile(configPath)
++		if err != nil {
++			if os.IsNotExist(err) {
++				content = []byte("<no prior config file>\n")
++			} else {
++				return false, fmt.Errorf("wrap: reading prior config %s: %w", configPath, err)
++			}
++		} else {
++			content = data
++		}
++	} else {
++		// Env-only agents: snapshot the pre-inject base-URL value ("" when
++		// unset) so a restore can put the original value back.
++		content = []byte(agent.EnvVar + "=" + env(agent.EnvVar) + "\n")
++	}
++
++	if err := os.WriteFile(path, content, 0o644); err != nil {
++		return false, fmt.Errorf("wrap: writing backup %s: %w", path, err)
++	}
++	return true, nil
++}
++
++// RestoreBackup puts the pre-wrap state back (inverse of the injection):
++// config-file agents get their original bytes (or the file is removed when
++// none existed); env-only agents get their original env value. It exists so
++// `ctx wrap` is reversible; T14/ops surface the CLI verb.
++func RestoreBackup(agent Agent, configPath string) error {
++	path := backupPath(agent, configPath)
++	content, err := os.ReadFile(path)
++	if err != nil {
++		return fmt.Errorf("wrap: reading backup %s: %w", path, err)
++	}
++	if configPath != "" {
++		if string(content) == "<no prior config file>\n" {
++			if err := os.Remove(configPath); err != nil && !os.IsNotExist(err) {
++				return fmt.Errorf("wrap: removing %s: %w", configPath, err)
++			}
++			return nil
++		}
++		if err := os.WriteFile(configPath, content, 0o644); err != nil {
++			return fmt.Errorf("wrap: restoring %s: %w", configPath, err)
++		}
++		return nil
++	}
++	// Env-only: the restore is a no-op for the process env (the subprocess
++	// gets a fresh env per launch); nothing to undo in-process.
++	return nil
++}
+diff --git a/mnemonic/internal/ctx/wrap/config-inject.go b/mnemonic/internal/ctx/wrap/config-inject.go
+new file mode 100644
+index 00000000..834bf690
+--- /dev/null
++++ b/mnemonic/internal/ctx/wrap/config-inject.go
+@@ -0,0 +1,82 @@
++package wrap
++
++import "strings"
++
++// configPathFor returns the agent's config-file path, or "" for env-only
++// agents. ponytail: T07 injects via env for all agents (most testable, no
++// per-agent file format to parse); config-file rewriting is an upgrade path
++// for agents that do not honor base-URL env vars, and the backup/inject
++// seam already supports it (backup.go captures prior file bytes when
++// configPath != "").
++func configPathFor(agent Agent) string {
++	return ""
++}
++
++// InjectEnv returns a copy of env with the agent's base-URL var pointed at
++// the proxy. It never mutates the caller's slice.
++func InjectEnv(env []string, agent Agent, proxyBaseURL string) []string {
++	out := make([]string, 0, len(env)+1)
++	replaced := false
++	for _, kv := range env {
++		if strings.HasPrefix(kv, agent.EnvVar+"=") {
++			out = append(out, agent.EnvVar+"="+proxyBaseURL)
++			replaced = true
++			continue
++		}
++		out = append(out, kv)
++	}
++	if !replaced {
++		out = append(out, agent.EnvVar+"="+proxyBaseURL)
++	}
++	return out
++}
++
++// alreadyWrapped reports whether env already targets the CTX loopback proxy
++// (a 127.0.0.1/::1 base URL in the agent's base-URL var) — the idempotency
++// check. A non-loopback base URL (e.g. a real provider endpoint) is NOT
++// "wrapped": the first wrap rewrites it and takes a backup first.
++func alreadyWrapped(env []string, agent Agent) bool {
++	for _, kv := range env {
++		if !strings.HasPrefix(kv, agent.EnvVar+"=") {
++			continue
++		}
++		val := kv[len(agent.EnvVar)+1:]
++		return isLoopbackBaseURL(val)
++	}
++	return false
++}
++
++// isLoopbackBaseURL reports whether base looks like the CTX loopback proxy
++// (a 127.0.0.1 / ::1 / localhost host, with or without a scheme or path).
++// It is a heuristic marker, not a full URL grammar: the launcher only ever
++// writes loopback URLs, so anything else is "not wrapped by us".
++func isLoopbackBaseURL(base string) bool {
++	rest := base
++	if i := strings.Index(rest, "://"); i >= 0 {
++		rest = rest[i+3:]
++	}
++	host := rest
++	// An authority without a path can contain no '/' (it would be the
++	// path separator), so use the first '/' as an "authority ends here"
++	// marker and keep everything after it (a leading path, which we
++	// discard).
++	if i := strings.IndexByte(rest, '/'); i >= 0 {
++		host = rest[:i]
++	}
++	switch {
++	case strings.HasPrefix(host, "["):
++		// Bracketed IPv6 host ([::1]:8787): keep the bracketed address.
++		if i := strings.IndexByte(host, ']'); i >= 0 {
++			host = host[:i+1]
++		}
++	case strings.Contains(host, ":"):
++		// host:port (IPv4/hostname form): drop the port.
++		host = host[:strings.LastIndexByte(host, ':')]
++	}
++	host = strings.Trim(host, "[]")
++	switch host {
++	case "127.0.0.1", "localhost", "::1":
++		return true
++	}
++	return false
++}
+diff --git a/mnemonic/internal/ctx/wrap/wrap.go b/mnemonic/internal/ctx/wrap/wrap.go
+new file mode 100644
+index 00000000..f7c1a2c9
+--- /dev/null
++++ b/mnemonic/internal/ctx/wrap/wrap.go
+@@ -0,0 +1,300 @@
++package wrap
++
++import (
++	"fmt"
++	"io"
++	"log/slog"
++	"net"
++	"net/http"
++	"os"
++	"os/exec"
++	"time"
++
++	ctxconfig "github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
++	ctxproxy "github.com/devopstales/skillgrid/mnemonic/internal/ctx/proxy"
++)
++
++// Options configures one Wrap run.
++type Options struct {
++	// Cfg is the resolved CTX config (wrap.agents / proxy bind+port).
++	Cfg *ctxconfig.CtxConfig
++	// AgentName is the agent to wrap ("claude", "aider", ...).
++	AgentName string
++	// Binary is the executable to launch as the agent (tests inject a
++	// stub; the CLI resolves the real binary name from the agent table).
++	Binary string
++	// Args are passed after Binary.
++	Args []string
++	// Env is the parent environment for the subprocess (tests inject a
++	// controlled env; the CLI passes os.Environ()).
++	Env []string
++	// BackupDir overrides the default backup dir (tests use t.TempDir()).
++	BackupDir string
++	// Port overrides the proxy port; 0 means "use the configured port
++	// (cfg.Proxy.Port, default 8787)". Tests that need an ephemeral port
++	// pass EphemeralPort.
++	Port int
++	// EphemeralPort forces an ephemeral loopback port (bound as :0)
++	// regardless of Port; the actual port comes back in Result.Port.
++	EphemeralPort bool
++	// Bind is the proxy bind address (default cfg.Proxy.Bind, 127.0.0.1).
++	Bind string
++	// Log receives the launcher's log lines; nil discards them.
++	Log *slog.Logger
++
++	// Stdout/Stderr for the launched agent; nil → os.Stdout/os.Stderr.
++	Stdout io.Writer
++	Stderr io.Writer
++}
++
++// Result is the outcome of a Wrap run.
++type Result struct {
++	// Agent is the resolved agent.
++	Agent Agent
++	// ProxyBaseURL is the loopback base URL the agent was pointed at.
++	ProxyBaseURL string
++	// Port is the port the proxy is serving on (useful for ephemeral).
++	Port int
++	// Injected is true when this run wrote the injection (first wrap);
++	// false on an idempotent re-run (already wrapped).
++	Injected bool
++	// BackedUp is true when this run wrote the backup file (first wrap).
++	BackedUp bool
++	// BackupPath is where the pre-inject state lives ("", if
++	// backup_config is disabled).
++	BackupPath string
++	// Command is the launched subprocess; the caller (or the CLI) waits
++	// on it. Tests use it to capture the subprocess env.
++	Command *exec.Cmd
++}
++
++// StartProxy is a test/CLI seam for launching the proxy server: it is
++// called with the resolved cfg, bind, and port (0 = ephemeral) and must
++// return the serving base URL, the listener's actual address, and a stop
++// func. The default implementation reuses the T04 build: proxy.New +
++// net/http on a loopback listener.
++type StartProxy func(cfg *ctxconfig.CtxConfig, bind string, port int) (baseURL, addr string, stop func(), err error)
++
++// DefaultStartProxy builds and serves the loopback proxy (same build the
++// `ctx proxy` CLI uses: ctxproxy.New + http.Server). With port 0 it binds
++// an ephemeral loopback port and returns the actual address. Telemetry is
++// a no-op (nil store): wrap owns the lifecycle, not the per-turn history
++// (the proxy's own serve path records it when a store is wired).
++func DefaultStartProxy(cfg *ctxconfig.CtxConfig, bind string, port int) (string, string, func(), error) {
++	if bind == "" {
++		bind = cfg.Proxy.Bind
++	}
++	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", bind, port))
++	if err != nil {
++		return "", "", nil, fmt.Errorf("wrap: listening on %s:%d: %w", bind, port, err)
++	}
++	mode := ctxproxy.Mode(cfg.Proxy.Mode)
++	log := slog.New(slog.NewTextHandler(io.Discard, nil))
++	p := ctxproxy.New(cfg, nil, log, mode)
++	srv := &http.Server{Handler: p.Handler()}
++	go func() { _ = srv.Serve(ln) }()
++	stop := func() {
++		_ = srv.Close()
++	}
++	addr := ln.Addr().String()
++	base := "http://" + addr
++	return base, addr, stop, nil
++}
++
++// Wrap runs the tier-2 launcher: resolve the agent (core-4 always, others
++// opt-in via cfg.Wrap.Agents), start the proxy, back up the pre-inject
++// state (first wrap only), inject the base-URL env, and launch the agent
++// subprocess. It never modifies the agent's code.
++//
++// Idempotency: if the subprocess env already targets the loopback proxy
++// (alreadyWrapped), the injection and backup are skipped (no double-inject,
++// no double-backup) but the agent still launches.
++//
++// Fail-open (ADR-0016): a proxy-start failure aborts BEFORE launch with a
++// clear error (never point the agent at a dead proxy); a launch failure
++// returns the error from Command.Start (no panic). The proxy is stopped
++// automatically when the returned stopProxy func is called; Wrap returns
++// stopProxy via the result so the caller owns the lifecycle (the CLI keeps
++// it alive for the subprocess lifetime).
++func Wrap(opts Options, startProxy StartProxy) (Result, func(), error) {
++	if opts.Cfg == nil {
++		return Result{}, nil, fmt.Errorf("wrap: nil config")
++	}
++	if opts.AgentName == "" {
++		return Result{}, nil, fmt.Errorf("wrap: agent name required")
++	}
++	if startProxy == nil {
++		startProxy = DefaultStartProxy
++	}
++	log := opts.Log
++	if log == nil {
++		log = slog.New(slog.NewTextHandler(io.Discard, nil))
++	}
++
++	// 1. Resolve the agent: core-4 always; opt-in via cfg.Wrap.Agents.
++	agent, err := resolveAgent(opts.AgentName, opts.Cfg.Wrap.Agents)
++	if err != nil {
++		return Result{}, nil, err
++	}
++	res := Result{Agent: *agent}
++
++	// 2. Start the proxy BEFORE anything else (a dead proxy must never be
++	//    pointed at). Ephemeral port (0) is allowed for tests.
++	bind := opts.Bind
++	if bind == "" {
++		bind = opts.Cfg.Proxy.Bind
++	}
++	port := opts.Cfg.Proxy.Port
++	if opts.Port != 0 {
++		port = opts.Port
++	}
++	if opts.EphemeralPort {
++		port = 0
++	}
++	base, addr, stop, err := startProxy(opts.Cfg, bind, port)
++	if err != nil {
++		if stop != nil {
++			stop()
++		}
++		return Result{}, nil, fmt.Errorf("wrap: starting proxy: %w", err)
++	}
++	res.ProxyBaseURL = base
++	res.Port = portFromAddr(addr)
++
++	// The launcher stops the proxy on any error path from here on; on
++	// success the caller takes ownership via the returned stop func.
++	stopped := false
++	defer func() {
++		if !stopped {
++			stop()
++		}
++	}()
++
++	// Confirm the proxy actually serves (loopback liveness) before the
++	// agent is pointed at it.
++	if err := ping(base); err != nil {
++		return res, nil, fmt.Errorf("wrap: proxy not serving at %s: %w", base, err)
++	}
++
++	// 3. Idempotency: already wrapped? Skip inject + backup, still launch.
++	if alreadyWrapped(opts.Env, *agent) {
++		log.Info("wrap: already wrapped, skipping inject+backup", "agent", agent.Name)
++		res.Injected = false
++		res.BackedUp = false
++		cmd, err := launch(opts, *agent, base)
++		if err != nil {
++			return res, nil, err
++		}
++		res.Command = cmd
++		stopped = true
++		return res, stop, nil
++	}
++
++	// 4. Backup the pre-inject state BEFORE it takes effect (first wrap
++	//    only; a pre-existing backup is left untouched).
++	if opts.Cfg.Wrap.BackupConfig {
++		backedUp, err := writeBackupWithDir(opts, *agent)
++		if err != nil {
++			return res, nil, err
++		}
++		res.BackedUp = backedUp
++		res.BackupPath = backupPath(*agent, configPathFor(*agent))
++		if !backedUp {
++			// A backup already exists from a prior wrap: treat as
++			// already wrapped (no double-inject either).
++			log.Info("wrap: backup exists, skipping inject", "agent", agent.Name)
++			cmd, err := launch(opts, *agent, base)
++			if err != nil {
++				return res, nil, err
++			}
++			res.Command = cmd
++			stopped = true
++			return res, stop, nil
++		}
++	}
++
++	// 5. Inject: the subprocess env gets the base-URL var pointed at the
++	//    proxy (config files are untouched — env injection only, T07).
++	res.Injected = true
++
++	// 6. Launch the agent subprocess with the injected env.
++	cmd, err := launch(opts, *agent, base)
++	if err != nil {
++		return res, nil, err
++	}
++	res.Command = cmd
++	stopped = true
++	return res, stop, nil
++}
++
++// launch builds (and starts) the agent subprocess with the injected env.
++// Fail-open: Start errors are returned, never panicked.
++func launch(opts Options, agent Agent, base string) (*exec.Cmd, error) {
++	binary := opts.Binary
++	if binary == "" {
++		binary = agent.Name
++	}
++	cmd := exec.Command(binary, opts.Args...)
++	cmd.Env = InjectEnv(opts.Env, agent, base)
++	if opts.Stdout != nil {
++		cmd.Stdout = opts.Stdout
++	}
++	if opts.Stderr != nil {
++		cmd.Stderr = opts.Stderr
++	}
++	if err := cmd.Start(); err != nil {
++		return nil, fmt.Errorf("wrap: launching %s: %w", binary, err)
++	}
++	return cmd, nil
++}
++
++// writeBackupWithDir runs the backup with an optional dir override.
++func writeBackupWithDir(opts Options, agent Agent) (bool, error) {
++	if opts.BackupDir == "" {
++		return WriteBackup(agent, configPathFor(agent), envGetter(opts.Env))
++	}
++	// Mkdir the override dir and redirect the default dir for this call.
++	if err := os.MkdirAll(opts.BackupDir, 0o755); err != nil {
++		return false, fmt.Errorf("wrap: creating backup dir %s: %w", opts.BackupDir, err)
++	}
++	prev := defaultBackupDir
++	defaultBackupDir = opts.BackupDir
++	defer func() { defaultBackupDir = prev }()
++	return WriteBackup(agent, configPathFor(agent), envGetter(opts.Env))
++}
++
++// envGetter adapts a []string env to the env func the backup uses.
++func envGetter(env []string) func(string) string {
++	return func(key string) string {
++		prefix := key + "="
++		for _, kv := range env {
++			if len(kv) > len(prefix) && kv[:len(prefix)] == prefix {
++				return kv[len(prefix):]
++			}
++		}
++		return ""
++	}
++}
++
++// ping confirms the proxy answers on loopback (liveness before launch).
++func ping(base string) error {
++	client := &http.Client{Timeout: 2 * time.Second}
++	resp, err := client.Get(base + "/stats")
++	if err != nil {
++		return err
++	}
++	defer resp.Body.Close()
++	_, _ = io.Copy(io.Discard, resp.Body)
++	return nil
++}
++
++// portFromAddr extracts the port from a "host:port" address.
++func portFromAddr(addr string) int {
++	_, p, err := net.SplitHostPort(addr)
++	if err != nil {
++		return 0
++	}
++	var port int
++	_, _ = fmt.Sscanf(p, "%d", &port)
++	return port
++}
+diff --git a/mnemonic/internal/ctx/wrap/wrap_test.go b/mnemonic/internal/ctx/wrap/wrap_test.go
+new file mode 100644
+index 00000000..da054bd4
+--- /dev/null
++++ b/mnemonic/internal/ctx/wrap/wrap_test.go
+@@ -0,0 +1,459 @@
++package wrap
++
++import (
++	"fmt"
++	"io"
++	"log/slog"
++	"net"
++	"net/http"
++	"os"
++	"path/filepath"
++	"sort"
++	"strings"
++	"testing"
++
++	ctxconfig "github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
++	ctxproxy "github.com/devopstales/skillgrid/mnemonic/internal/ctx/proxy"
++)
++
++// --- test helpers -------------------------------------------------------------
++
++func newTestCfg(t *testing.T, agents []string) *ctxconfig.CtxConfig {
++	t.Helper()
++	cfg := ctxconfig.DefaultCtxConfig()
++	if agents != nil {
++		cfg.Wrap.Agents = agents
++	}
++	return &cfg
++}
++
++func envWith(pairs ...string) []string { return pairs }
++
++func envGet(env []string, key string) string {
++	for _, kv := range env {
++		if strings.HasPrefix(kv, key+"=") {
++			return kv[len(key)+1:]
++		}
++	}
++	return ""
++}
++
++type discardWriter struct{}
++
++func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }
++
++// proxyRecorder is the test seam: it builds the real T04 proxy (nil store,
++// discarded logs) on the requested port and records whether it was called
++// (for the "proxy did NOT start" assertion, AC 4).
++type proxyRecorder struct {
++	called bool
++}
++
++func (r *proxyRecorder) start(t *testing.T, cfg *ctxconfig.CtxConfig, bind string, port int) (string, string, func(), error) {
++	t.Helper()
++	r.called = true
++	if bind == "" {
++		bind = "127.0.0.1"
++	}
++	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", bind, port))
++	if err != nil {
++		return "", "", nil, err
++	}
++	log := slog.New(slog.NewTextHandler(io.Discard, nil))
++	p := ctxproxy.New(cfg, nil, log, ctxproxy.Mode(cfg.Proxy.Mode))
++	srv := &http.Server{Handler: p.Handler()}
++	go func() { _ = srv.Serve(ln) }()
++	return "http://" + ln.Addr().String(), ln.Addr().String(), func() { _ = srv.Close() }, nil
++}
++
++// agentSourceTree creates a tiny fake "agent code" tree and returns a
++// checksum function over its bytes (AC 5: agent code never modified).
++func agentSourceTree(t *testing.T) func() string {
++	t.Helper()
++	dir := t.TempDir()
++	files := map[string]string{
++		"main.go":    "package main\nfunc main(){}\n",
++		"agent.json": `{"provider":"anthropic"}`,
++	}
++	for name, content := range files {
++		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
++			t.Fatal(err)
++		}
++	}
++	return func() string {
++		names := make([]string, 0, len(files))
++		for n := range files {
++			names = append(names, n)
++		}
++		sort.Strings(names)
++		var parts []string
++		for _, name := range names {
++			b, err := os.ReadFile(filepath.Join(dir, name))
++			if err != nil {
++				return "missing:" + name
++			}
++			parts = append(parts, name+"="+string(b))
++		}
++		return strings.Join(parts, "|")
++	}
++}
++
++// --- AC 1: wrap claude ----------------------------------------------------------
++
++// TestWrapClaudeProxyInjectBackupLaunch: `wrap claude` starts the proxy
++// (asserted serving on the loopback port), injects ANTHROPIC_BASE_URL = the
++// proxy base URL into the launched subprocess env, writes a backup of the
++// pre-inject state BEFORE the injection takes effect, and launches the
++// agent stub (which echoes the injected env back as its output).
++func TestWrapClaudeProxyInjectBackupLaunch(t *testing.T) {
++	cfg := newTestCfg(t, nil) // default core-4
++	backupDir := t.TempDir()
++	rec := &proxyRecorder{}
++	checksum := agentSourceTree(t)
++	before := checksum()
++
++	var out strings.Builder
++	res, stop, err := Wrap(Options{
++		Cfg:           cfg,
++		AgentName:     "claude",
++		Binary:        "sh",
++		Args:          []string{"-c", `env | grep -E 'BASE_URL' | sort`},
++		Env:           envWith("PATH=/usr/bin:/bin", "FOO=bar"),
++		BackupDir:     backupDir,
++		EphemeralPort: true,
++		Stdout:        &out,
++		Stderr:        &strings.Builder{},
++	}, func(c *ctxconfig.CtxConfig, bind string, p int) (string, string, func(), error) {
++		return rec.start(t, c, bind, p)
++	})
++	if err != nil {
++		t.Fatalf("Wrap: %v", err)
++	}
++	defer stop()
++
++	// Proxy started + serving on the loopback port.
++	if !rec.called {
++		t.Fatal("proxy was not started")
++	}
++	if !strings.HasPrefix(res.ProxyBaseURL, "http://127.0.0.1:") {
++		t.Fatalf("proxy base URL not loopback: %q", res.ProxyBaseURL)
++	}
++	if err := ping(res.ProxyBaseURL); err != nil {
++		t.Fatalf("proxy not serving: %v", err)
++	}
++
++	// Injection: the launched subprocess env carries ANTHROPIC_BASE_URL =
++	// the proxy base URL (asserted on the live command AND on the stub's
++	// own env echo).
++	if got := envGet(res.Command.Env, "ANTHROPIC_BASE_URL"); got != res.ProxyBaseURL {
++		t.Fatalf("ANTHROPIC_BASE_URL = %q, want %q", got, res.ProxyBaseURL)
++	}
++	if err := res.Command.Wait(); err != nil {
++		t.Fatalf("agent stub exit: %v", err)
++	}
++	if !strings.Contains(out.String(), "ANTHROPIC_BASE_URL="+res.ProxyBaseURL) {
++		t.Fatalf("agent subprocess did not observe the injection; output: %q", out.String())
++	}
++
++	// Backup: exists, contains the pre-inject state (the base-URL var was
++	// unset before the wrap, so the snapshot is the empty value), and was
++	// written before the inject took effect.
++	bk := filepath.Join(backupDir, "claude.env.bak")
++	data, err := os.ReadFile(bk)
++	if err != nil {
++		t.Fatalf("backup missing: %v", err)
++	}
++	if strings.Contains(string(data), res.ProxyBaseURL) {
++		t.Fatalf("backup captured post-inject state: %q", data)
++	}
++	if !strings.HasPrefix(string(data), "ANTHROPIC_BASE_URL=") {
++		t.Fatalf("backup does not snapshot the base-URL var: %q", data)
++	}
++	if !res.Injected || !res.BackedUp || res.BackupPath == "" {
++		t.Fatalf("expected Injected+BackedUp on first wrap, got %+v", res)
++	}
++
++	// Agent code byte-identical (only its config/env changed).
++	if got := checksum(); got != before {
++		t.Fatalf("agent source tree changed:\nbefore: %q\nafter:  %q", before, got)
++	}
++}
++
++// --- AC 2: idempotent re-run ------------------------------------------------------
++
++// TestWrapIdempotentReRun: a second `wrap` (env already pointing at the
++// proxy) does NOT double-inject and does NOT write a second backup — exactly
++// one backup exists after two runs, and the agent still launches.
++func TestWrapIdempotentReRun(t *testing.T) {
++	cfg := newTestCfg(t, nil)
++	backupDir := t.TempDir()
++	rec := &proxyRecorder{}
++	start := func(c *ctxconfig.CtxConfig, bind string, p int) (string, string, func(), error) {
++		return rec.start(t, c, bind, p)
++	}
++	// Use a fixed free port so run 2's env (captured from run 1) matches.
++	ln, err := net.Listen("tcp", "127.0.0.1:0")
++	if err != nil {
++		t.Fatal(err)
++	}
++	_, portStr, _ := net.SplitHostPort(ln.Addr().String())
++	var port int
++	fmt.Sscanf(portStr, "%d", &port)
++	ln.Close()
++
++	// First wrap: fresh env (not wrapped).
++	res1, stop1, err := Wrap(Options{
++		Cfg: cfg, AgentName: "claude",
++		Binary: "sh", Args: []string{"-c", "true"},
++		Env:       envWith("PATH=/usr/bin:/bin"),
++		BackupDir: backupDir,
++		Port:      port,
++		Stdout:    &strings.Builder{}, Stderr: &strings.Builder{},
++	}, start)
++	if err != nil {
++		t.Fatalf("first wrap: %v", err)
++	}
++	if !res1.Injected || !res1.BackedUp {
++		t.Fatalf("first wrap should inject+backup, got %+v", res1)
++	}
++	if err := res1.Command.Wait(); err != nil {
++		t.Fatal(err)
++	}
++	stop1()
++
++	// Second wrap: env already targets the loopback proxy (run 1's
++	// injected URL) → no second inject, no second backup, still launches.
++	res2, stop2, err := Wrap(Options{
++		Cfg: cfg, AgentName: "claude",
++		Binary: "sh", Args: []string{"-c", "true"},
++		Env:       envWith("PATH=/usr/bin:/bin", "ANTHROPIC_BASE_URL="+res1.ProxyBaseURL),
++		BackupDir: backupDir,
++		Port:      port,
++		Stdout:    &strings.Builder{}, Stderr: &strings.Builder{},
++	}, start)
++	if err != nil {
++		t.Fatalf("second wrap: %v", err)
++	}
++	defer stop2()
++	if res2.Injected || res2.BackedUp {
++		t.Fatalf("second wrap must not inject/backup again, got %+v", res2)
++	}
++	if err := res2.Command.Wait(); err != nil {
++		t.Fatal(err)
++	}
++
++	// Exactly one backup after two runs.
++	entries, err := os.ReadDir(backupDir)
++	if err != nil {
++		t.Fatal(err)
++	}
++	var backups []string
++	for _, e := range entries {
++		if strings.HasSuffix(e.Name(), ".bak") || strings.HasSuffix(e.Name(), ".ctx-backup") {
++			backups = append(backups, e.Name())
++		}
++	}
++	if len(backups) != 1 {
++		t.Fatalf("expected exactly 1 backup after two runs, got %v", backups)
++	}
++}
++
++// --- AC 3: opt-in wrap aider --------------------------------------------------------
++
++// TestWrapOptInAider: when aider is in the wrap.agents config, `wrap aider`
++// starts the proxy + injects OPENAI_BASE_URL + launches.
++func TestWrapOptInAider(t *testing.T) {
++	cfg := newTestCfg(t, []string{"opencode", "claude", "codex", "cursor", "aider"})
++	rec := &proxyRecorder{}
++
++	var out strings.Builder
++	res, stop, err := Wrap(Options{
++		Cfg:           cfg,
++		AgentName:     "aider",
++		Binary:        "sh",
++		Args:          []string{"-c", `env | grep -E 'BASE_URL' | sort`},
++		Env:           envWith("PATH=/usr/bin:/bin"),
++		BackupDir:     t.TempDir(),
++		EphemeralPort: true,
++		Stdout:        &out,
++		Stderr:        &strings.Builder{},
++	}, func(c *ctxconfig.CtxConfig, bind string, p int) (string, string, func(), error) {
++		return rec.start(t, c, bind, p)
++	})
++	if err != nil {
++		t.Fatalf("Wrap(aider): %v", err)
++	}
++	defer stop()
++	if !rec.called {
++		t.Fatal("proxy was not started for opt-in agent")
++	}
++	if got := envGet(res.Command.Env, "OPENAI_BASE_URL"); got != res.ProxyBaseURL {
++		t.Fatalf("OPENAI_BASE_URL = %q, want %q", got, res.ProxyBaseURL)
++	}
++	if err := res.Command.Wait(); err != nil {
++		t.Fatal(err)
++	}
++	if !strings.Contains(out.String(), "OPENAI_BASE_URL="+res.ProxyBaseURL) {
++		t.Fatalf("aider subprocess did not observe the injection; output: %q", out.String())
++	}
++}
++
++// --- AC 4: non-opt-in rejected --------------------------------------------------------
++
++// TestWrapNonOptInRejected: `wrap goose` (neither core-4 nor in config)
++// returns a clear error; the proxy did NOT start and the agent did NOT
++// launch.
++func TestWrapNonOptInRejected(t *testing.T) {
++	cfg := newTestCfg(t, nil) // default core-4, no goose
++	rec := &proxyRecorder{}
++	_, _, err := Wrap(Options{
++		Cfg: cfg, AgentName: "goose",
++		Binary: "sh", Args: []string{"-c", "true"},
++		Env: envWith("PATH=/usr/bin:/bin"),
++	}, func(c *ctxconfig.CtxConfig, bind string, p int) (string, string, func(), error) {
++		return rec.start(t, c, bind, p)
++	})
++	if err == nil {
++		t.Fatal("expected error for non-opt-in agent")
++	}
++	if !strings.Contains(err.Error(), `agent "goose"`) {
++		t.Fatalf("error not clear: %v", err)
++	}
++	if rec.called {
++		t.Fatal("proxy must NOT start for a rejected agent")
++	}
++}
++
++// TestWrapUnknownAgent: a name not in the agent table at all gets the
++// "unknown agent" message (distinct from known-but-not-enabled).
++func TestWrapUnknownAgent(t *testing.T) {
++	cfg := newTestCfg(t, nil)
++	rec := &proxyRecorder{}
++	_, _, err := Wrap(Options{
++		Cfg: cfg, AgentName: "frobnicator",
++		Binary: "sh",
++		Env:    envWith("PATH=/usr/bin:/bin"),
++	}, func(c *ctxconfig.CtxConfig, bind string, p int) (string, string, func(), error) {
++		return rec.start(t, c, bind, p)
++	})
++	if err == nil || !strings.Contains(err.Error(), `unknown agent "frobnicator"`) {
++		t.Fatalf("want unknown-agent error, got: %v", err)
++	}
++	if rec.called {
++		t.Fatal("proxy must not start for an unknown agent")
++	}
++}
++
++// TestWrapKnownButNotEnabled: a known opt-in agent absent from config is
++// rejected with the "not enabled" message.
++func TestWrapKnownButNotEnabled(t *testing.T) {
++	cfg := newTestCfg(t, nil) // core-4 only; aider is known but not enabled
++	_, _, err := Wrap(Options{
++		Cfg: cfg, AgentName: "aider",
++		Binary: "sh",
++		Env:    envWith("PATH=/usr/bin:/bin"),
++	}, func(c *ctxconfig.CtxConfig, bind string, p int) (string, string, func(), error) {
++		t.Fatal("proxy must not start")
++		return "", "", nil, nil
++	})
++	if err == nil || !strings.Contains(err.Error(), `agent "aider" is not enabled`) {
++		t.Fatalf("want not-enabled error, got: %v", err)
++	}
++}
++
++// --- fail-open: proxy start failure aborts before launch ------------------------------
++
++// TestWrapProxyStartFailureFailsOpen: a proxy-start failure aborts with a
++// clear error and the agent is never launched (ADR-0016: never point the
++// agent at a dead proxy).
++func TestWrapProxyStartFailureFailsOpen(t *testing.T) {
++	cfg := newTestCfg(t, nil)
++	_, _, err := Wrap(Options{
++		Cfg: cfg, AgentName: "claude",
++		Binary: "sh", Args: []string{"-c", "true"},
++		Env: envWith("PATH=/usr/bin:/bin"),
++	}, func(c *ctxconfig.CtxConfig, bind string, p int) (string, string, func(), error) {
++		return "", "", nil, fmt.Errorf("bind: address already in use")
++	})
++	if err == nil || !strings.Contains(err.Error(), "starting proxy") {
++		t.Fatalf("want proxy-start error, got: %v", err)
++	}
++}
++
++// --- fail-open: launch failure returns a clear error, no panic -------------------------
++
++// TestWrapLaunchFailureFailsOpen: an unlaunchable binary returns a clear
++// error, not a panic.
++func TestWrapLaunchFailureFailsOpen(t *testing.T) {
++	cfg := newTestCfg(t, nil)
++	rec := &proxyRecorder{}
++	_, _, err := Wrap(Options{
++		Cfg: cfg, AgentName: "claude",
++		Binary:        "/nonexistent/agent-binary-xyz",
++		Env:           envWith("PATH=/usr/bin:/bin"),
++		BackupDir:     t.TempDir(),
++		EphemeralPort: true,
++	}, func(c *ctxconfig.CtxConfig, bind string, p int) (string, string, func(), error) {
++		return rec.start(t, c, bind, p)
++	})
++	if err == nil || !strings.Contains(err.Error(), "launching") {
++		t.Fatalf("want launch error, got: %v", err)
++	}
++}
++
++// --- backup_config=false skips the backup ----------------------------------------------
++
++// TestWrapNoBackupWhenDisabled: with backup_config=false no backup file is
++// written, but the injection still happens (and is idempotent on re-run).
++func TestWrapNoBackupWhenDisabled(t *testing.T) {
++	cfg := newTestCfg(t, nil)
++	cfg.Wrap.BackupConfig = false
++	backupDir := t.TempDir()
++	rec := &proxyRecorder{}
++
++	res, stop, err := Wrap(Options{
++		Cfg: cfg, AgentName: "claude",
++		Binary: "sh", Args: []string{"-c", "true"},
++		Env:           envWith("PATH=/usr/bin:/bin"),
++		BackupDir:     backupDir,
++		EphemeralPort: true,
++		Stdout:        &strings.Builder{}, Stderr: &strings.Builder{},
++	}, func(c *ctxconfig.CtxConfig, bind string, p int) (string, string, func(), error) {
++		return rec.start(t, c, bind, p)
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer stop()
++	if err := res.Command.Wait(); err != nil {
++		t.Fatal(err)
++	}
++	if res.BackedUp {
++		t.Fatal("backup should be skipped when backup_config=false")
++	}
++	if got := envGet(res.Command.Env, "ANTHROPIC_BASE_URL"); got != res.ProxyBaseURL {
++		t.Fatalf("injection should still happen: %q", got)
++	}
++	entries, _ := os.ReadDir(backupDir)
++	if len(entries) != 0 {
++		t.Fatalf("no backup files expected, got %v", entries)
++	}
++}
++
++// --- unit: idempotency predicate ----------------------------------------------------------
++
++func TestAlreadyWrapped(t *testing.T) {
++	agent := Agent{Name: "claude", Provider: providerAnthropic, EnvVar: "ANTHROPIC_BASE_URL"}
++	if !alreadyWrapped(envWith("ANTHROPIC_BASE_URL=http://127.0.0.1:8787"), agent) {
++		t.Error("127.0.0.1 base should be wrapped")
++	}
++	if !alreadyWrapped(envWith("ANTHROPIC_BASE_URL=http://[::1]:8787/v1"), agent) {
++		t.Error("[::1] base should be wrapped")
++	}
++	if alreadyWrapped(envWith("ANTHROPIC_BASE_URL=https://api.anthropic.com"), agent) {
++		t.Error("real provider base should NOT be wrapped")
++	}
++	if alreadyWrapped(envWith("OTHER=x"), agent) {
++		t.Error("var absent should NOT be wrapped")
++	}
++}

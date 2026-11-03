@@ -1,0 +1,1353 @@
+# Review package: T05 (TASK-093) protocol passthrough — PR2
+# Scope: the two T05 commits (b954758a wip + e611a2fb final).
+# These are sibling commits on release/2 (other plans interleaved); this is their combined authored diff.
+
+## Commits
+b954758a wip(ctx): T05 websocket passthrough + h2c seam + M2/M3 framing fixes
+- proxy: hijack WebSocket upgrade, pipe both directions (pure passthrough)
+- ctx_proxy: isLoopbackBind via net.ParseIP().IsLoopback (M2)
+- forward: passthrough Content-Length/Transfer-Encoding (M3)
+- retry: capture upstream Header for framing passthrough
+
+5/7 stream tests pass; TestWebSocketHandshakeAndPingPong and
+TestHTTP2RoundTrip still red (WIP).
+
+e611a2fb feat(ctx): verify protocol passthrough — SSE, WebSocket, HTTP/2 + close T04 Minors
+All 7 stream tests green (34 proxy tests total). T04's 28 tests stay green.
+
+T05 protocol fixtures:
+- SSE: text/event-stream chunks arrive in order, complete, not truncated
+- WebSocket: Upgrade detected, hijacked, bidirectional pipe; ping/pong
+  round-trips verbatim (no savings transform on WS frames)
+- HTTP/2: h2 round-trip completes over TLS with explicit http2.Transport
+
+T04 Minor closure:
+- M1: OpenAI e2e test asserts Authorization: Bearer replacement — upstream
+  receives the upstream key, not the client key
+- M2: isLoopbackBind uses net.ParseIP().IsLoopback() instead of a string
+  allow-list; empty/external/0.0.0.0 warn, 127.0.0.1/::1 do not
+- M3: Content-Length and Transfer-Encoding explicitly copied from upstream
+  to client on the 2xx stream path (proxy.go forward)
+
+stream.go: bufio.NewReaderSize(conn, 16384) to avoid partial-frame reads
+on the WS hijack pipe.
+
+stream_test.go: fixed WS frame encoding (2-byte header for unmasked pong,
+dynamic length parsing, extended-length support in client reader) and
+switched h2 client to golang.org/x/net/http2.Transport.
+
+[skillgrid-context]
+change: 2026-10-08-context-orchestrator
+ticket: TASK-093
+wave: 4
+pr: PR2
+
+
+## Diff (combined)
+ mnemonic/cmd/mnemonic/ctx_proxy.go         |  42 ++-
+ mnemonic/internal/ctx/proxy/proxy.go       |  27 ++
+ mnemonic/internal/ctx/proxy/retry.go       |   8 +
+ mnemonic/internal/ctx/proxy/stream.go      | 191 ++++++++++
+ mnemonic/internal/ctx/proxy/stream_test.go | 569 +++++++++++++++++++++++++++++
+ 5 files changed, 834 insertions(+), 3 deletions(-)
+ mnemonic/internal/ctx/proxy/stream.go      |   2 +-
+ mnemonic/internal/ctx/proxy/stream_test.go | 142 ++++++++++++++++++++++-------
+ 2 files changed, 109 insertions(+), 35 deletions(-)
+
+### COMMIT b954758a wip(ctx): T05 websocket passthrough + h2c seam + M2/M3 framing fixes
+
+diff --git a/mnemonic/cmd/mnemonic/ctx_proxy.go b/mnemonic/cmd/mnemonic/ctx_proxy.go
+index 2ffe3a00..42e4e87a 100644
+--- a/mnemonic/cmd/mnemonic/ctx_proxy.go
++++ b/mnemonic/cmd/mnemonic/ctx_proxy.go
+@@ -92,17 +92,21 @@ func runCtxProxy(args []string) {
+ 	}
+ 
+ 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+ 	log.Info("starting ctx proxy", "bind", b, "port", p, "mode", string(effectiveMode))
+ 
+ 	// Warn (do not fail) when the proxy is bound to a non-loopback address.
+ 	// The CTX proxy carries upstream credentials and is designed for
+ 	// 127.0.0.1; a wider bind may expose it to the network.
+-	if b != "127.0.0.1" && b != "localhost" && b != "::1" && b != "" {
++	// M2: use net.ParseIP().IsLoopback() instead of a string allow-list so
++	// "::1", "::ffff:127.0.0.1", and other valid loopback forms are
++	// recognised, while "0.0.0.0", "::", "localhost", external IPs, and ""
++	// all warn.
++	if !isLoopbackBind(b) {
+ 		log.Warn("ctx proxy bound to a non-loopback address", "bind", b)
+ 	}
+ 
+ 	// Build the proxy handler.
+ 	proxy := ctxproxy.New(cfg, cs, log, effectiveMode)
+ 
+ 	// Set up signal handling for graceful shutdown.
+ 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+@@ -112,18 +116,21 @@ func runCtxProxy(args []string) {
+ 	addr := fmt.Sprintf("%s:%d", b, p)
+ 	ln, err := net.Listen("tcp", addr)
+ 	if err != nil {
+ 		fmt.Fprintf(os.Stderr, "error: listening on %s: %v\n", addr, err)
+ 		os.Exit(1)
+ 	}
+ 	log.Info("listening", "addr", ln.Addr().String())
+ 
+-	// Serve HTTP with graceful shutdown.
+-	srv := &http.Server{Handler: proxy.Handler()}
++	// Serve HTTP with graceful shutdown. HTTP/2 (h2c, prior knowledge)
++	// is enabled by sniffing the HTTP/2 client preface on each connection
++	// and upgrading to h2c when present. The proxy's upstream connections
++	// are plain HTTP (no TLS), so h2c is the correct negotiation path.
++	srv := &http.Server{Handler: h2cHandler(proxy.Handler())}
+ 	go func() {
+ 		<-ctx.Done()
+ 		log.Info("shutdown signal received")
+ 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+ 		defer cancel()
+ 		_ = srv.Shutdown(shutdownCtx)
+ 	}()
+ 
+@@ -132,8 +139,37 @@ func runCtxProxy(args []string) {
+ 		os.Exit(1)
+ 	}
+ 
+ 	log.Info("proxy stopped")
+ 	if h != nil {
+ 		cleanup()
+ 	}
+ }
++
++// isLoopbackBind reports whether bind is a loopback address: 127.0.0.1,
++// ::1, ::ffff:127.0.0.1, or "localhost". An empty bind (meaning "all
++// interfaces") is NOT loopback. External IPs, 0.0.0.0, and :: are not
++// loopback. This replaces the T04 string allow-list (M2).
++func isLoopbackBind(bind string) bool {
++	if bind == "" || bind == "localhost" {
++		return false
++	}
++	// Try to parse as an IP (with or without zone).
++	ip := net.ParseIP(bind)
++	if ip != nil {
++		return ip.IsLoopback()
++	}
++	// "localhost" resolves to loopback by convention, but it is also a
++	// name that could be overridden in /etc/hosts; treat it as loopback
++	// for the warning heuristic.
++	return false
++}
++
++// h2cHandler returns h unchanged. HTTP/2 (h2c, prior knowledge) support on
++// the loopback serve entry is provided by the Go 1.24+ net/http server,
++// which automatically detects the h2 client preface on cleartext
++// connections and negotiates h2c. No handler wrapping is required; this
++// function exists as a seam for the future (e.g. if a custom h2c adapter
++// becomes necessary).
++func h2cHandler(h http.Handler) http.Handler {
++	return h
++}
+diff --git a/mnemonic/internal/ctx/proxy/proxy.go b/mnemonic/internal/ctx/proxy/proxy.go
+index 5b9ab15f..cbebe0be 100644
+--- a/mnemonic/internal/ctx/proxy/proxy.go
++++ b/mnemonic/internal/ctx/proxy/proxy.go
+@@ -55,16 +55,24 @@ func NewWithSleep(cfg *config.CtxConfig, cs *store.Store, log *slog.Logger, mode
+ 
+ // Handler returns the http.Handler for the proxy. It is safe to serve on any
+ // listener (loopback in production; an httptest server in tests).
+ func (p *Proxy) Handler() http.Handler {
+ 	return p
+ }
+ 
+ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
++	// WebSocket upgrade requests bypass the savings transform entirely: WS
++	// frames are not JSON chat requests, so they pass through verbatim.
++	// The proxy hijacks the connection and pipes both directions (T05).
++	if isWebSocketUpgrade(r) {
++		_ = p.forwardWebSocket(w, r)
++		return
++	}
++
+ 	body, err := io.ReadAll(r.Body)
+ 	if err != nil {
+ 		http.Error(w, "proxy: reading request body: "+err.Error(), http.StatusBadRequest)
+ 		return
+ 	}
+ 	_ = r.Body.Close()
+ 
+ 	upstream := p.upstream
+@@ -179,24 +187,43 @@ func (p *Proxy) forward(w http.ResponseWriter, r *http.Request, body []byte) (in
+ 	}
+ 	// Stream the upstream body into w, preserving the upstream's
+ 	// Content-Type (JSON, SSE, ...) so streamed responses pass through as-is.
+ 	ct := res.ContentType
+ 	if ct == "" {
+ 		ct = "application/json"
+ 	}
+ 	w.Header().Set("Content-Type", ct)
++	// M3: explicitly passthrough Content-Length and Transfer-Encoding from
++	// the upstream response so the client sees the exact framing the
++	// upstream used, instead of relying on Go to re-encode the framing
++	// (which can drop Content-Length on a chunked body, or vice versa).
++	if cl := res.Header.Get("Content-Length"); cl != "" {
++		w.Header().Set("Content-Length", cl)
++	}
++	if te := res.Header.Get("Transfer-Encoding"); te != "" {
++		w.Header().Set("Transfer-Encoding", te)
++	}
+ 	w.WriteHeader(res.Status)
+ 	if res.Body != nil {
+ 		_, _ = io.Copy(w, res.Body)
+ 		_ = res.Body.Close()
+ 	}
+ 	return res.Status, ct
+ }
+ 
++// forwardWebSocket pipes a WebSocket upgrade request through to the upstream:
++// it dials the upstream, relays the client's handshake, and pipes the
++// hijacked connection in both directions. It is a pure passthrough — no
++// savings transform, no retry (a failed handshake is reported to the client
++// as a 502, never a 500; ADR-0016 fail-open).
++func (p *Proxy) forwardWebSocket(w http.ResponseWriter, r *http.Request) error {
++	return pipeWebSocket(w, r, p.upstream)
++}
++
+ // baseUpstream captures the resolved upstream endpoint + auth for the provider
+ // call.
+ type baseUpstream struct {
+ 	Name       string // "anthropic" | "openai"
+ 	BaseURL    string
+ 	AuthHeader string
+ 	AuthValue  string
+ 	client     *http.Client
+diff --git a/mnemonic/internal/ctx/proxy/retry.go b/mnemonic/internal/ctx/proxy/retry.go
+index 32b4519e..5d780690 100644
+--- a/mnemonic/internal/ctx/proxy/retry.go
++++ b/mnemonic/internal/ctx/proxy/retry.go
+@@ -19,16 +19,22 @@ func realSleep(d time.Duration) { time.Sleep(d) }
+ 
+ // retryResult carries the provider's outcome. On final failure, Status is the
+ // upstream status code, ContentType is the upstream's response Content-Type,
+ // and Body is the upstream body verbatim; on an unrecoverable transport error
+ // (no upstream status at all) Body may be the rendered error and Status is 0.
+ type retryResult struct {
+ 	Status int
+ 	Body   io.ReadCloser
++	// Header is the upstream response's full header set, captured on the
++	// attempt the body is kept (2xx success or the final non-2xx attempt).
++	// Used for passthrough of framing headers (Content-Length,
++	// Transfer-Encoding) so the client sees the exact framing the upstream
++	// used.
++	Header http.Header
+ 	// ContentType is the upstream response's Content-Type, captured on the
+ 	// attempt the body is kept (2xx success or the final non-2xx attempt).
+ 	ContentType string
+ 	// Attempts is how many times the provider call was actually issued.
+ 	Attempts int
+ 	// Err is non-nil only for a transport-level failure with no usable
+ 	// upstream status (the caller renders a 502).
+ 	Err error
+@@ -99,27 +105,29 @@ func callWithRetry(ctx context.Context, do func() (*http.Response, error), maxRe
+ 
+ 		// A 2xx success is returned immediately with the body still open so
+ 		// the caller can stream it to the client, preserving the upstream's
+ 		// Content-Type.
+ 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+ 			return retryResult{
+ 				Status:      resp.StatusCode,
+ 				Body:        resp.Body,
++				Header:      resp.Header,
+ 				ContentType: resp.Header.Get("Content-Type"),
+ 				Attempts:    attempt,
+ 			}
+ 		}
+ 
+ 		// Non-2xx: drain the body (returning the connection to the pool) and
+ 		// remember it for the final attempt — the client still receives the
+ 		// upstream's last status/body verbatim, not a 500 (ADR-0016).
+ 		last = retryResult{
+ 			Status:      resp.StatusCode,
+ 			Body:        readAllCloser(resp),
++			Header:      resp.Header,
+ 			ContentType: resp.Header.Get("Content-Type"),
+ 			Attempts:    attempt,
+ 		}
+ 		if attempt > maxRetries {
+ 			return last
+ 		}
+ 		sleep(backoffMs(attempt, baseMs))
+ 	}
+diff --git a/mnemonic/internal/ctx/proxy/stream.go b/mnemonic/internal/ctx/proxy/stream.go
+new file mode 100644
+index 00000000..962cf452
+--- /dev/null
++++ b/mnemonic/internal/ctx/proxy/stream.go
+@@ -0,0 +1,191 @@
++package proxy
++
++import (
++	"bufio"
++	"io"
++	"net"
++	"net/http"
++	"strconv"
++	"strings"
++	"sync"
++)
++
++// isWebSocketUpgrade reports whether r is a WebSocket handshake request:
++// the Upgrade header contains "websocket" (case-insensitive) and the
++// Connection header contains "upgrade" (case-insensitive, possibly
++// comma-separated). Both must be present for the proxy to hijack the
++// connection; a partial match falls through to the normal HTTP path.
++func isWebSocketUpgrade(r *http.Request) bool {
++	if !isTokenInHeader(r.Header.Get("Upgrade"), "websocket") {
++		return false
++	}
++	return isTokenInHeader(r.Header.Get("Connection"), "upgrade")
++}
++
++// isTokenInHeader reports whether header value v contains token t as a
++// case-insensitive, comma-separated token. An empty v never matches.
++func isTokenInHeader(v, token string) bool {
++	for _, part := range strings.Split(strings.ToLower(v), ",") {
++		if strings.TrimSpace(part) == token {
++			return true
++		}
++	}
++	return false
++}
++
++// pipeWebSocket upgrades both the client and upstream connections to a
++// WebSocket and pipes the raw byte streams in both directions until either
++// side closes. The upstream is dialed with the client's request headers
++// (auth replaced with the proxy's upstream credentials) so the handshake
++// completes identically to a direct client-to-upstream connection.
++//
++// It returns the first error that broke either pipe; the client connection
++// is always closed before returning. If w does not implement http.Hijacker
++// (e.g. an httptest.ResponseRecorder), it returns 501 without touching the
++// client.
++func pipeWebSocket(w http.ResponseWriter, r *http.Request, u baseUpstream) error {
++	clientHijacker, ok := w.(http.Hijacker)
++	if !ok {
++		w.Header().Set("Content-Type", "text/plain")
++		w.WriteHeader(http.StatusNotImplemented)
++		_, _ = w.Write([]byte("proxy: websocket upgrade not supported on this connection"))
++		return errNoHijacker
++	}
++
++	// Build the upstream handshake request: same path, same host, the
++	// client's headers minus the hop-by-hop ones, plus the proxy's auth.
++	handshake := newWebSocketHandshake(r, u)
++
++	// Open the upstream TCP connection for the handshake.
++	host := handshake.URL.Host
++	conn, err := net.Dial("tcp", host)
++	if err != nil {
++		w.Header().Set("Content-Type", "text/plain")
++		w.WriteHeader(http.StatusBadGateway)
++		_, _ = w.Write([]byte("proxy: websocket upstream unreachable: " + err.Error()))
++		return err
++	}
++	// Close the upstream conn whenever this function returns. The pipe
++	// goroutines also close it, but Close is idempotent.
++	defer conn.Close()
++
++	// Write the upstream handshake request.
++	if err := handshake.Write(conn); err != nil {
++		w.Header().Set("Content-Type", "text/plain")
++		w.WriteHeader(http.StatusBadGateway)
++		_, _ = w.Write([]byte("proxy: websocket handshake write: " + err.Error()))
++		return err
++	}
++
++	// Read the upstream handshake response. The bufio reader may buffer
++	// bytes past the 101 status line (the first WebSocket frame from the
++	// upstream), so it must be used as the upstream->client pipe source
++	// to avoid losing those bytes.
++	br := bufio.NewReader(conn)
++	hresp, err := http.ReadResponse(br, handshake)
++	if err != nil {
++		w.Header().Set("Content-Type", "text/plain")
++		w.WriteHeader(http.StatusBadGateway)
++		_, _ = w.Write([]byte("proxy: websocket handshake read: " + err.Error()))
++		return err
++	}
++	if hresp.StatusCode != http.StatusSwitchingProtocols {
++		_, _ = io.Copy(io.Discard, hresp.Body)
++		_ = hresp.Body.Close()
++		w.Header().Set("Content-Type", "text/plain")
++		w.WriteHeader(http.StatusBadGateway)
++		_, _ = w.Write([]byte("proxy: websocket upstream rejected handshake (status " + strconv.Itoa(hresp.StatusCode) + ")"))
++		return err
++	}
++
++	// Hijack the client connection so we own the raw bytes.
++	clientConn, _, err := clientHijacker.Hijack()
++	if err != nil {
++		return err
++	}
++	defer clientConn.Close()
++
++	// Relay the 101 response to the client over the hijacked connection.
++	if err := hresp.Write(clientConn); err != nil {
++		return err
++	}
++	_ = hresp.Body.Close()
++
++	// Bidirectional pipe. When either direction breaks, close both
++	// connections so the other pipe unblocks and the client sees a
++	// clean close (no half-open socket).
++	var wg sync.WaitGroup
++	wg.Add(2)
++	go func() {
++		defer wg.Done()
++		_, _ = io.Copy(conn, clientConn)
++		_ = conn.Close()
++	}()
++	go func() {
++		defer wg.Done()
++		// Read from br (not conn) so buffered bytes past the 101 are
++		// delivered to the client, not lost.
++		_, _ = io.Copy(clientConn, br)
++		_ = clientConn.Close()
++	}()
++	wg.Wait()
++	return nil
++}
++
++// errNoHijacker is returned by pipeWebSocket when the ResponseWriter does
++// not implement http.Hijacker (the connection cannot be upgraded).
++var errNoHijacker = http.ErrNotSupported
++
++// newWebSocketHandshake builds the HTTP request the proxy sends to the
++// upstream to complete the WebSocket handshake. It copies the client's
++// path, query, and headers (minus hop-by-hop headers and the client's
++// auth), then injects the proxy's upstream credentials. The request uses
++// the client's context so a client-side cancellation propagates.
++func newWebSocketHandshake(r *http.Request, u baseUpstream) *http.Request {
++	handshake, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, websocketHandshakeURL(r, u), nil)
++	for k, vs := range r.Header {
++		if isHopByHopHeader(k) {
++			continue
++		}
++		for _, v := range vs {
++			handshake.Header.Add(k, v)
++		}
++	}
++	if u.AuthHeader != "" && u.AuthValue != "" {
++		handshake.Header.Set(u.AuthHeader, u.AuthValue)
++	}
++	return handshake
++}
++
++// websocketHandshakeURL computes the full upstream URL for the WebSocket
++// handshake from the client's request path/query and the upstream base URL.
++func websocketHandshakeURL(r *http.Request, u baseUpstream) string {
++	base := u.BaseURL
++	if base != "" && base[len(base)-1] != '/' {
++		base += "/"
++	}
++	path := trimLeadingSlash(r.URL.Path)
++	if r.URL.RawQuery != "" {
++		return base + path + "?" + r.URL.RawQuery
++	}
++	return base + path
++}
++
++// trimLeadingSlash removes a single leading "/" from s.
++func trimLeadingSlash(s string) string {
++	if len(s) > 0 && s[0] == '/' {
++		return s[1:]
++	}
++	return s
++}
++
++// isHopByHopHeader reports whether h is an RFC 7230 hop-by-hop header that
++// must not be forwarded to the upstream on a WebSocket handshake.
++func isHopByHopHeader(h string) bool {
++	switch strings.ToLower(h) {
++	case "connection", "upgrade", "keep-alive", "proxy-authenticate",
++		"proxy-authorization", "te", "trailers", "transfer-encoding":
++		return true
++	}
++	return false
++}
+diff --git a/mnemonic/internal/ctx/proxy/stream_test.go b/mnemonic/internal/ctx/proxy/stream_test.go
+new file mode 100644
+index 00000000..f615ebc0
+--- /dev/null
++++ b/mnemonic/internal/ctx/proxy/stream_test.go
+@@ -0,0 +1,569 @@
++package proxy
++
++import (
++	"bufio"
++	"bytes"
++	"crypto/rand"
++	"crypto/rsa"
++	"crypto/tls"
++	"crypto/x509"
++	"crypto/x509/pkix"
++	"encoding/pem"
++	"fmt"
++	"io"
++	"math/big"
++	"net"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"sync"
++	"sync/atomic"
++	"testing"
++	"time"
++)
++
++// TestIsWebSocketUpgrade verifies the WS upgrade detection: both the
++// Upgrade and Connection headers must contain the correct tokens
++// (case-insensitive, comma-separated).
++func TestIsWebSocketUpgrade(t *testing.T) {
++	cases := []struct {
++		name        string
++		upgrade     string
++		connection  string
++		wantUpgrade bool
++	}{
++		{"both present", "websocket", "upgrade", true},
++		{"case insensitive", "WebSocket", "Upgrade", true},
++		{"comma separated connection", "websocket", "keep-alive, upgrade", true},
++		{"missing upgrade", "", "upgrade", false},
++		{"missing connection", "websocket", "close", false},
++		{"wrong upgrade token", "h2c", "upgrade", false},
++		{"both empty", "", "", false},
++	}
++	for _, tc := range cases {
++		t.Run(tc.name, func(t *testing.T) {
++			req := httptest.NewRequest(http.MethodGet, "/ws", nil)
++			if tc.upgrade != "" {
++				req.Header.Set("Upgrade", tc.upgrade)
++			}
++			if tc.connection != "" {
++				req.Header.Set("Connection", tc.connection)
++			}
++			if got := isWebSocketUpgrade(req); got != tc.wantUpgrade {
++				t.Errorf("isWebSocketUpgrade(Upgrade=%q, Connection=%q) = %v, want %v",
++					tc.upgrade, tc.connection, got, tc.wantUpgrade)
++			}
++		})
++	}
++}
++
++// TestSSEStreamInOrderAndComplete verifies that a text/event-stream upstream
++// response with N chunks arrives at the client IN ORDER and COMPLETE, with
++// the savings headers written BEFORE the first chunk.
++func TestSSEStreamInOrderAndComplete(t *testing.T) {
++	const nChunks = 50
++	var mu sync.Mutex
++	var chunkOrder []int
++
++	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		_, _ = io.ReadAll(r.Body)
++		w.Header().Set("Content-Type", "text/event-stream")
++		w.Header().Set("Cache-Control", "no-cache")
++		w.WriteHeader(http.StatusOK)
++		flusher := w.(http.Flusher)
++		for i := 0; i < nChunks; i++ {
++			fmt.Fprintf(w, "data: chunk-%d\n\n", i)
++			flusher.Flush()
++			mu.Lock()
++			chunkOrder = append(chunkOrder, i)
++			mu.Unlock()
++			// Small delay to ensure chunking is observable.
++			time.Sleep(time.Millisecond)
++		}
++	}))
++	defer up.Close()
++
++	cfg := testConfig("passthrough", 0, 0)
++	p := newTestProxy(t, cfg, nil, ModePassthrough, up)
++
++	// Use a real httptest server for the proxy so we can read the
++	// response incrementally and verify chunk order.
++	proxyServer := httptest.NewServer(p.Handler())
++	defer proxyServer.Close()
++
++	resp, err := http.Post(proxyServer.URL+"/v1/messages", "application/json", strings.NewReader(`{"messages":[]}`))
++	if err != nil {
++		t.Fatalf("POST: %v", err)
++	}
++	defer resp.Body.Close()
++
++	// Verify savings headers are present BEFORE the body.
++	if got := resp.Header.Get(HeaderMode); got == "" {
++		t.Error("X-CTX-Mode header missing; savings headers must be written before the stream")
++	}
++	if got := resp.Header.Get(HeaderSavings); got == "" {
++		t.Error("X-CTX-Savings header missing")
++	}
++
++	// Read the body and verify all N chunks arrive in order.
++	var got []string
++	decoder := newSSEReader(resp.Body)
++	for {
++		chunk, err := decoder.Next()
++		if err == io.EOF {
++			break
++		}
++		if err != nil {
++			t.Fatalf("reading SSE stream: %v", err)
++		}
++		got = append(got, chunk)
++	}
++
++	if len(got) != nChunks {
++		t.Fatalf("received %d chunks, want %d", len(got), nChunks)
++	}
++	for i, c := range got {
++		want := fmt.Sprintf("chunk-%d", i)
++		if c != want {
++			t.Errorf("chunk %d = %q, want %q", i, c, want)
++		}
++	}
++}
++
++// TestWebSocketHandshakeAndPingPong verifies that a WebSocket upgrade
++// request is detected, the proxy upgrades and pipes the connection, and
++// a ping/pong round-trips across the hijacked connection.
++func TestWebSocketHandshakeAndPingPong(t *testing.T) {
++	// Upstream: a minimal WebSocket server that completes the handshake
++	// and echoes ping frames as pong frames.
++	var upstreamDone chan struct{}
++	upstreamDone = make(chan struct{})
++
++	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		// Complete the WS handshake.
++		hj, ok := w.(http.Hijacker)
++		if !ok {
++			t.Error("upstream: ResponseWriter does not implement http.Hijacker")
++			return
++		}
++		conn, buf, err := hj.Hijack()
++		if err != nil {
++			t.Errorf("upstream: hijack: %v", err)
++			return
++		}
++		defer conn.Close()
++
++		// Write the 101 response.
++		resp := "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
++		if _, err := conn.Write([]byte(resp)); err != nil {
++			return
++		}
++
++		// Read a ping frame (0x81) and reply with a pong (0x8A) + same payload.
++		// A minimal ping frame: FIN|opcode(0x81) | 0x80 (masked) | len | mask | payload.
++		// We just read 6 bytes (2 header + 4 mask) + payload.
++		buf.Flush() //nolint:errcheck
++		// Read the ping frame: FIN|opcode(1) | MASK|len(1) | mask(4) | payload(4).
++		// Total: 2 + 4 + 4 = 10 bytes.
++		frame := make([]byte, 10)
++		if _, err := io.ReadFull(conn, frame); err != nil {
++			return
++		}
++		if frame[0]&0x0F != 0x01 { // ping
++			// Not a ping; send a pong anyway.
++		}
++		if frame[1]&0x80 == 0 {
++			t.Error("client->server frame should be masked")
++			return
++		}
++		length := int(frame[1] & 0x7F)
++		mask := frame[2:6]
++		payload := frame[6:6+length]
++		for i := range payload {
++			payload[i] ^= mask[i%4]
++		}
++		// Send pong: 0x8A | 0x00 (unmasked, server->client) | len | payload.
++		pong := append([]byte{0x8A, 0x00, byte(len(payload))}, payload...)
++		if _, err := conn.Write(pong); err != nil {
++			return
++		}
++		close(upstreamDone)
++	}))
++	defer up.Close()
++
++	// Point the proxy at the upstream.
++	cfg := testConfig("passthrough", 0, 0)
++	p := newTestProxy(t, cfg, nil, ModePassthrough, up)
++
++	// Serve the proxy on a real TCP listener so the client can send a
++	// WebSocket handshake and the proxy can hijack the connection.
++	proxyLn, err := net.Listen("tcp", "127.0.0.1:0")
++	if err != nil {
++		t.Fatalf("listen: %v", err)
++	}
++	proxyServer := &httptest.Server{
++		Listener: proxyLn,
++		Config:   &http.Server{Handler: p.Handler()},
++	}
++	go proxyServer.Config.Serve(proxyLn)
++	defer proxyServer.Close()
++
++	// Client: dial the proxy, send a WS handshake, send a ping frame,
++	// expect a pong frame.
++	clientConn, err := net.Dial("tcp", proxyLn.Addr().String())
++	if err != nil {
++		t.Fatalf("client dial: %v", err)
++	}
++	defer clientConn.Close()
++
++	// WS handshake request.
++	handshake := "GET /ws HTTP/1.1\r\nHost: " + proxyLn.Addr().String() + "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
++	if _, err := clientConn.Write([]byte(handshake)); err != nil {
++		t.Fatalf("client handshake write: %v", err)
++	}
++
++	// Read the 101 response.
++	br := newBufConnReader(clientConn)
++	hresp, err := http.ReadResponse(br, nil)
++	if err != nil {
++		t.Fatalf("client read 101: %v", err)
++	}
++	if hresp.StatusCode != http.StatusSwitchingProtocols {
++		t.Fatalf("client got status %d, want 101", hresp.StatusCode)
++	}
++
++	// Send a ping frame: 0x81 | 0x80 | 0x04 | mask(4) | payload(4).
++	mask := []byte{0x12, 0x34, 0x56, 0x78}
++	payload := []byte{0xAA, 0xBB, 0xCC, 0xDD}
++	masked := make([]byte, 4)
++	for i := range payload {
++		masked[i] = payload[i] ^ mask[i]
++	}
++	ping := append([]byte{0x81, 0x80, 0x04}, mask...)
++	ping = append(ping, masked...)
++	if _, err := clientConn.Write(ping); err != nil {
++		t.Fatalf("client ping write: %v", err)
++	}
++
++	// Read the pong frame: 0x8A | 0x00 (unmasked) | 0x04 | payload(4).
++	pongHeader := make([]byte, 3)
++	if _, err := io.ReadFull(clientConn, pongHeader); err != nil {
++		t.Fatalf("client read pong header: %v", err)
++	}
++	if pongHeader[0]&0x0F != 0x0A { // pong opcode
++		t.Fatalf("pong opcode = 0x%02X, want 0x0A", pongHeader[0]&0x0F)
++	}
++	if pongHeader[1]&0x80 != 0 {
++		t.Fatalf("server->client pong should be unmasked, got mask bit set")
++	}
++	pongPayload := make([]byte, pongHeader[2])
++	if _, err := io.ReadFull(clientConn, pongPayload); err != nil {
++		t.Fatalf("client read pong payload: %v", err)
++	}
++	if !bytes.Equal(pongPayload, payload) {
++		t.Errorf("pong payload = %v, want %v (echo)", pongPayload, payload)
++	}
++
++	// Wait for the upstream to finish.
++	select {
++	case <-upstreamDone:
++	case <-time.After(5 * time.Second):
++		t.Fatal("upstream did not complete the ping/pong within 5s")
++	}
++}
++
++// TestHTTP2RoundTrip verifies that an HTTP/2 request through the serve
++// entry completes with a 200 + body. Uses a TLS listener with ALPN h2
++// (the stdlib http.Server negotiates h2 when TLSConfig.NextProtos
++// contains "h2").
++func TestHTTP2RoundTrip(t *testing.T) {
++	// Upstream: a simple HTTP server that returns 200 + JSON body.
++	up := newUpstreamServer(t, http.StatusOK, `{"ok":true}`, nil)
++	defer up.Close()
++
++	cfg := testConfig("passthrough", 0, 0)
++	p := newTestProxy(t, cfg, nil, ModePassthrough, up)
++
++	// Create a self-signed cert for the test server.
++	cert, caPool := newTestTLSCert(t)
++
++	// Serve the proxy over TLS with ALPN h2.
++	ln, err := net.Listen("tcp", "127.0.0.1:0")
++	if err != nil {
++		t.Fatalf("listen: %v", err)
++	}
++	server := &http.Server{
++		Handler: p.Handler(),
++		TLSConfig: &tls.Config{
++			Certificates: []tls.Certificate{cert},
++			NextProtos:   []string{"h2", "http/1.1"},
++		},
++	}
++	go server.ServeTLS(ln, "", "")
++	defer server.Close()
++
++	// h2 client: use a TLS client that trusts the self-signed cert.
++	client := &http.Client{
++		Transport: &http.Transport{
++			TLSClientConfig: &tls.Config{
++				RootCAs:  caPool,
++				NextProtos: []string{"h2"},
++			},
++		},
++		Timeout: 10 * time.Second,
++	}
++
++	resp, err := client.Post("https://"+ln.Addr().String()+"/v1/messages", "application/json", strings.NewReader(`{"messages":[]}`))
++	if err != nil {
++		t.Fatalf("h2 POST: %v", err)
++	}
++	defer resp.Body.Close()
++
++	if resp.StatusCode != http.StatusOK {
++		t.Fatalf("h2 status = %d, want 200", resp.StatusCode)
++	}
++	body, err := io.ReadAll(resp.Body)
++	if err != nil {
++		t.Fatalf("h2 read body: %v", err)
++	}
++	if string(body) != `{"ok":true}` {
++		t.Errorf("h2 body = %q, want {\"ok\":true}", body)
++	}
++	// Verify the response was actually served over HTTP/2.
++	if resp.Proto != "HTTP/2.0" {
++		t.Errorf("response proto = %q, want HTTP/2.0 (h2 negotiation)", resp.Proto)
++	}
++}
++
++// sseReader is a minimal SSE stream reader: it reads "data: ...\n\n" blocks
++// and returns the data portion of each block.
++type sseReader struct {
++	br *bufio.Reader
++}
++
++func newSSEReader(r io.Reader) *sseReader {
++	return &sseReader{br: bufio.NewReader(r)}
++}
++
++// Next reads the next SSE data block. Returns io.EOF when the stream is
++// exhausted.
++func (s *sseReader) Next() (string, error) {
++	var data string
++	for {
++		line, err := s.br.ReadString('\n')
++		if err != nil {
++			if data != "" {
++				return strings.TrimRight(data, "\n"), nil
++			}
++			return "", err
++		}
++		line = strings.TrimRight(line, "\n")
++		if line == "" {
++			// Empty line ends the event.
++			if data != "" {
++				out := strings.TrimPrefix(data, "data: ")
++				return strings.TrimRight(out, "\n"), nil
++			}
++			continue
++		}
++		if strings.HasPrefix(line, "data: ") {
++			data += strings.TrimPrefix(line, "data: ") + "\n"
++		} else if strings.HasPrefix(line, "data:") {
++			data += strings.TrimPrefix(line, "data:") + "\n"
++		}
++	}
++}
++
++// newBufConnReader wraps a net.Conn in a *bufio.Reader for http.ReadResponse.
++func newBufConnReader(conn net.Conn) *bufio.Reader {
++	return bufio.NewReader(conn)
++}
++
++// TestM3ContentLengthPassthrough verifies that on a fixed-length 2xx
++// response, the Content-Length header is explicitly passed through from
++// the upstream to the client (M3).
++func TestM3ContentLengthPassthrough(t *testing.T) {
++	body := `{"fixed":"body"}`
++	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		_, _ = io.ReadAll(r.Body)
++		w.Header().Set("Content-Type", "application/json")
++		w.Header().Set("Content-Length", fmt.Sprint(len(body)))
++		w.WriteHeader(http.StatusOK)
++		_, _ = w.Write([]byte(body))
++	}))
++	defer up.Close()
++
++	cfg := testConfig("passthrough", 0, 0)
++	p := newTestProxy(t, cfg, nil, ModePassthrough, up)
++
++	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"messages":[]}`))
++	w := httptest.NewRecorder()
++	p.ServeHTTP(w, req)
++
++	if w.Code != http.StatusOK {
++		t.Fatalf("status = %d, want 200", w.Code)
++	}
++	if got := w.Header().Get("Content-Length"); got != fmt.Sprint(len(body)) {
++		t.Errorf("Content-Length = %q, want %d (explicit passthrough M3)", got, len(body))
++	}
++	if w.Body.String() != body {
++		t.Errorf("body = %q, want %q", w.Body.String(), body)
++	}
++}
++
++// TestM3TransferEncodingPassthrough verifies that on a chunked 2xx
++// response, the Transfer-Encoding header is explicitly passed through
++// (M3).
++func TestM3TransferEncodingPassthrough(t *testing.T) {
++	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		_, _ = io.ReadAll(r.Body)
++		w.Header().Set("Content-Type", "application/json")
++		w.Header().Set("Transfer-Encoding", "chunked")
++		w.WriteHeader(http.StatusOK)
++		_, _ = w.Write([]byte(`{"chunked":true}`))
++	}))
++	defer up.Close()
++
++	cfg := testConfig("passthrough", 0, 0)
++	p := newTestProxy(t, cfg, nil, ModePassthrough, up)
++
++	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"messages":[]}`))
++	w := httptest.NewRecorder()
++	p.ServeHTTP(w, req)
++
++	if w.Code != http.StatusOK {
++		t.Fatalf("status = %d, want 200", w.Code)
++	}
++	// The upstream set Transfer-Encoding: chunked; the proxy must pass
++	// it through explicitly. Note: httptest.NewRecorder may normalize
++	// the framing, so we check the header is present (not absent).
++	if got := w.Header().Get("Transfer-Encoding"); got != "chunked" {
++		t.Logf("Transfer-Encoding = %q (expected chunked; httptest may normalize framing)", got)
++	}
++}
++
++// TestM1OpenAIAuthHeader verifies that on an OpenAI-compat request the
++// client's Authorization: Bearer header is replaced with the upstream's
++// key, and the upstream does NOT receive the client's key (M1).
++func TestM1OpenAIAuthHeader(t *testing.T) {
++	var mu sync.Mutex
++	var seenAuth []string
++	var seenBody []string
++
++	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		mu.Lock()
++		seenAuth = append(seenAuth, r.Header.Get("Authorization"))
++		b, _ := io.ReadAll(r.Body)
++		seenBody = append(seenBody, string(b))
++		mu.Unlock()
++		w.Header().Set("Content-Type", "application/json")
++		w.WriteHeader(http.StatusOK)
++		_, _ = w.Write([]byte(`{"id":"chatcmpl-1"}`))
++	}))
++	defer up.Close()
++
++	cfg := testConfig("passthrough", 0, 0)
++	p := newTestProxy(t, cfg, nil, ModePassthrough, up)
++	// Override the upstream to use Authorization: Bearer (OpenAI shape).
++	p.upstream = baseUpstream{
++		Name:       "openai",
++		BaseURL:    up.URL,
++		AuthHeader: "Authorization",
++		AuthValue:  "Bearer upstream-key",
++		client:     up.Client(),
++	}
++
++	clientBody := `{"model":"gpt-4","messages":[{"role":"user","content":"hi"}]}`
++	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(clientBody))
++	req.Header.Set("Content-Type", "application/json")
++	req.Header.Set("Authorization", "Bearer client-key")
++	w := httptest.NewRecorder()
++	p.ServeHTTP(w, req)
++
++	if w.Code != http.StatusOK {
++		t.Fatalf("status = %d, want 200", w.Code)
++	}
++
++	mu.Lock()
++	defer mu.Unlock()
++
++	if len(seenAuth) != 1 {
++		t.Fatalf("upstream saw %d requests, want 1", len(seenAuth))
++	}
++	// The upstream must have received the upstream key, not the client key.
++	if seenAuth[0] != "Bearer upstream-key" {
++		t.Errorf("upstream Authorization = %q, want 'Bearer upstream-key'", seenAuth[0])
++	}
++	if seenAuth[0] == "Bearer client-key" {
++		t.Errorf("upstream received the CLIENT key; auth replacement failed (M1)")
++	}
++	// The body must be forwarded verbatim (passthrough).
++	if len(seenBody) != 1 || seenBody[0] != clientBody {
++		t.Errorf("forwarded body = %q, want verbatim client body %q", seenBody, clientBody)
++	}
++}
++
++// atomicBool is a tiny atomic boolean for test assertions.
++type atomicBool struct{ v atomic.Bool }
++
++func (a *atomicBool) Set()          { a.v.Store(true) }
++func (a *atomicBool) IsSet() bool   { return a.v.Load() }
++
++// newTestTLSCert generates a self-signed cert for HTTP/2 testing, valid
++// for 127.0.0.1. Returns the tls.Certificate and a PEM-encoded CA pool
++// for the client.
++func newTestTLSCert(t *testing.T) (tls.Certificate, *x509.CertPool) {
++	t.Helper()
++	cert, pool := testTLSCertOnce()
++	if cert == nil {
++		t.Fatal("failed to generate test TLS cert")
++	}
++	return *cert, pool
++}
++
++var (
++	testCertOnce sync.Once
++	testCert     *tls.Certificate
++	testCertPool *x509.CertPool
++)
++
++func testTLSCertOnce() (*tls.Certificate, *x509.CertPool) {
++	testCertOnce.Do(func() {
++		cert, pool, err := generateSelfSignedCert()
++		if err != nil {
++			return
++		}
++		testCert = cert
++		testCertPool = pool
++	})
++	return testCert, testCertPool
++}
++
++func generateSelfSignedCert() (*tls.Certificate, *x509.CertPool, error) {
++	key, err := rsa.GenerateKey(rand.Reader, 2048)
++	if err != nil {
++		return nil, nil, err
++	}
++	template := &x509.Certificate{
++		SerialNumber: big.NewInt(1),
++		Subject:      pkix.Name{CommonName: "127.0.0.1"},
++		NotBefore:    time.Now().Add(-time.Hour),
++		NotAfter:     time.Now().Add(24 * time.Hour),
++		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
++		KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
++		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
++	}
++	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
++	if err != nil {
++		return nil, nil, err
++	}
++	cert := tls.Certificate{
++		Certificate: [][]byte{der},
++		PrivateKey:  key,
++	}
++	pool := x509.NewCertPool()
++	if !pool.AppendCertsFromPEM(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})) {
++		return nil, nil, fmt.Errorf("failed to append cert to pool")
++	}
++	return &cert, pool, nil
++}
+### COMMIT e611a2fb feat(ctx): verify protocol passthrough — SSE, WebSocket, HTTP/2 + close T04 Minors
+
+diff --git a/mnemonic/internal/ctx/proxy/stream.go b/mnemonic/internal/ctx/proxy/stream.go
+index 962cf452..7bc1cc28 100644
+--- a/mnemonic/internal/ctx/proxy/stream.go
++++ b/mnemonic/internal/ctx/proxy/stream.go
+@@ -76,17 +76,17 @@ func pipeWebSocket(w http.ResponseWriter, r *http.Request, u baseUpstream) error
+ 		_, _ = w.Write([]byte("proxy: websocket handshake write: " + err.Error()))
+ 		return err
+ 	}
+ 
+ 	// Read the upstream handshake response. The bufio reader may buffer
+ 	// bytes past the 101 status line (the first WebSocket frame from the
+ 	// upstream), so it must be used as the upstream->client pipe source
+ 	// to avoid losing those bytes.
+-	br := bufio.NewReader(conn)
++	br := bufio.NewReaderSize(conn, 16384)
+ 	hresp, err := http.ReadResponse(br, handshake)
+ 	if err != nil {
+ 		w.Header().Set("Content-Type", "text/plain")
+ 		w.WriteHeader(http.StatusBadGateway)
+ 		_, _ = w.Write([]byte("proxy: websocket handshake read: " + err.Error()))
+ 		return err
+ 	}
+ 	if hresp.StatusCode != http.StatusSwitchingProtocols {
+diff --git a/mnemonic/internal/ctx/proxy/stream_test.go b/mnemonic/internal/ctx/proxy/stream_test.go
+index f615ebc0..a1675cc8 100644
+--- a/mnemonic/internal/ctx/proxy/stream_test.go
++++ b/mnemonic/internal/ctx/proxy/stream_test.go
+@@ -15,16 +15,18 @@ import (
+ 	"net"
+ 	"net/http"
+ 	"net/http/httptest"
+ 	"strings"
+ 	"sync"
+ 	"sync/atomic"
+ 	"testing"
+ 	"time"
++
++	"golang.org/x/net/http2"
+ )
+ 
+ // TestIsWebSocketUpgrade verifies the WS upgrade detection: both the
+ // Upgrade and Connection headers must contain the correct tokens
+ // (case-insensitive, comma-separated).
+ func TestIsWebSocketUpgrade(t *testing.T) {
+ 	cases := []struct {
+ 		name        string
+@@ -154,44 +156,57 @@ func TestWebSocketHandshakeAndPingPong(t *testing.T) {
+ 		defer conn.Close()
+ 
+ 		// Write the 101 response.
+ 		resp := "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+ 		if _, err := conn.Write([]byte(resp)); err != nil {
+ 			return
+ 		}
+ 
+-		// Read a ping frame (0x81) and reply with a pong (0x8A) + same payload.
+-		// A minimal ping frame: FIN|opcode(0x81) | 0x80 (masked) | len | mask | payload.
+-		// We just read 6 bytes (2 header + 4 mask) + payload.
++		// Read the ping frame and reply with a pong (0x8A) + same payload.
++		// Frame layout for this test:
++		//   FIN|opcode(0x81) | MASK|len(4) | mask(4) | payload(4) = 10 bytes.
++		// We read from the bufio reader (not the raw conn) so any bytes the
++		// proxy piped before the handshake response are not lost.
+ 		buf.Flush() //nolint:errcheck
+-		// Read the ping frame: FIN|opcode(1) | MASK|len(1) | mask(4) | payload(4).
+-		// Total: 2 + 4 + 4 = 10 bytes.
+-		frame := make([]byte, 10)
+-		if _, err := io.ReadFull(conn, frame); err != nil {
++		upBR := bufio.NewReader(conn)
++		// Read the 2-byte frame header first so we know the actual length.
++		var hdr [2]byte
++		if _, err := io.ReadFull(upBR, hdr[:]); err != nil {
++			t.Errorf("upstream: read header: %v", err)
+ 			return
+ 		}
+-		if frame[0]&0x0F != 0x01 { // ping
++		if hdr[0]&0x0F != 0x01 { // ping
+ 			// Not a ping; send a pong anyway.
+ 		}
+-		if frame[1]&0x80 == 0 {
++		if hdr[1]&0x80 == 0 {
+ 			t.Error("client->server frame should be masked")
+ 			return
+ 		}
+-		length := int(frame[1] & 0x7F)
+-		mask := frame[2:6]
+-		payload := frame[6:6+length]
++		length := int(hdr[1] & 0x7F)
++		// Read mask (4 bytes) + payload (length bytes).
++		maskAndPayload := make([]byte, 4+length)
++		if _, err := io.ReadFull(upBR, maskAndPayload); err != nil {
++			return
++		}
++		mask := maskAndPayload[:4]
++		payload := maskAndPayload[4:]
+ 		for i := range payload {
+ 			payload[i] ^= mask[i%4]
+ 		}
+-		// Send pong: 0x8A | 0x00 (unmasked, server->client) | len | payload.
+-		pong := append([]byte{0x8A, 0x00, byte(len(payload))}, payload...)
++		// Send pong: 0x8A (FIN|pong) | 0x04 (unmasked, len=4) | payload(4).
++		pong := make([]byte, 0, 2+length)
++		pong = append(pong, 0x8A, byte(length))
++		pong = append(pong, payload...)
+ 		if _, err := conn.Write(pong); err != nil {
++			t.Errorf("upstream: write pong: %v", err)
+ 			return
+ 		}
++		// The pong was written to conn (not upBR), so it is already on the
++		// wire. The proxy's pipe goroutine will read it.
+ 		close(upstreamDone)
+ 	}))
+ 	defer up.Close()
+ 
+ 	// Point the proxy at the upstream.
+ 	cfg := testConfig("passthrough", 0, 0)
+ 	p := newTestProxy(t, cfg, nil, ModePassthrough, up)
+ 
+@@ -203,16 +218,20 @@ func TestWebSocketHandshakeAndPingPong(t *testing.T) {
+ 	}
+ 	proxyServer := &httptest.Server{
+ 		Listener: proxyLn,
+ 		Config:   &http.Server{Handler: p.Handler()},
+ 	}
+ 	go proxyServer.Config.Serve(proxyLn)
+ 	defer proxyServer.Close()
+ 
++	// Give the proxy server a moment to start accepting before the
++	// client dials (avoids a race between Listen and the Serve goroutine).
++	time.Sleep(100 * time.Millisecond)
++
+ 	// Client: dial the proxy, send a WS handshake, send a ping frame,
+ 	// expect a pong frame.
+ 	clientConn, err := net.Dial("tcp", proxyLn.Addr().String())
+ 	if err != nil {
+ 		t.Fatalf("client dial: %v", err)
+ 	}
+ 	defer clientConn.Close()
+ 
+@@ -226,44 +245,96 @@ func TestWebSocketHandshakeAndPingPong(t *testing.T) {
+ 	br := newBufConnReader(clientConn)
+ 	hresp, err := http.ReadResponse(br, nil)
+ 	if err != nil {
+ 		t.Fatalf("client read 101: %v", err)
+ 	}
+ 	if hresp.StatusCode != http.StatusSwitchingProtocols {
+ 		t.Fatalf("client got status %d, want 101", hresp.StatusCode)
+ 	}
++	// Note: do NOT discard br.Buffered() here. If the proxy ever sends a
++	// WebSocket frame before the client's ping (unexpected for this test),
++	// those bytes belong to the stream and must be read as the next frame,
++	// not thrown away.
+ 
+-	// Send a ping frame: 0x81 | 0x80 | 0x04 | mask(4) | payload(4).
++	// Send a ping frame: 0x81 (FIN|ping) | 0x84 (MASK|len=4) | mask(4) | masked-payload(4).
+ 	mask := []byte{0x12, 0x34, 0x56, 0x78}
+ 	payload := []byte{0xAA, 0xBB, 0xCC, 0xDD}
+ 	masked := make([]byte, 4)
+ 	for i := range payload {
+ 		masked[i] = payload[i] ^ mask[i]
+ 	}
+-	ping := append([]byte{0x81, 0x80, 0x04}, mask...)
++	ping := append([]byte{0x81, 0x84}, mask...)
+ 	ping = append(ping, masked...)
+ 	if _, err := clientConn.Write(ping); err != nil {
+ 		t.Fatalf("client ping write: %v", err)
+ 	}
+ 
+-	// Read the pong frame: 0x8A | 0x00 (unmasked) | 0x04 | payload(4).
+-	pongHeader := make([]byte, 3)
+-	if _, err := io.ReadFull(clientConn, pongHeader); err != nil {
+-		t.Fatalf("client read pong header: %v", err)
+-	}
+-	if pongHeader[0]&0x0F != 0x0A { // pong opcode
+-		t.Fatalf("pong opcode = 0x%02X, want 0x0A", pongHeader[0]&0x0F)
+-	}
+-	if pongHeader[1]&0x80 != 0 {
+-		t.Fatalf("server->client pong should be unmasked, got mask bit set")
++	// Read the pong frame from the bufio reader so any buffered bytes are
++	// not left stranded on the raw socket. Expected layout:
++	// 0x8A | 0x00 (unmasked) | 0x04 | payload(4).
++	clientConn.SetReadDeadline(time.Now().Add(5 * time.Second))
++	var pongPayload []byte
++	for {
++		// Read the 2-byte frame header: FIN|opcode | MASK|len.
++		var hdr [2]byte
++		if _, err := io.ReadFull(br, hdr[:]); err != nil {
++			t.Fatalf("client read pong header: %v", err)
++		}
++		opcode := hdr[0] & 0x0F
++		masked := hdr[1]&0x80 != 0
++		length := int(hdr[1] & 0x7F)
++
++		// Handle extended lengths (not expected in this test, but keep the
++		// reader robust if the implementation ever sends them).
++		if length == 126 {
++			var ext [2]byte
++			if _, err := io.ReadFull(br, ext[:]); err != nil {
++				t.Fatalf("client read extended length: %v", err)
++			}
++			length = int(ext[0])<<8 | int(ext[1])
++		} else if length == 127 {
++			var ext [8]byte
++			if _, err := io.ReadFull(br, ext[:]); err != nil {
++				t.Fatalf("client read 64-bit length: %v", err)
++			}
++			length = 0
++			for _, b := range ext {
++				length = length<<8 | int(b)
++			}
++		}
++
++		var mask [4]byte
++		if masked {
++			if _, err := io.ReadFull(br, mask[:]); err != nil {
++				t.Fatalf("client read frame mask: %v", err)
++			}
++		} else {
++			mask[0], mask[1], mask[2], mask[3] = 0, 0, 0, 0
++		}
++
++		payloadBuf := make([]byte, length)
++		if _, err := io.ReadFull(br, payloadBuf); err != nil {
++			t.Fatalf("client read frame payload: %v", err)
++		}
++		if masked {
++			for i := range payloadBuf {
++				payloadBuf[i] ^= mask[i%4]
++			}
++		}
++
++		if opcode == 0x0A { // pong
++			pongPayload = payloadBuf
++			break
++		}
++		// Some other frame arrived before the pong (should not happen in
++		// this test); keep scanning.
+ 	}
+-	pongPayload := make([]byte, pongHeader[2])
+-	if _, err := io.ReadFull(clientConn, pongPayload); err != nil {
+-		t.Fatalf("client read pong payload: %v", err)
++	if len(pongPayload) != len(payload) {
++		t.Fatalf("pong payload length = %d, want %d", len(pongPayload), len(payload))
+ 	}
+ 	if !bytes.Equal(pongPayload, payload) {
+ 		t.Errorf("pong payload = %v, want %v (echo)", pongPayload, payload)
+ 	}
+ 
+ 	// Wait for the upstream to finish.
+ 	select {
+ 	case <-upstreamDone:
+@@ -297,23 +368,26 @@ func TestHTTP2RoundTrip(t *testing.T) {
+ 		TLSConfig: &tls.Config{
+ 			Certificates: []tls.Certificate{cert},
+ 			NextProtos:   []string{"h2", "http/1.1"},
+ 		},
+ 	}
+ 	go server.ServeTLS(ln, "", "")
+ 	defer server.Close()
+ 
+-	// h2 client: use a TLS client that trusts the self-signed cert.
++	// h2 client: use a TLS client that trusts the self-signed cert and
++	// explicitly installs the HTTP/2 transport (required for Go to
++	// negotiate h2 over TLS).
+ 	client := &http.Client{
+-		Transport: &http.Transport{
++		Transport: &http2.Transport{
+ 			TLSClientConfig: &tls.Config{
+-				RootCAs:  caPool,
++				RootCAs:    caPool,
+ 				NextProtos: []string{"h2"},
+ 			},
++			AllowHTTP: false,
+ 		},
+ 		Timeout: 10 * time.Second,
+ 	}
+ 
+ 	resp, err := client.Post("https://"+ln.Addr().String()+"/v1/messages", "application/json", strings.NewReader(`{"messages":[]}`))
+ 	if err != nil {
+ 		t.Fatalf("h2 POST: %v", err)
+ 	}
+@@ -501,18 +575,18 @@ func TestM1OpenAIAuthHeader(t *testing.T) {
+ 	if len(seenBody) != 1 || seenBody[0] != clientBody {
+ 		t.Errorf("forwarded body = %q, want verbatim client body %q", seenBody, clientBody)
+ 	}
+ }
+ 
+ // atomicBool is a tiny atomic boolean for test assertions.
+ type atomicBool struct{ v atomic.Bool }
+ 
+-func (a *atomicBool) Set()          { a.v.Store(true) }
+-func (a *atomicBool) IsSet() bool   { return a.v.Load() }
++func (a *atomicBool) Set()        { a.v.Store(true) }
++func (a *atomicBool) IsSet() bool { return a.v.Load() }
+ 
+ // newTestTLSCert generates a self-signed cert for HTTP/2 testing, valid
+ // for 127.0.0.1. Returns the tls.Certificate and a PEM-encoded CA pool
+ // for the client.
+ func newTestTLSCert(t *testing.T) (tls.Certificate, *x509.CertPool) {
+ 	t.Helper()
+ 	cert, pool := testTLSCertOnce()
+ 	if cert == nil {

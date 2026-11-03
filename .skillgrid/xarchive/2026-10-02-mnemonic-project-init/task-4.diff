@@ -1,0 +1,383 @@
+=== commits ===
+8763f9b6 feat(cli): ingest project docs from skillgrid init
+=== stat ===
+ skillgrid-cli/cmd/skillgrid/init_cmd.go      |  14 +-
+ skillgrid-cli/cmd/skillgrid/init_cmd_test.go | 127 +++++++++++++++++
+ skillgrid-cli/cmd/skillgrid/init_ingest.go   | 197 +++++++++++++++++++++++++++
+ 3 files changed, 336 insertions(+), 2 deletions(-)
+=== diff ===
+diff --git a/skillgrid-cli/cmd/skillgrid/init_cmd.go b/skillgrid-cli/cmd/skillgrid/init_cmd.go
+index 681e53d4..8bc1b624 100644
+--- a/skillgrid-cli/cmd/skillgrid/init_cmd.go
++++ b/skillgrid-cli/cmd/skillgrid/init_cmd.go
+@@ -98,8 +98,6 @@ var initRunIndex = func(ctx context.Context, svc *service.Service, dir string) (
+ }
+ 
+ func projectInit(ctx context.Context, svc *service.Service, dir string, force bool, extraDocs []string) (initResult, error) {
+-	_ = extraDocs
+-
+ 	info, err := os.Stat(dir)
+ 	if err != nil {
+ 		return initResult{}, err
+@@ -126,5 +124,17 @@ func projectInit(ctx context.Context, svc *service.Service, dir string, force bo
+ 		res.Indexed = indexed
+ 	}
+ 
++	h, closeH, openErr := svc.OpenForDirectory(dir)
++	if openErr != nil {
++		res.Errors = append(res.Errors, fmt.Sprintf("open project: %v", openErr))
++		return res, nil
++	}
++	defer closeH()
++
++	ingested, skipped, ingestErrs := ingestPaths(ctx, h, dir, extraDocs)
++	res.Ingested = ingested
++	res.Skipped = append(res.Skipped, skipped...)
++	res.Errors = append(res.Errors, ingestErrs...)
++
+ 	return res, nil
+ }
+diff --git a/skillgrid-cli/cmd/skillgrid/init_cmd_test.go b/skillgrid-cli/cmd/skillgrid/init_cmd_test.go
+index 5335439c..2f6152cd 100644
+--- a/skillgrid-cli/cmd/skillgrid/init_cmd_test.go
++++ b/skillgrid-cli/cmd/skillgrid/init_cmd_test.go
+@@ -11,9 +11,136 @@ import (
+ 	"strings"
+ 	"testing"
+ 
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+ )
+ 
++// countTopic counts live observations with the given topic_key.
++// Uses Recent because observations_fts does not index topic_key, so Search("init")
++// would miss init/docs/* rows whose title/content lack that token.
++func countTopic(t *testing.T, mem *memory.Service, key string) int {
++	t.Helper()
++	hits, err := mem.Recent(context.Background(), 50)
++	if err != nil {
++		t.Fatal(err)
++	}
++	n := 0
++	for _, h := range hits {
++		if h.TopicKey == key {
++			n++
++		}
++	}
++	return n
++}
++
++func TestInitIngestsDefaultPaths(t *testing.T) {
++	data := t.TempDir()
++	svc := service.New(data)
++	dir := t.TempDir()
++	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# App"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Mkdir(filepath.Join(dir, "docs"), 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(dir, "docs", "guide.md"), []byte("g"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := projectInit(context.Background(), svc, dir, false, nil); err != nil {
++		t.Fatal(err)
++	}
++	h, closeH, err := svc.OpenForDirectory(dir)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if countTopic(t, h.Memory(), "init/docs/README.md") != 1 {
++		t.Fatal("README observation")
++	}
++	if countTopic(t, h.Memory(), "init/docs/docs/guide.md") != 1 {
++		t.Fatal("docs observation")
++	}
++	closeH()
++	// Second init upserts the same topic keys (no duplicates).
++	if _, err := projectInit(context.Background(), svc, dir, false, nil); err != nil {
++		t.Fatal(err)
++	}
++	h2, closeH2, err := svc.OpenForDirectory(dir)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer closeH2()
++	if countTopic(t, h2.Memory(), "init/docs/README.md") != 1 {
++		t.Fatal("README duplicated on second init")
++	}
++	if countTopic(t, h2.Memory(), "init/docs/docs/guide.md") != 1 {
++		t.Fatal("docs duplicated on second init")
++	}
++}
++
++func TestInitSkipsMissingDocs(t *testing.T) {
++	svc := service.New(t.TempDir())
++	dir := t.TempDir()
++	_ = os.WriteFile(filepath.Join(dir, "README.md"), []byte("r"), 0o644)
++	res, err := projectInit(context.Background(), svc, dir, false, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	found := false
++	for _, s := range res.Skipped {
++		if s == "docs/" || s == "docs" {
++			found = true
++		}
++	}
++	if !found {
++		t.Fatalf("skipped = %v", res.Skipped)
++	}
++}
++
++func TestInitIngestsExtraDocs(t *testing.T) {
++	svc := service.New(t.TempDir())
++	dir := t.TempDir()
++	if err := os.WriteFile(filepath.Join(dir, "README.sh"), []byte("echo hi"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := projectInit(context.Background(), svc, dir, false, []string{filepath.Join(dir, "README.sh")}); err != nil {
++		t.Fatal(err)
++	}
++	h, closeH, err := svc.OpenForDirectory(dir)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer closeH()
++	if countTopic(t, h.Memory(), "init/docs/README.sh") != 1 {
++		t.Fatal("extra docs")
++	}
++}
++
++func TestInitMissingExtraDocsIsNonFatal(t *testing.T) {
++	svc := service.New(t.TempDir())
++	dir := t.TempDir()
++	res, err := projectInit(context.Background(), svc, dir, false, []string{filepath.Join(dir, "missing.md")})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if res.BootFile == "" || len(res.Errors) == 0 {
++		t.Fatalf("res = %+v", res)
++	}
++}
++
++func TestInitRejectsDocsOutsideProject(t *testing.T) {
++	svc := service.New(t.TempDir())
++	dir := t.TempDir()
++	outside := filepath.Join(t.TempDir(), "x.md")
++	_ = os.WriteFile(outside, []byte("no"), 0o644)
++	res, err := projectInit(context.Background(), svc, dir, false, []string{outside})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(res.Errors) == 0 {
++		t.Fatal("expected jail error")
++	}
++}
++
+ func TestInitHelpListsFlags(t *testing.T) {
+ 	var buf bytes.Buffer
+ 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
+diff --git a/skillgrid-cli/cmd/skillgrid/init_ingest.go b/skillgrid-cli/cmd/skillgrid/init_ingest.go
+new file mode 100644
+index 00000000..c00755c4
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/init_ingest.go
+@@ -0,0 +1,197 @@
++package main
++
++import (
++	"context"
++	"fmt"
++	"io/fs"
++	"os"
++	"path/filepath"
++	"strings"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++)
++
++// Default ingest roots (only when present). Directories are walked for regular
++// files; missing roots are listed in Skipped (defaults) or Errors (extras).
++var defaultIngestRoots = []string{
++	"README.md",
++	"docs",
++	".skillgrid/ASSUMPTIONS.md",
++	".skillgrid/ARCHITECTURE.md",
++	".skillgrid/artifacts",
++}
++
++// ingestPaths upserts default project docs and jailed --docs paths into the
++// project memory store via memory.Save. Topic keys are init/docs/<relpath>.
++func ingestPaths(ctx context.Context, h *service.ProjectHandle, dir string, extra []string) (ingested int, skipped, errs []string) {
++	if h == nil || h.Memory() == nil {
++		return 0, nil, []string{"memory handle not available"}
++	}
++	mem := h.Memory()
++
++	sid, err := mem.SessionStart(ctx, dir, "skillgrid-init")
++	if err != nil {
++		return 0, nil, []string{fmt.Sprintf("session start: %v", err)}
++	}
++
++	absDir, err := filepath.Abs(dir)
++	if err != nil {
++		return 0, nil, []string{fmt.Sprintf("resolve dir: %v", err)}
++	}
++
++	for _, root := range defaultIngestRoots {
++		full := filepath.Join(absDir, filepath.FromSlash(root))
++		info, statErr := os.Stat(full)
++		if statErr != nil {
++			if os.IsNotExist(statErr) {
++				skipped = append(skipped, skipLabel(root))
++			} else {
++				errs = append(errs, fmt.Sprintf("%s: %v", root, statErr))
++			}
++			continue
++		}
++		if info.IsDir() {
++			walkErr := filepath.WalkDir(full, func(path string, d fs.DirEntry, walkErr error) error {
++				if walkErr != nil {
++					errs = append(errs, fmt.Sprintf("%s: %v", path, walkErr))
++					return nil
++				}
++				if d.IsDir() {
++					return nil
++				}
++				if !d.Type().IsRegular() {
++					return nil
++				}
++				n, saveErr := saveIngestFile(ctx, mem, sid, absDir, path)
++				if saveErr != nil {
++					errs = append(errs, saveErr.Error())
++					return nil
++				}
++				ingested += n
++				return nil
++			})
++			if walkErr != nil {
++				errs = append(errs, fmt.Sprintf("%s: %v", root, walkErr))
++			}
++			continue
++		}
++		if !info.Mode().IsRegular() {
++			continue
++		}
++		n, saveErr := saveIngestFile(ctx, mem, sid, absDir, full)
++		if saveErr != nil {
++			errs = append(errs, saveErr.Error())
++			continue
++		}
++		ingested += n
++	}
++
++	for _, raw := range extra {
++		n, errMsg := ingestExtra(ctx, mem, sid, absDir, raw)
++		if errMsg != "" {
++			errs = append(errs, errMsg)
++			continue
++		}
++		ingested += n
++	}
++
++	return ingested, skipped, errs
++}
++
++func skipLabel(root string) string {
++	if strings.HasSuffix(root, "/") {
++		return root
++	}
++	// Prefer trailing slash for directory roots so tests accept "docs/" or "docs".
++	if root == "docs" || root == ".skillgrid/artifacts" {
++		return root + "/"
++	}
++	return root
++}
++
++func ingestExtra(ctx context.Context, mem *memory.Service, sid, absDir, raw string) (ingested int, errMsg string) {
++	absPath, err := filepath.Abs(raw)
++	if err != nil {
++		return 0, fmt.Sprintf("docs %s: %v", raw, err)
++	}
++	rel, err := filepath.Rel(absDir, absPath)
++	if err != nil || strings.HasPrefix(filepath.ToSlash(rel), "..") {
++		// Jail: extra path must resolve inside the project directory.
++		return 0, fmt.Sprintf("docs outside project: %s", raw)
++	}
++
++	info, err := os.Stat(absPath)
++	if err != nil {
++		if os.IsNotExist(err) {
++			return 0, fmt.Sprintf("docs missing: %s", raw)
++		}
++		return 0, fmt.Sprintf("docs %s: %v", raw, err)
++	}
++	if info.IsDir() {
++		var n int
++		_ = filepath.WalkDir(absPath, func(path string, d fs.DirEntry, walkErr error) error {
++			if walkErr != nil || d.IsDir() || !d.Type().IsRegular() {
++				return nil
++			}
++			saved, saveErr := saveIngestFile(ctx, mem, sid, absDir, path)
++			if saveErr != nil {
++				errMsg = saveErr.Error()
++				return nil
++			}
++			n += saved
++			return nil
++		})
++		return n, errMsg
++	}
++	if !info.Mode().IsRegular() {
++		return 0, fmt.Sprintf("docs not a regular file: %s", raw)
++	}
++	n, saveErr := saveIngestFile(ctx, mem, sid, absDir, absPath)
++	if saveErr != nil {
++		return 0, saveErr.Error()
++	}
++	return n, ""
++}
++
++func saveIngestFile(ctx context.Context, mem *memory.Service, sid, absDir, absPath string) (int, error) {
++	rel, err := filepath.Rel(absDir, absPath)
++	if err != nil {
++		return 0, fmt.Errorf("%s: %w", absPath, err)
++	}
++	relSlash := filepath.ToSlash(rel)
++	body, err := os.ReadFile(absPath)
++	if err != nil {
++		return 0, fmt.Errorf("%s: %w", relSlash, err)
++	}
++	content := string(body)
++	if strings.TrimSpace(content) == "" {
++		return 0, fmt.Errorf("%s: empty content", relSlash)
++	}
++	topicKey := "init/docs/" + relSlash
++	_, err = mem.Save(ctx, memory.SaveInput{
++		Title:         filepath.Base(absPath),
++		Type:          ingestType(relSlash),
++		Content:       content,
++		Scope:         "project",
++		TopicKey:      topicKey,
++		SessionID:     sid,
++		CapturePrompt: false,
++		ToolName:      "skillgrid-init",
++	})
++	if err != nil {
++		return 0, fmt.Errorf("%s: %w", topicKey, err)
++	}
++	return 1, nil
++}
++
++func ingestType(relSlash string) string {
++	switch {
++	case relSlash == ".skillgrid/ASSUMPTIONS.md",
++		relSlash == ".skillgrid/ARCHITECTURE.md",
++		strings.HasPrefix(relSlash, ".skillgrid/artifacts/"):
++		return "architecture"
++	default:
++		return "discovery"
++	}
++}

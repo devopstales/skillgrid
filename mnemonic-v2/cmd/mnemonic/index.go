@@ -126,7 +126,7 @@ func runIndexIndex(fl config.Flags, cwd string, args []string) int {
 	proj := indexProjectFlag(fs)
 	jsonOut := jsonFlag(fs)
 	full := fs.Bool("full", false, "full re-index (default: incremental)")
-	lsp := fs.Bool("lsp", false, "run the LSP pass (v2.1)")
+	lsp := fs.Bool("lsp", false, "run the LSP pass (the language-server member-call tier; off by default)")
 	pdg := fs.Bool("pdg", false, "run the PDG pass (v2.1)")
 	communities := fs.Bool("communities", false, "run the communities pass (v2.1)")
 	process := fs.Bool("process", false, "run the process pass (v2.1)")

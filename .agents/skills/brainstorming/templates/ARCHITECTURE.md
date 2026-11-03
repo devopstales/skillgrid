@@ -1,11 +1,11 @@
 # ARCHITECTURE — [Product Name]
 
-> Create this as the root `.skillgrid/ARCHITECTURE.md` (the live repo / program
+> Create this as the root `.skillgrid/knowledge/ARCHITECTURE.md` (the live repo / program
 > structure record) and fill in every section. This is a living document for
 > rapid codebase comprehension — update it as the architecture evolves. It
 > tracks the **real** structure of the repo (directories, packages, components,
 > data stores, integrations); it is NOT the decisions/understanding record —
-> that lives in `.skillgrid/ASSUMPTIONS.md`. For a multi-project repo, merge
+> that lives in `.skillgrid/knowledge/ASSUMPTIONS.md`. For a multi-project repo, merge
 > rather than overwrite: keep existing content and add the new project's
 > components alongside it.
 

@@ -157,18 +157,18 @@ function caseZone() {
   git('zone-mixed', 'add', '-A');
   expect('zone: mixed spec+code commit blocked', 1, 'zone-mixed', ZONE);
 
-  // archive-only commit: allow (archive is the terminal state of spec artifacts)
-  newRepo('zone-archive');
-  writeFile('zone-archive', '.skillgrid/archive/t1/acceptance.feature', 'Feature: t1\n');
-  git('zone-archive', 'add', '-A');
-  expect('zone: archive-only commit allowed', 0, 'zone-archive', ZONE);
+  // xarchive-only commit: allow (xarchive is the terminal state of spec artifacts)
+  newRepo('zone-xarchive');
+  writeFile('zone-xarchive', '.skillgrid/xarchive/t1/acceptance.feature', 'Feature: t1\n');
+  git('zone-xarchive', 'add', '-A');
+  expect('zone: xarchive-only commit allowed', 0, 'zone-xarchive', ZONE);
 
-  // archive + specs commit: allow (both spec-zone)
-  newRepo('zone-spec-archive');
-  writeFile('zone-spec-archive', '.skillgrid/specs/t1/tasks.md', 'a\n');
-  writeFile('zone-spec-archive', '.skillgrid/archive/t1/tasks.md', 'b\n');
-  git('zone-spec-archive', 'add', '-A');
-  expect('zone: specs+archive commit allowed', 0, 'zone-spec-archive', ZONE);
+  // xarchive + specs commit: allow (both spec-zone)
+  newRepo('zone-spec-xarchive');
+  writeFile('zone-spec-xarchive', '.skillgrid/specs/t1/tasks.md', 'a\n');
+  writeFile('zone-spec-xarchive', '.skillgrid/xarchive/t1/tasks.md', 'b\n');
+  git('zone-spec-xarchive', 'add', '-A');
+  expect('zone: specs+xarchive commit allowed', 0, 'zone-spec-xarchive', ZONE);
 
   // nothing staged: allow (guard defers to others)
   newRepo('zone-empty');

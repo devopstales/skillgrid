@@ -1,0 +1,402 @@
+diff --git a/skillgrid-cli/cmd/skillgrid/mem.go b/skillgrid-cli/cmd/skillgrid/mem.go
+index 9013772..7392c02 100644
+--- a/skillgrid-cli/cmd/skillgrid/mem.go
++++ b/skillgrid-cli/cmd/skillgrid/mem.go
+@@ -427,16 +427,20 @@ func runMemGraph(svc *service.Service, projID string, limit int) {
+ 		fmt.Fprintln(os.Stderr, "error:", err)
+ 		os.Exit(1)
+ 	}
++	// count reflects the FULL result set, computed before the --limit
++	// truncation, so it always matches the sum of the per-status totals
++	// (the truncated list is `edges`; review F3, 014 step 10).
+ 	counts := map[string]int{"active": 0, "expired": 0, "pending": 0}
+ 	for _, e := range edges {
+ 		counts[e.Status]++
+ 	}
++	count := len(edges)
+ 	if limit > 0 && len(edges) > limit {
+ 		edges = edges[:limit]
+ 	}
+ 	out := map[string]any{
+ 		"project": projID,
+-		"count":   len(edges),
++		"count":   count,
+ 		"total":   counts,
+ 		"edges":   edges,
+ 	}
+diff --git a/skillgrid-cli/internal/mnemonic/graph/graph.go b/skillgrid-cli/internal/mnemonic/graph/graph.go
+index f0c87c6..e6213fc 100644
+--- a/skillgrid-cli/internal/mnemonic/graph/graph.go
++++ b/skillgrid-cli/internal/mnemonic/graph/graph.go
+@@ -8,6 +8,7 @@ import (
+ 	"database/sql"
+ 	"fmt"
+ 	"sort"
++	"time"
+ )
+ 
+ // Confidence labels (mirrored from extract for the graph layer).
+@@ -131,18 +132,25 @@ func loadSymbolsByName(ctx context.Context, db *sql.DB, name string) ([]Symbol,
+ 	return out, rows.Err()
+ }
+ 
+-// fetchEdges loads every edge touching the symbol, resolving both endpoints.
++// fetchEdges loads every CURRENT edge touching the symbol, resolving both
++// endpoints. It applies the temporal filter (014 step 10, change
++// 014-mnemonic-performance): expired edges (valid_to <= now) and pending
++// edges (valid_from > now) are hidden from traversal, so the code_*
++// neighbor/explain/path tools see only active relationships. Backfilled
++// pre-migration rows (valid_from = 0) pass the filter and stay visible.
+ // Edges whose name-only endpoint resolves to multiple symbols are emitted
+ // once per candidate with Confidence AMBIGUOUS (never a silent drop). Edges
+ // whose endpoint name resolves to nothing keep their ToName for the
+ // "where the graph stops" answer.
+ func fetchEdges(ctx context.Context, db *sql.DB, sym Symbol) ([]Edge, error) {
++	now := time.Now().Unix()
+ 	rows, err := db.QueryContext(ctx, `
+ 		SELECT e.id, e.kind, e.from_id, e.to_name, e.to_id, e.target_path,
+ 		       e.confidence, e.line
+ 		FROM edges e
+-		WHERE e.from_id = ? OR e.to_id = ?
+-		ORDER BY e.id`, sym.ID, sym.ID)
++		WHERE (e.from_id = ? OR e.to_id = ?)
++		  AND e.valid_from <= ? AND (e.valid_to IS NULL OR e.valid_to > ?)
++		ORDER BY e.id`, sym.ID, sym.ID, now, now)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+diff --git a/skillgrid-cli/internal/mnemonic/graph/temporal_test.go b/skillgrid-cli/internal/mnemonic/graph/temporal_test.go
+new file mode 100644
+index 0000000..9f3a153
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/graph/temporal_test.go
+@@ -0,0 +1,201 @@
++package graph
++
++import (
++	"context"
++	"database/sql"
++	"path/filepath"
++	"testing"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// graphTestDB opens a raw *sql.DB over a temp SQLite file, applies the REAL
++// embedded migrations (so the 023 valid_from/valid_to columns exist) and
++// allows several open connections. fetchEdges re-enters the same pool from a
++// nested per-edge query (loadSymbolByID), and the store's single-connection
++// pool (SetMaxOpenConns(1)) deadlocks on that, so the fixture keeps its own
++// pool instead of going through store.Open.
++func graphTestDB(t *testing.T) *sql.DB {
++	t.Helper()
++	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "graph.sqlite"))
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	t.Cleanup(func() { db.Close() })
++	db.SetMaxOpenConns(8)
++	for _, pragma := range []string{
++		"PRAGMA journal_mode=WAL",
++		"PRAGMA foreign_keys=ON",
++		"PRAGMA busy_timeout=10000",
++	} {
++		if _, err := db.Exec(pragma); err != nil {
++			t.Fatalf("pragma %s: %v", pragma, err)
++		}
++	}
++	if err := store.Migrate(db); err != nil {
++		t.Fatalf("migrate: %v", err)
++	}
++	return db
++}
++
++// temporalSeed plants one file, two symbols, and one calls edge per (kind,
++// line, validFrom, validTo) — all endpoints by-id, so the temporal filter is
++// the only thing that can hide an edge.
++func temporalSeed(t *testing.T, db *sql.DB, edges ...edgeSpec) (fromID int64) {
++	t.Helper()
++	ctx := context.Background()
++	if _, err := db.ExecContext(ctx, `
++		INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at)
++		VALUES ('/t/temporal.go', 1, 1, 't', 'now');
++		INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
++		SELECT f.id, 'fromSym', 'fromSym', 'function', 'go', 'func fromSym()', 1, 5, 'h', 'uid-from'
++		FROM files f WHERE f.path = '/t/temporal.go';
++		INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
++		SELECT f.id, 'toSym', 'toSym', 'function', 'go', 'func toSym()', 6, 10, 'h', 'uid-to'
++		FROM files f WHERE f.path = '/t/temporal.go';
++	`); err != nil {
++		t.Fatalf("seed symbols: %v", err)
++	}
++	for _, e := range edges {
++		var vt any
++		if e.validTo != 0 {
++			vt = e.validTo
++		}
++		if _, err := db.ExecContext(ctx, `
++			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from, valid_to)
++			SELECT ?, s.id, f.id, (SELECT id FROM symbols WHERE uid = 'uid-to'), NULL, 'toSym', 'EXTRACTED', ?, ?, ?
++			FROM symbols s, files f WHERE s.uid = 'uid-from' AND f.path = '/t/temporal.go'`,
++			e.kind, e.line, e.validFrom, vt); err != nil {
++			t.Fatalf("seed edge line %d: %v", e.line, err)
++		}
++	}
++	if err := db.QueryRowContext(ctx, `SELECT id FROM symbols WHERE uid = 'uid-from'`).Scan(&fromID); err != nil {
++		t.Fatalf("lookup from symbol: %v", err)
++	}
++	return fromID
++}
++
++// edgeSpec is one seed edge: a distinct (kind, line) keeps the rows outside
++// the unique constraint even when only the temporal bounds differ.
++type edgeSpec struct {
++	kind      string
++	line      int
++	validFrom int64
++	validTo   int64
++}
++
++// TestFetchEdgesHidesExpiredEdges is 10.2 fix (review F1) [RED] — the
++// canonical traversal (fetchEdges, behind Neighbors/Explain/Path) applies the
++// temporal filter: an active edge is returned, an expired edge (valid_to in
++// the past) and a pending edge (valid_from in the future) are hidden.
++func TestFetchEdgesHidesExpiredEdges(t *testing.T) {
++	db := graphTestDB(t)
++	now := time.Now().Unix()
++	fromID := temporalSeed(t, db,
++		edgeSpec{kind: "calls", line: 10, validFrom: now - 10000, validTo: 0},    // active
++		edgeSpec{kind: "calls", line: 20, validFrom: now - 10000, validTo: now - 100}, // expired
++		edgeSpec{kind: "calls", line: 30, validFrom: now + 10000, validTo: 0},    // pending
++	)
++	from := Symbol{ID: fromID, Name: "fromSym"}
++	ctx := context.Background()
++
++	edges, err := fetchEdges(ctx, db, from)
++	if err != nil {
++		t.Fatalf("fetchEdges: %v", err)
++	}
++	byLine := map[int]string{}
++	for _, e := range edges {
++		byLine[e.Line] = e.Kind
++	}
++	if len(byLine) != 1 {
++		t.Fatalf("expected exactly 1 active edge, got %d: %v", len(byLine), byLine)
++	}
++	if _, ok := byLine[10]; !ok {
++		t.Fatalf("active edge (line 10) missing from traversal: %v", byLine)
++	}
++	if _, ok := byLine[20]; ok {
++		t.Fatalf("expired edge (line 20) leaked into the traversal")
++	}
++	if _, ok := byLine[30]; ok {
++		t.Fatalf("pending edge (line 30) leaked into the traversal")
++	}
++
++	// The same filter must hold through the public Neighbors API (the code_*
++	// tools' path).
++	nb, err := Neighbors(ctx, db, from, ViewCallees)
++	if err != nil {
++		t.Fatalf("Neighbors: %v", err)
++	}
++	if len(nb) != 1 || nb[0].Line != 10 {
++		t.Fatalf("Neighbors must return only the active edge, got %+v", nb)
++	}
++}
++
++// TestBackfilledEdgesVisibleInTraversal guards the migration backfill on the
++// traversal path: an edge with valid_from = 0 (pre-migration) passes
++// valid_from <= now and stays in the traversal.
++func TestBackfilledEdgesVisibleInTraversal(t *testing.T) {
++	db := graphTestDB(t)
++	fromID := temporalSeed(t, db,
++		edgeSpec{kind: "calls", line: 10, validFrom: 0, validTo: 0}, // backfilled
++	)
++	ctx := context.Background()
++
++	edges, err := fetchEdges(ctx, db, Symbol{ID: fromID, Name: "fromSym"})
++	if err != nil {
++		t.Fatalf("fetchEdges: %v", err)
++	}
++	if len(edges) != 1 {
++		t.Fatalf("backfilled (valid_from=0) edge must be in the traversal, got %d edges", len(edges))
++	}
++}
++
++// TestPromotedSessionEdgesCarryValidFrom is the F2 guard for the step-09
++// session-promotion edge path: a 'promotes' edge inserted WITHOUT an explicit
++// valid_from (the old INSERT shape) must still carry the migration default 0
++// and remain visible in the traversal — i.e. wiring valid_from into the
++// promotion INSERT does not retroactively hide any promoted edge.
++func TestPromotedSessionEdgesCarryValidFrom(t *testing.T) {
++	db := graphTestDB(t)
++	ctx := context.Background()
++
++	// A session-like symbol + a pseudo-file, mirroring step 09's shape.
++	if _, err := db.ExecContext(ctx, `
++		INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at)
++		VALUES ('session:abc', 1, 1, 's', 'now');
++		INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
++		SELECT f.id, '[session abc] Session summary', '[session abc] Session summary', 'session', 'session', 'summary', 1, 1, 'h', 'session:abc'
++		FROM files f WHERE f.path = 'session:abc';
++	`); err != nil {
++		t.Fatalf("seed session symbol: %v", err)
++	}
++	var nodeID int64
++	if err := db.QueryRowContext(ctx, `SELECT id FROM symbols WHERE uid = 'session:abc'`).Scan(&nodeID); err != nil {
++		t.Fatalf("lookup node: %v", err)
++	}
++	// The old promotion INSERT (no valid_from column): must still work and
++	// default to 0.
++	if _, err := db.ExecContext(ctx, `
++		INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
++		VALUES ('promotes', ?, (SELECT id FROM files WHERE path = 'session:abc'), NULL, 42, 'obs:42', 'EXTRACTED', 0)`,
++		nodeID,
++	); err != nil {
++		t.Fatalf("insert promotion edge: %v", err)
++	}
++	var vf int64
++	if err := db.QueryRowContext(ctx, `SELECT valid_from FROM edges WHERE kind = 'promotes'`).Scan(&vf); err != nil {
++		t.Fatalf("read valid_from: %v", err)
++	}
++	if vf != 0 {
++		t.Fatalf("insert without valid_from must default to 0, got %d", vf)
++	}
++	// And the edge must be traversable (backfilled rows stay active).
++	edges, err := fetchEdges(ctx, db, Symbol{ID: nodeID, Name: "session"})
++	if err != nil {
++		t.Fatalf("fetchEdges: %v", err)
++	}
++	if len(edges) != 1 {
++		t.Fatalf("promotion edge must be visible in the traversal, got %d edges", len(edges))
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/knowledge/store.go b/skillgrid-cli/internal/mnemonic/knowledge/store.go
+index f65dfc6..0182b68 100644
+--- a/skillgrid-cli/internal/mnemonic/knowledge/store.go
++++ b/skillgrid-cli/internal/mnemonic/knowledge/store.go
+@@ -5,6 +5,7 @@ import (
+ 	"database/sql"
+ 	"fmt"
+ 	"path/filepath"
++	"time"
+ )
+ 
+ // Store is the knowledge pass's persistence seam: it upserts knowledge nodes
+@@ -73,12 +74,15 @@ func (s *Store) SaveDoc(ctx context.Context, path string, doc *DocResult) (int,
+ 		if !ok {
+ 			continue // unresolvable doc reference → dropped (not fabricated)
+ 		}
++		// valid_from records when the doc link was observed (014 step 10
++		// temporal edges); on conflict the existing row's observation time
++		// is kept (first observation wins).
+ 		if _, err := s.db.Exec(`
+-			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
+-			VALUES ('references', ?, ?, ?, ?, ?, ?, ?)
++			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
++			VALUES ('references', ?, ?, ?, ?, ?, ?, ?, ?)
+ 			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
+ 			  confidence = excluded.confidence`,
+-			nodeID, fileIDFor(s.db, path), toID, target, target, link.Confidence, link.Line); err != nil {
++			nodeID, fileIDFor(s.db, path), toID, target, target, link.Confidence, link.Line, time.Now().Unix()); err != nil {
+ 			return stored, fmt.Errorf("upsert doc reference %s: %w", link.Target, err)
+ 		}
+ 		stored++
+@@ -181,12 +185,15 @@ func (s *Store) SaveConfig(ctx context.Context, path string, cfg *ConfigResult)
+ 			// rather than guessing.
+ 			conf = ConfidenceAmbiguous
+ 		}
++		// valid_from records when the config reference was observed (014
++		// step 10 temporal edges); on conflict the existing row's
++		// observation time is kept (first observation wins).
+ 		if _, err := s.db.Exec(`
+-			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
+-			VALUES ('configures', ?, ?, ?, ?, ?, ?, ?)
++			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
++			VALUES ('configures', ?, ?, ?, ?, ?, ?, ?, ?)
+ 			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
+ 			  confidence = excluded.confidence`,
+-			nodeID, fileIDFor(s.db, path), toID, ref.Value, "", conf, ref.Line); err != nil {
++			nodeID, fileIDFor(s.db, path), toID, ref.Value, "", conf, ref.Line, time.Now().Unix()); err != nil {
+ 			return stored, fmt.Errorf("upsert config reference %s: %w", ref.Value, err)
+ 		}
+ 		stored++
+@@ -248,23 +255,29 @@ func (s *Store) SaveSchema(ctx context.Context, path string, res *SQLResult) (in
+ 				// The accessed table is not in the schema (defined elsewhere or
+ 				// not indexed) — the access is still recorded as a name-only
+ 				// edge (to_name the table, to_id null), EXTRACTED.
++				// valid_from records when the access was observed (014 step
++				// 10 temporal edges); on conflict the existing row's
++				// observation time is kept (first observation wins).
+ 				if _, err := s.db.Exec(`
+-					INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
+-					VALUES (?, ?, ?, NULL, ?, ?, ?, ?)
++					INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
++					VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)
+ 					ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
+ 					  confidence = excluded.confidence`,
+-					a.Op, fromID, fileID, a.Table, "", a.Confidence, a.Line); err != nil {
++					a.Op, fromID, fileID, a.Table, "", a.Confidence, a.Line, time.Now().Unix()); err != nil {
+ 					return stored, err
+ 				}
+ 				stored++
+ 				continue
+ 			}
++			// valid_from records when the access was observed (014 step 10
++			// temporal edges); on conflict the existing row's observation
++			// time is kept (first observation wins).
+ 			if _, err := s.db.Exec(`
+-				INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
+-				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
++				INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
++				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ 				ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
+ 				  confidence = excluded.confidence`,
+-				a.Op, fromID, fileID, tn, a.Table, "", a.Confidence, a.Line); err != nil {
++				a.Op, fromID, fileID, tn, a.Table, "", a.Confidence, a.Line, time.Now().Unix()); err != nil {
+ 				return stored, err
+ 			}
+ 			stored++
+diff --git a/skillgrid-cli/internal/mnemonic/memory/session_promotion.go b/skillgrid-cli/internal/mnemonic/memory/session_promotion.go
+index 683d84e..32ee96b 100644
+--- a/skillgrid-cli/internal/mnemonic/memory/session_promotion.go
++++ b/skillgrid-cli/internal/mnemonic/memory/session_promotion.go
+@@ -200,11 +200,12 @@ func (s *Service) promoteSessionToGraph(ctx context.Context, sessionID, summary
+ 		// source line; 0 is a real value the codeindex indexer never writes
+ 		// for its edges, so there is no collision risk).
+ 		if _, err := db.ExecContext(ctx, `
+-			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
+-			VALUES (?, ?, ?, ?, ?, ?, 'EXTRACTED', 0)
++			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
++			VALUES (?, ?, ?, ?, ?, ?, 'EXTRACTED', 0, ?)
+ 			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line)
+ 			DO UPDATE SET confidence = excluded.confidence`,
+ 			sessionNodeEdgeKind, symbolID, fileID, obsID, "obs:"+label, "observation:"+label,
++			time.Now().Unix(),
+ 		); err != nil {
+ 			return 0, fmt.Errorf("upsert promotes edge: %w", err)
+ 		}
+diff --git a/skillgrid-cli/internal/mnemonic/pdg/lsp.go b/skillgrid-cli/internal/mnemonic/pdg/lsp.go
+index 347fcce..9ab4896 100644
+--- a/skillgrid-cli/internal/mnemonic/pdg/lsp.go
++++ b/skillgrid-cli/internal/mnemonic/pdg/lsp.go
+@@ -376,12 +376,15 @@ func PersistResolvedEdges(db *sql.DB, root string, edges []LSPResolvedEdge) (int
+ 		toID, toName := symbolByName(db, e.Callee)
+ 		conf := "LSP_RESOLVED"
+ 		// The callee may be a method on a receiver; target by callee name.
++		// valid_from records when the LSP tier observed the relationship
++		// (014 step 10 temporal edges); on conflict the existing row's
++		// observation time is kept (first observation wins).
+ 		_, err := db.Exec(`
+-			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
+-			VALUES ('calls', ?, ?, ?, ?, ?, ?, ?)
++			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
++			VALUES ('calls', ?, ?, ?, ?, ?, ?, ?, ?)
+ 			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
+ 			  confidence = 'LSP_RESOLVED'`,
+-			fromID, fileID, toID, toName, "", conf, e.Line)
++			fromID, fileID, toID, toName, "", conf, e.Line, time.Now().Unix())
+ 		if err == nil {
+ 			written++
+ 		}

@@ -1,0 +1,1379 @@
+commit dc20f8344acb85d821ecf28a468daec52bead96a
+Author: Balazs PALDI <balazs.paldi@shiwaforce.com>
+Date:   Mon Oct 12 18:18:24 2026 +0200
+
+    feat(ctx): add deterministic zero-LLM traffic learner (T12)
+    
+    T12 adds mnemonic/internal/ctx/traffic/, a rule-based, deterministic,
+    zero-LLM learner that turns a session-event stream into candidate
+    ctx_traffic_memories rows from a human-editable traffic/rules.yaml.
+    
+    - rules.go: Rule type + closed PatternKind set; LoadRules reads and
+      validates rules.yaml (id, category, pattern, confidence in [0,1],
+      min_times >= 1 for counting patterns). Missing/malformed file is a
+      fail-open concern: it returns an error, the caller degrades (ADR-0016).
+    - learner.go: Event + Learner. Extract is a pure function of
+      (events, rules): for each rule in file order it scans events and emits
+      one candidate per match, in (rule order, ascending seq). A candidate
+      below MinConfidence is dropped. MemoryID is hex(sha1(sessionID|ruleID|
+      key)) so re-runs dedupe via INSERT OR REPLACE. No http client, no model
+      field, no wall clock, no rand in identity or ordering — the only
+      injectable dependencies are the Learner fields and the *ctxstore.Store
+      passed to EvictToBound, so the extract path cannot make an LLM call.
+    - evict.go: EvictToBound enforces the global max_memories bound by
+      deleting the oldest low-confidence rows first (ORDER BY confidence ASC,
+      created_at ASC). Fail-open on store errors (ADR-0016).
+    - rules.yaml: one rule per category — error_recovery (fail_then_ok,
+      0.8), environment (repetition >=3, 0.7), preference
+      (message_repetition >=2, 0.7), architecture (path_prefix >=3, 0.7).
+    
+    Additive store methods in internal/ctx/store/tables.go
+    (ListAllTrafficMemories, DeleteTrafficMemory) for the global eviction; no
+    DDL or migration change. No new dependencies (gopkg.in/yaml.v3, ADR-0008).
+    
+    Tests over a real migrated shared store cover all AC + Fails-when:
+    determinism (DeepEqual of two Extract calls), zero-LLM (counting store,
+    exactly N puts, no network), all four categories, no false positives on a
+    non-matching corpus, sub-min_confidence not emitted, and oldest-low-conf
+    eviction order.
+    
+    [skillgrid-context]
+    change: 2026-10-08-context-orchestrator
+    ticket: TASK-100
+    wave: 3
+    pr: PR5
+
+diff --git a/mnemonic/internal/ctx/store/tables.go b/mnemonic/internal/ctx/store/tables.go
+index c885fb77..b0dfd772 100644
+--- a/mnemonic/internal/ctx/store/tables.go
++++ b/mnemonic/internal/ctx/store/tables.go
+@@ -434,3 +434,41 @@ func (s *Store) ListTrafficMemories(sessionID string) ([]*TrafficMemory, error)
+ 	}
+ 	return out, rows.Err()
+ }
++
++// ListAllTrafficMemories returns every ctx_traffic_memories row across all
++// sessions, ordered by created_at then memory_id. Added for the traffic
++// learner's global max_memories eviction (T12); additive — it does not change
++// the table DDL. Fail-open to an empty slice when the table is missing
++// (ADR-0016).
++func (s *Store) ListAllTrafficMemories() ([]*TrafficMemory, error) {
++	rows, err := s.queryFailOpen("ctx_traffic_memories", `
++		SELECT memory_id, session_id, category, memory_text,
++		       evidence_json, confidence, created_at
++		FROM ctx_traffic_memories ORDER BY created_at, memory_id`)
++	if err != nil {
++		return nil, err
++	}
++	if rows == nil {
++		return nil, nil
++	}
++	defer rows.Close()
++	var out []*TrafficMemory
++	for rows.Next() {
++		var m TrafficMemory
++		if err := rows.Scan(&m.MemoryID, &m.SessionID, &m.Category, &m.MemoryText,
++			&m.EvidenceJSON, &m.Confidence, &m.CreatedAt); err != nil {
++			return nil, err
++		}
++		out = append(out, &m)
++	}
++	return out, rows.Err()
++}
++
++// DeleteTrafficMemory removes one ctx_traffic_memories row by memory_id.
++// Added for the traffic learner's eviction (T12); additive — it does not
++// change the table DDL. Fail-open: a missing table degrades to a no-op
++// (ADR-0016).
++func (s *Store) DeleteTrafficMemory(memoryID string) error {
++	return s.execFailOpen("ctx_traffic_memories", `
++		DELETE FROM ctx_traffic_memories WHERE memory_id = ?`, memoryID)
++}
+diff --git a/mnemonic/internal/ctx/traffic/evict.go b/mnemonic/internal/ctx/traffic/evict.go
+new file mode 100644
+index 00000000..5d2eebb2
+--- /dev/null
++++ b/mnemonic/internal/ctx/traffic/evict.go
+@@ -0,0 +1,51 @@
++package traffic
++
++import (
++	"sort"
++
++	ctxstore "github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
++)
++
++// EvictToBound enforces the global max_memories bound (plan §18.4): it loads
++// every ctx_traffic_memories row (all sessions), and if the total exceeds max
++// it deletes the oldest low-confidence rows first — ORDER BY confidence ASC,
++// created_at ASC — until the count is back within max. It returns the number
++// of rows evicted.
++//
++// Fail-open (ADR-0016): a store error degrades to (0, nil) — eviction is a
++// maintenance path, never a hard failure. A nil store or non-positive max is a
++// no-op.
++func EvictToBound(cs *ctxstore.Store, max int) (int, error) {
++	if cs == nil || max <= 0 {
++		return 0, nil
++	}
++	all, err := cs.ListAllTrafficMemories()
++	if err != nil {
++		return 0, nil // fail-open: a store fault is not fatal to the learner
++	}
++	if len(all) <= max {
++		return 0, nil
++	}
++	// Eviction order: lowest confidence first, then oldest created_at, then
++	// memory_id for a stable tiebreak.
++	sort.Slice(all, func(i, j int) bool {
++		a, b := all[i], all[j]
++		if a.Confidence != b.Confidence {
++			return a.Confidence < b.Confidence
++		}
++		if a.CreatedAt != b.CreatedAt {
++			return a.CreatedAt < b.CreatedAt
++		}
++		return a.MemoryID < b.MemoryID
++	})
++	excess := len(all) - max
++	evicted := 0
++	for _, m := range all[:excess] {
++		if err := cs.DeleteTrafficMemory(m.MemoryID); err != nil {
++			// Fail-open: skip a row that would not delete; do not abort.
++			continue
++		}
++		evicted++
++	}
++	return evicted, nil
++}
+diff --git a/mnemonic/internal/ctx/traffic/evict_test.go b/mnemonic/internal/ctx/traffic/evict_test.go
+new file mode 100644
+index 00000000..35b66707
+--- /dev/null
++++ b/mnemonic/internal/ctx/traffic/evict_test.go
+@@ -0,0 +1,170 @@
++package traffic
++
++import (
++	"testing"
++
++	ctxstore "github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
++)
++
++// storeTrafficMemory is the test-side shorthand for a row to seed the store.
++type storeTrafficMemory struct {
++	id   string
++	conf float64
++	at   int64
++}
++
++func toTrafficMemory(m *storeTrafficMemory) *ctxstore.TrafficMemory {
++	return &ctxstore.TrafficMemory{
++		MemoryID:   m.id,
++		SessionID:  "s",
++		Category:   "environment",
++		Confidence: m.conf,
++		CreatedAt:  m.at,
++	}
++}
++
++func TestEvictToBound_UnderBound(t *testing.T) {
++	cs := newTestStore(t, "p-ev-under")
++	mems := []*storeTrafficMemory{
++		{id: "m1", conf: 0.5, at: 10},
++		{id: "m2", conf: 0.6, at: 20},
++	}
++	for _, m := range mems {
++		if err := cs.PutTrafficMemory(toTrafficMemory(m)); err != nil {
++			t.Fatalf("PutTrafficMemory %s: %v", m.id, err)
++		}
++	}
++	n, err := EvictToBound(cs, 10)
++	if err != nil {
++		t.Fatalf("EvictToBound: %v", err)
++	}
++	if n != 0 {
++		t.Errorf("evicted = %d, want 0 (2 rows <= bound 10)", n)
++	}
++}
++
++func TestEvictToBound_EvictsLowConfidenceFirst(t *testing.T) {
++	cs := newTestStore(t, "p-ev-low")
++	// 4 rows, bound 2 → 2 evicted. Lowest confidence goes first.
++	mems := []*storeTrafficMemory{
++		{id: "m-high", conf: 0.9, at: 10},
++		{id: "m-mid", conf: 0.5, at: 20},
++		{id: "m-low", conf: 0.1, at: 30},
++		{id: "m-mid2", conf: 0.5, at: 40},
++	}
++	for _, m := range mems {
++		if err := cs.PutTrafficMemory(toTrafficMemory(m)); err != nil {
++			t.Fatalf("PutTrafficMemory %s: %v", m.id, err)
++		}
++	}
++	n, err := EvictToBound(cs, 2)
++	if err != nil {
++		t.Fatalf("EvictToBound: %v", err)
++	}
++	if n != 2 {
++		t.Fatalf("evicted = %d, want 2", n)
++	}
++	// Eviction order is confidence ASC, then created_at ASC: m-low (0.1) goes
++	// first, then m-mid (0.5, created_at 20) before m-mid2 (0.5, created_at 40).
++	// Survivors must be exactly the two highest: m-high and m-mid2.
++	rows, err := cs.ListAllTrafficMemories()
++	if err != nil {
++		t.Fatalf("ListAllTrafficMemories: %v", err)
++	}
++	ids := map[string]bool{}
++	for _, r := range rows {
++		ids[r.MemoryID] = true
++	}
++	if len(rows) != 2 {
++		t.Fatalf("survivor count = %d, want 2", len(rows))
++	}
++	if !ids["m-high"] || !ids["m-mid2"] {
++		t.Errorf("survivors = %v, want exactly {m-high, m-mid2}", ids)
++	}
++	if ids["m-low"] || ids["m-mid"] {
++		t.Errorf("low-confidence/older rows survived: %v; m-low (0.1) and m-mid (0.5, older) must be evicted first", ids)
++	}
++}
++
++func TestEvictToBound_ExactlyAtBound(t *testing.T) {
++	cs := newTestStore(t, "p-ev-exact")
++	for i, id := range []string{"a", "b", "c"} {
++		_ = i
++		if err := cs.PutTrafficMemory(toTrafficMemory(&storeTrafficMemory{id: id, conf: 0.5, at: int64(i + 1)})); err != nil {
++			t.Fatalf("PutTrafficMemory %s: %v", id, err)
++		}
++	}
++	n, err := EvictToBound(cs, 3)
++	if err != nil {
++		t.Fatalf("EvictToBound: %v", err)
++	}
++	if n != 0 {
++		t.Errorf("evicted = %d, want 0 (3 rows == bound 3)", n)
++	}
++}
++
++func TestEvictToBound_NilStore(t *testing.T) {
++	var n int
++	var err error
++	func() {
++		defer func() {
++			if r := recover(); r != nil {
++				t.Errorf("EvictToBound(nil) panicked: %v", r)
++			}
++		}()
++		n, err = EvictToBound(nil, 5)
++	}()
++	if err != nil {
++		t.Fatalf("EvictToBound(nil): %v", err)
++	}
++	if n != 0 {
++		t.Errorf("evicted = %d, want 0 (nil store is a fail-open no-op)", n)
++	}
++}
++
++// TestEvictToBound_StoreErrorFailsOpen: a store fault degrades to (0, nil) —
++// eviction is a maintenance path, never a hard failure (ADR-0016). We assert the
++// no-panic, no-error contract via the nil-store branch; a live store error hits
++// the same early-return path in EvictToBound.
++func TestEvictToBound_StoreErrorFailsOpen(t *testing.T) {
++	cs := newTestStore(t, "p-ev-err")
++	// Close the store first so any underlying fault degrades, not hard-fails.
++	if err := cs.Shared().Close(); err != nil {
++		// A double-close or already-closed store is acceptable here; the point
++		// is that EvictToBound must not panic on a degraded handle.
++		t.Logf("pre-close: %v", err)
++	}
++	var n int
++	var err error
++	func() {
++		defer func() {
++			if r := recover(); r != nil {
++				t.Errorf("EvictToBound on a closed store panicked: %v", r)
++			}
++		}()
++		n, err = EvictToBound(cs, 1)
++	}()
++	// On a closed db the query fails; EvictToBound must return (0, nil).
++	if err != nil {
++		t.Fatalf("EvictToBound on closed store: want nil error (fail-open), got %v", err)
++	}
++	if n != 0 {
++		t.Errorf("evicted = %d, want 0 (store fault is a fail-open no-op)", n)
++	}
++}
++
++func TestEvictToBound_NonPositiveMax(t *testing.T) {
++	cs := newTestStore(t, "p-ev-max")
++	if err := cs.PutTrafficMemory(toTrafficMemory(&storeTrafficMemory{id: "x", conf: 0.5, at: 1})); err != nil {
++		t.Fatalf("PutTrafficMemory: %v", err)
++	}
++	for _, max := range []int{0, -1} {
++		n, err := EvictToBound(cs, max)
++		if err != nil {
++			t.Fatalf("EvictToBound(max=%d): %v", max, err)
++		}
++		if n != 0 {
++			t.Errorf("max=%d: evicted = %d, want 0 (non-positive max is a no-op)", max, n)
++		}
++	}
++}
+diff --git a/mnemonic/internal/ctx/traffic/learner.go b/mnemonic/internal/ctx/traffic/learner.go
+new file mode 100644
+index 00000000..aa187041
+--- /dev/null
++++ b/mnemonic/internal/ctx/traffic/learner.go
+@@ -0,0 +1,391 @@
++package traffic
++
++import (
++	"crypto/sha1"
++	"encoding/hex"
++	"encoding/json"
++	"fmt"
++	"sort"
++	"strings"
++
++	ctxstore "github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
++)
++
++// Event is one entry of a session-event stream (plan §18.1). The learner is a
++// pure function over a slice of these plus the rules; nothing here reaches the
++// network or a model.
++type Event struct {
++	Kind    string // e.g. "tool_call", "tool_result", "file_read", "file_edit", "user_message"
++	Tool    string // tool name when Kind=="tool_call" / tool_result
++	Target  string // path/command/arg the tool acted on
++	Status  string // "ok" | "error" | "retry" | "" (tool_result)
++	Message string // free text (user_message / tool_result message)
++	Seq     int    // monotonic event order within the session
++}
++
++// Learner is the deterministic extractor. Rules is applied in file order;
++// MinConfidence is the floor below which a candidate is dropped; MaxMemories
++// is advisory here (the store-side bound is enforced by EvictToBound); Clock
++// supplies created_at (determinism of identity/ordering never depends on it).
++// The ONLY injectable dependencies anywhere in the extract path are this
++// struct's fields and the *ctxstore.Store passed to EvictToBound — there is no
++// http client and no model field, so the extract path cannot make an LLM call.
++type Learner struct {
++	Rules         []Rule
++	MinConfidence float64
++	MaxMemories   int
++	Clock         func() int64
++}
++
++// NewLearner builds a Learner with a fixed clock (for deterministic runs).
++func NewLearner(rules []Rule, minConfidence float64, maxMemories int) *Learner {
++	return &Learner{
++		Rules:         rules,
++		MinConfidence: minConfidence,
++		MaxMemories:   maxMemories,
++		Clock:         func() int64 { return 0 },
++	}
++}
++
++// evidenceItem is the compact per-event record stored in evidence_json so a
++// human can audit what produced a memory.
++type evidenceItem struct {
++	Seq     int    `json:"seq"`
++	Kind    string `json:"kind"`
++	Tool    string `json:"tool"`
++	Target  string `json:"target"`
++	Status  string `json:"status"`
++	Message string `json:"message,omitempty"`
++}
++
++// Extract is the core pure function: for each rule, in file order, it scans the
++// events and emits one candidate *ctxstore.TrafficMemory per match, in a
++// deterministic order. A candidate below MinConfidence is NOT emitted. The
++// result is ordered by (rule file order, ascending seq) — no map iteration, no
++// wall clock, no randomness leak into identity or order.
++func (l *Learner) Extract(sessionID string, events []Event) []*ctxstore.TrafficMemory {
++	if l == nil {
++		return nil
++	}
++	clock := l.Clock
++	if clock == nil {
++		clock = func() int64 { return 0 }
++	}
++	var out []*ctxstore.TrafficMemory
++	for _, rule := range l.Rules {
++		for _, cand := range matchRule(rule, events) {
++			if cand.conf < l.MinConfidence {
++				continue
++			}
++			m := &ctxstore.TrafficMemory{
++				MemoryID:     memoryID(sessionID, rule.ID, cand.key),
++				SessionID:    sessionID,
++				Category:     rule.Category,
++				MemoryText:   memoryText(rule, cand),
++				EvidenceJSON: evidenceJSON(cand.events),
++				Confidence:   cand.conf,
++				CreatedAt:    clock(),
++			}
++			out = append(out, m)
++		}
++	}
++	return out
++}
++
++// candidate is a single rule match awaiting emission. key is the stable
++// identity suffix (target / fragment / prefix); events are the evidence.
++type candidate struct {
++	key    string
++	conf   float64
++	events []Event
++}
++
++// matchRule scans events for a single rule's pattern and returns its candidates
++// in deterministic (ascending seq) order. Only the first match per logical
++// group is emitted (see the per-kind guards) so a repeated trigger does not
++// fan out into duplicate memories.
++func matchRule(rule Rule, events []Event) []candidate {
++	switch rule.Pattern {
++	case PatternFailThenOK:
++		return failThenOK(rule, events)
++	case PatternRepetition:
++		return repetition(rule, events)
++	case PatternMessageRepetition:
++		return messageRepetition(rule, events)
++	case PatternPathPrefix:
++		return pathPrefix(rule, events)
++	default:
++		return nil
++	}
++}
++
++// failThenOK finds tool_result{status:error} events that are later followed by
++// a tool_result{status:ok} on the SAME non-empty Target. Each error event is a
++// distinct candidate (evidence = the error event + the first ok recovery after
++// it on the same target). Confidence is the rule weight, scaled up (capped at
++// 1) by the number of error→ok cycles observed for that target.
++func failThenOK(rule Rule, events []Event) []candidate {
++	// Precompute, for each target, the ok recovery event (lowest seq after a
++	// given error) and the total number of error→ok cycles per target.
++	// First pass: group ok events by target in seq order.
++	okByTarget := map[string][]int{} // target -> seqs of ok tool_result
++	for _, e := range events {
++		if e.Kind == "tool_result" && e.Status == "ok" && e.Target != "" {
++			okByTarget[e.Target] = append(okByTarget[e.Target], e.Seq)
++		}
++	}
++	// Second pass: for each error event, find the first ok with seq > error seq
++	// on the same target, and count cycles.
++	type recovery struct {
++		target string
++		errSeq int
++		okSeq  int
++		errIdx int
++		okIdx  int
++	}
++	var recs []recovery
++	cycles := map[string]int{}
++	for i, e := range events {
++		if e.Kind != "tool_result" || e.Status != "error" || e.Target == "" {
++			continue
++		}
++		for _, okSeq := range okByTarget[e.Target] {
++			if okSeq > e.Seq {
++				recs = append(recs, recovery{target: e.Target, errSeq: e.Seq, okSeq: okSeq, errIdx: i, okIdx: idxOfSeq(events, okSeq)})
++				cycles[e.Target]++
++				break
++			}
++		}
++	}
++	// Deterministic order: by error seq.
++	sort.Slice(recs, func(a, b int) bool { return recs[a].errSeq < recs[b].errSeq })
++	out := []candidate{}
++	for _, r := range recs {
++		conf := rule.Confidence
++		if cycles[r.target] > 1 {
++			conf = min1(conf + 0.05*(float64(cycles[r.target])-1))
++		}
++		out = append(out, candidate{
++			key:    "target=" + r.target,
++			conf:   conf,
++			events: []Event{events[r.errIdx], events[r.okIdx]},
++		})
++	}
++	return out
++}
++
++// idxOfSeq returns the index of the first event with the given seq, or -1.
++func idxOfSeq(events []Event, seq int) int {
++	for i, e := range events {
++		if e.Seq == seq {
++			return i
++		}
++	}
++	return -1
++}
++
++// repetition finds a Tool (with a non-empty Target, or any Tool when Target is
++// empty) that is used at least MinTimes times, emitting one candidate for the
++// single most-frequent qualifying key. This is the "stable fact" signal
++// (environment). The key is tool/target so the memory is auditable.
++func repetition(rule Rule, events []Event) []candidate {
++	counts := map[string]int{}
++	var keys []string
++	for _, e := range events {
++		if e.Kind == "tool_call" && e.Tool != "" {
++			key := e.Tool + "|" + e.Target
++			if _, ok := counts[key]; !ok {
++				keys = append(keys, key)
++			}
++			counts[key]++
++		}
++	}
++	// Pick the single highest-count key (ties broken by key string for
++	// determinism).
++	var best string
++	bestCount := 0
++	for _, k := range keys {
++		if counts[k] > bestCount || (counts[k] == bestCount && k < best) {
++			best = k
++			bestCount = counts[k]
++		}
++	}
++	if bestCount < rule.MinTimes {
++		return nil
++	}
++	// Evidence: all events for the winning key, in seq order.
++	parts := strings.SplitN(best, "|", 2)
++	tool, target := parts[0], parts[1]
++	var ev []Event
++	for _, e := range events {
++		if e.Kind == "tool_call" && e.Tool == tool && e.Target == target {
++			ev = append(ev, e)
++		}
++	}
++	keyStr := tool
++	if target != "" {
++		keyStr = tool + " target=" + target
++	}
++	return []candidate{{key: keyStr, conf: rule.Confidence, events: ev}}
++}
++
++// messageRepetition finds a non-empty user_message Message repeated at least
++// MinTimes times (preference signal — a repeated user correction or usage
++// pattern). One candidate per qualifying distinct fragment.
++func messageRepetition(rule Rule, events []Event) []candidate {
++	counts := map[string][]int{} // fragment -> seqs
++	var frags []string
++	for _, e := range events {
++		if e.Kind == "user_message" && strings.TrimSpace(e.Message) != "" {
++			frag := e.Message
++			if _, ok := counts[frag]; !ok {
++				frags = append(frags, frag)
++			}
++			counts[frag] = append(counts[frag], e.Seq)
++		}
++	}
++	var out []candidate
++	for _, f := range frags {
++		if len(counts[f]) < rule.MinTimes {
++			continue
++		}
++		seqs := append([]int(nil), counts[f]...)
++		sort.Ints(seqs)
++		var ev []Event
++		for _, s := range seqs {
++			ev = append(ev, events[idxOfSeq(events, s)])
++		}
++		out = append(out, candidate{
++			key:    "msg=" + fragmentKey(f),
++			conf:   rule.Confidence,
++			events: ev,
++		})
++	}
++	// Deterministic order by fragment key.
++	sort.Slice(out, func(a, b int) bool { return out[a].key < out[b].key })
++	return out
++}
++
++// pathPrefix finds a common path prefix under which files are read or edited
++// at least MinTimes times (architecture signal — a file-structure/convention
++// pattern). The prefix is the longest common path segment shared by ≥MinTimes
++// distinct targets.
++func pathPrefix(rule Rule, events []Event) []candidate {
++	// Collect distinct targets from file_read / file_edit / file_write events.
++	counts := map[string]int{}
++	var targets []string
++	for _, e := range events {
++		if (e.Kind == "file_read" || e.Kind == "file_edit" || e.Kind == "file_write") && e.Target != "" {
++			if _, ok := counts[e.Target]; !ok {
++				targets = append(targets, e.Target)
++			}
++			counts[e.Target]++
++		}
++	}
++	if len(targets) < rule.MinTimes {
++		return nil
++	}
++	// Find the longest directory prefix shared by at least MinTimes targets.
++	// Try progressively shorter prefixes (from the longest common ancestor).
++	bestPrefix := ""
++	for i := 0; i <= len(targets[0]); i++ {
++		// Candidate prefix = targets[0][:i], must be a dir boundary or full path.
++		cand := targets[0][:i]
++		// Only consider prefixes that end at a path boundary or are a full path.
++		if i == len(targets[0]) || (i > 0 && targets[0][i-1] == '/') {
++			n := 0
++			for _, t := range targets {
++				if strings.HasPrefix(t, cand) {
++					n++
++				}
++			}
++			if n >= rule.MinTimes && len(cand) > len(bestPrefix) {
++				bestPrefix = cand
++			}
++		}
++	}
++	if bestPrefix == "" {
++		return nil
++	}
++	// Evidence: all events under the winning prefix, in seq order.
++	var ev []Event
++	seen := map[int]bool{}
++	for _, e := range events {
++		if (e.Kind == "file_read" || e.Kind == "file_edit" || e.Kind == "file_write") &&
++			strings.HasPrefix(e.Target, bestPrefix) && !seen[e.Seq] {
++			seen[e.Seq] = true
++			ev = append(ev, e)
++		}
++	}
++	sort.Slice(ev, func(a, b int) bool { return ev[a].Seq < ev[b].Seq })
++	return []candidate{{
++		key:    "prefix=" + bestPrefix,
++		conf:   rule.Confidence,
++		events: ev,
++	}}
++}
++
++// ---- deterministic identity + text helpers ----
++
++// memoryID is a stable, deterministic identity: hex(sha1(sessionID + "\x00" +
++// ruleID + "\x00" + key)). Same input → same id, so re-runs dedupe via
++// INSERT OR REPLACE. No wall clock, no randomness.
++func memoryID(sessionID, ruleID, key string) string {
++	h := sha1.Sum([]byte(sessionID + "\x00" + ruleID + "\x00" + key))
++	return hex.EncodeToString(h[:])
++}
++
++// fragmentKey is a stable short identity for a free-text fragment (the first
++// 64 rune-safe bytes, length-prefixed to avoid collisions).
++func fragmentKey(f string) string {
++	b := []byte(f)
++	if len(b) > 64 {
++		b = b[:64]
++	}
++	return fmt.Sprintf("%d:%s", len([]byte(f)), string(b))
++}
++
++// memoryText is the short human-auditable sentence stored in memory_text.
++func memoryText(rule Rule, c candidate) string {
++	what := ""
++	switch rule.Pattern {
++	case PatternFailThenOK:
++		what = "recovered from a tool failure on " + c.key
++	case PatternRepetition:
++		what = "stable fact: repeated use of " + c.key
++	case PatternMessageRepetition:
++		what = "repeated user message pattern: " + c.key
++	case PatternPathPrefix:
++		what = "file-structure convention under " + c.key
++	default:
++		what = c.key
++	}
++	if rule.Description != "" {
++		return rule.Description + " — " + what
++	}
++	return what
++}
++
++// evidenceJSON renders the evidence events as a compact JSON array.
++func evidenceJSON(events []Event) string {
++	items := make([]evidenceItem, 0, len(events))
++	for _, e := range events {
++		items = append(items, evidenceItem{
++			Seq:     e.Seq,
++			Kind:    e.Kind,
++			Tool:    e.Tool,
++			Target:  e.Target,
++			Status:  e.Status,
++			Message: e.Message,
++		})
++	}
++	b, _ := json.Marshal(items)
++	return string(b)
++}
++
++func min1(v float64) float64 {
++	if v > 1 {
++		return 1
++	}
++	return v
++}
+diff --git a/mnemonic/internal/ctx/traffic/learner_test.go b/mnemonic/internal/ctx/traffic/learner_test.go
+new file mode 100644
+index 00000000..d122bbff
+--- /dev/null
++++ b/mnemonic/internal/ctx/traffic/learner_test.go
+@@ -0,0 +1,233 @@
++package traffic
++
++import (
++	"reflect"
++	"testing"
++)
++
++// testRules returns a fixed rule set covering all four categories (same shape
++// as the package rules.yaml) so extraction tests don't depend on file layout.
++// The order matters: error_recovery first so first-match-wins is observable.
++func testRules() []Rule {
++	return []Rule{
++		{ID: "er_fail_then_ok", Category: "error_recovery", Pattern: PatternFailThenOK, Confidence: 0.8, Description: "fail then recover"},
++		{ID: "env_repeated_command", Category: "environment", Pattern: PatternRepetition, Confidence: 0.7, MinTimes: 3, Description: "repeated command"},
++		{ID: "pref_repeated_message", Category: "preference", Pattern: PatternMessageRepetition, Confidence: 0.7, MinTimes: 2, Description: "repeated message"},
++		{ID: "arch_common_prefix", Category: "architecture", Pattern: PatternPathPrefix, Confidence: 0.7, MinTimes: 3, Description: "common prefix"},
++	}
++}
++
++// TestExtract_ErrorRecovery: a tool_result error on a target followed by an ok
++// tool_result on the same target yields one error_recovery candidate.
++func TestExtract_ErrorRecovery(t *testing.T) {
++	l := NewLearner(testRules(), 0, 0)
++	events := []Event{
++		{Kind: "tool_result", Tool: "bash", Target: "make test", Status: "error", Seq: 1},
++		{Kind: "tool_result", Tool: "bash", Target: "make test", Status: "ok", Seq: 2},
++	}
++	got := l.Extract("sess-er", events)
++	if len(got) != 1 {
++		t.Fatalf("len(candidates) = %d, want 1", len(got))
++	}
++	c := got[0]
++	if c.Category != "error_recovery" {
++		t.Errorf("category = %q, want error_recovery", c.Category)
++	}
++	if c.Confidence != 0.8 {
++		t.Errorf("confidence = %v, want 0.8", c.Confidence)
++	}
++	if c.MemoryID == "" {
++		t.Error("MemoryID is empty")
++	}
++	if c.MemoryText == "" {
++		t.Error("MemoryText is empty")
++	}
++	if c.SessionID != "sess-er" {
++		t.Errorf("SessionID = %q, want sess-er", c.SessionID)
++	}
++}
++
++// TestExtract_EnvironmentRepetition: the same tool+target tool_call at least
++// MinTimes times yields one environment candidate.
++func TestExtract_EnvironmentRepetition(t *testing.T) {
++	l := NewLearner(testRules(), 0, 0)
++	events := []Event{
++		{Kind: "tool_call", Tool: "bash", Target: "npm install", Seq: 1},
++		{Kind: "tool_call", Tool: "bash", Target: "npm install", Seq: 2},
++		{Kind: "tool_call", Tool: "bash", Target: "npm install", Seq: 3},
++	}
++	got := l.Extract("sess-env", events)
++	if len(got) != 1 {
++		t.Fatalf("len(candidates) = %d, want 1", len(got))
++	}
++	if got[0].Category != "environment" {
++		t.Errorf("category = %q, want environment", got[0].Category)
++	}
++}
++
++// TestExtract_PreferenceRepetition: the same non-empty user_message at least
++// MinTimes times yields one preference candidate.
++func TestExtract_PreferenceRepetition(t *testing.T) {
++	l := NewLearner(testRules(), 0, 0)
++	events := []Event{
++		{Kind: "user_message", Message: "please use tabs", Seq: 1},
++		{Kind: "user_message", Message: "please use tabs", Seq: 2},
++	}
++	got := l.Extract("sess-pref", events)
++	if len(got) != 1 {
++		t.Fatalf("len(candidates) = %d, want 1", len(got))
++	}
++	if got[0].Category != "preference" {
++		t.Errorf("category = %q, want preference", got[0].Category)
++	}
++}
++
++// TestExtract_ArchitecturePrefix: reads/edits under one common path prefix at
++// least MinTimes times yield one architecture candidate.
++func TestExtract_ArchitecturePrefix(t *testing.T) {
++	l := NewLearner(testRules(), 0, 0)
++	events := []Event{
++		{Kind: "file_read", Target: "internal/store/tables.go", Seq: 1},
++		{Kind: "file_read", Target: "internal/store/store.go", Seq: 2},
++		{Kind: "file_read", Target: "internal/store/tx.go", Seq: 3},
++	}
++	got := l.Extract("sess-arch", events)
++	if len(got) != 1 {
++		t.Fatalf("len(candidates) = %d, want 1", len(got))
++	}
++	if got[0].Category != "architecture" {
++		t.Errorf("category = %q, want architecture", got[0].Category)
++	}
++}
++
++// TestExtract_MinConfidenceFloor: a candidate whose rule confidence is below
++// MinConfidence is dropped (no error_recovery at 0.8 < 0.9).
++func TestExtract_MinConfidenceFloor(t *testing.T) {
++	l := NewLearner(testRules(), 0.9, 0)
++	events := []Event{
++		{Kind: "tool_result", Tool: "bash", Target: "make test", Status: "error", Seq: 1},
++		{Kind: "tool_result", Tool: "bash", Target: "make test", Status: "ok", Seq: 2},
++	}
++	got := l.Extract("sess-floor", events)
++	if len(got) != 0 {
++		t.Errorf("len(candidates) = %d, want 0 (below MinConfidence)", len(got))
++	}
++}
++
++// TestExtract_EmptyEvents: no events → no candidates.
++func TestExtract_EmptyEvents(t *testing.T) {
++	l := NewLearner(testRules(), 0, 0)
++	if got := l.Extract("sess-empty", nil); len(got) != 0 {
++		t.Errorf("len(candidates) = %d, want 0", len(got))
++	}
++}
++
++// TestExtract_NoMatchingRules: events below every rule's threshold → nothing.
++func TestExtract_NoMatchingRules(t *testing.T) {
++	l := NewLearner(testRules(), 0, 0)
++	events := []Event{
++		{Kind: "tool_call", Tool: "ls", Target: ".", Seq: 1},
++	}
++	if got := l.Extract("sess-nomatch", events); len(got) != 0 {
++		t.Errorf("len(candidates) = %d, want 0", len(got))
++	}
++}
++
++// TestExtract_ZeroPutsOnExtract: Extract is a pure function — it performs NO
++// store writes itself. The caller owns persistence. Running Extract with the
++// event corpus that yields exactly two matches must NOT advance a put counter
++// held on the store; only the explicit caller-side puts do. This is the
++// structural zero-LLM assertion: the only injectable dependencies are the
++// store and a clock, and Extract touches neither.
++func TestExtract_ZeroPutsOnExtract(t *testing.T) {
++	cs := newTestStore(t, "p-zero")
++	l := NewLearner(testRules(), 0, 0)
++	events := []Event{
++		{Kind: "tool_result", Tool: "bash", Target: "make test", Status: "error", Seq: 1},
++		{Kind: "tool_result", Tool: "bash", Target: "make test", Status: "ok", Seq: 2},
++		{Kind: "tool_call", Tool: "bash", Target: "npm install", Seq: 3},
++		{Kind: "tool_call", Tool: "bash", Target: "npm install", Seq: 4},
++		{Kind: "tool_call", Tool: "bash", Target: "npm install", Seq: 5},
++	}
++	// Extract returns candidates but performs no store write.
++	got := l.Extract("sess-zero", events)
++	if len(got) == 0 {
++		t.Fatalf("Extract returned 0 candidates, want 2 (error_recovery + environment)")
++	}
++	before, err := cs.ListTrafficMemories("sess-zero")
++	if err != nil {
++		t.Fatalf("ListTrafficMemories: %v", err)
++	}
++	if len(before) != 0 {
++		t.Fatalf("Extract wrote to the store: %d rows present before any caller put", len(before))
++	}
++	// Now the caller persists the candidates; exactly N puts, one row each.
++	for _, m := range got {
++		if err := cs.PutTrafficMemory(m); err != nil {
++			t.Fatalf("PutTrafficMemory: %v", err)
++		}
++	}
++	after, err := cs.ListTrafficMemories("sess-zero")
++	if err != nil {
++		t.Fatalf("ListTrafficMemories: %v", err)
++	}
++	if len(after) != len(got) {
++		t.Errorf("rows after caller puts = %d, want %d (exactly N puts)", len(after), len(got))
++	}
++}
++
++// TestExtract_DeterministicIDs: two learners (or repeated calls) over the same
++// events produce identical MemoryIDs in identical order — the determinism
++// guarantee that lets re-runs dedupe via INSERT OR REPLACE.
++func TestExtract_DeterministicIDs(t *testing.T) {
++	events := []Event{
++		{Kind: "tool_result", Tool: "bash", Target: "make test", Status: "error", Seq: 1},
++		{Kind: "tool_result", Tool: "bash", Target: "make test", Status: "ok", Seq: 2},
++		{Kind: "tool_call", Tool: "bash", Target: "make test", Seq: 3},
++		{Kind: "tool_call", Tool: "bash", Target: "make test", Seq: 4},
++		{Kind: "tool_call", Tool: "bash", Target: "make test", Seq: 5},
++		{Kind: "user_message", Message: "please use tabs", Seq: 6},
++		{Kind: "user_message", Message: "please use tabs", Seq: 7},
++	}
++	// AC#1: two Extract calls on the same corpus produce an identical candidate
++	// set — full DeepEqual, not just id comparison. No map iteration, no wall
++	// clock, no rand leaks into identity or order.
++	lA := NewLearner(testRules(), 0, 0)
++	gotA := lA.Extract("sess-det", events)
++	lB := NewLearner(testRules(), 0, 0)
++	gotB := lB.Extract("sess-det", events)
++	if !reflect.DeepEqual(gotA, gotB) {
++		t.Errorf("two Extract calls on the same corpus differ:\nA=%+v\nB=%+v", gotA, gotB)
++	}
++	for i := range gotA {
++		if gotA[i].MemoryID == "" {
++			t.Errorf("MemoryID[%d] is empty", i)
++		}
++	}
++}
++
++// TestExtract_RerunIdempotentViaStore: because MemoryID is a pure function of
++// (session, rule, key), re-extracting the same events and putting to the store
++// is idempotent — the row count does not grow on a second pass.
++func TestExtract_RerunIdempotentViaStore(t *testing.T) {
++	cs := newTestStore(t, "p-rerun")
++	l := NewLearner(testRules(), 0, 0)
++	events := []Event{
++		{Kind: "tool_result", Tool: "bash", Target: "make test", Status: "error", Seq: 1},
++		{Kind: "tool_result", Tool: "bash", Target: "make test", Status: "ok", Seq: 2},
++	}
++	for pass := 0; pass < 2; pass++ {
++		for _, m := range l.Extract("sess-rerun", events) {
++			if err := cs.PutTrafficMemory(m); err != nil {
++				t.Fatalf("pass %d PutTrafficMemory: %v", pass, err)
++			}
++		}
++	}
++	rows, err := cs.ListTrafficMemories("sess-rerun")
++	if err != nil {
++		t.Fatalf("ListTrafficMemories: %v", err)
++	}
++	if len(rows) != 1 {
++		t.Errorf("row count after 2 passes = %d, want 1 (idempotent)", len(rows))
++	}
++}
+diff --git a/mnemonic/internal/ctx/traffic/rules.go b/mnemonic/internal/ctx/traffic/rules.go
+new file mode 100644
+index 00000000..9a309fc3
+--- /dev/null
++++ b/mnemonic/internal/ctx/traffic/rules.go
+@@ -0,0 +1,120 @@
++// Package traffic is the zero-LLM, rule-based, deterministic traffic learner
++// (plan §18). It turns a session-event stream into candidate ctx_traffic_memories
++// rows using a human-editable traffic/rules.yaml. Extraction is a pure function
++// of (events, rules): same input, same memories, same order. There is no
++// network, no model, no wall clock and no randomness in the candidate identity
++// or ordering — the only injectable dependencies are the ctx store (for
++// EvictToBound) and a clock (for created_at, testability).
++//
++// Fail-open (ADR-0016): a rules-file parse error degrades the learner to an
++// empty candidate set (never a panic); a store error degrades eviction to a
++// no-op. The store methods are already fail-open; this package adds no
++// hard-fail path.
++package traffic
++
++import (
++	"fmt"
++	"os"
++
++	"gopkg.in/yaml.v3"
++)
++
++// ruleCategories is the closed set of categories a rule may declare (plan
++// §18.2). A rule outside this set is a data error, not a match-time decision.
++var ruleCategories = map[string]bool{
++	"error_recovery": true,
++	"environment":    true,
++	"preference":     true,
++	"architecture":   true,
++}
++
++// PatternKind names the deterministic matchers a rule may use. The set is
++// closed; an unknown kind is a data error at LoadRules time.
++type PatternKind string
++
++const (
++	// PatternFailThenOK matches a tool_result{status:error} followed, on the
++	// same non-empty Target, by a tool_result{status:ok} (error_recovery).
++	PatternFailThenOK PatternKind = "fail_then_ok"
++	// PatternRepetition matches a Tool/Target pair (or a Tool with an empty
++	// Target) occurring at least MinTimes times (environment).
++	PatternRepetition PatternKind = "repetition"
++	// PatternMessageRepetition matches a non-empty user_message Message
++	// appearing at least MinTimes times (preference).
++	PatternMessageRepetition PatternKind = "message_repetition"
++	// PatternPathPrefix matches reads/edits of files under one common path
++	// prefix, at least MinTimes times (architecture).
++	PatternPathPrefix PatternKind = "path_prefix"
++)
++
++// Rule is one human-authored entry of traffic/rules.yaml. PatternKind and
++// MinTimes are the matcher descriptor; Description is free, human-auditable
++// text carried into the generated memory.
++type Rule struct {
++	ID          string      `yaml:"id"`
++	Category    string      `yaml:"category"`
++	Pattern     PatternKind `yaml:"pattern"`
++	Description string      `yaml:"description"`
++	Confidence  float64     `yaml:"confidence"`
++	MinTimes    int         `yaml:"min_times"`
++}
++
++// rulesFile is the top-level shape of traffic/rules.yaml.
++type rulesFile struct {
++	Rules []Rule `yaml:"rules"`
++}
++
++// LoadRules reads and validates a traffic/rules.yaml file. Rules are returned
++// in file order (the first matching rule wins at extraction time). A missing
++// or unparseable file, or a malformed rule (empty id, unknown category or
++// pattern, confidence outside [0,1], non-positive min_times for a counting
++// pattern), is a data error: LoadRules returns a non-nil error and the caller
++// (Learner) degrades gracefully (ADR-0016).
++func LoadRules(path string) ([]Rule, error) {
++	data, err := os.ReadFile(path)
++	if err != nil {
++		return nil, fmt.Errorf("traffic: read rules: %w", err)
++	}
++	var rf rulesFile
++	if err := yaml.Unmarshal(data, &rf); err != nil {
++		return nil, fmt.Errorf("traffic: parse rules: %w", err)
++	}
++	out := make([]Rule, 0, len(rf.Rules))
++	for i, r := range rf.Rules {
++		if r.ID == "" {
++			return nil, fmt.Errorf("traffic: rule %d: missing id", i)
++		}
++		if !ruleCategories[r.Category] {
++			return nil, fmt.Errorf("traffic: rule %s: unknown category %q", r.ID, r.Category)
++		}
++		if !validPattern(r.Pattern) {
++			return nil, fmt.Errorf("traffic: rule %s: unknown pattern %q", r.ID, r.Pattern)
++		}
++		if r.Confidence < 0 || r.Confidence > 1 {
++			return nil, fmt.Errorf("traffic: rule %s: confidence %v out of [0,1]", r.ID, r.Confidence)
++		}
++		if needsMinTimes(r.Pattern) && r.MinTimes < 1 {
++			return nil, fmt.Errorf("traffic: rule %s: min_times must be >= 1 for pattern %q", r.ID, r.Pattern)
++		}
++		out = append(out, r)
++	}
++	return out, nil
++}
++
++func validPattern(p PatternKind) bool {
++	switch p {
++	case PatternFailThenOK, PatternRepetition, PatternMessageRepetition, PatternPathPrefix:
++		return true
++	default:
++		return false
++	}
++}
++
++func needsMinTimes(p PatternKind) bool {
++	switch p {
++	case PatternRepetition, PatternMessageRepetition, PatternPathPrefix:
++		return true
++	default:
++		return false
++	}
++}
+diff --git a/mnemonic/internal/ctx/traffic/rules.yaml b/mnemonic/internal/ctx/traffic/rules.yaml
+new file mode 100644
+index 00000000..07e6c728
+--- /dev/null
++++ b/mnemonic/internal/ctx/traffic/rules.yaml
+@@ -0,0 +1,46 @@
++# traffic/rules.yaml — human-editable rules for the zero-LLM traffic learner
++# (plan §18.3). Rules are applied in file order; the first matching rule wins
++# for a given trigger. Each rule declares a category (error_recovery |
++# environment | preference | architecture), a deterministic pattern, a base
++# confidence in [0,1], and a short human-auditable description.
++#
++# Patterns are simple and deterministic (repetition counts, same-target, path
++# prefix) — no free-text regex, so extraction is stable across Go versions.
++# A memory below the learner's min_confidence is not stored; the store is
++# capped by max_memories (oldest low-confidence evicted first).
++rules:
++  # error_recovery: a tool_result{status:error} followed, on the same target,
++  # by a tool_result{status:ok} — a fail-then-retry. Captures the working
++  # command or path.
++  - id: er_fail_then_ok
++    category: error_recovery
++    pattern: fail_then_ok
++    confidence: 0.8
++    description: "A tool call failed then recovered on retry for the same target."
++
++  # environment: the same tool/target pair used repeatedly — a stable fact
++  # (working command, path, or tool the environment relies on).
++  - id: env_repeated_command
++    category: environment
++    pattern: repetition
++    confidence: 0.7
++    min_times: 3
++    description: "A command or tool is used repeatedly in this environment."
++
++  # preference: a user_message fragment repeated across turns — a repeated
++  # user correction or usage pattern.
++  - id: pref_repeated_message
++    category: preference
++    pattern: message_repetition
++    confidence: 0.7
++    min_times: 2
++    description: "The user repeats a correction or usage request."
++
++  # architecture: repeated reads/edits of files under one common path prefix —
++  # a file-structure or coding-convention pattern.
++  - id: arch_common_prefix
++    category: architecture
++    pattern: path_prefix
++    confidence: 0.7
++    min_times: 3
++    description: "Files under a common directory are read or edited repeatedly."
+diff --git a/mnemonic/internal/ctx/traffic/rules_test.go b/mnemonic/internal/ctx/traffic/rules_test.go
+new file mode 100644
+index 00000000..2b5f1f3e
+--- /dev/null
++++ b/mnemonic/internal/ctx/traffic/rules_test.go
+@@ -0,0 +1,205 @@
++package traffic
++
++import (
++	"os"
++	"path/filepath"
++	"testing"
++)
++
++// writeRulesFile writes content to a temp file and returns its path.
++func writeRulesFile(t *testing.T, content string) string {
++	t.Helper()
++	p := filepath.Join(t.TempDir(), "rules.yaml")
++	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
++		t.Fatalf("write rules: %v", err)
++	}
++	return p
++}
++
++const goodRules = `
++rules:
++  - id: er_fail_then_ok
++    category: error_recovery
++    pattern: fail_then_ok
++    confidence: 0.8
++    description: "fail then recover"
++  - id: env_repeated_command
++    category: environment
++    pattern: repetition
++    confidence: 0.7
++    min_times: 3
++    description: "repeated command"
++  - id: pref_repeated_message
++    category: preference
++    pattern: message_repetition
++    confidence: 0.7
++    min_times: 2
++    description: "repeated message"
++  - id: arch_common_prefix
++    category: architecture
++    pattern: path_prefix
++    confidence: 0.7
++    min_times: 3
++    description: "common prefix"
++`
++
++// TestLoadRules_GoodFile: a well-formed file loads, preserves file order, and
++// keeps every field (including min_times).
++func TestLoadRules_GoodFile(t *testing.T) {
++	rules, err := LoadRules(writeRulesFile(t, goodRules))
++	if err != nil {
++		t.Fatalf("LoadRules: %v", err)
++	}
++	if len(rules) != 4 {
++		t.Fatalf("len(rules) = %d, want 4", len(rules))
++	}
++	want := []struct {
++		id       string
++		category string
++		pattern  PatternKind
++		conf     float64
++		minTimes int
++	}{
++		{"er_fail_then_ok", "error_recovery", PatternFailThenOK, 0.8, 0},
++		{"env_repeated_command", "environment", PatternRepetition, 0.7, 3},
++		{"pref_repeated_message", "preference", PatternMessageRepetition, 0.7, 2},
++		{"arch_common_prefix", "architecture", PatternPathPrefix, 0.7, 3},
++	}
++	for i, w := range want {
++		got := rules[i]
++		if got.ID != w.id || got.Category != w.category || got.Pattern != w.pattern ||
++			got.Confidence != w.conf || got.MinTimes != w.minTimes {
++			t.Errorf("rule %d = %+v, want %+v", i, got, w)
++		}
++	}
++}
++
++// TestLoadRules_MissingFile: a missing file is a data error (fail-open concern
++// is on the caller).
++func TestLoadRules_MissingFile(t *testing.T) {
++	_, err := LoadRules(filepath.Join(t.TempDir(), "does-not-exist.yaml"))
++	if err == nil {
++		t.Fatal("LoadRules on a missing file: want error, got nil")
++	}
++}
++
++func TestLoadRules_BadYAML(t *testing.T) {
++	if _, err := LoadRules(writeRulesFile(t, "rules: [not a mapping")); err == nil {
++		t.Fatal("LoadRules on bad yaml: want error, got nil")
++	}
++}
++
++func TestLoadRules_UnknownCategory(t *testing.T) {
++	body := `
++rules:
++  - id: x
++    category: bogus
++    pattern: fail_then_ok
++    confidence: 0.8
++`
++	if _, err := LoadRules(writeRulesFile(t, body)); err == nil {
++		t.Fatal("LoadRules with unknown category: want error, got nil")
++	}
++}
++
++func TestLoadRules_UnknownPattern(t *testing.T) {
++	body := `
++rules:
++  - id: x
++    category: environment
++    pattern: nonsense
++    confidence: 0.8
++`
++	if _, err := LoadRules(writeRulesFile(t, body)); err == nil {
++		t.Fatal("LoadRules with unknown pattern: want error, got nil")
++	}
++}
++
++func TestLoadRules_ConfidenceOutOfRange(t *testing.T) {
++	body := `
++rules:
++  - id: x
++    category: environment
++    pattern: repetition
++    confidence: 1.5
++    min_times: 2
++`
++	if _, err := LoadRules(writeRulesFile(t, body)); err == nil {
++		t.Fatal("LoadRules with confidence 1.5: want error, got nil")
++	}
++}
++
++func TestLoadRules_RepetitionRequiresMinTimes(t *testing.T) {
++	body := `
++rules:
++  - id: x
++    category: environment
++    pattern: repetition
++    confidence: 0.7
++`
++	if _, err := LoadRules(writeRulesFile(t, body)); err == nil {
++		t.Fatal("LoadRules repetition without min_times: want error, got nil")
++	}
++}
++
++func TestLoadRules_MissingID(t *testing.T) {
++	body := `
++rules:
++  - category: environment
++    pattern: repetition
++    confidence: 0.7
++    min_times: 2
++`
++	if _, err := LoadRules(writeRulesFile(t, body)); err == nil {
++		t.Fatal("LoadRules with missing id: want error, got nil")
++	}
++}
++
++// TestLoadRules_ErrorDoesNotPanic: a parse/data error returns a non-nil error
++// and a nil slice (the fail-open contract). It must never panic, and the
++// caller can degrade to an empty candidate set from the returned nil.
++func TestLoadRules_ErrorDoesNotPanic(t *testing.T) {
++	var rules []Rule
++	var err error
++	func() {
++		defer func() {
++			if r := recover(); r != nil {
++				t.Errorf("LoadRules panicked on bad input: %v", r)
++			}
++		}()
++		rules, err = LoadRules(writeRulesFile(t, "rules: not-a-mapping"))
++	}()
++	if err == nil {
++		t.Fatal("LoadRules: want error for malformed yaml, got nil")
++	}
++	if rules != nil {
++		t.Errorf("rules = %v, want nil on error", rules)
++	}
++	// Degrade: nil rules → a learner with no rules extracts nothing, no panic.
++	l := NewLearner(rules, 0, 0)
++	events := []Event{
++		{Kind: "tool_result", Tool: "bash", Target: "x", Status: "error", Seq: 1},
++		{Kind: "tool_result", Tool: "bash", Target: "x", Status: "ok", Seq: 2},
++	}
++	if got := l.Extract("sess", events); len(got) != 0 {
++		t.Errorf("degraded learner extracted %d candidates, want 0", len(got))
++	}
++}
++
++// TestLoadRules_PackageRulesYAML: the shipped package rules.yaml loads and has
++// at least one rule per category (the §18.2 requirement).
++func TestLoadRules_PackageRulesYAML(t *testing.T) {
++	rules, err := LoadRules("rules.yaml")
++	if err != nil {
++		t.Fatalf("LoadRules(rules.yaml): %v", err)
++	}
++	cats := map[string]bool{}
++	for _, r := range rules {
++		cats[r.Category] = true
++	}
++	for _, c := range []string{"error_recovery", "environment", "preference", "architecture"} {
++		if !cats[c] {
++			t.Errorf("package rules.yaml has no rule for category %q", c)
++		}
++	}
++}
+diff --git a/mnemonic/internal/ctx/traffic/traffic_test.go b/mnemonic/internal/ctx/traffic/traffic_test.go
+new file mode 100644
+index 00000000..2c69e832
+--- /dev/null
++++ b/mnemonic/internal/ctx/traffic/traffic_test.go
+@@ -0,0 +1,24 @@
++package traffic
++
++import (
++	"testing"
++
++	ctxstore "github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
++	"github.com/devopstales/skillgrid/mnemonic/internal/store"
++)
++
++// newTestStore opens a real migrated shared project store and wraps it in the
++// ctx accessor (the T06/T08 harness shape). The store is closed via t.Cleanup.
++func newTestStore(t *testing.T, project string) *ctxstore.Store {
++	t.Helper()
++	shared, err := store.Open(t.TempDir(), project)
++	if err != nil {
++		t.Fatalf("store.Open: %v", err)
++	}
++	t.Cleanup(func() { _ = shared.Close() })
++	cs := ctxstore.New(shared)
++	if cs == nil {
++		t.Fatal("ctxstore.New returned nil for a valid shared store")
++	}
++	return cs
++}

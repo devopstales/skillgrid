@@ -1,6 +1,6 @@
 # Review — <topic>
 
-> Change: `.skillgrid/specs/YYYY-MM-DD-<topic>/` (moves to `.skillgrid/archive/YYYY-MM-DD-<topic>/` at ship)
+> Change: `.skillgrid/specs/YYYY-MM-DD-<topic>/` (moves to `.skillgrid/xarchive/YYYY-MM-DD-<topic>/` at ship)
 > Generated: <ISO 8601 timestamp> (requesting-code-review)
 > Diff range: `{BASE_SHA}..{HEAD_SHA}`
 > Rigor tier: T<n> (per `_shared/planning/rigor-tiers.md`)

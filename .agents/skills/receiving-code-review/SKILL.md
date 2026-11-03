@@ -299,4 +299,4 @@ When replying to inline review comments on GitHub, reply in the comment thread (
 
 ## Next
 
-Once findings are triaged and the in-scope set is fixed (or the review is clean), the change is ready for **`skillgrid:ship`** — the integration + archive-move step. Ship verifies tests on the integrated tree, merges / opens a PR / keeps the branch, then moves the change folder to `.skillgrid/archive/`. After ship, **`skillgrid:reflect`** closes the cycle.
+Once findings are triaged and the in-scope set is fixed (or the review is clean), the change is ready for **`skillgrid:ship`** — the integration + archive-move step. Ship verifies tests on the integrated tree, merges / opens a PR / keeps the branch, then moves the change folder to `.skillgrid/xarchive/`. After ship, **`skillgrid:reflect`** closes the cycle.

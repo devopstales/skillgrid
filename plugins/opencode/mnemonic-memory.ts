@@ -1,22 +1,10 @@
 // @ts-nocheck
-// v2 (opencode >= 2.0, `@opencode/cli` host) only: default export { id, setup }
-// via Plugin.define from `@opencode/plugin`, which the host resolves for
-// discovery-loaded local plugins (no node_modules beside the file). The named
-// `MnemonicMemory` export is retained for tooling parity only.
-import { Plugin } from "@opencode/plugin"
-
 const BASE_URL =
   process.env.SKILLGRID_CHECKPOINT_URL ||
   process.env.SKILLGRID_MNEMONIC_HTTP_URL ||
   "http://127.0.0.1:7438"
 
 const AGENT = process.env.SKILLGRID_AGENT || "opencode"
-// v1 `tool()` arg-schema shim. The v2 API dropped the root `tool` export
-// (tools register via ctx.tool.transform with effect Schema), so these named
-// v1 tool objects — kept for tooling parity / the mnemonic MCP server — need
-// only their `description` and `execute`; the `args` schemas below are inert
-// strings here (only the v1 `tool()` factory read them, and it no longer runs).
-const tool = { schema: { string: () => ({ optional: () => ({ describe: () => "" }), describe: () => "" }), number: () => ({ optional: () => ({ describe: () => "" }), describe: () => "" }), boolean: () => ({ optional: () => ({ describe: () => "" }), describe: () => "" }) } }
 
 async function api(method, path, body) {
   const res = await fetch(BASE_URL + path, {
@@ -227,13 +215,11 @@ const factSearch = {
       .describe("Include soft-deleted facts (default false)"),
   },
   async execute(args) {
-    const params = new URLSearchParams()
-    if (args.query) params.set("query", args.query)
-    if (args.session_id) params.set("session_id", args.session_id)
-    if (args.project) params.set("project", args.project)
-    if (args.limit) params.set("limit", String(args.limit))
-    if (args.include_deleted) params.set("include_deleted", "true")
-    const data = await api("GET", `/facts/search?${params}`)
+    const body: Record<string, unknown> = {}
+    if (args.query) body.query = args.query
+    if (args.limit) body.limit = args.limit
+    if (args.include_deleted) body.include_deleted = true
+    const data = await api("POST", "/facts/search", body)
     return JSON.stringify(data)
   },
 }
@@ -333,11 +319,7 @@ const memSessionSummary = {
       ),
   },
   async execute(args) {
-    const data = await api(
-      "POST",
-      `/sessions/${args.session_id}/summary`,
-      args
-    )
+    const data = await api("GET", `/sessions/${args.session_id}/summary`)
     return JSON.stringify(data)
   },
 }
@@ -357,12 +339,71 @@ export const MnemonicMemory = async () => ({
   },
 })
 
-// v2 entry point: schema-valid { id, setup }. The mem_* tools are also exposed
-// via the mnemonic MCP server (the working v2 path); this keeps the plugin
-// loadable in every v2 build. Native v2 tool registration is a follow-up.
+// V2 entrypoint (ADR-0032 V2 port): the same tool map, registered through the
+// V2 tool editor. The V1 named export above is kept for V1.18.29+ harnesses.
+// The V2 editor takes JSON-Schema inputs, so wrap converts the V1 arg schema
+// (tool.schema.* calls, which collapse to plain objects) to JSON Schema.
+// Every value is optional (the V1 harness validated at the harness boundary);
+// unknown args are rejected by additionalProperties:false.
+function wrap(definition) {
+  const properties = {}
+  const required = []
+  for (const [k, v] of Object.entries(definition.args || {})) {
+    if (v && v.__optional) {
+      properties[k] = v.schema
+    } else {
+      properties[k] = v.schema
+      required.push(k)
+    }
+  }
+  return {
+    name: definition.name,
+    description: definition.description,
+    input: {
+      type: "object",
+      properties,
+      ...(required.length ? { required } : {}),
+      additionalProperties: false,
+    },
+    async execute(input) {
+      return JSON.stringify(await definition.execute(input))
+    },
+  }
+}
+
+// @opencode/plugin is a bundled OpenCode dependency; in the repo smoke test
+// (plain Node) it is absent, so fall back to a local Plugin.define stub that
+// still records the id + setup for inspection.
+async function importPlugin() {
+  try {
+    return await import("@opencode/plugin")
+  } catch {
+    return { Plugin: { define: (def) => def } }
+  }
+}
+
+const { Plugin } = await importPlugin()
+
 export default Plugin.define({
-  id: "skillgrid-mnemonic-memory",
-  setup: async (_ctx) => {
-    // fail-open no-op; tools available via mnemonic MCP (TASK-081)
+  id: "skillgrid.mnemonic-memory",
+  async setup(ctx) {
+    const defs = []
+    for (const [name, d] of Object.entries({
+      mem_save: memSave,
+      mem_search: memSearch,
+      mem_get_observation: memGetObservation,
+      fact_add: factAdd,
+      fact_search: factSearch,
+      fact_forget: factForget,
+      fact_decay: factDecay,
+      mem_session_start: memSessionStart,
+      mem_session_end: memSessionEnd,
+      mem_session_summary: memSessionSummary,
+    })) {
+      defs.push(wrap({ ...d, name }))
+    }
+    await ctx.tool.transform((editor) => {
+      for (const def of defs) editor.add(def)
+    })
   },
 })

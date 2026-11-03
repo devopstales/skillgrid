@@ -13,7 +13,7 @@
 #   its happy-path and failure scenarios. Author it BEFORE implementing.
 
 Feature: Mnemonic scan findings + dependency graph
-  Scanner output (trivy/vuln+sbom, wapiti, nuclei, semgrep) is stored durably in
+  Scanner output (trivy/vuln+sbom, wapiti, nuclei) is stored durably in
   the per-project SQLite store: findings with a stable dedup_hash, a dependency
   graph upserted by purl, and the declared-vs-imported runtime import tree.
   A scan or ingest error never fails the calling session (ADR-0016 floors).
@@ -93,22 +93,6 @@ Feature: Mnemonic scan findings + dependency graph
     And werkzeug is in the declared-only set
     And os is in the import-only set
     And no new code index extraction pass ran
-
-  # --- Req 5: install (semgrep) ---
-
-  Scenario: happy path semgrep installs via uv
-    Given semgrep is absent
-    When I run the security-tools install
-    Then semgrep is present on PATH
-    And it was installed with manager "uv"
-
-  # --- Req 6: skills ---
-
-  Scenario: happy path semgrep skill exists and documents mnemonic store step
-    Given the skill registry
-    When I list the semgrep skill
-    Then a semgrep SKILL.md exists under verification/
-    And it documents storing results in mnemonic
 
   # --- Req 7: MCP registration ---
 

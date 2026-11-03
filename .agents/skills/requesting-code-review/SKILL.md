@@ -81,7 +81,7 @@ and the smell baseline are canonically defined in
 `_shared/rules/code-standards.md` ("Reviewing"); this template inlines
 them for the reviewer. Pass:
 - the diff range (`{BASE_SHA}..{HEAD_SHA}`)
-- the standards sources: the terms files (`.skillgrid/artifacts/01-business-terms.md` /
+- the standards sources: the terms files (`.skillgrid/knowledge/glossary/01-business-terms.md` /
   `02-technical-terms.md`, ubiquitous language), the in-force ADRs from the change's ADR Review Manifest
   (`.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md`, or `conventions.artifacts`), plus
   the template's smell baseline. Don't dump the whole ADR folder — only the
@@ -150,7 +150,7 @@ clean or capped per `_shared/planning/rigor-tiers.md` (fix loop cap).
 - If all tickets in the epic are `done`: set epic status → `done`
 - Use the tracker adapter from `skillgrid:ticketing` (Backlog.md CLI, `gh`, `glab`, `jira`)
 
-**6. Update `state.yaml`:** set `pipeline.current_phase: review`.
+**6. Update `state.yaml`:** set `changes.<topic>.phase: review`.
 
 ## Example
 

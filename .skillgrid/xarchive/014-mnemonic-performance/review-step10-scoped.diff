@@ -1,0 +1,599 @@
+diff --git a/skillgrid-cli/cmd/skillgrid/mem.go b/skillgrid-cli/cmd/skillgrid/mem.go
+index 3b8c925..9013772 100644
+--- a/skillgrid-cli/cmd/skillgrid/mem.go
++++ b/skillgrid-cli/cmd/skillgrid/mem.go
+@@ -8,6 +8,7 @@ import (
+ 	"strings"
+ 	"time"
+ 
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory/layer"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+@@ -77,6 +78,8 @@ func runMem(version string, args []string) {
+ 		runMemContext(svc, projID, limit, items, chars, timeout)
+ 	case "timeline":
+ 		runMemTimeline(svc, projID, pos, window, limit, items, chars, timeout)
++	case "graph":
++		runMemGraph(svc, projID, limit)
+ 	case "expire":
+ 		runMemExpire(svc, dataDir)
+ 	case "help", "-h", "--help":
+@@ -89,7 +92,7 @@ func runMem(version string, args []string) {
+ }
+ 
+ func printMemUsage() {
+-	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|expire> [args]
++	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|expire> [args]
+ 
+   layers <session_id|topic_key>   inspect the L0→L1→L2→L3 chain (mem_layers)
+   governance <id>                 governed-asset view (mem_governance)
+@@ -101,7 +104,9 @@ func printMemUsage() {
+   context [--limit N] [--item N] [--char N] [--timeout 3s]
+                                    recent session summaries (mem_context)
+   timeline <id> [--window 1h] [--limit N] [--item N] [--char N] [--timeout 3s]
+-                                   chronological context (mem_timeline)
++                                    chronological context (mem_timeline)
++  graph [--limit N]                 temporal status of codeindex graph edges
++                                    (valid_from, valid_to, active/expired/pending)
+   expire                          retire expired observations across all projects
+                                    (TTL sweep; best-effort, exit 0 on missing stores)
+ 
+@@ -404,6 +409,40 @@ func runMemExpire(svc *service.Service, dataDir string) {
+ 	printJSON(out)
+ }
+ 
++// runMemGraph is the CLI for the temporal graph view (014 step 10, `mem graph`):
++// it lists the project's codeindex graph edges with their temporal status
++// (valid_from, valid_to, and a computed active/expired/pending label). It reads
++// the unfiltered history set (QueryEdgesWithHistory) so every edge is visible
++// with its status — the current-state filter is the concern of graph traversal,
++// not this diagnostic. It is read-only and never mutates the index.
++func runMemGraph(svc *service.Service, projID string, limit int) {
++	h, cleanup, err := svc.Open(projID)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	defer cleanup()
++	edges, err := codeindex.QueryEdgesWithHistory(h.Store())
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	counts := map[string]int{"active": 0, "expired": 0, "pending": 0}
++	for _, e := range edges {
++		counts[e.Status]++
++	}
++	if limit > 0 && len(edges) > limit {
++		edges = edges[:limit]
++	}
++	out := map[string]any{
++		"project": projID,
++		"count":   len(edges),
++		"total":   counts,
++		"edges":   edges,
++	}
++	printJSON(out)
++}
++
+ func looksLikeSession(s string) bool {
+ 	// A session id is a UUID (36 chars with dashes) or a bare token with no
+ 	// spaces; a topic_key typically contains '/'.
+diff --git a/skillgrid-cli/cmd/skillgrid/mem_graph_test.go b/skillgrid-cli/cmd/skillgrid/mem_graph_test.go
+new file mode 100644
+index 0000000..fb8199e
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/mem_graph_test.go
+@@ -0,0 +1,91 @@
++package main
++
++import (
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// seedGraphProject plants one project store with a file, two symbols, and three
++// edges in distinct temporal states (active, expired, pending) so `mem graph`
++// has something to report.
++func seedGraphProject(t *testing.T, dataDir, project string) {
++	t.Helper()
++	st, err := store.Open(dataDir, project)
++	if err != nil {
++		t.Fatalf("open %s: %v", project, err)
++	}
++	defer st.Close()
++	db := st.DB
++
++	var fileID int64
++	if err := db.QueryRow(`
++		INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at)
++		VALUES ('graph.go', 1, 100, 'h', '2026-01-01T00:00:00Z')
++		RETURNING id`).Scan(&fileID); err != nil {
++		t.Fatalf("insert file: %v", err)
++	}
++	var fromID, toID int64
++	if err := db.QueryRow(`
++		INSERT INTO symbols (file_id, name, kind, start_line, end_line, content_hash, uid)
++		VALUES (?, 'alpha', 'function', 1, 5, 'c1', 'uid-alpha')
++		RETURNING id`, fileID).Scan(&fromID); err != nil {
++		t.Fatalf("insert from: %v", err)
++	}
++	if err := db.QueryRow(`
++		INSERT INTO symbols (file_id, name, kind, start_line, end_line, content_hash, uid)
++		VALUES (?, 'beta', 'function', 6, 10, 'c2', 'uid-beta')
++		RETURNING id`, fileID).Scan(&toID); err != nil {
++		t.Fatalf("insert to: %v", err)
++	}
++	now := time.Now().Unix()
++	ins := func(kind string, validFrom, validTo int64) {
++		t.Helper()
++		var vt interface{}
++		if validTo != 0 {
++			vt = validTo
++		}
++		if _, err := db.Exec(`
++			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from, valid_to)
++			VALUES (?, ?, ?, ?, 'beta', NULL, 'EXTRACTED', 1, ?, ?)`,
++			kind, fromID, fileID, toID, validFrom, vt); err != nil {
++			t.Fatalf("insert edge %s: %v", kind, err)
++		}
++	}
++	ins("calls", now-10000, 0)          // active
++	ins("imports", now-10000, now-100)  // expired
++	ins("references", now+10000, 0)     // pending
++}
++
++// TestMemGraphTemporalStatus is 10.3 [AFK] — `skillgrid mem graph` lists the
++// project's codeindex edges with their temporal status (active/expired/
++// pending) and the raw valid_from / valid_to fields.
++func TestMemGraphTemporalStatus(t *testing.T) {
++	dataDir := t.TempDir()
++	project := "memcli-graph"
++	seedGraphProject(t, dataDir, project)
++
++	out := runMemCLI(t, dataDir, "graph", "--project", project, "--dir", dataDir)
++
++	// The CLI reports all three edges (history view) with a per-status count.
++	if !strings.Contains(out, `"count": 3`) {
++		t.Fatalf("mem graph must report count 3: %s", out)
++	}
++	for _, st := range []string{`"active": 1`, `"expired": 1`, `"pending": 1`} {
++		if !strings.Contains(out, st) {
++			t.Fatalf("mem graph missing status count %s: %s", st, out)
++		}
++	}
++	// The raw temporal fields are present (Go field names ValidFrom/ValidTo).
++	if !strings.Contains(out, `"ValidFrom"`) || !strings.Contains(out, `"ValidTo"`) {
++		t.Fatalf("mem graph must include ValidFrom and ValidTo: %s", out)
++	}
++	// Each temporal state is labeled on its edge.
++	for _, st := range []string{`"active"`, `"expired"`, `"pending"`} {
++		if !strings.Contains(out, st) {
++			t.Fatalf("mem graph must label edges with %s: %s", st, out)
++		}
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/graph.go b/skillgrid-cli/internal/mnemonic/codeindex/graph.go
+new file mode 100644
+index 0000000..76d247f
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/graph.go
+@@ -0,0 +1,118 @@
++package codeindex
++
++import (
++	"database/sql"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// Edge is one stored graph edge with its temporal window (change 014, step 10).
++// ValidFrom is the UNIX second the relationship was first observed; ValidTo is
++// NULL (0 here) while the edge is still active, or a past UNIX second once it
++// has expired. Status is a computed label (TemporalStatus) so callers do not
++// re-derive the window logic.
++type Edge struct {
++	ID        int64
++	Kind      string
++	FromID    int64
++	FileID    int64
++	ToID      sql.NullInt64
++	ToName    string
++	Confidence string
++	Line      int
++	ValidFrom int64
++	ValidTo   int64 // 0 = NULL (active); otherwise a UNIX second
++	Status    string // "active" | "expired" | "pending"
++}
++
++// TemporalStatus classifies an edge's window relative to now:
++//   - "expired": valid_to <= now  (the relationship has ended)
++//   - "pending": valid_from > now  (the relationship has not begun)
++//   - "active":  valid_from <= now AND (valid_to == 0 OR valid_to > now)
++func TemporalStatus(validFrom, validTo, now int64) string {
++	if validTo != 0 && validTo <= now {
++		return "expired"
++	}
++	if validFrom > now {
++		return "pending"
++	}
++	return "active"
++}
++
++// QueryEdges returns every edge in the CURRENT graph state: it applies the
++// temporal filter so expired and pending edges are hidden. This is the query
++// path used for current graph traversal (014 step 10.2). Edges that do not
++// meet the window are preserved in the table and reachable via
++// QueryEdgesWithHistory.
++func QueryEdges(st *store.Store) ([]Edge, error) {
++	now := time.Now().Unix()
++	rows, err := st.DB.Query(`
++		SELECT e.id, e.kind, e.from_id, e.file_id, e.to_id, e.to_name,
++		       e.confidence, e.line, e.valid_from, e.valid_to
++		FROM edges e
++		WHERE e.valid_from <= ? AND (e.valid_to IS NULL OR e.valid_to > ?)
++		ORDER BY e.id`, now, now)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	return scanEdges(rows, now)
++}
++
++// QueryEdgesWithHistory returns EVERY edge, including expired and pending
++// ones (no temporal filter). This is the history read (014 step 10.2): the
++// full temporal record, for auditing and for the graph CLI's status display.
++func QueryEdgesWithHistory(st *store.Store) ([]Edge, error) {
++	now := time.Now().Unix()
++	rows, err := st.DB.Query(`
++		SELECT e.id, e.kind, e.from_id, e.file_id, e.to_id, e.to_name,
++		       e.confidence, e.line, e.valid_from, e.valid_to
++		FROM edges e
++		ORDER BY e.id`)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	return scanEdges(rows, now)
++}
++
++// QueryEdgesForSymbol returns the edges touching sym.ID in the current graph
++// state (the temporal filter applies), used for per-symbol neighbor traversal.
++func QueryEdgesForSymbol(st *store.Store, symID int64) ([]Edge, error) {
++	now := time.Now().Unix()
++	rows, err := st.DB.Query(`
++		SELECT e.id, e.kind, e.from_id, e.file_id, e.to_id, e.to_name,
++		       e.confidence, e.line, e.valid_from, e.valid_to
++		FROM edges e
++		WHERE (e.from_id = ? OR e.to_id = ?)
++		  AND e.valid_from <= ? AND (e.valid_to IS NULL OR e.valid_to > ?)
++		ORDER BY e.id`, symID, symID, now, now)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	return scanEdges(rows, now)
++}
++
++func scanEdges(rows *sql.Rows, now int64) ([]Edge, error) {
++	var out []Edge
++	for rows.Next() {
++		var e Edge
++		var toID sql.NullInt64
++		var toName sql.NullString
++		var validTo sql.NullInt64
++		if err := rows.Scan(&e.ID, &e.Kind, &e.FromID, &e.FileID, &toID, &toName,
++			&e.Confidence, &e.Line, &e.ValidFrom, &validTo); err != nil {
++			return nil, err
++		}
++		e.ToID = toID
++		e.ToName = toName.String
++		if validTo.Valid {
++			e.ValidTo = validTo.Int64
++		}
++		e.Status = TemporalStatus(e.ValidFrom, e.ValidTo, now)
++		out = append(out, e)
++	}
++	return out, rows.Err()
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/graph_test.go b/skillgrid-cli/internal/mnemonic/codeindex/graph_test.go
+new file mode 100644
+index 0000000..30ae58e
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/graph_test.go
+@@ -0,0 +1,192 @@
++package codeindex
++
++import (
++	"database/sql"
++	"testing"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// seedTemporalStore opens a fresh store and plants one file + two symbols
++// (so the edges' from_id / file_id FKs resolve), returning the store plus the
++// ids. Each test seeds its own edges on top.
++func seedTemporalStore(t *testing.T) (*store.Store, int64, int64, int64) {
++	t.Helper()
++	st, dataDir, clean := openStoreFor(t)
++	t.Cleanup(clean)
++	_ = dataDir
++	db := st.DB
++
++	var fileID int64
++	if err := db.QueryRow(`
++		INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at)
++		VALUES ('temporal.go', 1, 100, 'h', '2026-01-01T00:00:00Z')
++		RETURNING id`).Scan(&fileID); err != nil {
++		t.Fatalf("insert file: %v", err)
++	}
++	var fromID, toID int64
++	if err := db.QueryRow(`
++		INSERT INTO symbols (file_id, name, kind, start_line, end_line, content_hash, uid)
++		VALUES (?, 'alpha', 'function', 1, 5, 'c1', 'uid-alpha')
++		RETURNING id`, fileID).Scan(&fromID); err != nil {
++		t.Fatalf("insert from symbol: %v", err)
++	}
++	if err := db.QueryRow(`
++		INSERT INTO symbols (file_id, name, kind, start_line, end_line, content_hash, uid)
++		VALUES (?, 'beta', 'function', 6, 10, 'c2', 'uid-beta')
++		RETURNING id`, fileID).Scan(&toID); err != nil {
++		t.Fatalf("insert to symbol: %v", err)
++	}
++	return st, fileID, fromID, toID
++}
++
++// seedEdge inserts one edge with explicit temporal bounds, returning its id.
++// validTo = 0 means NULL (active).
++func seedEdge(t *testing.T, st *store.Store, fileID, fromID, toID int64, kind string, validFrom, validTo int64) int64 {
++	t.Helper()
++	db := st.DB
++	var to sql.NullInt64
++	to.Int64 = toID
++	to.Valid = true
++	var vt sql.NullInt64
++	if validTo != 0 {
++		vt.Int64 = validTo
++		vt.Valid = true
++	}
++	var id int64
++	if err := db.QueryRow(`
++		INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from, valid_to)
++		VALUES (?, ?, ?, ?, ?, NULL, 'EXTRACTED', 1, ?, ?)
++		RETURNING id`, kind, fromID, fileID, to, "beta", validFrom, vt).Scan(&id); err != nil {
++		t.Fatalf("insert edge: %v", err)
++	}
++	return id
++}
++
++// TestEdgeValidFromSetOnCreate is 10.1 [RED] — a newly observed relationship
++// carries valid_from ~= now and valid_to NULL (active), and stays visible in
++// the normal (current-state) query path.
++func TestEdgeValidFromSetOnCreate(t *testing.T) {
++	st, fileID, fromID, toID := seedTemporalStore(t)
++	before := time.Now().Unix()
++	id := seedEdge(t, st, fileID, fromID, toID, "calls", before, 0)
++	after := time.Now().Unix()
++
++	var vf int64
++	var vt sql.NullInt64
++	if err := st.DB.QueryRow(`SELECT valid_from, valid_to FROM edges WHERE id = ?`, id).Scan(&vf, &vt); err != nil {
++		t.Fatalf("read edge: %v", err)
++	}
++	if vt.Valid {
++		t.Fatalf("valid_to must be NULL for a fresh edge, got %d", vt.Int64)
++	}
++	if vf < before || vf > after {
++		t.Fatalf("valid_from %d not within [%d, %d]", vf, before, after)
++	}
++
++	// Visible in the normal (current-state) query.
++	edges, err := QueryEdges(st)
++	if err != nil {
++		t.Fatalf("QueryEdges: %v", err)
++	}
++	found := false
++	for _, e := range edges {
++		if e.ID == id {
++			found = true
++			if e.Status != "active" {
++				t.Errorf("fresh edge status = %q, want active", e.Status)
++			}
++		}
++	}
++	if !found {
++		t.Errorf("fresh edge not visible in normal query")
++	}
++}
++
++// TestExpiredEdgesHiddenFromQueries is 10.2 [RED] — an expired edge
++// (valid_to in the past) is hidden from the current-state query but present in
++// the history query; an active edge (valid_to NULL) is visible in both.
++func TestExpiredEdgesHiddenFromQueries(t *testing.T) {
++	st, fileID, fromID, toID := seedTemporalStore(t)
++	now := time.Now().Unix()
++
++	// Expired: observed long ago, ended in the past.
++	expiredID := seedEdge(t, st, fileID, fromID, toID, "calls", now-10000, now-100)
++	// Active: observed long ago, never ended.
++	activeID := seedEdge(t, st, fileID, fromID, toID, "imports", now-10000, 0)
++	// Pending: not yet active (valid_from in the future).
++	pendingID := seedEdge(t, st, fileID, fromID, toID, "references", now+10000, 0)
++
++	// Normal (current-state) query: only the active edge.
++	cur, err := QueryEdges(st)
++	if err != nil {
++		t.Fatalf("QueryEdges: %v", err)
++	}
++	wantCur := map[int64]bool{activeID: true}
++	seen := map[int64]bool{}
++	for _, e := range cur {
++		seen[e.ID] = true
++	}
++	if !seen[activeID] {
++		t.Errorf("active edge missing from current-state query")
++	}
++	if seen[expiredID] {
++		t.Errorf("expired edge leaked into current-state query")
++	}
++	if seen[pendingID] {
++		t.Errorf("pending edge leaked into current-state query")
++	}
++	_ = wantCur
++
++	// History query: all three.
++	hist, err := QueryEdgesWithHistory(st)
++	if err != nil {
++		t.Fatalf("QueryEdgesWithHistory: %v", err)
++	}
++	histSeen := map[int64]bool{}
++	status := map[int64]string{}
++	for _, e := range hist {
++		histSeen[e.ID] = true
++		status[e.ID] = e.Status
++	}
++	for _, id := range []int64{expiredID, activeID, pendingID} {
++		if !histSeen[id] {
++			t.Errorf("edge %d missing from history query", id)
++		}
++	}
++	if status[expiredID] != "expired" {
++		t.Errorf("expired edge status = %q, want expired", status[expiredID])
++	}
++	if status[activeID] != "active" {
++		t.Errorf("active edge status = %q, want active", status[activeID])
++	}
++	if status[pendingID] != "pending" {
++		t.Errorf("pending edge status = %q, want pending", status[pendingID])
++	}
++}
++
++// TestBackfilledEdgesRemainActive verifies the migration backfill: existing
++// edges (valid_from = 0) pass the valid_from <= now filter and stay active, so
++// pre-migration rows are not hidden by the temporal filter.
++func TestBackfilledEdgesRemainActive(t *testing.T) {
++	st, fileID, fromID, toID := seedTemporalStore(t)
++	// valid_from = 0 (the backfill value for pre-migration rows).
++	id := seedEdge(t, st, fileID, fromID, toID, "calls", 0, 0)
++	edges, err := QueryEdges(st)
++	if err != nil {
++		t.Fatalf("QueryEdges: %v", err)
++	}
++	found := false
++	for _, e := range edges {
++		if e.ID == id {
++			found = true
++			if e.Status != "active" {
++				t.Errorf("backfilled edge status = %q, want active", e.Status)
++			}
++		}
++	}
++	if !found {
++		t.Errorf("backfilled (valid_from=0) edge hidden from current-state query")
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/indexer.go b/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
+index ed93a3b..fc4fb48 100644
+--- a/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
++++ b/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
+@@ -987,11 +987,12 @@ func (s *txRouteStore) StoreReferencesEdges(fileID int64, nodes []route.RouteNod
+ 			conf = route.ConfidenceExtracted
+ 		}
+ 		if _, err := s.tx.Exec(`
+-			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
+-			VALUES ('references', ?, ?, ?, ?, ?, ?, ?)
++			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
++			VALUES ('references', ?, ?, ?, ?, ?, ?, ?, ?)
+ 			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
+-			  confidence = excluded.confidence`,
+-			routeID, fileID, n.HandlerSymbol, n.HandlerName, n.PathPattern, conf, n.Line,
++			  confidence = excluded.confidence,
++			  valid_from = excluded.valid_from`,
++			routeID, fileID, n.HandlerSymbol, n.HandlerName, n.PathPattern, conf, n.Line, time.Now().Unix(),
+ 		); err != nil {
+ 			return stored, fmt.Errorf("upsert references edge %s: %w", n.HandlerName, err)
+ 		}
+@@ -1025,11 +1026,12 @@ func (s *txRouteStore) StoreNavigatesEdges(fileID int64, navs []route.Navigation
+ 			continue // no sending function → unresolved, not fabricated
+ 		}
+ 		if _, err := s.tx.Exec(`
+-			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
+-			VALUES ('navigates', ?, ?, NULL, ?, ?, ?, ?)
++			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
++			VALUES ('navigates', ?, ?, NULL, ?, ?, ?, ?, ?)
+ 			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
+-			  confidence = excluded.confidence`,
+-			src, fileID, n.ToName, n.ToName, n.Confidence, n.Line,
++			  confidence = excluded.confidence,
++			  valid_from = excluded.valid_from`,
++			src, fileID, n.ToName, n.ToName, n.Confidence, n.Line, time.Now().Unix(),
+ 		); err != nil {
+ 			return stored, fmt.Errorf("upsert navigates edge %s (from_id=%d file_id=%d): %w", n.ToName, src, fileID, err)
+ 		}
+@@ -1164,11 +1166,12 @@ func writeFileGraph(tx *sql.Tx, fileID int64, syms []extract.Symbol, edges []ext
+ 			}
+ 		}
+ 		if _, err := tx.Exec(`
+-			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
+-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
++			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
++			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ 			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
+-			  confidence = excluded.confidence`,
+-			e.Kind, fromID, fileID, toID, e.ToName, e.TargetPath, e.Confidence, e.Line,
++			  confidence = excluded.confidence,
++			  valid_from = excluded.valid_from`,
++			e.Kind, fromID, fileID, toID, e.ToName, e.TargetPath, e.Confidence, e.Line, time.Now().Unix(),
+ 		); err != nil {
+ 			return 0, fmt.Errorf("upsert edge %s: %w", e.Kind, err)
+ 		}
+diff --git a/skillgrid-cli/internal/mnemonic/store/migrations/023_temporal_edges.sql b/skillgrid-cli/internal/mnemonic/store/migrations/023_temporal_edges.sql
+new file mode 100644
+index 0000000..e828c67
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/store/migrations/023_temporal_edges.sql
+@@ -0,0 +1,37 @@
++-- 023: temporal bounds on graph edges (change 014, step 10).
++--
++-- Adds valid_from / valid_to to the `edges` table so a relationship carries the
++-- time window in which it was true. Additive only:
++--
++--   valid_from INTEGER NOT NULL DEFAULT 0   — UNIX seconds when the relationship
++--                                             was first observed. 0 is the
++--                                             backfill for edges created before
++--                                             this migration ("unknown/always
++--                                             active": 0 <= now, so the
++--                                             current-state filter keeps them).
++--   valid_to   INTEGER                      — NULL = the edge is still active;
++--                                             a past UNIX second = the edge
++--                                             expired at that moment and is
++--                                             hidden from current-state queries
++--                                             but preserved for history.
++--
++-- SQLite ADD COLUMN cannot take an expression, so valid_from's default is the
++-- constant 0; new edge INSERTs set valid_from = time.Now().Unix() explicitly
++-- (codeindex), so the 0 default only applies to rows created before this
++-- migration. valid_to has no default (NULL) — a fresh edge is active.
++--
++-- Current-state edge queries filter on
++--     valid_from <= now AND (valid_to IS NULL OR valid_to > now)
++-- so expired (valid_to <= now) and not-yet-active (valid_from > now) edges are
++-- hidden from graph traversal, while the history read (QueryEdgesWithHistory)
++-- applies no filter.
++
++ALTER TABLE edges ADD COLUMN valid_from INTEGER NOT NULL DEFAULT 0;
++ALTER TABLE edges ADD COLUMN valid_to INTEGER;
++
++-- Partial index on the active window: the current-state filter scans this
++-- instead of the full edges table. valid_to IS NULL rows (the active
++-- majority) are included; expired rows (valid_to set) are pruned as they age.
++CREATE INDEX IF NOT EXISTS idx_edges_valid_to
++    ON edges (valid_from, valid_to)
++    WHERE valid_to IS NULL;

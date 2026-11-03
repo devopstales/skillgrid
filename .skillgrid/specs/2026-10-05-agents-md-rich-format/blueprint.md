@@ -1,3 +1,10 @@
+---
+type: Blueprint
+title: "2026-10-05-agents-md-rich-format — blueprint"
+status: draft
+
+---
+
 # Rich AGENTS.md Preamble (kubedash_4 format) — Implementation Blueprint (steps, files, verification)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use skillgrid:subagent-execution (recommended) or skillgrid:simple-execution to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

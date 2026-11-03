@@ -1,0 +1,36 @@
+### TICKET-05 — Update existing install tests + acceptance gates + full verify
+
+- **Tracker ID:** TASK-046
+- **Scope:** Update the pre-existing `TestSetupProviderLocal` and `TestSetupProviderEnsureSkipsPullWhenPresent` to the six-model catalog (add `ollamaVersion` stub); run all G1–G6 acceptance gates; run `go build ./...` + the full install + embedder suite green.
+- **Acceptance:** `go build ./...` ok; `go test ./skillgrid-cli/internal/install/... ./skillgrid-cli/internal/mnemonic/embedder/... -count=1` PASS; every G1–G6 CHECK in `acceptance.feature` returns its EXPECT.
+- **SATISFIES:** happy path glm vision tools excluded; (regression) G10 happy path install yes ensures local ollama and wires config; (regression) ensure skips pull when models already present
+- **Files:** `skillgrid-cli/internal/install/provider_test.go`, `.skillgrid/specs/2026-10-03-local-ollama-models/acceptance.feature`
+- **Size:** ~150 (S)
+- **Blocks:** none
+- **Blocked by:** TICKET-04
+
+## Dependency Graph
+
+```mermaid
+graph LR
+    T01[TICKET-01 version floor] --> T02[TICKET-02 catalog+pull]
+    T03[TICKET-03 runtime default] --> T04[TICKET-04 config merge]
+    T02 --> T04
+    T04 --> T05[TICKET-05 tests+gates+verify]
+```
+
+## Execution Order
+
+- **Wave 1 (parallel):** TICKET-01, TICKET-03 (independent seams — install version parse vs. embedder constant)
+- **Wave 2:** TICKET-02 (after TICKET-01)
+- **Wave 3:** TICKET-04 (after TICKET-02 + TICKET-03)
+- **Wave 4:** TICKET-05 (after TICKET-04)
+
+> **Acceptance-first (BDD is always on):** each ticket's `SATISFIES` scenario is written/confirmed RED before the implementation that makes it green. The scenarios already exist in `acceptance.feature`; the executor confirms RED by running the gate CHECK against the un-implemented code, then GREEN after.
+
+## Slicing Notes
+
+- TICKET-01 and TICKET-03 are genuinely independent (different packages/seams) and run in Wave 1 in parallel worktrees.
+- The one-way-door (TICKET-03, `DefaultOllamaModel` forward) carries a `Reversibility: one-way` marker; the executor stops for a human checkpoint before that ticket (it is the user-confirmed requirement-2 lock).
+- No threat-matrix row is Applicable beyond the existing Ollama network trust boundary (already handled by the shipped provider step); no migration, no new dependency, no new trust boundary → not blocked from the standard pipeline, but not fast-track (new capability + ~500 lines).
+- Cite-don't-restate: ADR-0023 (stdlib-only LLM client, no new SDK) and ADR-0016 (fail-open floors) are in-force per `ASSUMPTIONS.md`; the catalog change inherits both.

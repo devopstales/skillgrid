@@ -13,3 +13,4 @@ mnemonic:
     - "**/.git/**"
     - "**/dist/**"
     - "**/.skillgrid/**"
+    - "**/.worktrees/**"

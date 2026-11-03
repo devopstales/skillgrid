@@ -19,9 +19,9 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Announce at start:** "I'm using the skillgrid:writing-blueprints skill to create the implementation plan."
 
-**Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for blueprint location. If the file doesn't exist, use the default `.skillgrid/specs/`. Use the terms vocabulary from `conventions.artifacts` (default `.skillgrid/artifacts/01-business-terms.md` + `02-technical-terms.md`) for names and concepts. Constrain the blueprint by the in-force decisions: read the change's ADR Review Manifest at `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md` (produced by brainstorming; in-force set from the `## LOCKED` ADR index in `.skillgrid/ASSUMPTIONS.md`) and respect every in-force ADR it names — a blueprint that contradicts an in-force ADR must either follow it or record a new superseding ADR file.
+**Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for blueprint location. If the file doesn't exist, use the default `.skillgrid/specs/`. Use the terms vocabulary from `conventions.artifacts` (default `.skillgrid/knowledge/glossary/01-business-terms.md` + `02-technical-terms.md`) for names and concepts. Constrain the blueprint by the in-force decisions: read the change's ADR Review Manifest at `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md` (produced by brainstorming; in-force set from the `## LOCKED` ADR index in `.skillgrid/knowledge/ASSUMPTIONS.md`) and respect every in-force ADR it names — a blueprint that contradicts an in-force ADR must either follow it or record a new superseding ADR file.
 
-**The blueprint is pure-technical.** It is the *how*: architecture, file layout, tasks, tests, constraints. The product *why* — user value, personas, success metrics — lives in the spec (`briefing.md`) and in `.skillgrid/artifacts/00-prd.md`; the blueprint **cites** those (a `Spec:` line, a `per .skillgrid/artifacts/00-prd.md` or `per .skillgrid/artifacts/04-adr-NNNN-slug.md` constraint) and does not restate them (per `_shared/craft/cite-dont-restate.md`). Operational rules are cited as `per AGENTS.md § Rules`.
+**The blueprint is pure-technical.** It is the *how*: architecture, file layout, tasks, tests, constraints. The product *why* — user value, personas, success metrics — lives in the spec (`briefing.md`) and in `.skillgrid/knowledge/reference/00-prd.md`; the blueprint **cites** those (a `Spec:` line, a `per .skillgrid/knowledge/reference/00-prd.md` or `per .skillgrid/knowledge/decisions/04-adr-NNNN-slug.md` constraint) and does not restate them (per `_shared/craft/cite-dont-restate.md`). Operational rules are cited as `per AGENTS.md § Rules`.
 
 **Read the topic's findings before writing.** If `.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md` exists, read it in full before drafting the blueprint. It is the single consolidated evidence file for the topic — research findings (cited), prototype verdicts + liftable modules, and the sketch's chosen winner + constraints all live there as typed sections. Every design decision in the blueprint that rests on a research fact, a feasibility result, or a chosen layout must cite it (the header's **Findings** line carries the path). If the file is absent, the change ran no research/prototype/sketch — proceed and omit that header line.
 
@@ -29,11 +29,39 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Save plans to:** `.skillgrid/specs/YYYY-MM-DD-<feature-name>/blueprint.md`
 
-**Blueprint validation (mandatory, two-stage — after writing, before proceeding):**
-1. **Critic subagent:** Dispatch a dedicated critic subagent with the blueprint content. The critic reviews for: architectural gaps, missing edge cases, untested assumptions, scope creep, and unclear interfaces. The critic returns a structured critique (issues + severity).
-2. **User review:** Present the blueprint + critic findings to the user. For each issue, present options with benefits and weaknesses. Use the agent's answer-select tool for the user to choose a resolution path. The user must approve the final blueprint before `acceptance.feature` is written.
+**Blueprint validation (after writing, before proceeding) — the critic stage is
+tier-gated; the user-decide loop is always mandatory:**
 
-Never proceed to the next artifact without the blueprint being validated by both stages.
+The two stages run in a **decide-then-fix loop, not a one-shot gate**: the
+critic's findings (or the user's own read of the blueprint) are routed back to
+the user *while the blueprint is still PROPOSED and cheap to change*. For each
+finding the user decides the resolution path, the blueprint is updated to
+reflect it, and only the *final* updated blueprint is approved. A critique
+surfaced only after the blueprint is committed — with no user decision feeding
+back into it — has missed its purpose.
+
+1. **Critic subagent (conditional).** Dispatch a dedicated critic subagent with
+   the blueprint content. The critic reviews for: architectural gaps, missing
+   edge cases, untested assumptions, scope creep, and unclear interfaces. It
+   returns a structured critique (issues + severity).
+   - **Mandatory** when `Tier: T2` or `T3`, or the change is not a fast-track
+     class, or a one-way-door decision is present.
+   - **Optional / skippable** for a `T0` or `T1` change, or a fast-track
+     `trivial` / `small` class (per `_shared/planning/fast-track.md`): the user
+     (or the controller) may skip it, recording `Critic: skipped (T0/T1 or
+     fast-track)` in the blueprint header. The Self-Review checklist still runs
+     — it is in-controller and always on.
+2. **User review (always mandatory).** Present the blueprint + critic findings
+   (or, when the critic was skipped, the blueprint + the Self-Review findings)
+   to the user. For each issue, present options with benefits and weaknesses.
+   Use the agent's answer-select tool for the user to choose a resolution path.
+   **Update the blueprint to reflect each decision, then re-present the final
+   blueprint.** The user must approve the final blueprint before
+   `acceptance.feature` is written.
+
+Never proceed to the next artifact without the user approving the final
+blueprint. The critic stage itself may be skipped only under the T0/T1 /
+fast-track condition above (and must be recorded as skipped).
 
 **Role (do not rename):** `blueprint.md` is the *how* (implementation plan —
 steps, files, code, verification); the companion `briefing.md` is the *what*
@@ -337,7 +365,7 @@ After the plan review gate passes, check if slicing is needed:
 
 **If the blueprint has 1-2 tasks** — skip slicing, execute directly.
 
-**Update `state.yaml`:** set `pipeline.current_change: <topic>` and `pipeline.current_phase: blueprint`.
+**Update `state.yaml`:** set `changes.<topic>.phase: blueprint` (the entry was created by brainstorming; if it's missing, add it with `status: in_progress`).
 
 Then offer execution choice:
 
@@ -402,4 +430,6 @@ Per `_shared/craft/measurement.md`.
 - [ ] A placeholder scan (the No Placeholders patterns) returns zero hits across all tasks.
 - [ ] Every one-way-door decision is listed in the Must-Haves section and tagged `> ⚠ one-way:` on the task that implements it.
 - [ ] Self-Review and the Plan Review gate both ran and produced a verdict (READY FOR EXECUTION, or findings fixed inline).
+- [ ] The critic stage ran (T2/T3, non-fast-track, or one-way-door present) **or** is recorded as `Critic: skipped (T0/T1 or fast-track)` in the header — never silently absent.
+- [ ] The user-decide-then-fix loop ran: critic/user findings were routed to the user *while the blueprint was still PROPOSED*, each resolved, the blueprint updated to reflect the decisions, and the final blueprint approved by the user.
 - [ ] The Execution Handoff is present — slicing decision made and an execution approach (Subagent-Driven or Inline) is offered, so the plan is ready to hand off.

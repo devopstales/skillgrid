@@ -96,6 +96,11 @@ type extractConfig struct {
 	maxFileSize int
 	pool        *Pool
 	grammar     grammarLoaderFn
+	// lsp is the LSP tier config (TICKET-08b — nil = the tier is off, the
+	// default). Consumed by the driver-level pass (RunLSPPass), not by the
+	// per-file ExtractFile (the pass runs over the committed graph, not the
+	// per-file extract).
+	lsp *LSPConfig
 }
 
 // defaultMaxFileSize is the oversized threshold (500 KiB — the spec 001 §2

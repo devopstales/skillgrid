@@ -6,7 +6,7 @@ assignee: []
 created_date: '2026-10-02 14:47'
 updated_date: '2026-10-06 08:35'
 labels: []
-milestone: m-3
+milestone: 2026-10-02-mnemonic-memory-checkpoint
 dependencies:
   - TASK-038.04
 references:

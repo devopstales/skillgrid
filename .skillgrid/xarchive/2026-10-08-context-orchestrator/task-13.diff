@@ -1,0 +1,1240 @@
+diff --git a/mnemonic/cmd/mnemonic/ctx.go b/mnemonic/cmd/mnemonic/ctx.go
+index 613881e9..eb3e6bd7 100644
+--- a/mnemonic/cmd/mnemonic/ctx.go
++++ b/mnemonic/cmd/mnemonic/ctx.go
+@@ -43,6 +43,8 @@ func runCtx(args []string) {
+ 		runCtxProxy(rest)
+ 	case "wrap":
+ 		runCtxWrap(rest)
++	case "learn":
++		runCtxLearn(rest)
+ 	case "help", "-h", "--help":
+ 		ctxUsage()
+ 	default:
+@@ -64,6 +66,10 @@ func ctxUsage() {
+ 	fmt.Fprintln(w, "  index <path>     Index a file (or a directory of files) into the context-harness FTS index; re-indexing is idempotent (-project)")
+ 	fmt.Fprintln(w, "  proxy            Start the loopback LLM proxy: forwards Anthropic/OpenAI requests with a mode-selected context transform, X-CTX-Savings headers, provider retry, and per-turn telemetry (-bind, -port, -mode, -dir)")
+ 	fmt.Fprintln(w, "  wrap <agent>     Tier-2 launcher: start the proxy, inject the agent's base-URL env to point at it, back up the prior config (first wrap only), and launch the agent subprocess (-bind, -port, -bin, -dir)")
++	fmt.Fprintln(w, "  learn <verb>     Human-gate for traffic memories (T13):")
++	fmt.Fprintln(w, "                     apply <id>   Promote an existing candidate to applied (it enters the compression context)")
++	fmt.Fprintln(w, "                     revoke <id>  Demote an applied memory to revoked (it leaves the compression context)")
++	fmt.Fprintln(w, "                     (-dir resolves the store; a non-existent id is a clear error — the human-gate)")
+ }
+ 
+ // ctxSearchFlags parses search flags: -limit caps the fused results.
+diff --git a/mnemonic/cmd/mnemonic/ctx_learn.go b/mnemonic/cmd/mnemonic/ctx_learn.go
+new file mode 100644
+index 00000000..c83e904d
+--- /dev/null
++++ b/mnemonic/cmd/mnemonic/ctx_learn.go
+@@ -0,0 +1,129 @@
++package main
++
++import (
++	"flag"
++	"fmt"
++	"os"
++
++	ctxstore "github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
++	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/traffic"
++	"github.com/devopstales/skillgrid/mnemonic/internal/loop"
++)
++
++// runCtxLearn is the `ctx learn` subcommand group: the human-gate for traffic
++// memories (T13, plan §18 M23). The learner (T12) only emits candidates; a
++// human promotes one with `ctx learn apply <id>` (→ status "applied", so it
++// enters the compression context) or demotes it with `ctx learn revoke <id>`
++// (→ status "revoked", so it leaves). Only existing ids can be promoted — a
++// non-existent id is a clear error (plan §18.7 "No automatic promotion").
++//
++// Store resolution mirrors runCtxProxy (ADR-0033: one shared handle via
++// ctxstore.New(h.Store())). A nil/missing store is a fail-open warning with a
++// non-zero exit (the id cannot be found without a store), and a not-found id is
++// a clear human-gate error (the ONE exception to the proxy's never-500 rule —
++// it is a user action, not a request path).
++func runCtxLearn(args []string) {
++	if len(args) == 0 {
++		ctxLearnUsage()
++		os.Exit(2)
++	}
++	verb, rest := args[0], args[1:]
++	switch verb {
++	case "apply", "revoke":
++		runCtxLearnAction(verb, rest)
++	case "help", "-h", "--help":
++		ctxLearnUsage()
++	default:
++		fmt.Fprintf(os.Stderr, "error: unknown learn verb %q (want apply or revoke)\n", verb)
++		ctxLearnUsage()
++		os.Exit(2)
++	}
++}
++
++func ctxLearnUsage() {
++	w := os.Stderr
++	fmt.Fprintln(w, "usage: mnemonic ctx learn <apply|revoke> <memory-id> [-dir <repo>]")
++	fmt.Fprintln(w)
++	fmt.Fprintln(w, "  apply <id>   Promote an existing traffic-memory candidate to applied (active).")
++	fmt.Fprintln(w, "  revoke <id>  Demote an applied traffic memory to revoked (reverted).")
++	fmt.Fprintln(w)
++	fmt.Fprintln(w, "Only existing ids can be promoted; a non-existent id is a clear error.")
++	fmt.Fprintln(w, "The -dir flag resolves the shared store (ADR-0033).")
++}
++
++// runCtxLearnAction resolves the shared store, runs the named gate action, and
++// prints the outcome. On success it prints the id + the transition and exits 0;
++// on not-found (or no store) it prints a clear error to stderr and exits 1.
++func runCtxLearnAction(verb string, args []string) {
++	fs := flag.NewFlagSet("ctx learn "+verb, flag.ContinueOnError)
++	fs.SetOutput(os.Stderr)
++	dir := fs.String("dir", ".", "repository directory (for store resolution)")
++	if err := fs.Parse(args); err != nil {
++		os.Exit(2)
++	}
++	pos := fs.Args()
++	if len(pos) == 0 {
++		fmt.Fprintf(os.Stderr, "error: ctx learn %s requires a memory id\n", verb)
++		ctxLearnUsage()
++		os.Exit(2)
++	}
++	id := pos[0]
++
++	cs, cleanup := openCtxStoreForLearn(*dir)
++	if cs == nil {
++		// Fail-open (ADR-0016): without a store the id cannot be found. The
++		// proxy's request path degrades to no context; the CLI surfaces the
++		// missing store as a clear, non-zero exit.
++		fmt.Fprintf(os.Stderr, "warning: no store available; traffic memory %q cannot be %s'd\n", id, verb)
++		os.Exit(1)
++	}
++	defer cleanup()
++
++	g := traffic.NewGate(cs)
++	if verb == "apply" {
++		if err := g.Apply(id); err != nil {
++			fmt.Fprintln(os.Stderr, "error:", err)
++			os.Exit(1)
++		}
++		fmt.Fprintf(os.Stdout, "%s applied\n", id)
++		return
++	}
++	// revoke
++	if err := g.Revoke(id); err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	fmt.Fprintf(os.Stdout, "%s revoked\n", id)
++}
++
++// openCtxStoreForLearn resolves the shared ctx store the way runCtxProxy does
++// (newMnemonicService + OpenForDirectory / OpenAt fallback + ctxstore.New). It
++// returns (nil, no-op) — and prints a warning — when no store can be opened, so
++// the caller can fail open (ADR-0016). The returned cleanup closes the shared
++// handle (safe to call even when cs is nil).
++func openCtxStoreForLearn(dir string) (*ctxstore.Store, func()) {
++	dataDir := envOr("SKILLGRID_MNEMONIC_DATA_DIR", "")
++	svc, err := newMnemonicService(dataDir)
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "warning: opening mnemonic service: %v\n", err)
++		return nil, func() {}
++	}
++	h, cleanup, err := svc.OpenForDirectory(dir)
++	if err != nil {
++		var pid string
++		if id := os.Getenv("MNEMONIC_PROJECT"); id != "" {
++			pid = id
++		}
++		if pid == "" {
++			pid = loop.ReadActiveProject()
++		}
++		if pid != "" {
++			h, cleanup, err = svc.OpenAt(pid, dir)
++		}
++	}
++	if err != nil || h == nil {
++		fmt.Fprintf(os.Stderr, "warning: no store available for ctx learn: %v\n", err)
++		return nil, func() {}
++	}
++	return ctxstore.New(h.Store()), cleanup
++}
+diff --git a/mnemonic/internal/ctx/proxy/compress.go b/mnemonic/internal/ctx/proxy/compress.go
+index faa2c624..323dd3a4 100644
+--- a/mnemonic/internal/ctx/proxy/compress.go
++++ b/mnemonic/internal/ctx/proxy/compress.go
+@@ -46,6 +46,11 @@ func (p *Proxy) serveCompress(w http.ResponseWriter, r *http.Request) {
+ 	}
+ 	_ = r.Body.Close()
+ 
++	// T13 context-injection seam: prepend applied (active) traffic memories so
++	// the compression context includes them. Fail-open (ADR-0016): no gate, no
++	// active memories, or a fault leave the body unchanged.
++	body = prependMemoryContext(body, p.memoryContext(r))
++
+ 	// Run the same transform the forward path uses. A nil/empty result (no
+ 	// messages, or passthrough) or a transform fault both fail open to the
+ 	// original body (ADR-0016) — the caller still completes.
+diff --git a/mnemonic/internal/ctx/proxy/memcontext.go b/mnemonic/internal/ctx/proxy/memcontext.go
+new file mode 100644
+index 00000000..53238abe
+--- /dev/null
++++ b/mnemonic/internal/ctx/proxy/memcontext.go
+@@ -0,0 +1,77 @@
++package proxy
++
++import (
++	"encoding/json"
++	"strings"
++
++	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/traffic"
++)
++
++// activeMemoryContext fetches the applied (active) traffic memories for a
++// session and renders them as a single context block suitable for prepending
++// to a request's message list (the compression context). This is the seam that
++// proves "apply marks a candidate promoted and it appears in subsequent
++// compression context": a candidate (status="candidate") is NOT returned; after
++// Gate.Apply it IS; after Gate.Revoke it is NOT again.
++//
++// Fail-open (ADR-0016): a nil gate, a nil store behind the gate, or a
++// no-active-memories result all yield ("", nil) — the context block is empty
++// and the request body is unchanged. A store error also degrades to ("", nil)
++// so a ctx_* fault never 500s the proxy (the one human-gate exception lives in
++// the CLI, not this request path).
++func activeMemoryContext(g *traffic.Gate, sessionID string) (string, error) {
++	if g == nil {
++		return "", nil
++	}
++	active, err := g.ActiveMemories(sessionID)
++	if err != nil || len(active) == 0 {
++		return "", nil
++	}
++	var b strings.Builder
++	b.WriteString("[traffic context]\n")
++	for _, m := range active {
++		b.WriteString("- ")
++		b.WriteString(m.MemoryText)
++		b.WriteString("\n")
++	}
++	return strings.TrimRight(b.String(), "\n"), nil
++}
++
++// prependMemoryContext inserts the memory context block as a leading system
++// message on the request body's messages array, BEFORE the compression
++// transform runs. It operates on the full upstream JSON object (preserving all
++// non-message fields) so the memory text becomes part of the context the
++// transform sees. A missing/empty messages array or a fault yields the body
++// unchanged (fail-open, ADR-0016).
++func prependMemoryContext(body []byte, ctx string) []byte {
++	if ctx == "" {
++		return body
++	}
++	var doc map[string]json.RawMessage
++	if err := json.Unmarshal(body, &doc); err != nil {
++		return body
++	}
++	rawMsgs, ok := doc["messages"]
++	if !ok || len(rawMsgs) == 0 {
++		return body
++	}
++	var msgs []message
++	if err := json.Unmarshal(rawMsgs, &msgs); err != nil {
++		return body
++	}
++	// Insert the context as a leading system message so it precedes the
++	// conversation (and the frozen head) the transform operates on.
++	out := make([]message, 0, len(msgs)+1)
++	out = append(out, message{Role: "system", Content: ctx})
++	out = append(out, msgs...)
++	newRaw, err := json.Marshal(out)
++	if err != nil {
++		return body
++	}
++	doc["messages"] = newRaw
++	encoded, err := json.Marshal(doc)
++	if err != nil {
++		return body
++	}
++	return encoded
++}
+diff --git a/mnemonic/internal/ctx/proxy/memcontext_test.go b/mnemonic/internal/ctx/proxy/memcontext_test.go
+new file mode 100644
+index 00000000..6a13d908
+--- /dev/null
++++ b/mnemonic/internal/ctx/proxy/memcontext_test.go
+@@ -0,0 +1,223 @@
++package proxy
++
++import (
++	"encoding/json"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++
++	ctxstore "github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
++	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/traffic"
++	"github.com/devopstales/skillgrid/mnemonic/internal/store"
++)
++
++// TestProxyMemoryContextInjection is the KEY compression-context proof: a
++// candidate traffic memory is NOT injected into the forwarded context; after
++// Gate.Apply it IS (as a leading system message); after Gate.Revoke it is NOT
++// again. The upstream records the exact body it receives so the assertions are
++// on the wire bytes, not the in-process transform.
++func TestProxyMemoryContextInjection(t *testing.T) {
++	const (
++		memID   = "mem-ctx"
++		session = "sess-ctx"
++		memText = "prefer compact diffs in output"
++	)
++	var seen []string
++	up := newUpstreamServer(t, http.StatusOK, `{"type":"message"}`, &seen)
++	defer up.Close()
++
++	cs := newSharedStore(t, "p-ctx-mem")
++	g := traffic.NewGate(cs)
++	cs.PutTrafficMemory(&ctxstore.TrafficMemory{
++		MemoryID:   memID,
++		SessionID:  session,
++		Category:   "preference",
++		MemoryText: memText,
++		Confidence: 0.9,
++		CreatedAt:  1,
++		Status:     "candidate",
++	})
++
++	cfg := testConfig("passthrough", 0, 0)
++	p := newTestProxy(t, cfg, cs, ModePassthrough, up)
++	p.SetGate(g)
++
++	clientBody := `{"messages":[{"role":"user","content":"the quick brown"}]}`
++	doForward := func() []byte {
++		req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(clientBody))
++		req.Header.Set("Content-Type", "application/json")
++		req.Header.Set(SessionHeader, session)
++		w := httptest.NewRecorder()
++		p.ServeHTTP(w, req)
++		if w.Code != http.StatusOK {
++			t.Fatalf("forward status = %d, want 200", w.Code)
++		}
++		if len(seen) == 0 {
++			t.Fatal("upstream saw no request")
++		}
++		return []byte(seen[len(seen)-1])
++	}
++	leadSystem := func(body []byte) string {
++		var doc struct {
++			Messages []struct {
++				Role    string `json:"role"`
++				Content string `json:"content"`
++			} `json:"messages"`
++		}
++		if err := json.Unmarshal(body, &doc); err != nil {
++			t.Fatalf("forwarded body is not the expected JSON: %v", err)
++		}
++		if len(doc.Messages) == 0 || doc.Messages[0].Role != "system" {
++			return ""
++		}
++		return doc.Messages[0].Content
++	}
++
++	// 1. Candidate (status=candidate): the memory is NOT in the forwarded context.
++	if got := leadSystem(doForward()); strings.Contains(got, memText) {
++		t.Fatalf("candidate memory leaked into compression context: %q", got)
++	}
++
++	// 2. After Apply: the memory IS injected as the leading system message.
++	if err := g.Apply(memID); err != nil {
++		t.Fatalf("Apply: %v", err)
++	}
++	if got := leadSystem(doForward()); !strings.Contains(got, memText) {
++		t.Fatalf("applied memory not in compression context: %q", got)
++	}
++
++	// 3. After Revoke: the memory is NOT in the forwarded context again.
++	if err := g.Revoke(memID); err != nil {
++		t.Fatalf("Revoke: %v", err)
++	}
++	if got := leadSystem(doForward()); strings.Contains(got, memText) {
++		t.Fatalf("revoked memory still in compression context: %q", got)
++	}
++}
++
++// TestProxyMemoryContextFailOpen proves ADR-0016 on the request path: a nil
++// gate (no gate installed) leaves the forwarded body byte-for-byte identical
++// to the client's original — no context injection, no 500.
++func TestProxyMemoryContextFailOpen(t *testing.T) {
++	clientBody := []byte(`{"messages":[{"role":"user","content":"the quick brown"}]}`)
++	var seen []string
++	up := newUpstreamServer(t, http.StatusOK, `{"type":"message"}`, &seen)
++	defer up.Close()
++
++	cfg := testConfig("passthrough", 0, 0)
++	p := newTestProxy(t, cfg, nil, ModePassthrough, up)
++	// No SetGate: the proxy has no gate.
++
++	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(clientBody)))
++	req.Header.Set("Content-Type", "application/json")
++	req.Header.Set(SessionHeader, "sess-none")
++	w := httptest.NewRecorder()
++	p.ServeHTTP(w, req)
++
++	if w.Code != http.StatusOK {
++		t.Fatalf("status = %d, want 200", w.Code)
++	}
++	if len(seen) != 1 || seen[0] != string(clientBody) {
++		t.Fatalf("forwarded body = %q, want the verbatim client body (no gate = unchanged)", seen)
++	}
++}
++
++// TestProxyMemoryContextStoreFaultFailOpen proves ADR-0016 for a store that
++// cannot read the memories (closed handle): the gate degrades to no context,
++// the body is unchanged, and the request still 200s (never 500s).
++func TestProxyMemoryContextStoreFaultFailOpen(t *testing.T) {
++	clientBody := []byte(`{"messages":[{"role":"user","content":"the quick brown"}]}`)
++	var seen []string
++	up := newUpstreamServer(t, http.StatusOK, `{"type":"message"}`, &seen)
++	defer up.Close()
++
++	shared := newRawSharedStore(t, "p-ctx-fault")
++	cs := ctxstore.New(shared)
++	g := traffic.NewGate(cs)
++	_ = cs.PutTrafficMemory(&ctxstore.TrafficMemory{
++		MemoryID: "mem-fault", SessionID: "sess-fault", Category: "preference",
++		MemoryText: "prefer compact diffs", Confidence: 0.9, CreatedAt: 1, Status: "applied",
++	})
++	// Close the underlying store so the gate's read now faults (SQLITE_BUSY on a
++	// closed handle): a genuine store fault, not merely an empty result.
++	shared.Close()
++
++	cfg := testConfig("passthrough", 0, 0)
++	p := newTestProxy(t, cfg, cs, ModePassthrough, up)
++	p.SetGate(g)
++
++	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(clientBody)))
++	req.Header.Set("Content-Type", "application/json")
++	req.Header.Set(SessionHeader, "sess-fault")
++	w := httptest.NewRecorder()
++	p.ServeHTTP(w, req)
++
++	if w.Code != http.StatusOK {
++		t.Fatalf("status = %d, want 200 (store fault must not 500)", w.Code)
++	}
++	if len(seen) != 1 || seen[0] != string(clientBody) {
++		t.Fatalf("forwarded body = %q, want the verbatim client body (store fault = no context)", seen)
++	}
++}
++
++// TestActiveMemoryContextNilGate proves the helper's fail-open contract
++// directly: a nil gate yields an empty context block and no error, and
++// prependMemoryContext leaves the body unchanged for an empty block.
++func TestActiveMemoryContextNilGate(t *testing.T) {
++	ctx, err := activeMemoryContext(nil, "sess")
++	if err != nil {
++		t.Fatalf("activeMemoryContext(nil) = %v, want nil (fail-open)", err)
++	}
++	if ctx != "" {
++		t.Fatalf("activeMemoryContext(nil) = %q, want empty (fail-open)", ctx)
++	}
++
++	body := []byte(`{"messages":[{"role":"user","content":"hi"}]}`)
++	if got := prependMemoryContext(body, ""); !strings.Contains(string(got), `"content":"hi"`) {
++		t.Fatalf("prependMemoryContext(empty) changed the body: %s", got)
++	}
++}
++
++// TestPrependMemoryContextInsertsLeadingSystem checks the helper in isolation:
++// a non-empty context becomes the leading system message ahead of the existing
++// conversation, and non-message fields survive the re-encode.
++func TestPrependMemoryContextInsertsLeadingSystem(t *testing.T) {
++	body := []byte(`{"model":"test-model","messages":[{"role":"user","content":"hi"}]}`)
++	got := prependMemoryContext(body, "[traffic context]\n- remember X")
++
++	var doc struct {
++		Model    string `json:"model"`
++		Messages []struct {
++			Role    string `json:"role"`
++			Content string `json:"content"`
++		} `json:"messages"`
++	}
++	if err := json.Unmarshal(got, &doc); err != nil {
++		t.Fatalf("re-encoded body is not JSON: %v", err)
++	}
++	if doc.Model != "test-model" {
++		t.Errorf("non-message field lost: model = %q, want test-model", doc.Model)
++	}
++	if len(doc.Messages) != 2 {
++		t.Fatalf("messages = %d, want 2 (injected system + original)", len(doc.Messages))
++	}
++	if doc.Messages[0].Role != "system" || !strings.Contains(doc.Messages[0].Content, "remember X") {
++		t.Errorf("leading message = %+v, want a system message carrying the context", doc.Messages[0])
++	}
++	if doc.Messages[1].Role != "user" || doc.Messages[1].Content != "hi" {
++		t.Errorf("trailing message = %+v, want the original user message preserved", doc.Messages[1])
++	}
++}
++
++// newRawSharedStore opens a real shared project store (migrations applied) and
++// returns it WITHOUT a t.Cleanup close: the fault test closes the handle itself
++// to simulate a store fault, so a cleanup close would double-close.
++func newRawSharedStore(t *testing.T, project string) *store.Store {
++	t.Helper()
++	s, err := store.Open(t.TempDir(), project)
++	if err != nil {
++		t.Fatalf("open shared store: %v", err)
++	}
++	return s
++}
+diff --git a/mnemonic/internal/ctx/proxy/proxy.go b/mnemonic/internal/ctx/proxy/proxy.go
+index 26643640..a14911f6 100644
+--- a/mnemonic/internal/ctx/proxy/proxy.go
++++ b/mnemonic/internal/ctx/proxy/proxy.go
+@@ -17,6 +17,7 @@ import (
+ 	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
+ 	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/observability"
+ 	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
++	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/traffic"
+ )
+ 
+ // Proxy is the loopback LLM proxy. It owns the resolved config, a fail-open
+@@ -31,13 +32,36 @@ type Proxy struct {
+ 	sleep    Sleep
+ 	upstream baseUpstream
+ 
+-	// mu guards mode and lastChangeID.
++	// gate is the traffic human-gate (T13). Nil (the default) means no active
++	// traffic memories are injected into the compression context — the
++	// context-injection seam is fail-open and a no-op when unset (ADR-0016).
++	// Guarded by mu (read on the forward path under RLock, written by SetGate
++	// under Lock), never held across I/O.
++	gate *traffic.Gate
++
++	// mu guards mode, lastChangeID, and gate.
+ 	mu               sync.RWMutex
+ 	mode             Mode
+ 	lastChangeID     string
+ 	SetModeEventSink func(old, new Mode, reason string)
+ }
+ 
++// SetGate installs (or clears with nil) the traffic human-gate used to inject
++// applied traffic memories into the compression context. It is safe to call
++// concurrently with forwarding (guarded by mu).
++func (p *Proxy) SetGate(g *traffic.Gate) {
++	p.mu.Lock()
++	p.gate = g
++	p.mu.Unlock()
++}
++
++// gateRef returns the installed traffic gate (nil when none), under RLock.
++func (p *Proxy) gateRef() *traffic.Gate {
++	p.mu.RLock()
++	defer p.mu.RUnlock()
++	return p.gate
++}
++
+ // New builds a Proxy from resolved config, the shared ctx store accessor (may
+ // be nil — telemetry then no-ops, ADR-0016), and a logger. mode is the
+ // effective mode already resolved (CLI --mode > CTX_PROXY_MODE > config). The
+@@ -105,6 +129,12 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+ 	// the RWMutex so a concurrent SetMode (runtime switch) is safe.
+ 	mode := p.GetMode()
+ 
++	// T13 context-injection seam: prepend applied (active) traffic memories to
++	// the request's message list so they appear in the compression context.
++	// Fail-open (ADR-0016): no gate, no active memories, or a fault leave the
++	// body unchanged. The session id is the same one telemetry uses.
++	body = prependMemoryContext(body, p.memoryContext(r))
++
+ 	// Token count BEFORE the transform: count on the exact wire bytes the
+ 	// client sent. This is the deterministic "before" for the savings delta.
+ 	tokensBefore := EstimateTokens(body)
+@@ -265,6 +295,23 @@ func detectUpstream(client *http.Client, env func(string) string) baseUpstream {
+ 	return baseUpstream{Name: "anthropic", BaseURL: "https://api.anthropic.com", AuthHeader: "x-api-key", AuthValue: env("ANTHROPIC_API_KEY"), client: client}
+ }
+ 
++// memoryContext returns the applied traffic-memory context block for the
++// request's session (empty when no gate is set or no active memories exist).
++// It never returns an error to the caller: a gate/store fault degrades to ""
++// so the compression context is unchanged (ADR-0016 fail-open).
++func (p *Proxy) memoryContext(r *http.Request) string {
++	g := p.gateRef()
++	if g == nil {
++		return ""
++	}
++	sid := sessionID(r)
++	ctx, err := activeMemoryContext(g, sid)
++	if err != nil {
++		return ""
++	}
++	return ctx
++}
++
+ // recordTelemetry writes the per-turn savings row + session counters to the
+ // ctx store. A nil store or a missing table is a no-op (ADR-0016 fail-open).
+ func (p *Proxy) recordTelemetry(r *http.Request, upstream, mode string, sv savings) {
+diff --git a/mnemonic/internal/ctx/store/tables.go b/mnemonic/internal/ctx/store/tables.go
+index b0dfd772..127f695b 100644
+--- a/mnemonic/internal/ctx/store/tables.go
++++ b/mnemonic/internal/ctx/store/tables.go
+@@ -87,7 +87,12 @@ type RollupRow struct {
+ 	CacheHits   int64
+ }
+ 
+-// TrafficMemory is one row of ctx_traffic_memories (061).
++// TrafficMemory is one row of ctx_traffic_memories (061, status columns added
++// by 068). Status is one of "candidate" (the learner proposed it; the default
++// until a human applies it), "applied" (ctx learn apply promoted it into the
++// compression context) or "revoked" (ctx learn revoke demoted it so the
++// learner stops re-suggesting it). AppliedAt is a pointer: nil means NULL
++// (never applied).
+ type TrafficMemory struct {
+ 	MemoryID     string
+ 	SessionID    string
+@@ -96,6 +101,61 @@ type TrafficMemory struct {
+ 	EvidenceJSON string
+ 	Confidence   float64
+ 	CreatedAt    int64
++	Status       string
++	AppliedAt    *int64
++}
++
++// hasTrafficMemoryStatus probes whether the live ctx_traffic_memories table
++// carries the 068 status column. Writers use it to decide whether they may
++// name the column in an UPDATE/INSERT, and readers use it to drop the
++// applied_at column from their SELECT; on a pre-068 schema every traffic
++// accessor degrades fail-open rather than erroring (ADR-0016).
++func (s *Store) hasTrafficMemoryStatus() bool {
++	var n int
++	if err := s.db.QueryRow(
++		`SELECT COUNT(*) FROM pragma_table_info('ctx_traffic_memories') WHERE name = 'status'`,
++	).Scan(&n); err != nil {
++		return false
++	}
++	return n > 0
++}
++
++// trafficMemorySelectCols returns the shared SELECT column list for every
++// ctx_traffic_memories reader. On a live 068 schema it names status (COALESCEd
++// to its 'candidate' default) and applied_at; on a pre-068 schema (no status
++// column) it drops applied_at and SELECTs the COALESCE literal, so a row on an
++// old store reads as candidate/NULL instead of erroring on the unknown column
++// (ADR-0016). The two branches return exactly nine columns, matching
++// scanTrafficMemory.
++func (s *Store) trafficMemorySelectCols() string {
++	if s.hasTrafficMemoryStatus() {
++		return `
++		memory_id, session_id, category, memory_text,
++		evidence_json, confidence, created_at,
++		COALESCE(status, 'candidate') AS status,
++		applied_at`
++	}
++	// Pre-068: no status/applied_at columns. SELECT the candidate literal and
++	// SQL NULL so the nine-column scan succeeds (applied_at scans to a nil
++	// *int64).
++	return `
++		memory_id, session_id, category, memory_text,
++		evidence_json, confidence, created_at,
++		'candidate' AS status,
++		NULL AS applied_at`
++}
++
++// scanTrafficMemory scans one ctx_traffic_memories row.
++func (s *Store) scanTrafficMemory(row interface {
++	Scan(dest ...any) error
++}) (*TrafficMemory, error) {
++	var m TrafficMemory
++	err := row.Scan(&m.MemoryID, &m.SessionID, &m.Category, &m.MemoryText,
++		&m.EvidenceJSON, &m.Confidence, &m.CreatedAt, &m.Status, &m.AppliedAt)
++	if err != nil {
++		return nil, err
++	}
++	return &m, nil
+ }
+ 
+ // ---- ctx_proxy_sessions ----
+@@ -384,36 +444,44 @@ func (s *Store) Rollup() ([]RollupRow, error) {
+ // ---- ctx_traffic_memories ----
+ 
+ func (s *Store) PutTrafficMemory(m *TrafficMemory) error {
++	// A pre-068 store has no status/applied_at columns (ADR-0016): writing them
++	// would hard-fail, so insert the base columns only and let the readers
++	// COALESCE the status to its 'candidate' default.
++	if !s.hasTrafficMemoryStatus() {
++		return s.execFailOpen("ctx_traffic_memories", `
++			INSERT OR REPLACE INTO ctx_traffic_memories
++				(memory_id, session_id, category, memory_text,
++				 evidence_json, confidence, created_at)
++			VALUES (?, ?, ?, ?, ?, ?, ?)`,
++			m.MemoryID, m.SessionID, m.Category, m.MemoryText,
++			m.EvidenceJSON, m.Confidence, m.CreatedAt)
++	}
+ 	return s.execFailOpen("ctx_traffic_memories", `
+ 		INSERT OR REPLACE INTO ctx_traffic_memories
+ 			(memory_id, session_id, category, memory_text,
+-			 evidence_json, confidence, created_at)
+-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
++			 evidence_json, confidence, created_at, status, applied_at)
++		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+ 		m.MemoryID, m.SessionID, m.Category, m.MemoryText,
+-		m.EvidenceJSON, m.Confidence, m.CreatedAt)
++		m.EvidenceJSON, m.Confidence, m.CreatedAt, m.Status, m.AppliedAt)
+ }
+ 
+ func (s *Store) GetTrafficMemory(memoryID string) (*TrafficMemory, error) {
+-	var m TrafficMemory
+-	err := s.db.QueryRow(`
+-		SELECT memory_id, session_id, category, memory_text,
+-		       evidence_json, confidence, created_at
+-		FROM ctx_traffic_memories WHERE memory_id = ?`, memoryID).
+-		Scan(&m.MemoryID, &m.SessionID, &m.Category, &m.MemoryText,
+-			&m.EvidenceJSON, &m.Confidence, &m.CreatedAt)
++	row := s.db.QueryRow(`
++		SELECT `+s.trafficMemorySelectCols()+`
++		FROM ctx_traffic_memories WHERE memory_id = ?`, memoryID)
++	m, err := s.scanTrafficMemory(row)
+ 	if err == sql.ErrNoRows || failOpenOpen(err, "ctx_traffic_memories") {
+ 		return nil, nil
+ 	}
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	return &m, nil
++	return m, nil
+ }
+ 
+ func (s *Store) ListTrafficMemories(sessionID string) ([]*TrafficMemory, error) {
+ 	rows, err := s.queryFailOpen("ctx_traffic_memories", `
+-		SELECT memory_id, session_id, category, memory_text,
+-		       evidence_json, confidence, created_at
++		SELECT `+s.trafficMemorySelectCols()+`
+ 		FROM ctx_traffic_memories WHERE session_id = ?
+ 		ORDER BY created_at, memory_id`, sessionID)
+ 	if err != nil {
+@@ -425,12 +493,11 @@ func (s *Store) ListTrafficMemories(sessionID string) ([]*TrafficMemory, error)
+ 	defer rows.Close()
+ 	var out []*TrafficMemory
+ 	for rows.Next() {
+-		var m TrafficMemory
+-		if err := rows.Scan(&m.MemoryID, &m.SessionID, &m.Category, &m.MemoryText,
+-			&m.EvidenceJSON, &m.Confidence, &m.CreatedAt); err != nil {
++		m, err := s.scanTrafficMemory(rows)
++		if err != nil {
+ 			return nil, err
+ 		}
+-		out = append(out, &m)
++		out = append(out, m)
+ 	}
+ 	return out, rows.Err()
+ }
+@@ -442,8 +509,7 @@ func (s *Store) ListTrafficMemories(sessionID string) ([]*TrafficMemory, error)
+ // (ADR-0016).
+ func (s *Store) ListAllTrafficMemories() ([]*TrafficMemory, error) {
+ 	rows, err := s.queryFailOpen("ctx_traffic_memories", `
+-		SELECT memory_id, session_id, category, memory_text,
+-		       evidence_json, confidence, created_at
++		SELECT `+s.trafficMemorySelectCols()+`
+ 		FROM ctx_traffic_memories ORDER BY created_at, memory_id`)
+ 	if err != nil {
+ 		return nil, err
+@@ -454,12 +520,11 @@ func (s *Store) ListAllTrafficMemories() ([]*TrafficMemory, error) {
+ 	defer rows.Close()
+ 	var out []*TrafficMemory
+ 	for rows.Next() {
+-		var m TrafficMemory
+-		if err := rows.Scan(&m.MemoryID, &m.SessionID, &m.Category, &m.MemoryText,
+-			&m.EvidenceJSON, &m.Confidence, &m.CreatedAt); err != nil {
++		m, err := s.scanTrafficMemory(rows)
++		if err != nil {
+ 			return nil, err
+ 		}
+-		out = append(out, &m)
++		out = append(out, m)
+ 	}
+ 	return out, rows.Err()
+ }
+@@ -472,3 +537,66 @@ func (s *Store) DeleteTrafficMemory(memoryID string) error {
+ 	return s.execFailOpen("ctx_traffic_memories", `
+ 		DELETE FROM ctx_traffic_memories WHERE memory_id = ?`, memoryID)
+ }
++
++// SetTrafficMemoryStatus transitions one ctx_traffic_memories row to status
++// ("candidate" | "applied" | "revoked"). Apply (status="applied") stamps
++// appliedAt (unix millis); any demotion away from applied (revoked or
++// candidate) clears applied_at to NULL — per the T13 brief, applied_at is set
++// only while a memory is active, NULL otherwise.
++//
++// Returns (true, nil) when the row exists and was updated. Returns
++// (false, nil) — NOT an error — when the row does not exist (the gate maps
++// this to its not-found error) or the table is missing (ADR-0016 fail-open).
++// Any other error (corrupt row, constraint) propagates.
++func (s *Store) SetTrafficMemoryStatus(memoryID, status string, appliedAt *int64) (bool, error) {
++	if status == "applied" {
++		// Activating: stamp the provided applied_at.
++		return s.execTrafficStatus(memoryID, status, appliedAt, "set")
++	}
++	// Demoting (revoked/candidate): clear applied_at so it is NULL again.
++	return s.execTrafficStatus(memoryID, status, nil, "clear")
++}
++
++// execTrafficStatus runs the status UPDATE, choosing the applied_at handling
++// by appliedAtMode: "set" writes the provided timestamp (apply), "clear"
++// resets applied_at to NULL (revoke/demote). A missing table or a pre-068
++// schema (no status column) degrades to (false, nil) — the write is lost, not
++// fatal (ADR-0016).
++func (s *Store) execTrafficStatus(memoryID, status string, appliedAt *int64, appliedAtMode string) (bool, error) {
++	if !s.hasTrafficMemoryStatus() {
++		// Pre-068 schema (or missing table): the status cannot be persisted.
++		// Degrade to a no-op rather than an unknown-column error.
++		var exists int
++		if err := s.db.QueryRow(`SELECT COUNT(*) FROM ctx_traffic_memories WHERE memory_id = ?`, memoryID).Scan(&exists); err != nil {
++			if failOpenOpen(err, "ctx_traffic_memories") {
++				return false, nil
++			}
++			return false, err
++		}
++		return exists > 0, nil
++	}
++	query := `UPDATE ctx_traffic_memories SET status = ?`
++	if appliedAtMode == "set" {
++		query += `, applied_at = ?`
++	} else {
++		query += `, applied_at = NULL`
++	}
++	query += ` WHERE memory_id = ?`
++	args := []any{status}
++	if appliedAtMode == "set" {
++		args = append(args, appliedAt)
++	}
++	args = append(args, memoryID)
++	res, err := s.db.Exec(query, args...)
++	if err != nil {
++		if failOpenOpen(err, "ctx_traffic_memories") {
++			return false, nil
++		}
++		return false, err
++	}
++	n, err := res.RowsAffected()
++	if err != nil {
++		return false, err
++	}
++	return n > 0, nil
++}
+diff --git a/mnemonic/internal/ctx/traffic/gate.go b/mnemonic/internal/ctx/traffic/gate.go
+new file mode 100644
+index 00000000..c11d20ec
+--- /dev/null
++++ b/mnemonic/internal/ctx/traffic/gate.go
+@@ -0,0 +1,92 @@
++// Package traffic — gate.go
++//
++// Gate is the human-gate for traffic memories (plan §18, M23). The learner
++// (T12) only emits candidate memories; a human promotes one via
++// `mnemonic ctx learn apply <id>` (→ status "applied") or demotes it via
++// `mnemonic ctx learn revoke <id>` (→ status "revoked"). Only existing
++// candidates can be promoted — a non-existent id is a clear error (plan §18.7
++// "No automatic promotion").
++//
++// The Gate is a thin wrapper over *ctxstore.Store (ADR-0033 shared handle).
++// It is testable: inject a *ctxstore.Store built on any *store.Store.
++package traffic
++
++import (
++	"fmt"
++	"time"
++
++	ctxstore "github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
++)
++
++// Gate is the human-gate for traffic memory promotion/demotion. It wraps the
++// ctx store accessor (nil-safe: a nil store degrades every method to a
++// fail-open no-op, ADR-0016).
++type Gate struct {
++	store *ctxstore.Store
++}
++
++// NewGate builds a Gate over the given ctx store accessor. A nil store is
++// accepted and makes every method fail-open (ADR-0016).
++func NewGate(s *ctxstore.Store) *Gate {
++	return &Gate{store: s}
++}
++
++// Apply promotes a traffic memory to applied (active). It returns a clear
++// "not found" error when the memory id does not exist (the human-gate: only
++// existing candidates can be applied). Re-applying an already-applied memory
++// is an idempotent no-op (it refreshes applied_at). A nil/missing store is a
++// fail-open no-op (ADR-0016) — no error, no panic.
++func (g *Gate) Apply(memoryID string) error {
++	if g.store == nil {
++		return nil // fail-open (ADR-0016)
++	}
++	m, err := g.store.GetTrafficMemory(memoryID)
++	if err != nil {
++		return err
++	}
++	if m == nil {
++		return fmt.Errorf("traffic memory %q not found (only existing candidates can be applied)", memoryID)
++	}
++	now := time.Now().UnixMilli()
++	_, err = g.store.SetTrafficMemoryStatus(memoryID, "applied", &now)
++	return err
++}
++
++// Revoke demotes a traffic memory to revoked (reverted). It returns a clear
++// "not found" error when the memory id does not exist. Re-revoking is
++// idempotent. A nil/missing store is a fail-open no-op (ADR-0016).
++func (g *Gate) Revoke(memoryID string) error {
++	if g.store == nil {
++		return nil // fail-open (ADR-0016)
++	}
++	m, err := g.store.GetTrafficMemory(memoryID)
++	if err != nil {
++		return err
++	}
++	if m == nil {
++		return fmt.Errorf("traffic memory %q not found (only existing memories can be revoked)", memoryID)
++	}
++	_, err = g.store.SetTrafficMemoryStatus(memoryID, "revoked", nil)
++	return err
++}
++
++// ActiveMemories returns the applied (active) traffic memories for a session
++// that feed compression context. On a pre-068 schema (no status column) every
++// row reads as "candidate" (COALESCE), so this returns empty — fail-open
++// (ADR-0016). A nil store returns an empty slice, no error.
++func (g *Gate) ActiveMemories(sessionID string) ([]*ctxstore.TrafficMemory, error) {
++	if g.store == nil {
++		return nil, nil // fail-open (ADR-0016)
++	}
++	all, err := g.store.ListTrafficMemories(sessionID)
++	if err != nil {
++		return nil, err
++	}
++	var active []*ctxstore.TrafficMemory
++	for _, m := range all {
++		if m.Status == "applied" {
++			active = append(active, m)
++		}
++	}
++	return active, nil
++}
+diff --git a/mnemonic/internal/ctx/traffic/gate_test.go b/mnemonic/internal/ctx/traffic/gate_test.go
+new file mode 100644
+index 00000000..5079c8e6
+--- /dev/null
++++ b/mnemonic/internal/ctx/traffic/gate_test.go
+@@ -0,0 +1,222 @@
++package traffic
++
++import (
++	"strings"
++	"testing"
++
++	ctxstore "github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
++	"github.com/devopstales/skillgrid/mnemonic/internal/store"
++)
++
++// openRawStore opens a real migrated shared project store (the underlying
++// *store.Store, not the ctx accessor) so a test can poke the schema directly
++// (e.g. to simulate a pre-068 store without the status column).
++func openRawStore(t *testing.T, project string) (*store.Store, error) {
++	t.Helper()
++	return store.Open(t.TempDir(), project)
++}
++
++// seedCandidate stores one candidate traffic memory row for the given session
++// and returns the stored row (so tests can assert against the live id).
++func seedCandidate(t *testing.T, cs *ctxstore.Store, id, session, text string) *ctxstore.TrafficMemory {
++	t.Helper()
++	m := &ctxstore.TrafficMemory{
++		MemoryID:   id,
++		SessionID:  session,
++		Category:   "preference",
++		MemoryText: text,
++		Confidence: 0.9,
++		CreatedAt:  1000,
++		Status:     "candidate",
++	}
++	if err := cs.PutTrafficMemory(m); err != nil {
++		t.Fatalf("PutTrafficMemory %s: %v", id, err)
++	}
++	return m
++}
++
++// TestGate_ApplyPromotesAndIsActive is the KEY proof of the human-gate: a
++// candidate is NOT in ActiveMemories before apply; after Gate.Apply it IS, and
++// applied_at is stamped.
++func TestGate_ApplyPromotesAndIsActive(t *testing.T) {
++	cs := newTestStore(t, "p-gate-apply")
++	g := NewGate(cs)
++	seedCandidate(t, cs, "mem-1", "sess-gate", "prefer compact diffs")
++
++	// Before apply: the candidate is not active.
++	active, err := g.ActiveMemories("sess-gate")
++	if err != nil {
++		t.Fatalf("ActiveMemories (before apply): %v", err)
++	}
++	if len(active) != 0 {
++		t.Fatalf("ActiveMemories before apply = %d, want 0 (candidate is not active)", len(active))
++	}
++
++	// Apply promotes it.
++	if err := g.Apply("mem-1"); err != nil {
++		t.Fatalf("Apply: %v", err)
++	}
++	after, err := g.ActiveMemories("sess-gate")
++	if err != nil {
++		t.Fatalf("ActiveMemories (after apply): %v", err)
++	}
++	if len(after) != 1 || after[0].MemoryID != "mem-1" {
++		t.Fatalf("ActiveMemories after apply = %+v, want exactly mem-1", after)
++	}
++	// applied_at must be stamped by Apply.
++	if after[0].AppliedAt == nil {
++		t.Errorf("applied_at = nil after Apply, want a stamped timestamp")
++	}
++	if after[0].Status != "applied" {
++		t.Errorf("status = %q after Apply, want applied", after[0].Status)
++	}
++}
++
++// TestGate_RevokeRevertsAndDisappears proves the demotion half: after an apply,
++// Gate.Revoke removes the memory from ActiveMemories again (status=revoked,
++// applied_at cleared).
++func TestGate_RevokeRevertsAndDisappears(t *testing.T) {
++	cs := newTestStore(t, "p-gate-revoke")
++	g := NewGate(cs)
++	seedCandidate(t, cs, "mem-1", "sess-gate", "prefer compact diffs")
++
++	if err := g.Apply("mem-1"); err != nil {
++		t.Fatalf("Apply: %v", err)
++	}
++	if active, _ := g.ActiveMemories("sess-gate"); len(active) != 1 {
++		t.Fatalf("expected 1 active after Apply, got %d", len(active))
++	}
++
++	if err := g.Revoke("mem-1"); err != nil {
++		t.Fatalf("Revoke: %v", err)
++	}
++	active, err := g.ActiveMemories("sess-gate")
++	if err != nil {
++		t.Fatalf("ActiveMemories (after revoke): %v", err)
++	}
++	if len(active) != 0 {
++		t.Fatalf("ActiveMemories after revoke = %d, want 0 (revoked is not active)", len(active))
++	}
++	// The row still exists but is now revoked (revoked rows are not deleted).
++	m, err := cs.GetTrafficMemory("mem-1")
++	if err != nil {
++		t.Fatalf("GetTrafficMemory: %v", err)
++	}
++	if m == nil {
++		t.Fatal("row disappeared after revoke; revoke must keep the row (status=revoked)")
++	}
++	if m.Status != "revoked" {
++		t.Errorf("status = %q after Revoke, want revoked", m.Status)
++	}
++	if m.AppliedAt != nil {
++		t.Errorf("applied_at = %v after Revoke, want nil (cleared)", m.AppliedAt)
++	}
++}
++
++// TestGate_NotFoundRejected proves the human-gate: a non-existent id is a clear
++// "not found" error for both Apply and Revoke, and no row is created.
++func TestGate_NotFoundRejected(t *testing.T) {
++	cs := newTestStore(t, "p-gate-notfound")
++	g := NewGate(cs)
++
++	if err := g.Apply("nope"); err == nil {
++		t.Fatal("Apply(nope) = nil, want a not-found error")
++	} else if !strings.Contains(err.Error(), "not found") {
++		t.Errorf("Apply(nope) error = %q, want it to mention not found", err)
++	}
++	if err := g.Revoke("nope"); err == nil {
++		t.Fatal("Revoke(nope) = nil, want a not-found error")
++	} else if !strings.Contains(err.Error(), "not found") {
++		t.Errorf("Revoke(nope) error = %q, want it to mention not found", err)
++	}
++	// No row may have been created by the failed apply/revoke.
++	m, err := cs.GetTrafficMemory("nope")
++	if err != nil {
++		t.Fatalf("GetTrafficMemory(nope): %v", err)
++	}
++	if m != nil {
++		t.Errorf("row %q was created by a not-found apply/revoke", m.MemoryID)
++	}
++}
++
++// TestGate_Idempotency proves re-applying and re-revoking are safe no-ops:
++// Apply twice leaves exactly one active row; Revoke twice does not error.
++func TestGate_Idempotency(t *testing.T) {
++	cs := newTestStore(t, "p-gate-idem")
++	g := NewGate(cs)
++	seedCandidate(t, cs, "mem-1", "sess-gate", "prefer compact diffs")
++
++	if err := g.Apply("mem-1"); err != nil {
++		t.Fatalf("Apply #1: %v", err)
++	}
++	if err := g.Apply("mem-1"); err != nil {
++		t.Fatalf("Apply #2 (idempotent): %v", err)
++	}
++	if active, _ := g.ActiveMemories("sess-gate"); len(active) != 1 {
++		t.Fatalf("expected 1 active row after double Apply, got %d", len(active))
++	}
++
++	if err := g.Revoke("mem-1"); err != nil {
++		t.Fatalf("Revoke #1: %v", err)
++	}
++	if err := g.Revoke("mem-1"); err != nil {
++		t.Fatalf("Revoke #2 (idempotent): %v", err)
++	}
++	if active, _ := g.ActiveMemories("sess-gate"); len(active) != 0 {
++		t.Fatalf("expected 0 active rows after double Revoke, got %d", len(active))
++	}
++}
++
++// TestGate_NilStoreFailOpen proves ADR-0016: a Gate with no store behind it
++// degrades every method to a no-op — no error, no panic. Apply/Revoke return
++// nil (fail-open), ActiveMemories returns empty.
++func TestGate_NilStoreFailOpen(t *testing.T) {
++	g := NewGate(nil)
++	if err := g.Apply("mem-1"); err != nil {
++		t.Errorf("Apply with nil store = %v, want nil (fail-open)", err)
++	}
++	if err := g.Revoke("mem-1"); err != nil {
++		t.Errorf("Revoke with nil store = %v, want nil (fail-open)", err)
++	}
++	active, err := g.ActiveMemories("sess")
++	if err != nil {
++		t.Errorf("ActiveMemories with nil store = %v, want nil (fail-open)", err)
++	}
++	if len(active) != 0 {
++		t.Errorf("ActiveMemories with nil store = %d rows, want 0", len(active))
++	}
++}
++
++// TestGate_Pre068SchemaFailOpen proves ADR-068 fail-open on a schema that
++// lacks the status column: a row reads as candidate, so ActiveMemories is
++// empty, and Apply is a no-op that does not error (the write is lost, not fatal).
++func TestGate_Pre068SchemaFailOpen(t *testing.T) {
++	shared, err := openRawStore(t, "p-gate-pre068")
++	if err != nil {
++		t.Fatalf("store.Open: %v", err)
++	}
++	t.Cleanup(func() { _ = shared.Close() })
++	// Drop the 068 columns to simulate a store migrated before 068 ran.
++	if _, err := shared.DB.Exec(`ALTER TABLE ctx_traffic_memories DROP COLUMN applied_at`); err != nil {
++		t.Fatalf("drop applied_at: %v", err)
++	}
++	if _, err := shared.DB.Exec(`ALTER TABLE ctx_traffic_memories DROP COLUMN status`); err != nil {
++		t.Fatalf("drop status: %v", err)
++	}
++	cs := ctxstore.New(shared)
++	g := NewGate(cs)
++	seedCandidate(t, cs, "mem-1", "sess-gate", "prefer compact diffs")
++
++	// Pre-068: the row reads as candidate, so it is not active.
++	active, err := g.ActiveMemories("sess-gate")
++	if err != nil {
++		t.Fatalf("ActiveMemories (pre-068): %v", err)
++	}
++	if len(active) != 0 {
++		t.Fatalf("ActiveMemories (pre-068) = %d rows, want 0 (candidate default)", len(active))
++	}
++	// Apply must be a no-op on a schema that cannot persist status (no error).
++	if err := g.Apply("mem-1"); err != nil {
++		t.Errorf("Apply (pre-068) = %v, want nil (fail-open no-op)", err)
++	}
++}
+diff --git a/mnemonic/internal/store/migrations/068_ctx_traffic_memory_status.sql b/mnemonic/internal/store/migrations/068_ctx_traffic_memory_status.sql
+new file mode 100644
+index 00000000..c96dabb5
+--- /dev/null
++++ b/mnemonic/internal/store/migrations/068_ctx_traffic_memory_status.sql
+@@ -0,0 +1,29 @@
++-- Migration 068: add human-gate status lifecycle to ctx_traffic_memories.
++--
++-- T13 adds a human gate to the traffic learner: the learner only proposes
++-- candidate memories, and ctx learn apply/revoke promotes or demotes them.
++--   status     TEXT NOT NULL DEFAULT 'candidate'
++--                 candidate | applied | revoked. A row stays candidate until a
++--                 human applies it; revocation moves it to revoked so the
++--                 learner stops re-suggesting it.
++--   applied_at INTEGER
++--                 unix millis of the last apply; NULL until first applied.
++--
++-- The CREATE is a no-op on a pre-068 DB (061 already created the table) and is
++-- the authoritative definition for a fresh DB. The two ALTERs add the columns
++-- in place for pre-068 databases; on a fresh DB the CREATE already carried
++-- them, so the ALTERs are the no-op half of the pair.
++CREATE TABLE IF NOT EXISTS ctx_traffic_memories (
++    memory_id    TEXT PRIMARY KEY,
++    session_id   TEXT NOT NULL,
++    category     TEXT NOT NULL,
++    memory_text  TEXT NOT NULL,
++    evidence_json TEXT NOT NULL DEFAULT '{}',
++    confidence   REAL NOT NULL DEFAULT 0,
++    created_at   INTEGER NOT NULL,
++    status       TEXT NOT NULL DEFAULT 'candidate',
++    applied_at   INTEGER
++);
++
++ALTER TABLE ctx_traffic_memories ADD COLUMN status TEXT NOT NULL DEFAULT 'candidate';
++ALTER TABLE ctx_traffic_memories ADD COLUMN applied_at INTEGER;
+diff --git a/mnemonic/internal/store/migrations_068_test.go b/mnemonic/internal/store/migrations_068_test.go
+new file mode 100644
+index 00000000..fd0abe9c
+--- /dev/null
++++ b/mnemonic/internal/store/migrations_068_test.go
+@@ -0,0 +1,52 @@
++package store
++
++import (
++	"testing"
++)
++
++// TestMigration068TrafficMemoryStatus verifies the 068 migration on a fresh
++// store: ctx_traffic_memories gains status (default candidate) + applied_at,
++// a re-open does not re-run the migration (a duplicate ADD COLUMN would error
++// if it did), and an insert picks up the column defaults.
++func TestMigration068TrafficMemoryStatus(t *testing.T) {
++	dataDir := t.TempDir()
++	st, err := Open(dataDir, "mig068")
++	if err != nil {
++		t.Fatalf("Open: %v", err)
++	}
++	defer st.Close()
++
++	var n int
++	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('ctx_traffic_memories') WHERE name IN ('status','applied_at')`).Scan(&n); err != nil {
++		t.Fatalf("probe columns: %v", err)
++	}
++	if n != 2 {
++		t.Fatalf("expected status + applied_at, got %d", n)
++	}
++
++	// Insert without the new columns: defaults must fill candidate/NULL.
++	if _, err := st.DB.Exec(`
++		INSERT INTO ctx_traffic_memories (memory_id, session_id, category, memory_text, confidence, created_at)
++		VALUES ('mem-1', 'sess-1', 'preference', 'compact diffs', 0.5, 1000)`); err != nil {
++		t.Fatalf("insert: %v", err)
++	}
++	var status string
++	var appliedAt *int64
++	if err := st.DB.QueryRow(`SELECT status, applied_at FROM ctx_traffic_memories WHERE memory_id = 'mem-1'`).Scan(&status, &appliedAt); err != nil {
++		t.Fatalf("scan: %v", err)
++	}
++	if status != "candidate" {
++		t.Fatalf("status = %q, want candidate", status)
++	}
++	if appliedAt != nil {
++		t.Fatalf("applied_at = %d, want NULL", *appliedAt)
++	}
++
++	// Re-open the same store: 068 is recorded, so the ADD COLUMNs must not
++	// re-fire (a duplicate-column error would fail the open).
++	st2, err := Open(dataDir, "mig068")
++	if err != nil {
++		t.Fatalf("re-open: %v", err)
++	}
++	st2.Close()
++}

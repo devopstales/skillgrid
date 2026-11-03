@@ -15,6 +15,8 @@
 // `policy` is the pre-tool check (POST /policy/evaluate) and is the one mode
 // that may block: Cursor gets {"permission":"deny"}, OpenCode/Kilo exit 2.
 
+const fs = require("fs")
+const path = require("path")
 const BASE = (process.env.SKILLGRID_MNEMONIC_HTTP_URL || "http://127.0.0.1:7438").replace(/\/+$/, "")
 
 function checkpointBase() {
@@ -318,6 +320,29 @@ async function policyHook() {
 }
 
 // checkpoint: Cursor stop hook claims a memory checkpoint; may emit followup_message.
+// CLM mirror edit capture (ADR-0027). Fail-open; never blocks.
+async function clmMirrorCapture(base, sessionId, dir) {
+  try {
+    const mirrorPath = path.join(dir, "clm-mirror.txt")
+    if (!fs.existsSync(mirrorPath)) return
+    const raw = fs.readFileSync(mirrorPath, "utf8")
+    const docMatch = raw.match(/\[\[LIVE_CONTEXT[^]]*document=([^\s\]]+)/)
+    const document = docMatch ? docMatch[1] : ""
+    const messages = []
+    const blocks = raw.split(/\[\[CTX_TURN[^\]]*\]\]/).slice(1)
+    for (const b of blocks) {
+      const content = b.replace(/^\n/, "").replace(/\n$/, "").trim()
+      if (content) messages.push(content)
+    }
+    if (!document || messages.length === 0) return
+    await post(`${base}/sessions/${encodeURIComponent(sessionId)}/clm/revision?directory=${encodeURIComponent(dir)}`, {
+      session_id: sessionId,
+      document,
+      messages,
+    })
+  } catch {}
+}
+
 async function checkpoint() {
   const empty = () => {
     process.stdout.write("{}\n")
@@ -345,6 +370,7 @@ async function checkpoint() {
       process.exit(0)
     }
   } catch {}
+  void clmMirrorCapture(base, sessionId, directory)
   return empty()
 }
 

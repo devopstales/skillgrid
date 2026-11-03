@@ -1,0 +1,214 @@
+# Review package: 8bc12bf..HEAD
+
+## Commits
+7cc50f4 fix(http): re-answer appends a version instead of no-op (R6)
+
+## Files changed
+ skillgrid-cli/internal/mnemonic/http/decisions.go  | 19 ++++----
+ .../internal/mnemonic/http/decisions_test.go       | 52 +++++++++++++---------
+ 2 files changed, 41 insertions(+), 30 deletions(-)
+
+## Diff
+diff --git a/skillgrid-cli/internal/mnemonic/http/decisions.go b/skillgrid-cli/internal/mnemonic/http/decisions.go
+index 5c3b0b9..efd4f57 100644
+--- a/skillgrid-cli/internal/mnemonic/http/decisions.go
++++ b/skillgrid-cli/internal/mnemonic/http/decisions.go
+@@ -140,23 +140,25 @@ func (s *Server) handleDecisions(w http.ResponseWriter, r *http.Request) {
+ // decisionAnswerBody is the R5 answer contract: {optionId, note}.
+ type decisionAnswerBody struct {
+ 	OptionID string `json:"optionId"`
+ 	Note     string `json:"note"`
+ }
+ 
+ // handleDecisionAnswer flips a decision's convention state pending→answered:
+ // it records the chosen option + note + updatedBy (user:<name>) in the
+ // content and persists it through memory.UpdateContent, so an
+ // observation_versions row is appended and revision_count/updated_at bumped —
+-// the same governed path mem_update uses. An answered decision is an
+-// idempotent no-op 200 (no new version). A bad id is 404; a row whose content
+-// has no valid state (missing, malformed, or unrecognized) is 409.
++// the same governed path mem_update uses. Re-answering an answered decision
++// applies the same update path again (state stays answered, the new answer is
++// recorded, another version row is appended): append-only history, the latest
++// content carries the latest answer. A bad id is 404; a row whose content has
++// no valid state (missing, malformed, or unrecognized) is 409.
+ func (s *Server) handleDecisionAnswer(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+ 	id64, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, "id must be an integer")
+ 		return
+@@ -190,25 +192,24 @@ func (s *Server) handleDecisionAnswer(w http.ResponseWriter, r *http.Request) {
+ 	if err != nil {
+ 		writeError(w, http.StatusNotFound, "no such decision")
+ 		return
+ 	}
+ 	c, ok := parseDecisionContent(content)
+ 	if !ok {
+ 		writeError(w, http.StatusConflict, "decision content has no valid state")
+ 		return
+ 	}
+ 	switch c.State {
+-	case decisionStatePending:
+-	case decisionStateAnswered:
+-		// Idempotent no-op: already answered. The recorded answer stands.
+-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "state": decisionStateAnswered, "noOp": true})
+-		return
++	case decisionStatePending, decisionStateAnswered:
++		// pending → answered flip, or re-answer of an answered decision:
++		// the same update path below (state stays answered on re-answer, the
++		// new answer is recorded, a version row is appended).
+ 	case decisionStateSuperseded:
+ 		// The agent owns the pending→superseded transition; the answer gate
+ 		// does not apply.
+ 		writeError(w, http.StatusConflict, "decision is superseded")
+ 		return
+ 	default:
+ 		_ = curState
+ 		writeError(w, http.StatusConflict, "decision content has no valid state")
+ 		return
+ 	}
+@@ -232,21 +233,21 @@ func (s *Server) handleDecisionAnswer(w http.ResponseWriter, r *http.Request) {
+ 		return
+ 	}
+ 	if err := h.Memory().UpdateContent(r.Context(), id64, string(newContent)); err != nil {
+ 		if strings.Contains(err.Error(), "not found") {
+ 			writeError(w, http.StatusNotFound, err.Error())
+ 			return
+ 		}
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
+-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "state": decisionStateAnswered, "noOp": false})
++	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "state": decisionStateAnswered})
+ }
+ 
+ // decisionOptionExists reports whether the option id is one of the decision's
+ // options (an empty option list accepts any id — a payload that parsed but
+ // carries no options is still answerable by convention).
+ func decisionOptionExists(c decisionContent, optionID string) bool {
+ 	if len(c.Options) == 0 {
+ 		return true
+ 	}
+ 	for _, o := range c.Options {
+diff --git a/skillgrid-cli/internal/mnemonic/http/decisions_test.go b/skillgrid-cli/internal/mnemonic/http/decisions_test.go
+index 8ee5cdb..26b1214 100644
+--- a/skillgrid-cli/internal/mnemonic/http/decisions_test.go
++++ b/skillgrid-cli/internal/mnemonic/http/decisions_test.go
+@@ -204,81 +204,91 @@ func TestDecisionAnswerRecords(t *testing.T) {
+ 		t.Errorf("answeredOption not recorded: %+v", got.Content)
+ 	}
+ 	if got.Content.AnswerNote != "two column reads better" {
+ 		t.Errorf("answerNote not recorded: %+v", got.Content)
+ 	}
+ 	if !strings.HasPrefix(got.Content.UpdatedBy, "user:") {
+ 		t.Errorf("updatedBy not user:<name>: %q", got.Content.UpdatedBy)
+ 	}
+ }
+ 
+-// [decision-answer-appends-version] The answer path appends an
+-// observation_versions row (the same append-only trail mem_update writes): a
+-// pending decision that gets answered gains exactly one version row, and an
+-// answered decision stays a 200 no-op without a second version.
++// [decision-answer-appends-version] R6: answering twice yields two
++// observation_versions rows; the latest content carries the second answer
++// (append-only history, never overwrites the history).
+ func TestDecisionAnswerAppendsVersion(t *testing.T) {
+ 	s, h := newDecisionTestServer(t)
+ 	id := seedDecision(t, h, "interview/demo/v", `{"question":"q","options":[{"id":"a","label":"A"}],"state":"pending"}`, "team", "2026-01-01T00:00:00Z")
+ 	w := postDecisionAnswer(t, s, id, `{"optionId":"a","note":"first"}`)
+ 	if w.Code != http.StatusOK {
+ 		t.Fatalf("first answer: got %d: %s", w.Code, w.Body.String())
+ 	}
+-	var n int
+-	if err := h.Store().DB.QueryRow(`SELECT COUNT(*) FROM observation_versions WHERE observation_id = ?`, id).Scan(&n); err != nil {
+-		t.Fatalf("count versions: %v", err)
+-	}
+-	if n != 1 {
+-		t.Errorf("expected exactly 1 version row after answering, got %d", n)
+-	}
+-	// re-answer: idempotent no-op, still exactly one version row.
+ 	w = postDecisionAnswer(t, s, id, `{"optionId":"a","note":"second"}`)
+ 	if w.Code != http.StatusOK {
+ 		t.Fatalf("second answer: got %d: %s", w.Code, w.Body.String())
+ 	}
++	var n int
+ 	if err := h.Store().DB.QueryRow(`SELECT COUNT(*) FROM observation_versions WHERE observation_id = ?`, id).Scan(&n); err != nil {
+ 		t.Fatalf("count versions: %v", err)
+ 	}
+-	if n != 1 {
+-		t.Errorf("re-answer must not append a version, got %d rows", n)
++	if n != 2 {
++		t.Errorf("expected 2 version rows after two answers, got %d", n)
++	}
++	rows, _ := getDecisions(t, s, "")
++	var got *decisionRow
++	for i := range rows {
++		if rows[i].ID == id {
++			got = &rows[i]
++		}
++	}
++	if got == nil {
++		t.Fatalf("decision not found after re-answer")
++	}
++	if got.Content.State != "answered" || got.Content.AnsweredOption != "a" || got.Content.AnswerNote != "second" {
++		t.Errorf("latest content must carry the second answer: %+v", got.Content)
+ 	}
+ }
+ 
+-// [decision-answer-idempotent] Re-answering an answered decision is a no-op
+-// 200: state stays answered, the first answer is kept, no new version row.
++// [decision-answer-reanswer-updates] R6: a re-answer of an answered decision
++// is a 200 that records the NEW answer (option + note + updatedBy) and appends
++// a version — the history is append-only, the latest content is the latest
++// answer.
+ func TestDecisionAnswerIdempotent(t *testing.T) {
+ 	s, h := newDecisionTestServer(t)
+ 	id := seedDecision(t, h, "interview/demo/idem", `{"question":"q","options":[{"id":"a","label":"A"},{"id":"b","label":"B"}],"state":"pending"}`, "team", "2026-01-01T00:00:00Z")
+ 	postDecisionAnswer(t, s, id, `{"optionId":"a","note":"first"}`)
+ 	w := postDecisionAnswer(t, s, id, `{"optionId":"b","note":"second"}`)
+ 	if w.Code != http.StatusOK {
+-		t.Fatalf("re-answer should be a 200 no-op, got %d: %s", w.Code, w.Body.String())
++		t.Fatalf("re-answer should be 200, got %d: %s", w.Code, w.Body.String())
+ 	}
+ 
+ 	rows, _ := getDecisions(t, s, "")
+ 	var got *decisionRow
+ 	for i := range rows {
+ 		if rows[i].ID == id {
+ 			got = &rows[i]
+ 		}
+ 	}
+ 	if got == nil {
+ 		t.Fatalf("decision not found after re-answer")
+ 	}
+-	if got.Content.State != "answered" || got.Content.AnsweredOption != "a" || got.Content.AnswerNote != "first" {
+-		t.Errorf("re-answer must not change the recorded answer: %+v", got.Content)
++	if got.Content.State != "answered" || got.Content.AnsweredOption != "b" || got.Content.AnswerNote != "second" {
++		t.Errorf("re-answer must record the new answer: %+v", got.Content)
++	}
++	if got.Content.UpdatedBy != "user:unknown" {
++		t.Errorf("updatedBy must reflect the latest answerer: %q", got.Content.UpdatedBy)
+ 	}
+ 	var n int
+ 	if err := h.Store().DB.QueryRow(`SELECT COUNT(*) FROM observation_versions WHERE observation_id = ?`, id).Scan(&n); err != nil {
+ 		t.Fatalf("count versions: %v", err)
+ 	}
+-	if n != 1 {
+-		t.Errorf("re-answer must not append a version, got %d rows, want 1", n)
++	if n != 2 {
++		t.Errorf("re-answer must append a version, got %d rows, want 2", n)
+ 	}
+ }
+ 
+ // [decision-answer-404] An unknown decision id is 404.
+ func TestDecisionAnswer404(t *testing.T) {
+ 	s, _ := newDecisionTestServer(t)
+ 	w := postDecisionAnswer(t, s, 999999, `{"optionId":"a"}`)
+ 	if w.Code != http.StatusNotFound {
+ 		t.Errorf("bad id should 404, got %d (%s)", w.Code, w.Body.String())
+ 	}

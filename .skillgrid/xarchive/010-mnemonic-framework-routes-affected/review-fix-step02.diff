@@ -1,0 +1,281 @@
+=== FIX COMMITS 22aef81 + c109f2f ===
+
+c109f2f fix(mnemonic): parse blame author past digit-bearing names
+22aef81 fix(mnemonic): scope code_affected path cache to the call
+
+=== STAT ===
+ .../internal/mnemonic/affected/affected.go         |  12 ++-
+ skillgrid-cli/internal/mnemonic/affected/base.go   |  91 ++++++++++++++---
+ .../internal/mnemonic/affected/base_test.go        | 110 +++++++++++++++++++++
+ 3 files changed, 197 insertions(+), 16 deletions(-)
+
+=== DIFF ===
+diff --git a/skillgrid-cli/internal/mnemonic/affected/affected.go b/skillgrid-cli/internal/mnemonic/affected/affected.go
+index 048c457..43fae3c 100644
+--- a/skillgrid-cli/internal/mnemonic/affected/affected.go
++++ b/skillgrid-cli/internal/mnemonic/affected/affected.go
+@@ -172,6 +172,7 @@ func Affected(ctx context.Context, db *sql.DB, opts Options) (Result, error) {
+ 	}
+ 
+ 	testSeen := map[string]bool{}
++	pathCache := map[int64]string{}
+ 	for len(queue) > 0 {
+ 		cur := queue[0]
+ 		queue = queue[1:]
+@@ -193,7 +194,7 @@ func Affected(ctx context.Context, db *sql.DB, opts Options) (Result, error) {
+ 				continue
+ 			}
+ 			rel := Relationship{
+-				From: curPathCache(ctx, db, cur.id),
++				From: curPathCache(ctx, db, cur.id, pathCache),
+ 				To:   sym.Name,
+ 				Kind: h.kind, Confidence: h.conf,
+ 				Depth: cur.depth + 1, Via: sym.UID, DepPath: sym.Path,
+@@ -310,10 +311,11 @@ type sym struct {
+ 	Path string
+ }
+ 
+-// pathCache memoizes symbol->path lookups for the relationship report.
+-var pathCache = map[int64]string{}
+-
+-func curPathCache(ctx context.Context, db *sql.DB, id int64) string {
++// curPathCache memoizes symbol->path lookups for the relationship report. The
++// cache is scoped to the calling Affected invocation (passed in), so
++// concurrent calls over different stores cannot collide on a symbol id or
++// read a stale path from another call.
++func curPathCache(ctx context.Context, db *sql.DB, id int64, pathCache map[int64]string) string {
+ 	if p, ok := pathCache[id]; ok {
+ 		return p
+ 	}
+diff --git a/skillgrid-cli/internal/mnemonic/affected/base.go b/skillgrid-cli/internal/mnemonic/affected/base.go
+index 6df9d2c..53f185b 100644
+--- a/skillgrid-cli/internal/mnemonic/affected/base.go
++++ b/skillgrid-cli/internal/mnemonic/affected/base.go
+@@ -146,6 +146,65 @@ func gitBlameOwners(ctx context.Context, repo, path string) ([]string, error) {
+ 	return owners, nil
+ }
+ 
++// isDigits reports whether s is non-empty and all ASCII digits (the line
++// number field of a `git blame` metadata group).
++func isDigits(s string) bool {
++	if s == "" {
++		return false
++	}
++	for i := 0; i < len(s); i++ {
++		if s[i] < '0' || s[i] > '9' {
++			return false
++		}
++	}
++	return true
++}
++
++// isEpoch reports whether s is exactly 10 digits (a unix epoch timestamp).
++func isEpoch(s string) bool {
++	if len(s) != 10 {
++		return false
++	}
++	for i := 0; i < len(s); i++ {
++		if s[i] < '0' || s[i] > '9' {
++			return false
++		}
++	}
++	return true
++}
++
++// isTz reports whether s is a git timestamp timezone offset: a 5-char signed
++// offset like "+0200" or "-0700" (the " <tz>" field of regular `git blame`).
++func isTz(s string) bool {
++	if len(s) != 5 || (s[0] != '+' && s[0] != '-') {
++		return false
++	}
++	for i := 1; i < len(s); i++ {
++		if s[i] < '0' || s[i] > '9' {
++			return false
++		}
++	}
++	return true
++}
++
++// isDateOrTime reports whether s is a "YYYY-MM-DD" date or an "H:MM[:SS]"
++// time — the date/time fields of regular `git blame` metadata.
++func isDateOrTime(s string) bool {
++	if len(s) >= 5 && s[4] == '-' && s[0] >= '0' && s[0] <= '9' {
++		return true // date-like (YYYY-MM-...)
++	}
++	dot := strings.IndexByte(s, ':')
++	if dot > 0 && dot < len(s)-1 {
++		for i := 0; i < len(s); i++ {
++			if s[i] != ':' && (s[i] < '0' || s[i] > '9') {
++				return false
++			}
++		}
++		return true // time-like (H:MM or HH:MM:SS)
++	}
++	return false
++}
++
+ func hasString(list []string, s string) bool {
+ 	for _, v := range list {
+ 		if v == s {
+@@ -190,21 +249,31 @@ func parseBlameAuthor(line string) string {
+ 		return ""
+ 	}
+ 	inner := line[open+1 : closeIdx]
+-	// Inner is "<author> <timestamp> <linenum>". The timestamp starts at the
+-	// first space after the author; take everything up to the first digit
+-	// run (the date) — author names may contain spaces.
++	// The metadata group is "<author> <date> <tz> <linenum>" (regular `git
++	// blame`) or "<author> <epoch> <linenum>" (epoch form). The line number
++	// is the final group (always digits); the author is everything before
++	// the date field — so author names containing digits ("Dev2") are
++	// preserved.
+ 	rest := inner
+-	for i := 0; i < len(rest); i++ {
+-		if rest[i] == ' ' {
+-			rest = rest[i+1:]
+-			break
+-		}
++	if j := strings.LastIndex(rest, " "); j >= 0 && isDigits(rest[j+1:]) {
++		rest = rest[:j] // drop the line number (always all-digits)
++	}
++	if i := strings.LastIndex(rest, " "); i >= 0 && isEpoch(rest[i+1:]) {
++		rest = rest[:i] // drop the epoch date
++		return strings.TrimSpace(rest)
++	}
++	// Regular form: "<author> <YYYY-MM-DD HH:MM:SS> <tz>". The tz is a
++	// 5-char signed offset (e.g. +0200, -0700) — drop it.
++	if i := strings.LastIndex(rest, " "); i >= 0 && isTz(rest[i+1:]) {
++		rest = rest[:i]
+ 	}
+-	for i := 0; i < len(rest); i++ {
+-		if rest[i] >= '0' && rest[i] <= '9' {
+-			rest = rest[:i]
++	// Drop the time (HH:MM:SS, 1:20) and date (YYYY-MM-DD) fields.
++	for i := strings.LastIndex(rest, " "); i >= 0; i = strings.LastIndex(rest, " ") {
++		field := rest[i+1:]
++		if !isDateOrTime(field) {
+ 			break
+ 		}
++		rest = rest[:i]
+ 	}
+ 	return strings.TrimSpace(rest)
+ }
+diff --git a/skillgrid-cli/internal/mnemonic/affected/base_test.go b/skillgrid-cli/internal/mnemonic/affected/base_test.go
+index 7c901eb..d6912fe 100644
+--- a/skillgrid-cli/internal/mnemonic/affected/base_test.go
++++ b/skillgrid-cli/internal/mnemonic/affected/base_test.go
+@@ -142,4 +142,114 @@ func TestCodeAffectedBaseBadRef(t *testing.T) {
+ 	}
+ }
+ 
++// TestParseBlameAuthor covers @step-02 (review fix): the author name is
++// everything between the metadata open paren and the " <10-digit epoch>"
++// timestamp — author names containing digits ("Dev2") must NOT be truncated
++// at their first digit run, and the timestamp must not leak into the name.
++func TestParseBlameAuthor(t *testing.T) {
++	cases := []struct {
++		line string
++		want string
++	}{
++		{
++			line: "3b729a55 (Dev2 2026-09-10 10:21:08 +0200 1) one1",
++			want: "Dev2",
++		},
++		{
++			line: "3b729a55 (Dev2 1789028468 1) one1",
++			want: "Dev2",
++		},
++		{
++			line: "3b729a55 (Fixture 1789028468 2) two2",
++			want: "Fixture",
++		},
++		{
++			line: "3b729a55 (John Smith Jr 1789028468 2) two2",
++			want: "John Smith Jr",
++		},
++		{
++			line: "3b729a55 (Fixture 2025-01-02 03:04:05 -0700 42) x",
++			want: "Fixture",
++		},
++		{
++			line: "3b729a55 (no trailing metadata) ",
++			want: "no trailing metadata",
++		},
++		{
++			line: "no parens at all",
++			want: "",
++		},
++	}
++	for _, c := range cases {
++		if got := parseBlameAuthor(c.line); got != c.want {
++			t.Errorf("parseBlameAuthor(%q) = %q, want %q", c.line, got, c.want)
++		}
++	}
++}
++
++// TestCodeAffectedBaseDigitAuthor covers @step-02 (review fix): a git author
++// whose name contains a digit ("Dev2") survives `git blame` parsing end to
++// end (owner is "Dev2", not "Dev").
++func TestCodeAffectedBaseDigitAuthor(t *testing.T) {
++	st := fixtureGraph(t)
++	root := t.TempDir()
++	run := func(args ...string) {
++		t.Helper()
++		cmd := exec.Command("git", args...)
++		cmd.Dir = root
++		cmd.Env = append(os.Environ(),
++			"GIT_CONFIG_GLOBAL="+filepath.Join(root, "noconfig"),
++			"GIT_CONFIG_SYSTEM="+filepath.Join(root, "noconfig"))
++		out, err := cmd.CombinedOutput()
++		if err != nil {
++			t.Fatalf("git %v: %v\n%s", args, err, out)
++		}
++	}
++	run("init", "-b", "main")
++	run("config", "user.name", "Dev2")
++	run("config", "user.email", "dev2@example.com")
++	commit := func(files map[string]string, msg string) {
++		t.Helper()
++		for name, content := range files {
++			p := filepath.Join(root, name)
++			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
++				t.Fatalf("mkdir %s: %v", name, err)
++			}
++			if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
++				t.Fatalf("write %s: %v", name, err)
++			}
++		}
++		run("add", "-A")
++		run("commit", "-m", msg)
++	}
++	commit(map[string]string{
++		"src/base.go":     "package p\n\nfunc base() int {\n\treturn 1\n}\n",
++		"src/base_test.go": "package p\n\nfunc TestBase() {\n\t_ = base()\n}\n",
++	}, "base")
++	run("checkout", "-b", "feat")
++	commit(map[string]string{
++		"src/base.go": "package p\n\nfunc base() int {\n\treturn 2\n}\n",
++	}, "feature")
++
++	res, err := AffectedBase(context.Background(), st.DB, root, "main", Options{})
++	if err != nil {
++		t.Fatalf("affected --base (digit author): %v", err)
++	}
++	var baseArea *Area
++	for i := range res.Areas {
++		if res.Areas[i].Name == "src/base.go" {
++			baseArea = &res.Areas[i]
++		}
++	}
++	if baseArea == nil {
++		t.Fatalf("expected an area for changed file src/base.go, got %+v", res.Areas)
++	}
++	if !contains(baseArea.Owners, "Dev2") {
++		t.Fatalf("owner must be parsed as \"Dev2\" (digit in name preserved), got %v", baseArea.Owners)
++	}
++	if contains(baseArea.Owners, "Dev") {
++		t.Errorf("owner must not be truncated to \"Dev\", got %v", baseArea.Owners)
++	}
++}
++
+ var _ = sort.Strings

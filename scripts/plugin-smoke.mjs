@@ -32,23 +32,30 @@ function check(cond, msg) {
 }
 
 // ── mock opencode SDK ────────────────────────────────────────────────────────
+// In V1, `tool.schema.string()` etc. return chainable proxies; the V2
+// `wrap()` in each plugin converts the collapsed arg objects to JSON Schema
+// by reading `.schema` (and `.optional` as a flag). The mock mirrors that:
+// each chainable returns an object whose `.schema` is the final JSON Schema
+// and whose `.optional` carries the `.optional()` flag.
 const mockSchema = {
-  string: () => mockSchemaFn("string"),
-  number: () => mockSchemaFn("number"),
-  boolean: () => mockSchemaFn("boolean"),
-  object: () => mockSchemaFn("object"),
-  any: () => mockSchemaFn("any"),
+  string: () => mockSchemaFn({ type: "string" }),
+  number: () => mockSchemaFn({ type: "number" }),
+  boolean: () => mockSchemaFn({ type: "boolean" }),
+  object: () => mockSchemaFn({ type: "object", properties: {} }),
+  any: () => mockSchemaFn({ type: "string" }),
 }
-function mockSchemaFn(kind) {
+function mockSchemaFn(schema, optional) {
   return {
-    describe: () => mockSchemaFn(kind),
-    optional: () => mockSchemaFn(kind),
-    nullable: () => mockSchemaFn(kind),
-    min: () => mockSchemaFn(kind),
-    max: () => mockSchemaFn(kind),
-    array: () => mockSchemaFn(kind),
-    enum: () => mockSchemaFn(kind),
-    union: () => mockSchemaFn(kind),
+    schema,
+    optional,
+    describe: (d) => mockSchemaFn({ ...schema, description: d }, optional),
+    optional: () => mockSchemaFn(schema, true),
+    nullable: () => mockSchemaFn(schema, optional),
+    min: () => mockSchemaFn(schema, optional),
+    max: () => mockSchemaFn(schema, optional),
+    array: () => mockSchemaFn(schema, optional),
+    enum: () => mockSchemaFn(schema, optional),
+    union: () => mockSchemaFn(schema, optional),
   }
 }
 // The plugins call the top-level `tool(def)` and read `tool.schema.*`, so the
@@ -59,10 +66,6 @@ const mockTool = Object.assign((def) => ({
   args: { ...(def.args || {}) },
 }), { schema: mockSchema })
 globalThis.tool = mockTool
-globalThis.opencode = {
-  plugin: { tool: mockTool },
-  schema: mockSchema,
-}
 
 // ── mock HTTP server: answers every /teams, /policy, /observations, /search,
 //    /facts, /sessions, /context, /code path with 200 + a JSON body so the
@@ -73,6 +76,13 @@ const server = http.createServer((req, res) => {
   let body = ""
   req.on("data", (c) => (body += c))
   req.on("end", () => {
+    // /ctx/capture returns a real sandbox_id so the Pi overflow handler can
+    // build its receipt (ADR-0044).
+    if (req.url.split("?")[0] === "/ctx/capture") {
+      res.writeHead(200, { "Content-Type": "application/json" })
+      res.end(JSON.stringify({ sandbox_id: 42, gated: true, pointer: "ctx_search smoke" }))
+      return
+    }
     res.writeHead(200, { "Content-Type": "application/json" })
     res.end(JSON.stringify({ ok: true, echo: { method: req.method, path: req.url, body } }))
   })
@@ -148,6 +158,15 @@ const plugins = [
     kind: "tool",
     sample: { tool: "code_status", args: {} },
   },
+  {
+    file: "plugins/opencode/skillgrid-context.ts",
+    factory: "SkillgridContext",
+    tools: [],
+    kind: "sessionHook", // V2: ctx.session.hook("context", ...)
+    events: [
+      ["experimental.chat.messages.transform", { sessionID: "s1" }, { messages: [] }],
+    ],
+  },
 ]
 
 // ── load each plugin via the node:typescript type-stripping loader ──────────
@@ -158,6 +177,135 @@ async function loadPlugin(file) {
   // Use dynamic import with the experimental type-stripping enabled via the
   // node flag --experimental-strip-types (set on the command line).
   return await import(url)
+}
+
+// ── Pi extension (ADR-0043): a separate harness from the opencode plugin
+//    factory shape. It default-exports a factory taking a mock ExtensionAPI
+//    (pi.registerTool / pi.on); tools use TypeBox-style parameters and
+//    execute(toolCallId, args, signal, onUpdate, ctx) returning AgentToolResult
+//    {content:[{type,text}]}. ────────────────────────────────────────────────
+{
+  const piTools = []
+  const piEvents = []
+  const mockPi = {
+    registerTool: (t) => piTools.push(t),
+    on: (name, handler) => piEvents.push([name, handler]),
+    events: { on: () => () => {}, emit: () => {} },
+  }
+  const piExpectedTools = [
+    "mem_save", "mem_search", "mem_get_observation", "mem_update",
+    "mem_session_summary", "mem_context", "mem_current_project", "mem_doctor",
+    "mem_capture_passive", "fact_add", "fact_search", "fact_forget",
+    "code_status", "code_index", "code_search", "code_read",
+    "ctx_search", "ctx_get", "ctx_stats", "ctx_purge",
+  ]
+  const piExpectedEvents = [
+    "session_start", "before_agent_start", "session_before_compact", "session_shutdown",
+    "tool_result",
+  ]
+
+  console.log("\n# plugins/pi/mnemonic/index.ts")
+  let piMod
+  try {
+    piMod = await loadPlugin("plugins/pi/mnemonic/index.ts")
+    check(true, "extension loads")
+  } catch (err) {
+    check(false, "extension loads: " + err.message)
+    piMod = null
+  }
+  if (piMod) {
+    const factory = piMod.default
+    check(typeof factory === "function", "default-exports factory")
+    if (typeof factory === "function") {
+      try {
+        factory(mockPi)
+        for (const name of piExpectedTools) {
+          check(piTools.some((t) => t.name === name), "registers tool " + name)
+        }
+        for (const name of piExpectedEvents) {
+          check(piEvents.some(([n]) => n === name), "subscribes event " + name)
+        }
+        // ADR-0044: every tool carries a one-line promptSnippet so it shows
+        // in Pi's "Available tools" system-prompt section.
+        check(
+          piTools.every((t) => typeof t.promptSnippet === "string" && t.promptSnippet.length > 0),
+          "every pi tool has a promptSnippet",
+        )
+        // exercise one tool end-to-end against the mock server:
+        // execute(toolCallId, args, signal, onUpdate, ctx)
+        const save = piTools.find((t) => t.name === "mem_save")
+        if (save) {
+          const out = await save.execute("tc1", {
+            title: "t",
+            type: "decision",
+            content: "c",
+          }, undefined, undefined, {
+            cwd: "/tmp",
+            sessionManager: { getSessionId: () => "pi-session-1" },
+          })
+          check(
+            Array.isArray(out?.content) && typeof out.content[0]?.text === "string",
+            "mem_save execute returns AgentToolResult",
+          )
+        }
+        // exercise the before_agent_start handlers: the events module's
+        // prompt-capture handler and the index's protocol-injection handler
+        // both subscribe to the same event (separate files, ADR-0043).
+        const beforeStarts = piEvents.filter(([n]) => n === "before_agent_start").map(([, h]) => h)
+        if (beforeStarts.length > 0) {
+          const opts = { appendSystemPrompt: "" }
+          const event = { messageType: "user", prompt: "fix the login bug", systemPromptOptions: opts }
+          const ctx = { cwd: "/tmp", sessionManager: { getSessionId: () => "pi-session-1" } }
+          for (const handler of beforeStarts) await handler(event, ctx)
+          check(typeof opts.appendSystemPrompt === "string" && opts.appendSystemPrompt.length > 0,
+            "before_agent_start injects Memory Protocol")
+        }
+        // ADR-0044: tool_result overflow replaces oversized output with a
+        // receipt (mock server's /ctx/capture returns a sandbox_id).
+        const toolResults = piEvents.filter(([n]) => n === "tool_result").map(([, h]) => h)
+        if (toolResults.length > 0) {
+          const ctx = { cwd: "/tmp", sessionManager: { getSessionId: () => "pi-session-1" } }
+          check(toolResults.length >= 2, "tool_result has the SDD commit-capture handler")
+          // The SDD commit-capture handler (skillgrid-sdd-events) subscribes
+          // first and returns undefined for every tool_result; the ctx-sandbox
+          // overflow handler is the one that replaces oversized content with a
+          // receipt. Exercise it explicitly, never by subscription index.
+          const overflow = toolResults.find((h) => h.name === "handler")
+          // Await every subscribed tool_result handler first: the SDD
+          // commit-capture handler (skillgrid-sdd-events) also subscribes,
+          // and its await-serialized fetch must not interleave with the
+          // overflow handler's fetch below (mock server, receipt order).
+          for (const handler of toolResults)
+            await handler({ toolName: "bash", input: { command: "ls" }, content: [{ type: "text", text: "ok" }] }, ctx)
+          // Oversized: replaced with a receipt.
+          const big = "x".repeat(5000)
+          const outBig = await overflow(
+            { toolName: "bash", input: { command: "make test" }, content: [{ type: "text", text: big }] },
+            ctx,
+          )
+          check(
+            !!outBig?.content?.[0]?.text?.includes("[skillgrid-ctx]") &&
+              outBig.content[0].text.includes("sandbox_id"),
+            "tool_result overflow returns receipt for oversized output",
+          )
+          // Small: untouched (undefined → pi keeps original content).
+          const outSmall = await overflow(
+            { toolName: "bash", input: { command: "ls" }, content: [{ type: "text", text: "ok" }] },
+            ctx,
+          )
+          check(outSmall === undefined, "tool_result small output passes through")
+          // Our own ctx_* tools: skipped (recursion guard).
+          const outSkip = await overflow(
+            { toolName: "ctx_search", input: { query: "x" }, content: [{ type: "text", text: big }] },
+            ctx,
+          )
+          check(outSkip === undefined, "tool_result skips ctx_* tools")
+        }
+      } catch (err) {
+        check(false, "pi extension wiring: " + err.message)
+      }
+    }
+  }
 }
 
 for (const p of plugins) {
@@ -213,6 +361,77 @@ for (const p of plugins) {
         check(false, "event " + evtType + ": " + err.message)
       }
     }
+  }
+
+  // ADR-0032 V2 port: the V2 default export (Plugin.define) must exist and its
+  // setup must register against the mock V2 ctx without throwing. @opencode/
+  // plugin is absent in plain Node, so Plugin.define is a local stub that
+  // records {id, setup}.
+  if (mod.default && typeof mod.default.setup === "function") {
+    check(typeof mod.default.id === "string" && mod.default.id.length > 0,
+      "v2 entrypoint has an id (" + mod.default.id + ")")
+    try {
+      const added = []
+      const hooked = []
+      const sessionHooks = []
+      const mockCtx = {
+        directory: "/tmp",
+        tool: {
+          transform: async (cb) => {
+            cb({
+              add: (d) => added.push(d.name),
+              namespace: () => {},
+            })
+          },
+          hook: async (name, cb) => {
+            hooked.push([name, cb])
+          },
+        },
+        session: {
+          hook: async (name, cb) => {
+            sessionHooks.push([name, cb])
+          },
+        },
+        event: {
+          subscribe: () => {
+            // Async iterator that yields one session event then ends.
+            const events = [{ type: "session.created", properties: { sessionID: "s1" } }]
+            return {
+              [Symbol.asyncIterator]() {
+                let i = 0
+                return { next: () => (i < events.length ? { value: events[i++], done: false } : { done: true }) }
+              },
+            }
+          },
+        },
+      }
+      await mod.default.setup(mockCtx)
+      if (p.kind === "tool") {
+        const missing = p.tools.filter((t) => !added.includes(t))
+        check(missing.length === 0,
+          "v2 setup registers all tools" + (missing.length ? " (missing: " + missing.join(",") + ")" : ""))
+      } else if (p.kind === "event") {
+        check(hooked.length >= 2, "v2 setup registers tool hooks (before+after)")
+      } else if (p.kind === "eventHandler") {
+        check(true, "v2 setup subscribes to the event stream")
+      } else if (p.kind === "sessionHook") {
+        check(
+          sessionHooks.some(([n]) => n === "context") &&
+            sessionHooks.length === 1,
+          "v2 setup registers the context session hook",
+        )
+        const ctxHook = sessionHooks.find(([n]) => n === "context")
+        if (ctxHook) {
+          // CLM disabled (no config in /tmp): handler must be a no-op.
+          await ctxHook[1]({ messages: [{ info: { role: "user" }, parts: [{ type: "text", text: "hi" }] }] })
+          check(true, "context hook runs (CLM off = no-op)")
+        }
+      }
+    } catch (err) {
+      check(false, "v2 setup: " + err.message)
+    }
+  } else {
+    check(false, "v2 default export (Plugin.define) present")
   }
 }
 

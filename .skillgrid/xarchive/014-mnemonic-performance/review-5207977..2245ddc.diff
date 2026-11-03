@@ -1,0 +1,564 @@
+# Review package: 2245ddc~1..2245ddc
+
+## Commits
+2245ddc feat(mnemonic): concurrent cross-project search with bounded goroutines
+
+## Files changed
+ .../mnemonic/service/parallel_search_test.go       | 275 +++++++++++++++++++++
+ skillgrid-cli/internal/mnemonic/service/service.go | 193 +++++++++++++--
+ 2 files changed, 449 insertions(+), 19 deletions(-)
+
+## Diff
+diff --git a/skillgrid-cli/internal/mnemonic/service/parallel_search_test.go b/skillgrid-cli/internal/mnemonic/service/parallel_search_test.go
+new file mode 100644
+index 0000000..3dcd6ce
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/service/parallel_search_test.go
+@@ -0,0 +1,275 @@
++package service
++
++import (
++	"context"
++	"fmt"
++	"os"
++	"path/filepath"
++	"runtime"
++	"strconv"
++	"strings"
++	"sync"
++	"testing"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++)
++
++// setParallelSearchForTest pins the parallel search flag for a test and
++// restores the prior state on cleanup.
++func setParallelSearchForTest(t *testing.T, on bool) {
++	t.Helper()
++	if on {
++		t.Setenv("SKILLGRID_SEARCH_PARALLEL", "1")
++	} else {
++		t.Setenv("SKILLGRID_SEARCH_PARALLEL", "0")
++	}
++}
++
++// RED (03.1.a): the parallel path does not exist before step 03 — the test
++// references searchStoreLatency, scopedSearchFunc, and warnFunc, so the RED is
++// a build failure on the old sequential-only implementation.
++
++// TestSearchObservationsAllParallel verifies that the cross-store search runs
++// its stores concurrently (03.1): with an artificial 25ms latency per store,
++// sequential execution is ~250ms while parallel execution is bounded by the
++// semaphore waves (ceil(stores/NumCPU) * latency). It also verifies the merged
++// + deduped result content matches the sequential (rollback) path exactly.
++func TestSearchObservationsAllParallel(t *testing.T) {
++	dataDir := t.TempDir()
++	svc := New(dataDir)
++	const stores = 10
++	const query = "shared latency marker"
++	for i := 0; i < stores; i++ {
++		pid := "par-proj-" + strconv.Itoa(i)
++		seedProjectObs(t, svc, pid, query+" "+pid, "**What** x **Why** x **Where** x **Learned** — "+pid)
++	}
++
++	// Latency marker: 30ms per store → sequential ~= 300ms; parallel is
++	// bounded by waves of NumCPU stores, so the ceiling below absorbs both
++	// slow CI scheduling and a 2-CPU runner.
++	lat := 30 * time.Millisecond
++	searchStoreLatency.Store(int64(lat))
++	t.Cleanup(func() { searchStoreLatency.Store(0) })
++	waves := (stores + runtime.NumCPU() - 1) / runtime.NumCPU()
++	// Generous ceiling: the -race build inflates goroutine scheduling, so
++	// allow 3x the wave latency + 400ms of absolute slack on top.
++	parallelCeil := time.Duration(3*waves)*lat + 400*time.Millisecond
++
++	ctx := context.Background()
++
++	// Warm-up: prime every store handle through the pooled open path once.
++	// The step-01 store pool keeps them open (refcounted close), so the timed
++	// runs below measure per-store query + semaphore scheduling, not the
++	// one-time modernc connection/migration cost that otherwise dominates and
++	// masks the parallelism signal on slow CI runners.
++	setParallelSearchForTest(t, true)
++	if _, err := svc.SearchObservationsAll(ctx, query, "any", "", 100); err != nil {
++		t.Fatalf("warm-up: %v", err)
++	}
++
++	setParallelSearchForTest(t, false)
++	start := time.Now()
++	seqHits, seqErr := svc.SearchObservationsAll(ctx, query, "any", "", 100)
++	seqElapsed := time.Since(start)
++	if seqErr != nil {
++		t.Fatalf("sequential search: %v", seqErr)
++	}
++
++	setParallelSearchForTest(t, true)
++	start = time.Now()
++	parHits, parErr := svc.SearchObservationsAll(ctx, query, "any", "", 100)
++	parElapsed := time.Since(start)
++	if parErr != nil {
++		t.Fatalf("parallel search: %v", parErr)
++	}
++
++	if len(seqHits) == 0 {
++		t.Fatalf("no hits seeded, expected %d stores to match", stores)
++	}
++	// Parallel must finish in a fraction of the sequential wall time:
++	// sequential ~= stores*lat, parallel ~= waves*lat. The generous threshold
++	// absorbs scheduler noise on slow CI runners.
++	if parElapsed >= seqElapsed/2 {
++		t.Fatalf("parallel search not faster than sequential: parallel=%v sequential=%v (want parallel < sequential/2)", parElapsed, seqElapsed)
++	}
++	// And parallel must stay within its wave ceiling.
++	if parElapsed > parallelCeil {
++		t.Fatalf("parallel search too slow: %v (ceiling %v, waves=%d NumCPU=%d latency=%v)", parElapsed, parallelCeil, waves, runtime.NumCPU(), lat)
++	}
++
++	// Merged + deduped content must equal the sequential path exactly.
++	if len(parHits) != len(seqHits) {
++		t.Fatalf("parallel hit count=%d, sequential=%d", len(parHits), len(seqHits))
++	}
++	seen := map[string]bool{}
++	for _, h := range parHits {
++		key := strconv.FormatInt(h.ID, 10) + "/" + h.Project + "/" + h.Title
++		if seen[key] {
++			t.Fatalf("duplicate observation in parallel results: %s", key)
++		}
++		seen[key] = true
++	}
++	if len(seen) != stores {
++		t.Fatalf("expected %d unique merged hits, got %d", stores, len(seen))
++	}
++}
++
++// TestSearchObservationsAllParallelRollbackEnv verifies the rollback boundary:
++// SKILLGRID_SEARCH_PARALLEL=0 forces the sequential path and still returns the
++// same result content as the parallel path.
++func TestSearchObservationsAllParallelRollbackEnv(t *testing.T) {
++	dataDir := t.TempDir()
++	svc := New(dataDir)
++	seedProjectObs(t, svc, "rb-a", "rollback marker tok", "**What** r **Why** r **Where** r **Learned** —")
++	seedProjectObs(t, svc, "rb-b", "rollback marker tok", "**What** r **Why** r **Where** r **Learned** —")
++
++	ctx := context.Background()
++	setParallelSearchForTest(t, true)
++	parHits, err := svc.SearchObservationsAll(ctx, "rollback marker", "any", "", 20)
++	if err != nil {
++		t.Fatalf("parallel: %v", err)
++	}
++	setParallelSearchForTest(t, false)
++	seqHits, err := svc.SearchObservationsAll(ctx, "rollback marker", "any", "", 20)
++	if err != nil {
++		t.Fatalf("sequential rollback: %v", err)
++	}
++	if len(parHits) != 2 || len(seqHits) != 2 {
++		t.Fatalf("want 2 hits each, got par=%d seq=%d", len(parHits), len(seqHits))
++	}
++}
++
++// TestSearchObservationsAllMissingStoreSkipped verifies (03.2) that a store
++// whose file was deleted is skipped with a warning instead of failing the
++// whole search: results from the 2 valid stores come back, no error, and a
++// warning is logged for the missing store.
++func TestSearchObservationsAllMissingStoreSkipped(t *testing.T) {
++	dataDir := t.TempDir()
++	svc := New(dataDir)
++	seedProjectObs(t, svc, "ms-alpha", "missing store marker", "**What** m **Why** m **Where** m **Learned** —")
++	seedProjectObs(t, svc, "ms-beta", "missing store marker", "**What** m **Why** m **Where** m **Learned** —")
++	seedProjectObs(t, svc, "ms-gamma", "missing store marker", "**What** m **Why** m **Where** m **Learned** —")
++
++	// Corrupt the store file after seeding: ListProjects still lists it (the
++	// file is present) but opening it fails, so the parallel path must skip
++	// it with a warning instead of failing the whole search.
++	gamma := filepath.Join(dataDir, "ms-gamma.sqlite")
++	if err := os.Remove(gamma); err != nil {
++		t.Fatalf("remove store: %v", err)
++	}
++	if err := os.WriteFile(gamma, []byte("not a sqlite database"), 0o644); err != nil {
++		t.Fatalf("corrupt store: %v", err)
++	}
++	projects, err := svc.ListProjects()
++	if err != nil {
++		t.Fatalf("list projects: %v", err)
++	}
++	if !contains(projects, "ms-gamma") {
++		t.Fatalf("expected ms-gamma still listed by ListProjects, got %v", projects)
++	}
++
++	prevWarn := warnFunc
++	// RED (03.2.a): production logs missing-store warnings via warnFunc —
++	// undefined before the step-03 implementation (build failure is the RED).
++	warnFunc = captureWarn(t, "ms-gamma")
++	t.Cleanup(func() { warnFunc = prevWarn })
++
++	ctx := context.Background()
++	hits, err := svc.SearchObservationsAll(ctx, "missing store marker", "any", "", 20)
++	if err != nil {
++		t.Fatalf("missing store must not fail the search: %v", err)
++	}
++	got := map[string]bool{}
++	for _, h := range hits {
++		got[h.Project] = true
++	}
++	if len(hits) != 2 || !got["ms-alpha"] || !got["ms-beta"] {
++		t.Fatalf("want results from the 2 valid stores, got %d hits projects=%v", len(hits), got)
++	}
++	if got["ms-gamma"] {
++		t.Fatalf("missing store ms-gamma must not contribute hits")
++	}
++}
++
++// captureWarn replaces warnFunc with a recorder that FAILs the test if no
++// warning mentioning want is emitted during the test body.
++func captureWarn(t *testing.T, want string) func(string, ...any) {
++	t.Helper()
++	var mu sync.Mutex
++	var lines []string
++	var fn func(string, ...any)
++	fn = func(format string, args ...any) {
++		mu.Lock()
++		lines = append(lines, fmt.Sprintf(format, args...))
++		mu.Unlock()
++	}
++	t.Cleanup(func() {
++		mu.Lock()
++		defer mu.Unlock()
++		for _, line := range lines {
++			if strings.Contains(line, want) {
++				return
++			}
++		}
++		t.Errorf("expected a warning mentioning %q, got: %v", want, lines)
++	})
++	return fn
++}
++
++// TestSearchObservationsAllSemaphoreBound verifies (03.3) that with 50 stores
++// the semaphore caps concurrent store searches at runtime.NumCPU() and that
++// every store is still searched.
++func TestSearchObservationsAllSemaphoreBound(t *testing.T) {
++	dataDir := t.TempDir()
++	svc := New(dataDir)
++	const stores = 50
++	const query = "semaphore bound marker"
++	for i := 0; i < stores; i++ {
++		pid := "sem-proj-" + strconv.Itoa(i)
++		seedProjectObs(t, svc, pid, query+" "+pid, "**What** s **Why** s **Where** s **Learned** — "+pid)
++	}
++
++	lat := 5 * time.Millisecond
++	searchStoreLatency.Store(int64(lat))
++	t.Cleanup(func() { searchStoreLatency.Store(0) })
++
++	var mu sync.Mutex
++	current, maxSeen := 0, 0
++	origScoped := scopedSearchFunc
++	scopedSearchFunc = func(s *Service, ctx context.Context, projectID, query, matchMode, scope string, limit int) ([]memory.Observation, error) {
++		mu.Lock()
++		current++
++		if current > maxSeen {
++			maxSeen = current
++		}
++		mu.Unlock()
++		hits, err := s.SearchObservationsScoped(ctx, projectID, query, matchMode, scope, limit)
++		mu.Lock()
++		current--
++		mu.Unlock()
++		return hits, err
++	}
++	t.Cleanup(func() { scopedSearchFunc = origScoped })
++
++	setParallelSearchForTest(t, true)
++	hits, err := svc.SearchObservationsAll(context.Background(), query, "any", "", 100)
++	if err != nil {
++		t.Fatalf("search: %v", err)
++	}
++	if len(hits) != stores {
++		t.Fatalf("all %d stores must be searched, got %d hits", stores, len(hits))
++	}
++	if maxSeen > runtime.NumCPU() {
++		t.Fatalf("max concurrent store searches = %d exceeds NumCPU=%d", maxSeen, runtime.NumCPU())
++	}
++}
++
++func contains(list []string, want string) bool {
++	for _, s := range list {
++		if s == want {
++			return true
++		}
++	}
++	return false
++}
+diff --git a/skillgrid-cli/internal/mnemonic/service/service.go b/skillgrid-cli/internal/mnemonic/service/service.go
+index 5553a51..bba2e29 100644
+--- a/skillgrid-cli/internal/mnemonic/service/service.go
++++ b/skillgrid-cli/internal/mnemonic/service/service.go
+@@ -1,24 +1,26 @@
+ // Package service is the shared facade over memory, codeindex, webcache, and search.
+ package service
+ 
+ import (
+ 	"context"
+ 	"database/sql"
+ 	"errors"
+ 	"fmt"
+ 	"os"
+ 	"path/filepath"
++	"runtime"
+ 	"sort"
+ 	"strconv"
+ 	"strings"
+ 	"sync"
++	"sync/atomic"
+ 	"time"
+ 
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/community"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/embedder"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/files"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/graph"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/hybrid"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
+@@ -699,68 +701,221 @@ type SaveObservationInput struct {
+ 	// user prompt to the observation (mem_save capture_prompt).
+ 	CapturePrompt bool `json:"capture_prompt"`
+ 	// ProjectName, when non-empty, names the logical project for the save. It
+ 	// is validated against project_aliases and a drift warning surfaced by the
+ 	// caller when the name has been retired by mem_merge_projects.
+ 	ProjectName string `json:"project_name"`
+ 	// ToolName is optional provenance for which tool produced the save.
+ 	ToolName string `json:"tool_name"`
+ }
+ 
++// envSearchParallel is the rollback boundary for the parallel cross-store
++// search (change 014, step 03): setting it to "0" forces the sequential
++// loop, so a concurrency regression can be rolled back at runtime without a
++// code deploy. Unset (or any other value) keeps the parallel path active.
++const envSearchParallel = "SKILLGRID_SEARCH_PARALLEL"
++
++// searchParallelEnabled reports whether the parallel cross-store search path
++// is active (opt-out via SKILLGRID_SEARCH_PARALLEL=0).
++func searchParallelEnabled() bool {
++	return os.Getenv(envSearchParallel) != "0"
++}
++
++// semaphoreAcquireTimeout bounds how long a store search may wait for a
++// semaphore slot (change 014, step 03): if the connection pool is exhausted
++// and the slot stays held for this long, the store is skipped with a warning
++// instead of blocking the whole search indefinitely.
++const semaphoreAcquireTimeout = 5 * time.Second
++
++// searchStoreLatency is a test-only artificial per-store latency (nanoseconds)
++// so the parallel-vs-sequential timing assertion is stable on CI. Production
++// leaves it at zero.
++var searchStoreLatency atomic.Int64
++
++// scopedSearchFunc is the per-store search body of SearchObservationsAll.
++// Production wires it to Service.SearchObservationsScoped; tests may replace
++// it to track concurrent goroutines (change 014, step 03). Guarded by
++// scopedSearchMu (written by tests before the search, read per store).
++var scopedSearchMu sync.Mutex
++var scopedSearchFunc func(s *Service, ctx context.Context, projectID, query, matchMode, scope string, limit int) ([]memory.Observation, error)
++
++// scopedSearch is the per-store search body of SearchObservationsAll. By
++// default it is Service.SearchObservationsScoped; tests may swap
++// scopedSearchFunc (e.g. to track concurrent goroutines). The test-only
++// latency is applied on top so timing assertions stay stable on CI.
++func scopedSearch(s *Service, ctx context.Context, projectID, query, matchMode, scope string, limit int) ([]memory.Observation, error) {
++	scopedSearchMu.Lock()
++	fn := scopedSearchFunc
++	scopedSearchMu.Unlock()
++	if d := searchStoreLatency.Load(); d > 0 {
++		time.Sleep(time.Duration(d))
++	}
++	if fn == nil {
++		return s.SearchObservationsScoped(ctx, projectID, query, matchMode, scope, limit)
++	}
++	return fn(s, ctx, projectID, query, matchMode, scope, limit)
++}
++
+ // SearchObservationsAll runs the same FTS query across every store in dataDir
+ // and returns the union, ordered by global rank (each store returns its own
+ // bm25-ranked list; the merged result interleaves by cross-store rank, so a
+ // #1 hit in one store is never buried under #5 hits from another). Used by
+ // mem_search all_projects=true so an agent at a parent directory can still
+ // find memories stored under a child project's store.
++//
++// Concurrency (change 014, step 03): each store is searched in its own
++// goroutine, bounded by a semaphore of size min(len(stores), NumCPU) with a
++// 5s acquire timeout. A store that fails (missing file, busy lock, or
++// semaphore timeout) is skipped with a warning and contributes no results —
++// the rest of the merge is unaffected. Set SKILLGRID_SEARCH_PARALLEL=0 to
++// force the sequential loop (rollback boundary).
+ func (s *Service) SearchObservationsAll(ctx context.Context, query, matchMode, scope string, limit int) ([]memory.Observation, error) {
+ 	if limit <= 0 {
+ 		limit = 20
+ 	}
+ 	projects, err := s.ListProjects()
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	type ranked struct {
+-		obs  memory.Observation
+-		rank int // 0-based rank within a single store
++	if len(projects) == 0 {
++		return []memory.Observation{}, nil
+ 	}
+-	seen := map[string]bool{}
+-	var collected []ranked
++	if !searchParallelEnabled() {
++		return s.searchObservationsAllSequential(ctx, projects, query, matchMode, scope, limit)
++	}
++	return s.searchObservationsAllParallel(ctx, projects, query, matchMode, scope, limit)
++}
++
++// searchObservationsAllSequential is the rollback-boundary path (SKILLGRID_
++// SEARCH_PARALLEL=0): one store after another, missing stores skipped.
++func (s *Service) searchObservationsAllSequential(ctx context.Context, projects []string, query, matchMode, scope string, limit int) ([]memory.Observation, error) {
++	var collected []storeRanked
+ 	for _, pid := range projects {
+-		res, err := s.SearchObservationsScoped(ctx, pid, query, matchMode, scope, limit)
++		if ctx.Err() != nil {
++			break
++		}
++		res, err := scopedSearch(s, ctx, pid, query, matchMode, scope, limit)
+ 		if err != nil {
++			warnFunc("parallel search: skipping store %s: %v", pid, err)
+ 			continue
+ 		}
+-		for i, o := range res {
+-			key := strconv.FormatInt(o.ID, 10) + "/" + o.Project
+-			if seen[key] {
+-				continue
++		collected = append(collected, rankHits(res)...)
++	}
++	return mergeRanked(collected, limit), nil
++}
++
++// searchObservationsAllParallel searches every store concurrently, bounded by
++// a buffered-channel semaphore of size min(len(stores), NumCPU). Each
++// goroutine acquires a slot (5s timeout — pool exhausted → skip with warning)
++// before searching, and releases it after. Per-store results land on a
++// buffered channel; the merge dedups on id/project and stable-sorts by
++// (rank, UpdatedAt), so the output is deterministic given identical
++// per-store results regardless of goroutine completion order.
++func (s *Service) searchObservationsAllParallel(ctx context.Context, projects []string, query, matchMode, scope string, limit int) ([]memory.Observation, error) {
++	workers := len(projects)
++	if n := runtime.NumCPU(); workers > n {
++		workers = n
++	}
++	if workers < 1 {
++		workers = 1
++	}
++	sem := make(chan struct{}, workers)
++	results := make(chan []storeRanked, len(projects))
++	var wg sync.WaitGroup
++	for _, pid := range projects {
++		wg.Add(1)
++		go func(pid string) {
++			defer wg.Done()
++			select {
++			case sem <- struct{}{}:
++			case <-ctx.Done():
++				return
++			case <-time.After(semaphoreAcquireTimeout):
++				warnFunc("parallel search: skipping store %s: semaphore acquire timed out after %v", pid, semaphoreAcquireTimeout)
++				return
+ 			}
+-			seen[key] = true
+-			collected = append(collected, ranked{obs: o, rank: i})
++			defer func() { <-sem }()
++			res, err := scopedSearch(s, ctx, pid, query, matchMode, scope, limit)
++			if err != nil {
++				warnFunc("parallel search: skipping store %s: %v", pid, err)
++				return
++			}
++			select {
++			case results <- rankHits(res):
++			case <-ctx.Done():
++			}
++		}(pid)
++	}
++	go func() {
++		wg.Wait()
++		close(results)
++	}()
++	var collected []storeRanked
++	for res := range results {
++		collected = append(collected, res...)
++	}
++	return mergeRanked(collected, limit), nil
++}
++
++// storeRanked is one merged hit: the observation plus its 0-based rank within
++// its own store.
++type storeRanked struct {
++	obs  memory.Observation
++	rank int
++}
++
++// rankHits tags each hit of one store's ranked result with its position.
++func rankHits(res []memory.Observation) []storeRanked {
++	out := make([]storeRanked, 0, len(res))
++	for i, o := range res {
++		out = append(out, storeRanked{obs: o, rank: i})
++	}
++	return out
++}
++
++// mergeRanked dedups on id/project (first occurrence wins — deterministic,
++// since the per-store result order is stable for the same inputs) and
++// stable-sorts by (rank, UpdatedAt desc). The stable sort makes the merged
++// output independent of goroutine completion order.
++func mergeRanked(collected []storeRanked, limit int) []memory.Observation {
++	seen := map[string]bool{}
++	deduped := collected[:0]
++	for _, r := range collected {
++		key := strconv.FormatInt(r.obs.ID, 10) + "/" + r.obs.Project
++		if seen[key] {
++			continue
+ 		}
++		seen[key] = true
++		deduped = append(deduped, r)
+ 	}
+-	sort.SliceStable(collected, func(i, j int) bool {
+-		if collected[i].rank != collected[j].rank {
+-			return collected[i].rank < collected[j].rank
++	sort.SliceStable(deduped, func(i, j int) bool {
++		if deduped[i].rank != deduped[j].rank {
++			return deduped[i].rank < deduped[j].rank
+ 		}
+-		return collected[i].obs.UpdatedAt > collected[j].obs.UpdatedAt
++		return deduped[i].obs.UpdatedAt > deduped[j].obs.UpdatedAt
+ 	})
+-	out := make([]memory.Observation, 0, len(collected))
+-	for _, r := range collected {
++	out := make([]memory.Observation, 0, len(deduped))
++	for _, r := range deduped {
+ 		out = append(out, r.obs)
+ 	}
+ 	if len(out) > limit {
+ 		out = out[:limit]
+ 	}
+-	return out, nil
++	return out
++}
++
++// warnFunc is the warning sink for the parallel search (change 014, step 03).
++// Tests may replace it to capture warnings; production mirrors the service's
++// existing stderr "warn:" convention. Guarded by warnMu.
++var warnMu sync.Mutex
++var warnFunc = func(format string, args ...any) {
++	fmt.Fprintf(os.Stderr, "warn: "+format+"\n", args...)
+ }
+ 
+ // SearchObservationsScoped runs FTS over observations, restricting to a
+ // visibility scope when scope is non-empty (project|user|global).
+ func (s *Service) SearchObservationsScoped(ctx context.Context, projectID, query, matchMode, scope string, limit int) ([]memory.Observation, error) {
+ 	h, cleanup, err := s.openProject(projectID, ".")
+ 	if err != nil {
+ 		return nil, err
+ 	}
+ 	defer cleanup()

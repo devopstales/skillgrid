@@ -74,19 +74,53 @@ function runScript(root, scriptPath, args) {
   };
 }
 
-// Find the active change's tasks.md (newest dir under .skillgrid/specs/).
-function findTasksPath(root) {
+// Find the active change's slug (newest dir under .skillgrid/specs/).
+function findActiveSlug(root) {
   const specsDir = join(root, ".skillgrid", "specs");
   if (!existsSync(specsDir)) return null;
   const dirs = readdirSync(specsDir, { withFileTypes: true })
     .filter((e) => e.isDirectory())
     .map((e) => e.name)
     .sort();
-  for (let i = dirs.length - 1; i >= 0; i--) {
-    const p = join(specsDir, dirs[i], "tasks.md");
-    if (existsSync(p)) return p;
+  return dirs.length ? dirs[dirs.length - 1] : null;
+}
+
+// Find the active change's tasks.md (newest dir under .skillgrid/specs/).
+function findTasksPath(root) {
+  const slug = findActiveSlug(root);
+  if (!slug) return null;
+  const p = join(root, ".skillgrid", "specs", slug, "tasks.md");
+  return existsSync(p) ? p : null;
+}
+
+// Run a repo-level check script (traceability / tdd-evidence) for the active
+// change. These emit JSON (not the drift-guard `SCOPE:` line protocol), so the
+// gate parses the JSON and folds it into a check entry. A run that errors
+// (no acceptance.feature / no TDD table — exit 2) is a finding (exit 1), not
+// an ERROR, so the gate stays informative rather than failing closed.
+function runRepoCheck(root, scriptName, args) {
+  const scriptPath = join(root, "scripts", scriptName);
+  if (!existsSync(scriptPath)) {
+    return { exit: 2, lines: ["script not found"], summary: null };
   }
-  return null;
+  try {
+    const stdout = execFileSync("node", [scriptPath, ...args, root], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let parsed = null;
+    try { parsed = JSON.parse(stdout); } catch {}
+    return {
+      exit: 0,
+      lines: parsed ? [parsed.summary] : stdout.trim().split("\n"),
+      summary: parsed?.summary ?? null,
+      detail: parsed ?? null,
+    };
+  } catch (e) {
+    const msg = ((e.stdout || "") + "\n" + (e.stderr || "")).trim();
+    return { exit: 1, lines: msg ? msg.split("\n") : ["no output"], summary: null, detail: null };
+  }
 }
 
 // Read the base ref from tasks.md → "Chain strategy: X" line.
@@ -157,9 +191,103 @@ function main() {
     result.checks.adr_invariants = { exit: 2, scope: null, lines: ["script not found"] };
   }
 
+  // --- okf-lint (knowledge bundle) ---
+  const okfScript = join(scriptsDir, "okf-lint.mjs");
+  if (existsSync(okfScript)) {
+    const okf = runScript(root, okfScript, []);
+    result.checks.okf_lint = okf;
+    if (okf.scope) result.scopes.okf_lint = okf.scope;
+  } else {
+    result.checks.okf_lint = { exit: 2, scope: null, lines: ["script not found"] };
+  }
+
+  // --- status-banner (spec-zone banner contract) ---
+  const bannerScript = join(root, "scripts", "status-banner.mjs");
+  if (existsSync(bannerScript)) {
+    result.checks.status_banner = runScript(root, bannerScript, ["check"]);
+  } else {
+    result.checks.status_banner = { exit: 2, scope: null, lines: ["script not found"] };
+  }
+
+  // --- traceability (scenario → covering-test matrix, QA Step 5) ---
+  // The counts are exact by construction; the QA skill renders the matrix.
+  {
+    const slug = findActiveSlug(root);
+    if (slug) {
+      result.checks.traceability = runRepoCheck(root, "traceability.mjs", [slug]);
+    } else {
+      result.checks.traceability = { exit: 0, lines: ["skipped: no active change"], summary: null };
+    }
+  }
+
+  // --- tdd-evidence (RED→GREEN commit + test-file validation, QA Step 6) ---
+  {
+    const slug = findActiveSlug(root);
+    if (slug) {
+      result.checks.tdd_evidence = runRepoCheck(root, "tdd-evidence.mjs", [slug]);
+    } else {
+      result.checks.tdd_evidence = { exit: 0, lines: ["skipped: no active change"], summary: null };
+    }
+  }
+
+  // --- review-ledger-lint (ledger schema validation, review-ledger Step 3) ---
+  {
+    const slug = findActiveSlug(root);
+    if (slug) {
+      result.checks.review_ledger = runRepoCheck(root, "review-ledger-lint.mjs", [slug]);
+    } else {
+      result.checks.review_ledger = { exit: 0, lines: ["skipped: no active change"], summary: null };
+    }
+  }
+
+  // --- windows (broken-windows ledger schema, qa auto-append) ---
+  // windows.mjs prints JSON (not the drift-guard SCOPE line), so fold it the
+  // same way as runRepoCheck.
+  {
+    const scriptPath = join(root, "scripts", "windows.mjs");
+    if (existsSync(scriptPath)) {
+      try {
+        const stdout = execFileSync("node", [scriptPath, "check", root], {
+          cwd: root, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"],
+        });
+        let parsed = null;
+        try { parsed = JSON.parse(stdout); } catch {}
+        result.checks.windows = {
+          exit: 0,
+          lines: parsed ? [`${parsed.windows} windows, next ${parsed.nextWindow}`] : stdout.trim().split("\n"),
+          summary: parsed ? `${parsed.windows} windows, ${parsed.findings.length} schema findings` : null,
+          detail: parsed ?? null,
+        };
+        if (parsed && parsed.findings.length > 0) result.checks.windows.exit = 1;
+      } catch (e) {
+        const msg = ((e.stdout || "") + "\n" + (e.stderr || "")).trim();
+        let parsed = null;
+        try { parsed = JSON.parse(e.stdout || ""); } catch {}
+        result.checks.windows = {
+          exit: e.status ?? 1,
+          lines: parsed ? [`${parsed.windows} windows, ${parsed.findings.length} schema findings`] : (msg ? msg.split("\n") : ["no output"]),
+          summary: parsed ? `${parsed.windows} windows, ${parsed.findings.length} schema findings` : null,
+          detail: parsed ?? null,
+        };
+      }
+    } else {
+      result.checks.windows = { exit: 2, lines: ["script not found"], summary: null };
+    }
+  }
+
+  // --- delivery-guard (the four guard lines, subagent-execution contract) ---
+  {
+    const slug = findActiveSlug(root);
+    if (slug) {
+      result.checks.delivery_guard = runRepoCheck(root, "delivery-guard.mjs", [slug]);
+    } else {
+      result.checks.delivery_guard = { exit: 0, lines: ["skipped: no active change"], summary: null };
+    }
+  }
+
   // --- composite scope (worst-scope-wins) ---
   let composite = "COMPLETE";
-  for (const key of ["state_drift", "ship_drift"]) {
+  for (const key of ["state_drift", "ship_drift", "okf_lint"]) {
     const s = result.scopes[key];
     if (s) composite = worstScope(composite, s);
   }

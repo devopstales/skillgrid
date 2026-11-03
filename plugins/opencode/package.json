@@ -1,1 +1,9 @@
-{"type":"module"}
+{
+  "name": "@skillgrid/opencode-plugins",
+  "private": true,
+  "type": "module",
+  "description": "OpenCode V2 plugins for skillgrid (ADR-0032 V2 port). Plain-Node entrypoints; @opencode/plugin resolves at runtime and falls back to a local Plugin.define stub in the repo smoke test.",
+  "scripts": {
+    "test": "node --experimental-strip-types test/memory-prefetch.test.ts"
+  }
+}

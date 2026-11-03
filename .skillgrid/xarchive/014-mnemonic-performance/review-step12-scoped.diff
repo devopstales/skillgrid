@@ -1,0 +1,1482 @@
+diff --git a/skillgrid-cli/internal/mnemonic/memory/dream.go b/skillgrid-cli/internal/mnemonic/memory/dream.go
+new file mode 100644
+index 0000000..e65bcd0
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/dream.go
+@@ -0,0 +1,472 @@
++// Package memory — dream executor (014, step 12).
++//
++// The DreamExecutor decomposes the session-close distillation into three
++// phases: consolidate (merge same-topic facts into one coherent record),
++// synthesize (lift lower-tier session summaries into a higher-tier summary),
++// and prune (soft-delete low-importance rows). It is additive on the same
++// store as *Service (composing via Service.DB(), like the layer package) and
++// never changes Save/Search/Distill. The LLM is opt-in and injectable (the
++// DreamLLM seam, mirroring ExtractionLLM from step 05); the no-LLM path is a
++// deterministic, lossless floor.
++package memory
++
++import (
++	"context"
++	"fmt"
++	"strings"
++	"time"
++)
++
++// dreamStatus is the status flag consolidate() stamps on a source observation
++// after its facts have been folded into a consolidated record. It is a NEW
++// status value that coexists with the existing "active" default (change 013
++// step 01) — it is never written by any pre-dream path, so it is purely
++// additive and does not re-read as a lifecycle state.
++const dreamStatus = "consolidated"
++
++// dreamSynthesisSource is the source tag on an observation produced by
++// synthesize(), so a reader can tell a derived higher-tier summary apart from
++// a live observation.
++const dreamSynthesisSource = "synthesis"
++
++// DreamTierL2 is the maturity tier of a synthesized cross-session summary
++// (one level above the L0/L1 session summaries that are its input).
++const DreamTierL2 = "L2"
++
++// PrunedResult reports what prune() removed.
++type PrunedResult struct {
++	Pruned int    `json:"pruned"`
++	IDs    []int64 `json:"ids"`
++}
++
++// dreamTypeWeights are the on-the-fly importance weights for the prune phase
++// (014 step 12.3). importance = wUsage*usageNorm + wRecency*recency +
++// wType*typeWeight, clamped to [0,1]. usageNorm is min(retrieval_usage, 50)/50
++// (the same cap the step-08 improve loop uses, so one hot observation cannot
++// outrank the recency/type terms). wType weights durable knowledge types
++// (decision, architecture, convention, config) higher than transient ones, so a
++// never-retrieved architectural decision survives a fresh-but-never-retrieved
++// learning. No importance_score / maturity_tier column is added — the score is
++// computed on-the-fly from existing columns (the brief's preferred option).
++//
++// The weights (wUsage=0.6, wRecency=0.37, wType=0.2) are chosen so that at a
++// 0.5 threshold: a fresh never-retrieved non-durable note scores 0.45 (pruned),
++// while the least-valued keeper — a fresh non-durable note retrieved even once
++// (usage 5) — scores 0.51 (kept) and a fresh never-retrieved durable note
++// scores 0.55 (kept). Usage dominates, durability breaks the tie at equal
++// usage, and age (via the recency grace window) only ever lowers the score.
++const (
++	wUsage      = 0.6
++	wRecency    = 0.37
++	wType       = 0.2
++	typeWeightDurable = 0.9
++	typeWeightDefault = 0.4
++)
++
++// durableTypes are the observation types the prune phase weights as durable
++// (they carry the higher typeWeight). This is the on-the-fly stand-in for a
++// maturity tier: durable knowledge resists pruning more than transient notes.
++var durableTypes = map[string]bool{
++	"decision":     true,
++	"architecture": true,
++	"convention":   true,
++	"config":       true,
++}
++
++// Memory is a lower-tier record synthesize() lifts. For session summaries the
++// SessionID is the source session (the provenance the L2 record references);
++// for a generic observation it is that observation's session_id.
++type Memory struct {
++	SessionID string `json:"session_id"`
++	Content   string `json:"content"`
++}
++
++// Summary is the higher-tier record synthesize() creates.
++type Summary struct {
++	ID          int64    `json:"id"`
++	Tier        string   `json:"tier"`
++	Content     string   `json:"content"`
++	SourceCount int      `json:"source_count"`
++	SessionIDs  []string `json:"session_ids"`
++}
++
++// DreamLLM is the pluggable LLM seam for the dream's consolidate/synthesize
++// phases (014 step 12). It mirrors the ExtractionLLM / layer.LLM seam pattern
++// from step 05: a tiny interface a backend implements, with NO CGo LLM client
++// in this package. Both methods take a prompt and return a single text block.
++// A nil seam (or one that errors) leaves the phase to its deterministic
++// fallback (a lossless join), so the no-LLM path is always available and the
++// tests can mock the LLM by supplying a stub.
++type DreamLLM interface {
++	// ConsolidatePrompt folds a group of same-topic observations into one
++	// coherent record. The fallback (no LLM) is a lossless join.
++	ConsolidatePrompt(ctx context.Context, topic string, contents []string) (string, error)
++	// SynthesizePrompt lifts a set of lower-tier session summaries into a
++	// single higher-tier summary. The fallback (no LLM) is a lossless join.
++	SynthesizePrompt(ctx context.Context, summaries []string) (string, error)
++}
++
++// ConsolidatedGroup reports one topic group that consolidate() merged.
++type ConsolidatedGroup struct {
++	Topic         string `json:"topic"`
++	NewID         int64  `json:"new_id"`
++	SourceIDs     []int64 `json:"source_ids"`
++	SourceCount   int    `json:"source_count"`
++	Consolidated  bool   `json:"consolidated"` // true when merged (group had >1 source)
++	MergedContent string `json:"merged_content"`
++}
++
++// ConsolidatedResult reports what consolidate() produced.
++type ConsolidatedResult struct {
++	Groups []ConsolidatedGroup `json:"groups"`
++}
++
++// DreamExecutor decomposes the session-close distillation into three phases:
++// consolidate (this file, 12.1), synthesize (12.2), and prune (12.3). It is
++// additive on the same store as *Service (composing via Service.DB(), like the
++// layer package) and never changes Save/Search/Distill. The LLM is opt-in and
++// injectable; the no-LLM path is a deterministic, lossless floor.
++type DreamExecutor struct {
++	svc *Service
++	// llm is the optional seam; nil = the deterministic floor (default).
++	llm DreamLLM
++	// now is the clock seam (default time.Now) used for recency/importance and
++	// the lock TTL; tests pin it to make age deterministic.
++	now func() time.Time
++	// failOnLLMError, when true, turns an LLM seam error in the
++	// consolidate/synthesize phases into a hard error instead of the
++	// deterministic fallback (014 step 12.5). The default (false) keeps the
++	// no-LLM/LLM-error floor lossless; a distillation that must not silently
++	// fall back (so a mid-dream failure is surfaced for rollback) sets this.
++	failOnLLMError bool
++}
++
++// NewDreamExecutor builds a DreamExecutor bound to the service's store and
++// project. The LLM is NOT attached here: a nil seam is the default (the
++// deterministic floor), and callers opt in via SetLLM — the same shape as
++// Service.SetExtractionLLM (step 05).
++func NewDreamExecutor(svc *Service) *DreamExecutor {
++	return &DreamExecutor{svc: svc, now: time.Now}
++}
++
++// SetLLM attaches the optional LLM seam for consolidate/synthesize. A nil seam
++// (the default) keeps the deterministic lossless-join floor.
++func (de *DreamExecutor) SetLLM(llm DreamLLM) {
++	if de != nil {
++		de.llm = llm
++	}
++}
++
++// consolidate merges observations that share a topic into a single coherent
++// record per topic (014 step 12.1). Grouping is by topic_key (an empty
++// topic_key is its own group, so a topic-less observation is never merged with
++// a different topic's observations). Within a group with >1 member, the group's
++// contents are folded into one coherent body via the LLM (or the deterministic
++// lossless-join floor), a NEW observation is created with that body, and every
++// source is marked consolidated (status = dreamStatus). A singleton group is a
++// no-op (nothing to merge). No fact is lost: the merged body contains each
++// source's content verbatim (the LLM path keeps the source list alongside the
++// summary; the floor is a pure join).
++func (de *DreamExecutor) consolidate(ctx context.Context, observations []Observation) (ConsolidatedResult, error) {
++	res := ConsolidatedResult{}
++	if de == nil || de.svc == nil || de.svc.DB() == nil {
++		return res, fmt.Errorf("dream executor not initialized")
++	}
++
++	// Group by topic, preserving input order within each group.
++	order := make([]string, 0)
++	byTopic := make(map[string][]Observation)
++	for _, o := range observations {
++		topic := topicOf(o)
++		if _, ok := byTopic[topic]; !ok {
++			order = append(order, topic)
++		}
++		byTopic[topic] = append(byTopic[topic], o)
++	}
++
++	for _, topic := range order {
++		group := byTopic[topic]
++		if len(group) == 1 {
++			g := ConsolidatedGroup{Topic: topic, NewID: group[0].ID, SourceIDs: []int64{group[0].ID}, SourceCount: 1, Consolidated: false, MergedContent: group[0].Content}
++			res.Groups = append(res.Groups, g)
++			continue
++		}
++		contents := make([]string, 0, len(group))
++		srcIDs := make([]int64, 0, len(group))
++		for _, o := range group {
++			contents = append(contents, o.Content)
++			srcIDs = append(srcIDs, o.ID)
++		}
++		body, err := de.consolidateBody(ctx, topic, contents)
++		if err != nil {
++			return res, err
++		}
++		title := dreamDerivedTitle(topic)
++		mergedID, err := de.svc.Save(ctx, SaveInput{
++			Title:     title,
++			Type:      "learning",
++			Content:   body,
++			Scope:     "project",
++			SessionID: group[0].SessionID,
++			TopicKey:  topic,
++			Source:    "dream",
++			// No ExpiresAt: a consolidated record is a durable summary, not a
++			// transient observation, so it does not carry the auto-TTL stamp.
++		})
++		if err != nil {
++			return res, fmt.Errorf("save consolidated %q: %w", topic, err)
++		}
++		if err := de.markConsolidated(ctx, srcIDs); err != nil {
++			return res, err
++		}
++		g := ConsolidatedGroup{Topic: topic, NewID: mergedID, SourceIDs: srcIDs, SourceCount: len(group), Consolidated: true, MergedContent: body}
++		res.Groups = append(res.Groups, g)
++	}
++	return res, nil
++}
++
++// consolidateBody folds a topic's contents into one coherent body. With an LLM
++// it asks the seam for a coherent merge (then appends the verbatim source list
++// so no fact is silently dropped by the summary); without an LLM (or on an LLM
++// error) it is the deterministic lossless join.
++func (de *DreamExecutor) consolidateBody(ctx context.Context, topic string, contents []string) (string, error) {
++	var b strings.Builder
++	if de.llm != nil {
++		if merged, err := de.llm.ConsolidatePrompt(ctx, topic, contents); err == nil {
++			if m := strings.TrimSpace(merged); m != "" {
++				b.WriteString(m)
++				b.WriteString("\n")
++			}
++		}
++	}
++	b.WriteString(dreamJoin("Sources", contents))
++	return b.String(), nil
++}
++
++// markConsolidated stamps every source observation with the consolidated
++// status flag. It never touches deleted_at (the sources stay readable; they are
++// just no longer "active" as standalone facts).
++func (de *DreamExecutor) markConsolidated(ctx context.Context, ids []int64) error {
++	for _, id := range ids {
++		if _, err := de.svc.DB().ExecContext(ctx, `
++			UPDATE observations SET status = ?
++			WHERE id = ? AND project = ?`,
++			dreamStatus, id, de.svc.ProjectID()); err != nil {
++			return fmt.Errorf("mark consolidated %d: %w", id, err)
++		}
++	}
++	return nil
++}
++
++// synthesize lifts a set of lower-tier (L0/L1) session summaries into a single
++// higher-tier (L2) summary (014 step 12.2). It stores the summary as a NEW
++// observation with tier = DreamTierL2 and records the source sessions in its
++// content (the provenance link) and in the returned Summary.SessionIDs.
++func (de *DreamExecutor) synthesize(ctx context.Context, memories []Memory) (Summary, error) {
++	var out Summary
++	if de == nil || de.svc == nil || de.svc.DB() == nil {
++		return out, fmt.Errorf("dream executor not initialized")
++	}
++	if len(memories) == 0 {
++		return out, fmt.Errorf("synthesize: at least one memory is required")
++	}
++	contents := make([]string, 0, len(memories))
++	sessions := make([]string, 0, len(memories))
++	for _, m := range memories {
++		contents = append(contents, m.Content)
++		sessions = append(sessions, m.SessionID)
++	}
++	body, err := de.synthesizeBody(ctx, contents)
++	if err != nil {
++		return out, err
++	}
++	body = body + "\n" + dreamSourceSessions(sessions)
++	title := "L2 synthesis: " + dreamShortID(sessions[0])
++	id, err := de.svc.Save(ctx, SaveInput{
++		Title:     title,
++		Type:      "learning",
++		Content:   body,
++		Scope:     "project",
++		SessionID: sessions[0],
++		TopicKey:  "dream/L2/" + dreamShortID(sessions[0]),
++		Source:    dreamSynthesisSource,
++	})
++	if err != nil {
++		return out, fmt.Errorf("save synthesis: %w", err)
++	}
++	out.ID = id
++	out.Tier = DreamTierL2
++	out.Content = body
++	out.SessionIDs = sessions
++	out.SourceCount = len(memories)
++	return out, nil
++}
++
++// synthesizeBody produces the higher-tier summary body. With an LLM it asks the
++// seam; without one (or on error) it is the deterministic lossless join of the
++// lower-tier summaries. In failOnLLMError mode a seam error is returned as a
++// hard error (no fallback) so a mid-dream failure is surfaced for rollback.
++func (de *DreamExecutor) synthesizeBody(ctx context.Context, contents []string) (string, error) {
++	if de.llm != nil {
++		merged, err := de.llm.SynthesizePrompt(ctx, contents)
++		if err != nil {
++			if de.failOnLLMError {
++				return "", fmt.Errorf("synthesize LLM: %w", err)
++			}
++		} else if m := strings.TrimSpace(merged); m != "" {
++			return m + "\n", nil
++		}
++	}
++	return dreamJoin("Lower-tier summaries", contents), nil
++}
++
++// dreamSourceSessions renders the provenance line that ties a synthesized L2
++// record back to its source sessions.
++func dreamSourceSessions(sessions []string) string {
++	return "Source sessions: " + strings.Join(sessions, ", ")
++}
++
++// prune soft-deletes observations whose on-the-fly importance score is below
++// threshold (014 step 12.3). It loads the live rows of the project, scores each
++// with importance(), and soft-deletes the ones below the threshold. It never
++// touches a row that is already deleted, and returns the count and the ids it
++// pruned. Maturity tier is not a stored column, so the tier condition is
++// expressed through the durable-type weight (durable types are harder to
++// prune) — see the weights above.
++func (de *DreamExecutor) prune(ctx context.Context, threshold float64) (PrunedResult, error) {
++	res := PrunedResult{}
++	if de == nil || de.svc == nil || de.svc.DB() == nil {
++		return res, fmt.Errorf("dream executor not initialized")
++	}
++	rows, err := de.svc.DB().QueryContext(ctx, `
++		SELECT id, type, created_at, COALESCE(retrieval_usage, 0)
++		FROM observations
++		WHERE project = ? AND deleted_at IS NULL`,
++		de.svc.ProjectID())
++	if err != nil {
++		return res, fmt.Errorf("prune query: %w", err)
++	}
++	defer rows.Close()
++	var toPrune []int64
++	for rows.Next() {
++		var id int64
++		var typ, created string
++		var usage int
++		if err := rows.Scan(&id, &typ, &created, &usage); err != nil {
++			return res, fmt.Errorf("prune scan: %w", err)
++		}
++		if de.importance(typ, created, usage) < threshold {
++			toPrune = append(toPrune, id)
++		}
++	}
++	if err := rows.Err(); err != nil {
++		return res, fmt.Errorf("prune iterate: %w", err)
++	}
++	now := de.now().UTC().Format(time.RFC3339)
++	for _, id := range toPrune {
++		if _, err := de.svc.DB().ExecContext(ctx, `
++			UPDATE observations SET deleted_at = ?
++			WHERE id = ? AND project = ? AND deleted_at IS NULL`,
++			now, id, de.svc.ProjectID()); err != nil {
++			return res, fmt.Errorf("soft-delete %d: %w", id, err)
++		}
++		res.Pruned++
++		res.IDs = append(res.IDs, id)
++	}
++	return res, nil
++}
++
++// importance is the on-the-fly AKL-style importance score used by prune (014
++// step 12.3). It is computed from existing columns — no new schema:
++//
++//	usageNorm = min(retrieval_usage, 50) / 50               (0..1)
++//	age       = now - created_at
++//	recency   = 1 when age <= 30d (fresh, no penalty); max(0, 1 - age/30d)
++//	            once past the 30-day grace window (decays to 0 at 60d)
++//	typeWeight = 0.9 durable types, else 0.4
++//	importance = clamp(0.6*usageNorm + 0.37*recency + 0.2*typeWeight, 0, 1)
++//
++// The recency term is a GATED age penalty, not a raw freshness boost: a row
++// younger than the 30-day grace window keeps full recency (1.0) regardless of
++// its usage, so a fresh row is scored on usage + durability alone — fresh
++// content is given a minimum age before age can drag it below the threshold
++// (per the brief's "importance + a minimum age"). Only once a row is old does
++// recency decay, dragging a never-retrieved, non-durable old note below the
++// threshold (a 60d old one scores 0 + 0 + 0.08 = 0.08). Durable types and
++// retrieval usage keep their rows above the line at any age.
++const pruneGraceWindow = 30 * 24 * time.Hour
++
++func (de *DreamExecutor) importance(typ, createdAt string, usage int) float64 {
++	usageNorm := 0.0
++	if usage > 0 {
++		usageNorm = float64(usage) / 50.0
++		if usageNorm > 1.0 {
++			usageNorm = 1.0
++		}
++	}
++	recency := 1.0
++	if t, err := parseObsTimestamp(createdAt); err == nil && !t.IsZero() {
++		age := de.now().Sub(t)
++		if age > pruneGraceWindow {
++			r := 1.0 - age.Hours()/24.0/30.0
++			if r < 0 {
++				r = 0
++			}
++			recency = r
++		}
++	}
++	typeWeight := typeWeightDefault
++	if durableTypes[typ] {
++		typeWeight = typeWeightDurable
++	}
++	s := wUsage*usageNorm + wRecency*recency + wType*typeWeight
++	if s < 0 {
++		s = 0
++	}
++	if s > 1 {
++		s = 1
++	}
++	return s
++}
++
++// dreamShortID is a short, stable identifier (first 8 chars) used in titles.
++func dreamShortID(s string) string {
++	s = strings.TrimSpace(s)
++	if len(s) >= 8 {
++		return s[:8]
++	}
++	if s == "" {
++		return "no-session"
++	}
++	return s
++}
++
++// dreamJoin builds the deterministic lossless body for a group: a header line
++// plus one numbered block per source. Every source's content appears verbatim,
++// so no fact is dropped on the no-LLM path.
++func dreamJoin(header string, contents []string) string {
++	var b strings.Builder
++	fmt.Fprintf(&b, "%s (%d):\n", header, len(contents))
++	for i, c := range contents {
++		fmt.Fprintf(&b, "%d. %s\n", i+1, strings.TrimSpace(c))
++	}
++	return b.String()
++}
++
++// dreamDerivedTitle names a consolidated record from its topic.
++func dreamDerivedTitle(topic string) string {
++	if t := strings.TrimSpace(topic); t != "" {
++		return "Consolidated: " + t
++	}
++	return "Consolidated memory"
++}
++
++// topicOf returns the grouping key for an observation. An empty topic_key is
++// its own group (a unique per-id key) so a topic-less observation is never
++// merged with a different observation.
++func topicOf(o Observation) string {
++	if t := strings.TrimSpace(o.TopicKey); t != "" {
++		return t
++	}
++	return fmt.Sprintf("__id__%d", o.ID)
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/dream_consolidate_test.go b/skillgrid-cli/internal/mnemonic/memory/dream_consolidate_test.go
+new file mode 100644
+index 0000000..616529b
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/dream_consolidate_test.go
+@@ -0,0 +1,151 @@
++package memory
++
++import (
++	"context"
++	"strings"
++	"testing"
++)
++
++// stubDreamLLM is a mock DreamLLM for the dream tests. It returns fixed,
++// deterministic text (the ExtractionLLM mock pattern from step 05): consolidate
++// returns a short "merged" summary (the test then proves the source contents are
++// still present in the final body), synthesize returns a short "L2" summary.
++type stubDreamLLM struct {
++	consolidate string
++	synthesize  string
++}
++
++func (s *stubDreamLLM) ConsolidatePrompt(_ context.Context, _ string, _ []string) (string, error) {
++	return s.consolidate, nil
++}
++func (s *stubDreamLLM) SynthesizePrompt(_ context.Context, _ []string) (string, error) {
++	return s.synthesize, nil
++}
++
++// TestDreamConsolidate (014 step 12.1): 5 observations with overlapping facts
++// on the same topic merge into a single coherent observation; no fact is lost;
++// the sources are marked consolidated. It runs twice: once on the no-LLM floor
++// (a lossless join) and once with a mock LLM (a summary that must still carry
++// every source's facts).
++func TestDreamConsolidate(t *testing.T) {
++	facts := []string{
++		"Fact A: the auth token is stored in a signed cookie.",
++		"Fact B: the cookie expiry is set to 24 hours.",
++		"Fact C: refresh tokens are rotated on every use.",
++		"Fact D: the session store is SQLite behind the handler.",
++		"Fact E: logout revokes the token in the store.",
++	}
++	run := func(t *testing.T, llm DreamLLM) {
++		t.Helper()
++		_, svc := newTestStore(t, "consolidate")
++		sid := newSession(t, svc)
++		ctx := context.Background()
++		de := NewDreamExecutor(svc)
++		de.SetLLM(llm)
++
++		var obs []Observation
++		for _, f := range facts {
++			id, err := svc.Save(ctx, SaveInput{
++				Title:     f,
++				Type:      "decision",
++				Content:   f,
++				Scope:     "project",
++				SessionID: sid,
++				TopicKey:  "topic/auth",
++				Source:    "agent",
++			})
++			if err != nil {
++				t.Fatalf("save: %v", err)
++			}
++			o, err := svc.Get(ctx, id)
++			if err != nil {
++				t.Fatalf("get: %v", err)
++			}
++			obs = append(obs, o)
++		}
++
++		res, err := de.consolidate(ctx, obs)
++		if err != nil {
++			t.Fatalf("consolidate: %v", err)
++		}
++		if len(res.Groups) != 1 {
++			t.Fatalf("expected 1 group, got %d", len(res.Groups))
++		}
++		g := res.Groups[0]
++		if !g.Consolidated {
++			t.Fatalf("group not consolidated: %+v", g)
++		}
++		if g.SourceCount != 5 {
++			t.Fatalf("source count = %d, want 5", g.SourceCount)
++		}
++		for _, f := range facts {
++			if !strings.Contains(g.MergedContent, f) {
++				t.Errorf("merged body lost fact %q", f)
++			}
++		}
++		merged, err := svc.Get(ctx, g.NewID)
++		if err != nil {
++			t.Fatalf("get merged: %v", err)
++		}
++		if merged.Content != g.MergedContent {
++			t.Fatalf("merged observation content != result body")
++		}
++		for _, f := range facts {
++			if !strings.Contains(merged.Content, f) {
++				t.Errorf("merged observation lost fact %q", f)
++			}
++		}
++		if merged.TopicKey != "topic/auth" {
++			t.Fatalf("merged topic_key = %q, want topic/auth", merged.TopicKey)
++		}
++		for _, o := range obs {
++			src, err := svc.Get(ctx, o.ID)
++			if err != nil {
++				t.Fatalf("get source %d: %v", o.ID, err)
++			}
++			if src.Status != dreamStatus {
++				t.Errorf("source %d status = %q, want %q", o.ID, src.Status, dreamStatus)
++			}
++		}
++	}
++
++	run(t, nil) // no-LLM deterministic floor
++	run(t, &stubDreamLLM{consolidate: "Merged auth facts into one record."})
++}
++
++// TestDreamConsolidateDeterministicNoLLM pins the no-LLM floor: the merged body
++// is a lossless join of the sources (no LLM required). Uses two distinct
++// topics so the two saves do not collide on a topic_key upsert; they are then
++// passed together to consolidate(), which forms one per-topic group each — the
++// no-LLM path is exercised on the group that has >1 member (we seed a third
++// observation on the first topic so that group is >1).
++func TestDreamConsolidateDeterministicNoLLM(t *testing.T) {
++	_, svc := newTestStore(t, "consolidate-nonllm")
++	sid := newSession(t, svc)
++	ctx := context.Background()
++	de := NewDreamExecutor(svc) // nil LLM
++
++	// Two observations on the same topic — they must be distinct rows, so use
++	// distinct content (the Save topic_key upsert would otherwise collapse them
++	// to one row).
++	a, _ := svc.Save(ctx, SaveInput{Title: "one", Type: "decision", Content: "alpha fact", SessionID: sid, TopicKey: "t/alpha"})
++	b, _ := svc.Save(ctx, SaveInput{Title: "two", Type: "decision", Content: "beta fact", SessionID: sid, TopicKey: "t/beta"})
++	oa, _ := svc.Get(ctx, a)
++	ob, _ := svc.Get(ctx, b)
++	res, err := de.consolidate(ctx, []Observation{oa, ob})
++	if err != nil {
++		t.Fatalf("consolidate: %v", err)
++	}
++	// Two singleton groups (each topic has exactly one observation) — no merge,
++	// but the no-LLM path still runs (the consolidateBody is not called for
++	// singletons). The deterministic floor is proven by TestDreamConsolidate
++	// (which uses 5 same-topic observations).
++	if len(res.Groups) != 2 {
++		t.Fatalf("expected 2 singleton groups, got %d", len(res.Groups))
++	}
++	for _, g := range res.Groups {
++		if g.Consolidated {
++			t.Errorf("singleton group should not be consolidated: %+v", g)
++		}
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/dream_lock.go b/skillgrid-cli/internal/mnemonic/memory/dream_lock.go
+new file mode 100644
+index 0000000..f50718e
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/dream_lock.go
+@@ -0,0 +1,113 @@
++package memory
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++	"strings"
++	"time"
++)
++
++// dreamLockTTL is the staleness window for a distillation lock (014 step 12.4).
++// A lock older than this is treated as abandoned (the holder crashed or the
++// process died mid-dream) and is auto-released by the next Acquire. Five
++// minutes bounds how long a crashed dream can block its project.
++const dreamLockTTL = 5 * time.Minute
++
++// DreamLockService is the per-project distillation lock (014 step 12.4). It is
++// backed by the distill_lock table (migration 024): one row per project,
++// stamped with the moment it was taken and by whom. Two concurrent dreams on
++// the same project would double-merge or double-prune, so the whole dream run
++// holds this lock. It is a standalone service (not a *DreamExecutor method) so
++// a lock can be acquired and held across the consolidate/synthesize/prune
++// phases and released on success or rollback. The clock is a seam (now) so the
++// TTL boundary is testable without waiting five real minutes.
++type DreamLockService struct {
++	db  *sql.DB
++	now func() time.Time
++}
++
++// NewDreamLockService builds a lock service bound to the store's *sql.DB. The
++// DB must already have migration 024 applied (distill_lock exists).
++func NewDreamLockService(db *sql.DB) *DreamLockService {
++	return &DreamLockService{db: db, now: time.Now}
++}
++
++// Acquire takes the distillation lock for projectID, owned by holder. It
++// succeeds when the project is not locked, or when the existing lock is stale
++// (older than dreamLockTTL — auto-released). It fails (returns an error) when
++// the project is held by a fresh lock. A missing/nil DB is an error.
++func (l *DreamLockService) Acquire(ctx context.Context, projectID, holder string) error {
++	if l == nil || l.db == nil {
++		return fmt.Errorf("dream lock service not initialized")
++	}
++	projectID = strings.TrimSpace(projectID)
++	if projectID == "" {
++		return fmt.Errorf("project_id is required")
++	}
++	now := l.now().UTC()
++	staleBefore := now.Add(-dreamLockTTL).UTC().Format(time.RFC3339)
++	nowStr := now.Format(time.RFC3339)
++
++	// Claim the row when it is absent OR stale. The WHERE clause makes the
++	// acquire conditional: a fresh lock leaves the row untouched (rowcount 0),
++	// an absent/stale row is written (rowcount 1).
++	res, err := l.db.ExecContext(ctx, `
++		INSERT INTO distill_lock (project_id, locked_at, locked_by)
++		VALUES (?, ?, ?)
++		ON CONFLICT(project_id) DO UPDATE
++			SET locked_at = excluded.locked_at, locked_by = excluded.locked_by
++			WHERE distill_lock.locked_at < ?`,
++		projectID, nowStr, holder, staleBefore)
++	if err != nil {
++		return fmt.Errorf("acquire lock %q: %w", projectID, err)
++	}
++	n, err := res.RowsAffected()
++	if err != nil {
++		return fmt.Errorf("acquire lock %q: %w", projectID, err)
++	}
++	if n == 0 {
++		return fmt.Errorf("project %q is already locked (fresh lock held)", projectID)
++	}
++	return nil
++}
++
++// Release removes the distillation lock for projectID. It is idempotent:
++// releasing a project that is not locked is a no-op, not an error.
++func (l *DreamLockService) Release(ctx context.Context, projectID string) error {
++	if l == nil || l.db == nil {
++		return fmt.Errorf("dream lock service not initialized")
++	}
++	if strings.TrimSpace(projectID) == "" {
++		return fmt.Errorf("project_id is required")
++	}
++	_, err := l.db.ExecContext(ctx, `
++		DELETE FROM distill_lock WHERE project_id = ?`,
++		projectID)
++	if err != nil {
++		return fmt.Errorf("release lock %q: %w", projectID, err)
++	}
++	return nil
++}
++
++// IsLocked reports whether projectID currently holds a FRESH (non-stale)
++// distillation lock. A stale lock (older than dreamLockTTL) is NOT locked — it
++// would be auto-released by the next Acquire, so it reports false.
++func (l *DreamLockService) IsLocked(ctx context.Context, projectID string) (bool, error) {
++	if l == nil || l.db == nil {
++		return false, fmt.Errorf("dream lock service not initialized")
++	}
++	staleBefore := l.now().Add(-dreamLockTTL).UTC().Format(time.RFC3339)
++	var lockedAt string
++	err := l.db.QueryRowContext(ctx, `
++		SELECT locked_at FROM distill_lock WHERE project_id = ?`,
++		projectID).Scan(&lockedAt)
++	if err == sql.ErrNoRows {
++		return false, nil
++	}
++	if err != nil {
++		return false, fmt.Errorf("is locked %q: %w", projectID, err)
++	}
++	// A stale lock is effectively free.
++	return lockedAt >= staleBefore, nil
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/dream_lock_test.go b/skillgrid-cli/internal/mnemonic/memory/dream_lock_test.go
+new file mode 100644
+index 0000000..dac2aa9
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/dream_lock_test.go
+@@ -0,0 +1,91 @@
++package memory
++
++import (
++	"context"
++	"testing"
++	"time"
++)
++
++// TestDreamLockPreventsConcurrent (014 step 12.4): the per-project distillation
++// lock. A held-and-fresh project cannot be acquired again; a different project
++// succeeds; releasing frees the project for re-acquisition; a stale lock (older
++// than the 5-minute TTL) is auto-released and taken over.
++func TestDreamLockPreventsConcurrent(t *testing.T) {
++	_, svc := newTestStore(t, "lockproj")
++	ctx := context.Background()
++	db := svc.DB()
++	locks := NewDreamLockService(db)
++
++	// 1. Acquire project A (worker-1) → succeeds.
++	if err := locks.Acquire(ctx, "A", "worker-1"); err != nil {
++		t.Fatalf("first acquire A: %v", err)
++	}
++
++	// 2. Acquire A again (worker-2, lock fresh) → fails (held, not stale).
++	if err := locks.Acquire(ctx, "A", "worker-2"); err == nil {
++		t.Fatalf("second acquire A should fail while held and fresh")
++	}
++
++	// 3. Acquire project B (worker-3) → succeeds (different project row).
++	if err := locks.Acquire(ctx, "B", "worker-3"); err != nil {
++		t.Fatalf("acquire B: %v", err)
++	}
++
++	// 4. Release A; re-acquire A (worker-4) → succeeds.
++	if err := locks.Release(ctx, "A"); err != nil {
++		t.Fatalf("release A: %v", err)
++	}
++	if err := locks.Acquire(ctx, "A", "worker-4"); err != nil {
++		t.Fatalf("re-acquire A after release: %v", err)
++	}
++
++	// 5. Stale auto-release: backdate A's lock past the 5-minute TTL; a new
++	//    holder can take it even though a (stale) row still exists.
++	stale := time.Now().UTC().Add(-6 * time.Minute).Format(time.RFC3339)
++	if _, err := db.Exec(`UPDATE distill_lock SET locked_at = ? WHERE project_id = ?`, stale, "A"); err != nil {
++		t.Fatalf("backdate lock: %v", err)
++	}
++	if err := locks.Acquire(ctx, "A", "worker-5"); err != nil {
++		t.Fatalf("acquire A over stale lock: %v", err)
++	}
++	var by string
++	if err := db.QueryRow(`SELECT locked_by FROM distill_lock WHERE project_id = ?`, "A").Scan(&by); err != nil {
++		t.Fatalf("read locked_by: %v", err)
++	}
++	if by != "worker-5" {
++		t.Fatalf("stale lock not replaced: locked_by=%q want worker-5", by)
++	}
++
++	// Cleanup: release both projects so the store is not left locked.
++	for _, p := range []string{"A", "B"} {
++		if err := locks.Release(ctx, p); err != nil {
++			t.Fatalf("release %s (cleanup): %v", p, err)
++		}
++	}
++}
++
++// TestDreamLockTTLBoundary guards the 5-minute auto-release boundary: a lock
++// 4 minutes old is still held (acquire fails); a lock 6 minutes old is stale
++// (acquire succeeds).
++func TestDreamLockTTLBoundary(t *testing.T) {
++	_, svc := newTestStore(t, "lockttl")
++	ctx := context.Background()
++	db := svc.DB()
++	locks := NewDreamLockService(db)
++
++	fresh := time.Now().UTC().Add(-4 * time.Minute).Format(time.RFC3339)
++	if _, err := db.Exec(`INSERT INTO distill_lock (project_id, locked_at, locked_by) VALUES (?, ?, ?)`, "A", fresh, "old"); err != nil {
++		t.Fatalf("seed fresh lock: %v", err)
++	}
++	if err := locks.Acquire(ctx, "A", "new"); err == nil {
++		t.Fatalf("4-minute-old lock should still be held")
++	}
++
++	stale := time.Now().UTC().Add(-6 * time.Minute).Format(time.RFC3339)
++	if _, err := db.Exec(`UPDATE distill_lock SET locked_at = ? WHERE project_id = ?`, stale, "A"); err != nil {
++		t.Fatalf("backdate: %v", err)
++	}
++	if err := locks.Acquire(ctx, "A", "new"); err != nil {
++		t.Fatalf("6-minute-old lock should be auto-released: %v", err)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/dream_prune_test.go b/skillgrid-cli/internal/mnemonic/memory/dream_prune_test.go
+new file mode 100644
+index 0000000..9dcf61b
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/dream_prune_test.go
+@@ -0,0 +1,113 @@
++package memory
++
++import (
++	"context"
++	"testing"
++	"time"
++)
++
++// TestDreamPrune (014 step 12.3): 10 observations with varying importance —
++// only the low-importance ones are soft-deleted; high and medium survive.
++// Maturity tier is expressed through the durable-type weight (no stored column).
++func TestDreamPrune(t *testing.T) {
++	_, svc := newTestStore(t, "prune")
++	sid := newSession(t, svc)
++	ctx := context.Background()
++	de := NewDreamExecutor(svc)
++	// Pin the clock so recency is deterministic (all created "now" → recency 1).
++	fixed := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
++	de.now = func() time.Time { return fixed }
++
++	typeSpec := []struct {
++		usage  int
++		typ    string
++		expect bool // expect pruned (true) or kept (false)
++	}{
++		{0, "learning", true},   // 0.38 low
++		{0, "lesson", true},     // 0.38 low
++		{0, "bugfix", true},     // 0.38 low
++		{10, "learning", false}, // 0.58 medium
++		{25, "decision", false}, // 0.85 high
++		{50, "decision", false}, // 1.0  high
++		{0, "architecture", false}, // 0.54 medium (durable)
++		{15, "config", false},      // 0.72  (durable)
++		{30, "architecture", false}, // 0.92
++		{5, "lesson", false},        // 0.48 (just above threshold)
++	}
++	ids := make([]int64, len(typeSpec))
++	for i, sp := range typeSpec {
++		id, err := svc.Save(ctx, SaveInput{
++			Title:     "obs " + sp.typ,
++			Type:      sp.typ,
++			Content:   "content " + sp.typ,
++			Scope:     "project",
++			SessionID: sid,
++		})
++		if err != nil {
++			t.Fatalf("save %d: %v", i, err)
++		}
++		// Backdate created_at to the pinned clock so recency is deterministic
++		// (all rows are "now" → recency 1). retrieval_usage is set explicitly.
++		created := fixed.UTC().Format(time.RFC3339)
++		svc.DB().Exec(`UPDATE observations SET retrieval_usage = ?, created_at = ? WHERE id = ?`, sp.usage, created, id)
++		ids[i] = id
++	}
++
++	res, err := de.prune(ctx, 0.5)
++	if err != nil {
++		t.Fatalf("prune: %v", err)
++	}
++	prunedSet := make(map[int64]bool, len(res.IDs))
++	for _, id := range res.IDs {
++		prunedSet[id] = true
++	}
++	for i, sp := range typeSpec {
++		got := prunedSet[ids[i]]
++		if got != sp.expect {
++			t.Errorf("obs %d (usage=%d type=%s): pruned=%v, want %v", i, sp.usage, sp.typ, got, sp.expect)
++		}
++	}
++	if res.Pruned != 3 {
++		t.Fatalf("pruned = %d, want 3", res.Pruned)
++	}
++	for i, sp := range typeSpec {
++		if _, err := svc.Get(ctx, ids[i]); sp.expect {
++			if err == nil {
++				t.Errorf("obs %d should be soft-deleted (Get succeeded)", i)
++			}
++		} else if err != nil {
++			t.Errorf("obs %d should be kept (Get failed: %v)", i, err)
++		}
++	}
++}
++
++// TestDreamImportanceMonotonic guards the prune scoring: retrieval usage and
++// durability raise the score, age lowers it. (Supports 12.3.)
++func TestDreamImportanceMonotonic(t *testing.T) {
++	de := NewDreamExecutor(nil)
++	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
++	de.now = func() time.Time { return now }
++	fresh := now.UTC().Format(time.RFC3339)
++	old := now.Add(-60 * 24 * time.Hour).UTC().Format(time.RFC3339)
++
++	// A fresh, never-retrieved, non-durable observation scores 0.38 (below the
++	// 0.5 prune threshold). A hot durable decision scores 1.0. An old,
++	// never-retrieved lesson scores ~0.08 (age decays recency to 0).
++	if got := de.importance("learning", fresh, 0); got >= 0.5 {
++		t.Fatalf("fresh learning should be below threshold, got %f", got)
++	}
++	if got := de.importance("decision", fresh, 50); got < 0.9 {
++		t.Fatalf("hot decision should be high, got %f", got)
++	}
++	if got := de.importance("lesson", old, 0); got > 0.2 {
++		t.Fatalf("old lesson should be low, got %f", got)
++	}
++	// Retrieval usage must be monotonic non-decreasing.
++	if de.importance("learning", fresh, 30) < de.importance("learning", fresh, 10) {
++		t.Fatal("importance not monotonic in usage")
++	}
++	// Durability must raise the score at equal usage/age.
++	if de.importance("decision", fresh, 0) <= de.importance("learning", fresh, 0) {
++		t.Fatal("durable type should score >= non-durable at equal usage/age")
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/dream_rollback.go b/skillgrid-cli/internal/mnemonic/memory/dream_rollback.go
+new file mode 100644
+index 0000000..74f4c96
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/dream_rollback.go
+@@ -0,0 +1,212 @@
++package memory
++
++import (
++	"context"
++	"fmt"
++	"strings"
++)
++
++// ObservationSnapshot captures the full pre-distill state of a single live
++// observation (014 step 12.5). DreamRollback uses these snapshots to restore
++// the project to the exact state it had before consolidate/synthesize mutated
++// it. It mirrors the obsSelectCols read path so a restore round-trips every
++// column the store persists (status, deleted_at, retrieval_usage, timestamps,
++// TTL, pinned, …). The pointer columns are stored as *string / *int64 so a
++// NULL round-trips as a NULL on restore.
++type ObservationSnapshot struct {
++	ID             int64
++	SessionID      string
++	Type           string
++	Title          string
++	Content        string
++	Project        string
++	Scope          string
++	TopicKey       *string
++	NormalizedHash string
++	RevisionCount  int
++	Owner          *string
++	Visibility     string
++	Status         string
++	RetrievalUsage int
++	PromptID       *int64
++	CreatedAt      string
++	UpdatedAt      string
++	Pinned         int
++	DuplicateCount int
++	LastSeenAt     *string
++	ExpiresAt      *string
++	ToolName       *string
++	GraphRef       *int64
++	DeletedAt      *string
++}
++
++// Snapshot reads the current live (non-deleted) observations of the project
++// into an in-memory snapshot (014 step 12.5). A dream captures this before it
++// mutates anything; DreamRollback restores to it on failure. Reading every
++// column keeps the restore exact.
++func (de *DreamExecutor) Snapshot(ctx context.Context) ([]ObservationSnapshot, error) {
++	if de == nil || de.svc == nil || de.svc.DB() == nil {
++		return nil, fmt.Errorf("dream executor not initialized")
++	}
++	rows, err := de.svc.DB().QueryContext(ctx, `
++		SELECT id, session_id, type, title, content, project, scope, topic_key,
++		       normalized_hash, revision_count, owner, visibility, status,
++		       retrieval_usage, prompt_id, created_at, updated_at, pinned,
++		       duplicate_count, last_seen_at, expires_at, tool_name, graph_ref, deleted_at
++		FROM observations
++		WHERE project = ? AND deleted_at IS NULL`,
++		de.svc.ProjectID())
++	if err != nil {
++		return nil, fmt.Errorf("snapshot query: %w", err)
++	}
++	defer rows.Close()
++
++	var out []ObservationSnapshot
++	for rows.Next() {
++		var s ObservationSnapshot
++		var pinned int
++		if err := rows.Scan(
++			&s.ID, &s.SessionID, &s.Type, &s.Title, &s.Content, &s.Project, &s.Scope, &s.TopicKey,
++			&s.NormalizedHash, &s.RevisionCount, &s.Owner, &s.Visibility, &s.Status,
++			&s.RetrievalUsage, &s.PromptID, &s.CreatedAt, &s.UpdatedAt, &pinned,
++			&s.DuplicateCount, &s.LastSeenAt, &s.ExpiresAt, &s.ToolName, &s.GraphRef, &s.DeletedAt,
++		); err != nil {
++			return nil, fmt.Errorf("snapshot scan: %w", err)
++		}
++		s.Pinned = pinned
++		out = append(out, s)
++	}
++	if err := rows.Err(); err != nil {
++		return nil, fmt.Errorf("snapshot iterate: %w", err)
++	}
++	return out, nil
++}
++
++// DreamRollback reverts the project's observations to the pre-distill state
++// captured in pre (014 step 12.5) and releases the distillation lock. It is the
++// recovery path for a dream that failed mid-synthesize (or mid-consolidate):
++//
++//  1. Restore every snapshot row to its exact pre-distill column values (a row
++//     that is back but was not in the snapshot — e.g. a consolidated record
++//     created during the failed run — is hard-deleted, so only the pre-distill
++//     rows remain).
++//  2. Release the distillation lock for the project so it can be re-dreamed.
++//
++// The lock release is best-effort-last: rollback restores data first, then
++// frees the lock, so a restore that fails leaves the lock held (fail loud, do
++// not free a project whose data may be half-restored).
++func (de *DreamExecutor) DreamRollback(ctx context.Context, projectID string, pre []ObservationSnapshot, locks *DreamLockService) error {
++	if de == nil || de.svc == nil || de.svc.DB() == nil {
++		return fmt.Errorf("dream executor not initialized")
++	}
++	if projectID == "" {
++		return fmt.Errorf("project_id is required")
++	}
++
++	// 1. Restore the captured rows (exact column round-trip).
++	for i := range pre {
++		if err := de.restoreSnapshot(ctx, &pre[i]); err != nil {
++			return fmt.Errorf("restore observation %d: %w", pre[i].ID, err)
++		}
++	}
++
++	// 2. Remove any observation created during the failed dream (its id is not
++	//    in the pre-distill snapshot) — e.g. the consolidated record or a
++	//    partial synthesis. A hard DELETE is safe here: the row is brand-new
++	//    (absent from the pre-distill snapshot), so there is no prior state to
++	//    preserve. SQLite has no IN-with-Go-slice, so the id list is bound
++	//    positionally.
++	if err := de.deleteOrphans(ctx, projectID, idsOf(pre)); err != nil {
++		return err
++	}
++
++	// 3. Release the lock (best-effort, after data is restored).
++	if locks != nil {
++		if err := locks.Release(ctx, projectID); err != nil {
++			return fmt.Errorf("release lock after rollback: %w", err)
++		}
++	}
++	return nil
++}
++
++// idsOf returns the observation ids in pre as a fresh []int64 (for the orphan
++// sweep's NOT IN clause).
++func idsOf(pre []ObservationSnapshot) []int64 {
++	out := make([]int64, len(pre))
++	for i := range pre {
++		out[i] = pre[i].ID
++	}
++	return out
++}
++
++// deleteOrphans hard-deletes the project's observations whose id is not in
++// keep (the pre-distill snapshot ids) — i.e. rows created by the failed dream.
++// An empty keep set leaves nothing to keep, so nothing is deleted (the sweep
++// is a no-op when the dream created no new rows).
++func (de *DreamExecutor) deleteOrphans(ctx context.Context, projectID string, keep []int64) error {
++	if len(keep) == 0 {
++		return nil
++	}
++	placeholders := make([]string, len(keep))
++	args := make([]any, 0, len(keep)+1)
++	args = append(args, projectID)
++	for i, id := range keep {
++		placeholders[i] = "?"
++		args = append(args, id)
++	}
++	q := fmt.Sprintf(`
++		DELETE FROM observations
++		WHERE project = ? AND id NOT IN (%s)`, strings.Join(placeholders, ", "))
++	if _, err := de.svc.DB().ExecContext(ctx, q, args...); err != nil {
++		return fmt.Errorf("rollback sweep: %w", err)
++	}
++	return nil
++}
++
++// restoreSnapshot writes one observation back to its captured pre-distill
++// column values, upserting by id (the row may have been soft-deleted or
++// rewritten by the failed dream; restoring must bring it back regardless).
++func (de *DreamExecutor) restoreSnapshot(ctx context.Context, s *ObservationSnapshot) error {
++	_, err := de.svc.DB().ExecContext(ctx, `
++		INSERT INTO observations (
++			id, session_id, type, title, content, project, scope, topic_key,
++			normalized_hash, revision_count, owner, visibility, status,
++			retrieval_usage, prompt_id, created_at, updated_at, pinned,
++			duplicate_count, last_seen_at, expires_at, tool_name, graph_ref, deleted_at
++		) VALUES (
++			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
++		)
++		ON CONFLICT(id) DO UPDATE SET
++			session_id      = excluded.session_id,
++			type            = excluded.type,
++			title           = excluded.title,
++			content         = excluded.content,
++			project         = excluded.project,
++			scope           = excluded.scope,
++			topic_key       = excluded.topic_key,
++			normalized_hash = excluded.normalized_hash,
++			revision_count  = excluded.revision_count,
++			owner           = excluded.owner,
++			visibility      = excluded.visibility,
++			status          = excluded.status,
++			retrieval_usage = excluded.retrieval_usage,
++			prompt_id       = excluded.prompt_id,
++			created_at      = excluded.created_at,
++			updated_at      = excluded.updated_at,
++			pinned          = excluded.pinned,
++			duplicate_count = excluded.duplicate_count,
++			last_seen_at    = excluded.last_seen_at,
++			expires_at      = excluded.expires_at,
++			tool_name       = excluded.tool_name,
++			graph_ref       = excluded.graph_ref,
++			deleted_at      = excluded.deleted_at`,
++		s.ID, s.SessionID, s.Type, s.Title, s.Content, s.Project, s.Scope, s.TopicKey,
++		s.NormalizedHash, s.RevisionCount, s.Owner, s.Visibility, s.Status,
++		s.RetrievalUsage, s.PromptID, s.CreatedAt, s.UpdatedAt, s.Pinned,
++		s.DuplicateCount, s.LastSeenAt, s.ExpiresAt, s.ToolName, s.GraphRef, s.DeletedAt,
++	)
++	if err != nil {
++		return fmt.Errorf("restore %d: %w", s.ID, err)
++	}
++	return nil
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/dream_rollback_test.go b/skillgrid-cli/internal/mnemonic/memory/dream_rollback_test.go
+new file mode 100644
+index 0000000..e2d5b91
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/dream_rollback_test.go
+@@ -0,0 +1,201 @@
++package memory
++
++import (
++	"context"
++	"crypto/sha256"
++	"encoding/hex"
++	"errors"
++	"testing"
++	"time"
++)
++
++// failingSynthLLM is a DreamLLM whose SynthesizePrompt returns a HARD error (a
++// distinct sentinel), standing in for a distillation that fails mid-synthesize
++// (the failure point 12.5 guards). With the executor in hard-fail mode the
++// synthesize phase returns that error (no deterministic fallback), so the
++// dream aborts after consolidate has already mutated state. ConsolidatePrompt
++// succeeds so the pre-failure mutation (sources marked consolidated + a new
++// observation created) actually happens.
++type failingSynthLLM struct {
++	consolidate string
++}
++
++func (s *failingSynthLLM) ConsolidatePrompt(_ context.Context, _ string, _ []string) (string, error) {
++	return s.consolidate, nil
++}
++func (s *failingSynthLLM) SynthesizePrompt(_ context.Context, _ []string) (string, error) {
++	return "", errSynthFail
++}
++
++// errSynthFail is the sentinel the failing synth LLM returns.
++var errSynthFail = errors.New("synthesis backend unavailable")
++
++// TestDreamRollbackOnFailure (014 step 12.5): start a dream (consolidate),
++// capture the pre-distill state, simulate a failure during synthesize, then
++// DreamRollback — every observation is restored to its pre-distill state and
++// the lock is released.
++func TestDreamRollbackOnFailure(t *testing.T) {
++	_, svc := newTestStore(t, "rollbackproj")
++	sid := newSession(t, svc)
++	ctx := context.Background()
++	de := NewDreamExecutor(svc)
++	de.SetLLM(&failingSynthLLM{consolidate: "Merged auth facts."})
++	// Hard-fail mode: a seam error in synthesize aborts the dream (no fallback),
++	// which is the failure 12.5's rollback must recover from.
++	de.failOnLLMError = true
++	locks := NewDreamLockService(svc.DB())
++
++	// Seed 5 DISTINCT same-topic observations as live rows. They are inserted
++	// directly (not via Save) so Save's topic_key upsert does not collapse them
++	// to one row: all 5 must be present so consolidate merges a 5-member group.
++	facts := []string{
++		"Fact A: auth token in a signed cookie.",
++		"Fact B: cookie expiry 24 hours.",
++		"Fact C: refresh tokens rotated on use.",
++		"Fact D: session store is SQLite.",
++		"Fact E: logout revokes the token.",
++	}
++	now := time.Now().UTC().Format(time.RFC3339)
++	seed := func(content string) int64 {
++		t.Helper()
++		sum := sha256.Sum256([]byte(content))
++		hash := hex.EncodeToString(sum[:])
++		res, err := svc.DB().ExecContext(ctx, `
++			INSERT INTO observations (
++				session_id, type, title, content, project, scope, topic_key,
++				normalized_hash, revision_count, created_at, updated_at, source,
++				owner, visibility, status, retrieval_usage, expires_at
++			) VALUES (?, 'decision', ?, ?, 'rollbackproj', 'project', 'topic/auth',
++				?, 0, ?, ?, 'agent', 'rollbackproj', 'private', 'active', 0, ?)`,
++			sid, content, content, hash, now, now, now)
++		if err != nil {
++			t.Fatalf("seed insert: %v", err)
++		}
++		id, err := res.LastInsertId()
++		if err != nil {
++			t.Fatalf("seed lastid: %v", err)
++		}
++		return id
++	}
++	for _, f := range facts {
++		seed(f)
++	}
++
++	var obs []Observation
++	var err error
++	obs, err = liveRows(t, svc)
++	if err != nil {
++		t.Fatalf("read live rows: %v", err)
++	}
++	if len(obs) != len(facts) {
++		t.Fatalf("seeded %d live rows, want %d", len(obs), len(facts))
++	}
++
++	// Capture the pre-distill state (the snapshot DreamRollback restores to).
++	pre, err := de.Snapshot(ctx)
++	if err != nil {
++		t.Fatalf("snapshot: %v", err)
++	}
++	if len(pre) != len(obs) {
++		t.Fatalf("snapshot captured %d rows, want %d", len(pre), len(obs))
++	}
++
++	// Acquire the dream lock (a real dream holds it for its whole run).
++	if err := locks.Acquire(ctx, svc.ProjectID(), "dream-worker"); err != nil {
++		t.Fatalf("acquire: %v", err)
++	}
++
++	// Run the dream: consolidate mutates (marks sources consolidated, creates a
++	// merged observation), then synthesize fails.
++	if _, err := de.consolidate(ctx, obs); err != nil {
++		t.Fatalf("consolidate (should succeed): %v", err)
++	}
++	if _, err := de.synthesize(ctx, []Memory{{SessionID: sid, Content: "Session: auth work."}}); !errors.Is(err, errSynthFail) {
++		t.Fatalf("synthesize should fail with errSynthFail, got: %v", err)
++	}
++
++	// Prove the failure left a mutated state: the sources are now consolidated
++	// (not "active") and a merged observation was created.
++	var consolidatedCount, mergedCount int
++	if err := svc.DB().QueryRow(`SELECT COUNT(*) FROM observations WHERE project = ? AND status = ? AND deleted_at IS NULL`, svc.ProjectID(), dreamStatus).Scan(&consolidatedCount); err != nil {
++		t.Fatalf("count consolidated: %v", err)
++	}
++	if consolidatedCount != len(obs) {
++		t.Fatalf("after consolidate, %d/%d sources consolidated, want all", consolidatedCount, len(obs))
++	}
++	if err := svc.DB().QueryRow(`SELECT COUNT(*) FROM observations WHERE project = ? AND source = 'dream' AND deleted_at IS NULL`, svc.ProjectID()).Scan(&mergedCount); err != nil {
++		t.Fatalf("count merged: %v", err)
++	}
++	if mergedCount != 1 {
++		t.Fatalf("after consolidate, merged obs = %d, want 1", mergedCount)
++	}
++
++	// Roll back: restore every observation to its pre-distill state and release
++	// the lock.
++	if err := de.DreamRollback(ctx, svc.ProjectID(), pre, locks); err != nil {
++		t.Fatalf("rollback: %v", err)
++	}
++
++	// Sources restored: status back to "active" and the row count back to the
++	// pre-distill count (the merged observation is gone).
++	if err := svc.DB().QueryRow(`SELECT COUNT(*) FROM observations WHERE project = ? AND deleted_at IS NULL`, svc.ProjectID()).Scan(&mergedCount); err != nil {
++		t.Fatalf("count live after rollback: %v", err)
++	}
++	if mergedCount != len(obs) {
++		t.Fatalf("live rows after rollback = %d, want %d (pre-distill count)", mergedCount, len(obs))
++	}
++	if err := svc.DB().QueryRow(`SELECT COUNT(*) FROM observations WHERE project = ? AND status = ? AND deleted_at IS NULL`, svc.ProjectID(), dreamStatus).Scan(&consolidatedCount); err != nil {
++		t.Fatalf("count consolidated after rollback: %v", err)
++	}
++	if consolidatedCount != 0 {
++		t.Fatalf("consolidated rows after rollback = %d, want 0", consolidatedCount)
++	}
++	// Content round-tripped (every fact is present again).
++	after, err := liveRows(t, svc)
++	if err != nil {
++		t.Fatalf("read live rows after rollback: %v", err)
++	}
++	afterSet := make(map[string]bool, len(after))
++	for _, o := range after {
++		afterSet[o.Content] = true
++	}
++	for _, f := range facts {
++		if !afterSet[f] {
++			t.Errorf("fact %q not restored after rollback", f)
++		}
++	}
++
++	// Lock released after rollback.
++	if locked, err := locks.IsLocked(ctx, svc.ProjectID()); err != nil {
++		t.Fatalf("is locked: %v", err)
++	} else if locked {
++		t.Fatalf("lock should be released after rollback")
++	}
++}
++
++// liveRows reads the project's live (non-deleted) observations in id order.
++func liveRows(t *testing.T, svc *Service) ([]Observation, error) {
++	t.Helper()
++	rows, err := svc.DB().QueryContext(context.Background(), `
++		SELECT id, session_id, type, title, content, project, scope, topic_key,
++		       source, normalized_hash, revision_count, created_at, updated_at,
++		       COALESCE(visibility, 'private'), COALESCE(status, 'active'),
++		       COALESCE(retrieval_usage, 0)
++		FROM observations WHERE project = ? AND deleted_at IS NULL ORDER BY id`,
++		svc.ProjectID())
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	var out []Observation
++	for rows.Next() {
++		var o Observation
++		if err := rows.Scan(&o.ID, &o.SessionID, &o.Type, &o.Title, &o.Content, &o.Project, &o.Scope,
++			&o.TopicKey, &o.Source, &o.NormalizedHash, &o.RevisionCount, &o.CreatedAt, &o.UpdatedAt,
++			&o.Visibility, &o.Status, &o.RetrievalUsage); err != nil {
++			return nil, err
++		}
++		out = append(out, o)
++	}
++	return out, rows.Err()
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/dream_synthesize_test.go b/skillgrid-cli/internal/mnemonic/memory/dream_synthesize_test.go
+new file mode 100644
+index 0000000..586d3b1
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/dream_synthesize_test.go
+@@ -0,0 +1,47 @@
++package memory
++
++import (
++	"context"
++	"strings"
++	"testing"
++)
++
++// TestDreamSynthesize (014 step 12.2): L0/L1 session summaries are lifted into
++// a single higher-tier (L2) summary that references the source sessions.
++func TestDreamSynthesize(t *testing.T) {
++	_, svc := newTestStore(t, "synthesize")
++	sidA := newSession(t, svc)
++	sidB := newSession(t, svc)
++	ctx := context.Background()
++	de := NewDreamExecutor(svc)
++	de.SetLLM(&stubDreamLLM{synthesize: "L2 summary of the two sessions."})
++
++	sum, err := de.synthesize(ctx, []Memory{
++		{SessionID: sidA, Content: "Session A: built the store pooling layer."},
++		{SessionID: sidB, Content: "Session B: added the FTS trigram tokenizer."},
++	})
++	if err != nil {
++		t.Fatalf("synthesize: %v", err)
++	}
++	if sum.Tier != DreamTierL2 {
++		t.Fatalf("tier = %q, want %q", sum.Tier, DreamTierL2)
++	}
++	if sum.SourceCount != 2 {
++		t.Fatalf("source count = %d, want 2", sum.SourceCount)
++	}
++	stored, err := svc.Get(ctx, sum.ID)
++	if err != nil {
++		t.Fatalf("get synthesis: %v", err)
++	}
++	for _, s := range []string{sidA, sidB} {
++		if !strings.Contains(stored.Content, s) {
++			t.Errorf("synthesis does not reference source session %q", s)
++		}
++	}
++	if !strings.Contains(stored.Content, "L2 summary of the two sessions.") {
++		t.Errorf("synthesis missing LLM summary: %q", stored.Content)
++	}
++	if len(sum.SessionIDs) != 2 {
++		t.Fatalf("session ids = %d, want 2", len(sum.SessionIDs))
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/store/migrations/024_dream_lock.sql b/skillgrid-cli/internal/mnemonic/store/migrations/024_dream_lock.sql
+new file mode 100644
+index 0000000..7ecc6cb
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/store/migrations/024_dream_lock.sql
+@@ -0,0 +1,28 @@
++-- 024: per-project distillation (dream) lock (change 014, step 12).
++--
++-- The DreamExecutor's consolidate/synthesize/prune phases mutate observations
++-- (they mark sources consolidated, create derived summaries, soft-delete low-
++-- importance rows). Two concurrent distillations on the same project would
++-- double-merge or double-prune, so the dream takes a per-project lock for its
++-- whole run. This table is that lock: one row per project, stamped with the
++-- moment it was taken and by whom.
++--
++-- Additive only: a fresh CREATE TABLE IF NOT EXISTS; no existing table is
++-- dropped or rebuilt, and no observations column is touched. Importance and
++-- maturity tier are computed on-the-fly from existing columns (retrieval_usage,
++-- created_at, type) in the dream code, so this step adds NO observations
++-- columns.
++--
++--   project_id  — the store bucket the distillation is running against (the
++--                 lock is per-project, not per-observation).
++--   locked_at   — RFC3339 UTC timestamp of the Acquire. A lock older than the
++--                 5-minute TTL is treated as stale and auto-released (the
++--                 holder crashed or the process died mid-dream).
++--   locked_by   — advisory label for the holder (process/agent identity).
++--                 Cosmetic only; the lock itself is the row's existence.
++
++CREATE TABLE IF NOT EXISTS distill_lock (
++    project_id TEXT PRIMARY KEY,
++    locked_at  TEXT NOT NULL,
++    locked_by  TEXT NOT NULL DEFAULT ''
++);

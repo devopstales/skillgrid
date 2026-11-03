@@ -15,12 +15,13 @@ brainstorming → [research | prototype | sketch] → writing-blueprints → blu
 | Skill | Role |
 |---|---|
 | `using-skillgrid` | Orchestrator — detect, classify, route, resume, user gate |
-| `onboarding` | Bootstrap — detect facts; write `config.yaml` + `state.yaml` + `artifacts/` zone + AGENTS block |
+| `onboarding` | Bootstrap — detect facts; write `config.yaml` + `state.yaml` + the `.skillgrid/` knowledge bundle zone + AGENTS block |
 | `brainstorming` | Requirements gathering via questioning (agent answer-select tool), ADR manifest |
 | `interviewing` | Grilling the user to a shared understanding (drives ADRs) |
 | `acceptance-test-authoring` | BDD `acceptance.feature` — valid Cucumber syntax, traceability oracle |
 | `writing-blueprints` | Technical plan → `blueprint.md`; **must** run critic subagent review + user validation before completion |
-| `architectural-decision-records` | Domain model (terms in `artifacts/`) + ADR authoring / supersession |
+| `architectural-decision-records` | Domain model (terms in `glossary/`) + ADR authoring / supersession |
+| `knowledge-base` | Read/maintain the `.skillgrid/` OKF knowledge base — recall before re-deriving; concepts live in `decisions/`/`invariants/`/`workflows/`/`glossary/`/`reference/` with `index.md`+`log.md`+`reverse-index.md` updated in the same edit |
 | `research` / `code-research` | External fact-finding → `findings.md` (Research section) |
 | `prototype` | Feasibility probe → `findings.md` (Prototype section) |
 | `sketch` | UI/interaction variants → `findings.md` (Sketch section) |
@@ -37,7 +38,7 @@ brainstorming → [research | prototype | sketch] → writing-blueprints → blu
 | `qa` | Quality gate → `report.md` (QA half: test plan + verdict + evidence) |
 | `requesting-code-review` / `parallel-code-review` | Review → `review.md` |
 | `receiving-code-review` | Process findings |
-| `ship` | Integrate to base + move change folder to `archive/` |
+| `ship` | Integrate to base + move change folder to `xarchive/` |
 | `reflect` | **Terminal** — completes `report.md`'s retro half in place in the archive + session close |
 | `environment-retro` | Sub-phase of `reflect` — sweeps the agent *environment* (checks, navigation, steering no-ops, tool economy) and appends `## Environment Retro` to `report.md`; proposes fixes, never edits code |
 | `resume` | Re-orient from durable state at session start / context rot |
@@ -53,31 +54,34 @@ brainstorming → [research | prototype | sketch] → writing-blueprints → blu
 .skillgrid/
 ├── config.yaml                 # REQUIRED static SoT — stack, testing, tracker, rules.*
 ├── state.yaml                  # DYNAMIC project state — phase, current change, progress (updated by pipeline skills)
-├── ASSUMPTIONS.md              # DURABLE root record (committed) — project understanding + in-force ADR index (path only) + locked constraints (the "bible")
-├── ARCHITECTURE.md             # DURABLE root record (committed, created lazily) — live repo/program structure
-├── prototypes/                     # DURABLE feasibility probes (committed, permanently retained) — NNN-name/ dirs (prototype.md + throwaway code)
+├── config.d/                   # machine-local config overrides (indexing.yaml: mnemonic global_memory, web TTLs, excludes)
+├── knowledge/                  # OKF knowledge bundle (OKF v0.2, committed, cross-change) — the wiki
+│   ├── index.md                #   root catalog (okf_version 0.2)
+│   ├── log.md                  #   changelog of knowledge-base writes
+│   ├── reverse-index.md        #   generated path → concept map
+│   ├── ASSUMPTIONS.md          #   DURABLE root record — project understanding + in-force ADR index (path only) + locked constraints (the "bible")
+│   ├── ARCHITECTURE.md         #   DURABLE root record (created lazily) — live repo/program structure
+│   ├── decisions/              #   one ADR per file (04-adr-NNNN-slug.md); ASSUMPTIONS.md stores the path
+│   ├── invariants/             #   locked constraints (05-locked-constraints.md)
+│   ├── glossary/               #   01-business-terms.md + 02-technical-terms.md
+│   ├── reference/              #   PRD (00-prd.md), research (06-…), roadmaps, plans
+│   └── workflows/              #   cross-package flows (sdd-pipeline.md)
+├── prototypes/                 # DURABLE feasibility probes (committed, permanently retained) — NNN-name/ dirs (prototype.md + throwaway code)
 │   └── NNN-name/
-├── artifacts/                  # DURABLE project knowledge (committed, cross-change, topic-indexed)
-│   ├── README.md               #   topic index (what lives here, what's where)
-│   ├── 00-prd.md               #   product requirements (reference; ASSUMPTIONS.md links here)
-│   ├── 01-business-terms.md    #   domain/product/workflow vocabulary (was glossary/business.md)
-│   ├── 02-technical-terms.md   #   architecture/platform/protocol vocabulary (was glossary/technical.md)
-│   ├── 04-adr-NNNN-slug.md     #   one locked decision per file (body). ASSUMPTIONS.md stores the path
-│   └── 06-research-findings.md #   cross-change distilled research (carried forward from specs/)
-├── specs/                      # ACTIVE change artifacts (committed); closed changes move to archive/
+├── specs/                      # ACTIVE change artifacts (committed); closed changes move to xarchive/
 │   └── YYYY-MM-DD-<topic>/
 │       ├── briefing.md         # brainstorming (falsifiable requirements, goal)
 │       ├── acceptance.feature  # BDD scenarios (the traceability oracle)
 │       ├── blueprint.md        # writing-blueprints (technical plan)
 │       ├── tasks.md            # slicing (tickets, waves, dependencies)
-│       ├── adr.md              # ADR Review Manifest (per-change; pointers to artifacts/04-adr-NNNN-slug.md)
+│       ├── adr.md              # ADR Review Manifest (per-change; pointers to decisions/04-adr-NNNN-slug.md)
 │       ├── findings.md         # research/prototype/sketch consolidated evidence (optional)
 │       ├── report.md           # two-phase: qa writes the QA half (test plan + gate verdict + evidence)
 │       └── review.md           # requesting-code-review audit record; read by ship and reflect
-├── archive/                    # CLOSED changes (committed, immutable); created lazily by ship
+├── xarchive/                   # CLOSED changes (committed, immutable); created lazily by ship (renamed from archive/, 2026-10-20)
 │   └── YYYY-MM-DD-<topic>/     #   moved here by ship; reflect completes report.md's retro half in place
-├── sdd/                        # scratch (gitignored)
-│   ├── <plan-basename>/
+├── sdd/                        # LIVE execution scratch (gitignored) — one dir per in-flight plan; holds only active-change ledgers, never a closed change's
+│   ├── <plan-basename>/        # one dir per in-flight plan (the ledger is short-lived; pruned once the change ships)
 │   │   ├── progress.md         # execution ledger
 │   │   ├── briefs/             # implementer briefs
 │   │   └── reviews/            # review packages
@@ -94,8 +98,8 @@ brainstorming → [research | prototype | sketch] → writing-blueprints → blu
 | `report.md` absent, or `## Gate Decision` verdict empty / `PENDING` / still the template placeholder | `qa` |
 | QA verdict filled (`PASS` / `CONCERNS` / `FAIL` / `WAIVED`) and `review.md` missing or its `## Verdict` floor not met | `requesting-code-review` |
 | `review.md` floor met (`met` or `met-with-fixes`) and the folder is still under `specs/` | `receiving-code-review`, then `ship` |
-| Folder in `archive/`, QA verdict filled, retro sections empty | `reflect` |
-| Folder in `archive/` and retro sections filled (`## Acceptance Verdict` already chosen, or `## Lessons` / `## Decisions` non-empty) | none — cycle complete |
+| Folder in `xarchive/`, QA verdict filled, retro sections empty | `reflect` |
+| Folder in `xarchive/` and retro sections filled (`## Acceptance Verdict` already chosen, or `## Lessons` / `## Decisions` non-empty) | none — cycle complete |
 
 Planning-phase detection (which spec files exist, whether `tasks.md` is checked) stays in `skillgrid:resume`. The tail above is the part that used to collapse review and ship into one step.
 
@@ -105,7 +109,7 @@ Planning-phase detection (which spec files exist, whether `tasks.md` is checked)
 
 ### Phase derivation (canonical)
 
-The deepest artifact present in the active change dir determines the phase. This is the single source of truth for routing — `state.yaml`'s `pipeline.current_phase` is a cache, not the source.
+The deepest artifact present in the change dir determines the phase. This is the single source of truth for routing — `state.yaml`'s `changes.<slug>.phase` is a cache, not the source.
 
 | Deepest artifact present | Derived phase | Next skill |
 |---|---|---|
@@ -117,12 +121,12 @@ The deepest artifact present in the active change dir determines the phase. This
 | `tasks.md` + execution signal (`[x]` marks or `sdd/<plan>/progress.md`) | `execution` | `qa` |
 | `report.md` (QA half written) | `qa` | `requesting-code-review` |
 | `review.md` (floor met) | `review` | `receiving-code-review` → `ship` |
-| Folder in `archive/`, retro sections empty | `reflect` | `reflect` |
-| Folder in `archive/`, retro sections filled | `complete` | none |
+| Folder in `xarchive/`, retro sections empty | `reflect` | `reflect` |
+| Folder in `xarchive/`, retro sections filled | `complete` | none |
 
 ### Resume rule
 
-`resume` and `using-skillgrid` MUST derive phase from artifacts first, then cross-check `state.yaml`. If they disagree, **artifacts win** (the spec zone is the deeper truth — same principle as the state-drift-guard). The skill records the disagreement in `state.yaml` `notes:` and patches the phase to match.
+`resume` and `using-skillgrid` MUST derive phase from artifacts first, then cross-check `state.yaml`. If they disagree, **artifacts win** (the spec zone is the deeper truth — same principle as the state-drift-guard). The skill records the disagreement as a dated entry in `.skillgrid/knowledge/log.md` and patches the phase to match. `state.yaml` holds no freeform journal — prose goes to `log.md`, not `state.yaml`.
 
 ### Edit scope guard
 
@@ -132,7 +136,7 @@ For fast-track changes (no `tasks.md`), the edit scope is the set of files named
 
 ### Blocked reasons
 
-If a phase cannot proceed (missing prerequisite, blocked dependency, unmet precondition), the skill MUST record the reason in `state.yaml` `notes:` using the format:
+If a phase cannot proceed (missing prerequisite, blocked dependency, unmet precondition), the skill MUST record the reason in `state.yaml` under the affected change entry using the format:
 
 ```
 blocked(<phase>): <one-line reason>
@@ -167,43 +171,48 @@ This is a bounded routing token, not human prose. The human-readable explanation
 
 **Rule:** every spec dir's `briefing.md` MUST carry the banner. `tasks.md` MUST carry it once slicing produces it. The `pre-commit` zone guard does not check it; the `/plans` endpoint returns `status: ""` when absent (the UI renders "unknown").
 
-## `state.yaml` and `artifacts/`
+## `state.yaml` and the knowledge bundle
 
 Two complementary files, both committed. They are the project-level state and knowledge — distinct from the per-change `specs/` artifacts.
 
-**`state.yaml`** is the *dynamic* project state — where the project is right now. It is updated on every phase transition by the pipeline skill that owns that phase. Schema:
+**`state.yaml`** is the *dynamic* project state — where the project is right now. It is updated on every phase transition by the pipeline skill that owns that phase. Schema (v2, `changes:` map):
 
 ```yaml
-schema: skillgrid/state/v1
-pipeline:
-  current_phase: "execution"          # brainstorming | blueprint | slicing | execution | qa | review | ship | reflect
-  current_change: "2026-09-21-sessions-activity-unification"
-  status: in_progress
+schema: skillgrid/state/v2
+changes:
+  2026-09-21-sessions-activity-unification:
+    phase: "execution"                # spec | blueprint | slicing | execution | qa | review | ship | reflect | complete
+    status: in_progress               # in_progress | blocked | complete
+  2026-10-08-context-orchestrator:
+    phase: "execution"
+    status: in_progress
 progress:
   completed_changes: 18
   blocked_changes: 0
-constraints_ref: .skillgrid/ASSUMPTIONS.md                       # pointer, not a copy
-notes: "Serial development: one change at a time."
+constraints_ref: .skillgrid/knowledge/ASSUMPTIONS.md                       # pointer, not a copy
 ```
 
-- `pipeline.current_change` + `current_phase` are the **resume pointer** — `resume` and `using-skillgrid` read them first, replacing the old "find newest `specs/` dir" heuristic.
-- `constraints_ref` points at `.skillgrid/ASSUMPTIONS.md` (the durable project understanding); operational rules live in AGENTS.md's `### Rules` section, not in `state.yaml`.
-- Onboarding creates it. `ship` increments `completed_changes` and clears `current_change`. `reflect` writes the terminal phase.
+- The `changes:` map is the **resume pointer** — `resume` and `using-skillgrid` read it first, replacing the old "find newest `specs/` dir" heuristic. Each entry's `slug` is the `specs/<slug>/` directory name; `phase` + `status` describe where that change is right now.
+- **Parallel development:** multiple changes may coexist in the map simultaneously. There is no single "active" change — every entry is its own independent pipeline position.
+- `constraints_ref` points at `.skillgrid/knowledge/ASSUMPTIONS.md` (the durable project understanding); operational rules live in AGENTS.md's `### Rules` section, not in `state.yaml`.
+- Onboarding creates it with an empty `changes:` map. `ship` removes the change's entry from the map and increments `completed_changes`. `reflect` sets the entry's `phase: complete`.
+- **Legacy v1** (single `pipeline.current_change` + `current_phase`) is still parsed by the drift guard for backward compatibility, but new writes use v2.
 
-**`ASSUMPTIONS.md`** (root) is the *durable* project understanding — the four tiers `## VERIFIED` / `## INFERRED (HYPOTHESIS)` / `## LOCKED` / `## Open Questions`. `## LOCKED` is **the ADR index only**: one pointer row per in-force decision (a short description + the path to the record). `status`, `supersedes`, and `date` live in the file's frontmatter, not the row. The decision body is the file. Operational rules that are *not* decisions (build toolchain floor, commit format, dependency policy, spec/code zone order) live in AGENTS.md's `### Rules` section, not here.
+**`knowledge/ASSUMPTIONS.md`** is the *durable* project understanding — the four tiers `## VERIFIED` / `## INFERRED (HYPOTHESIS)` / `## LOCKED` / `## Open Questions`. `## LOCKED` is **the ADR index only**: one pointer row per in-force decision (a short description + the path to the record). `status`, `supersedes`, and `date` live in the file's frontmatter, not the row. The decision body is the file. Operational rules that are *not* decisions (build toolchain floor, commit format, dependency policy, spec/code zone order) live in AGENTS.md's `### Rules` section, not here.
 
-**`ARCHITECTURE.md`** (root) is the *live* repo/program structure record — created lazily as the repo takes shape.
+**`knowledge/ARCHITECTURE.md`** is the *live* repo/program structure record — created lazily as the repo takes shape.
 
-**`artifacts/`** holds the product requirements reference (`00-prd.md`), the terms glossary (`01/02-*-terms.md`), cross-change research (`06-research-findings.md`), and one ADR file per locked decision (`04-adr-NNNN-slug.md`). The per-change `findings.md` stays in `specs/` for traceability; `reflect` lifts the durable, still-relevant findings into `artifacts/06-research-findings.md` so they survive the archive.
+The **knowledge bundle** (`.skillgrid/knowledge/`, OKF v0.2) holds the product requirements reference (`knowledge/reference/00-prd.md`), the terms glossary (`knowledge/glossary/01/02-*-terms.md`), cross-change research (`knowledge/reference/06-research-findings.md`), locked constraints (`knowledge/invariants/`), and one ADR file per locked decision (`knowledge/decisions/04-adr-NNNN-slug.md`). The per-change `findings.md` stays in `specs/` for traceability; `reflect` lifts the durable, still-relevant findings into `knowledge/reference/06-research-findings.md` so they survive the archive.
 
 ## Artifact File Paths
 
 | Skill | Creates / updates | Path |
 |---|---|---|
-| onboarding | skeleton | `config.yaml`, `state.yaml`, `ASSUMPTIONS.md`, `ARCHITECTURE.md` (lazy), `artifacts/` zone (README + 06-research-findings), AGENTS block, `.gitignore` |
-| brainstorming | briefing + state (questioning via agent answer-select tool) | `specs/<topic>/briefing.md`, `specs/<topic>/adr.md`, `artifacts/00-prd.md` (new project, or when scope changes), `ASSUMPTIONS.md` (VERIFIED/INFERRED tiers auto-written; LOCKED on user OK), `state.yaml` (phase + current_change) |
-| architectural-decision-records | terms + ADRs | `artifacts/01-business-terms.md`, `artifacts/02-technical-terms.md`, `artifacts/04-adr-NNNN-slug.md`, `ASSUMPTIONS.md` (§ `LOCKED` ADR index pointer row only) |
-| research | findings | `specs/<topic>/findings.md` (`## Research:` section) + durable findings to `artifacts/06-research-findings.md` |
+| onboarding | skeleton | `config.yaml`, `state.yaml`, `knowledge/ASSUMPTIONS.md`, `knowledge/ARCHITECTURE.md` (lazy), knowledge bundle zone (`knowledge/index.md` + `knowledge/reference/06-research-findings`), AGENTS block, `.gitignore` |
+| brainstorming | briefing + state (questioning via agent answer-select tool) | `specs/<topic>/briefing.md`, `specs/<topic>/adr.md`, `knowledge/reference/00-prd.md` (new project, or when scope changes), `knowledge/ASSUMPTIONS.md` (VERIFIED/INFERRED tiers auto-written; LOCKED on user OK), `state.yaml` (`changes.<topic>` entry) |
+| architectural-decision-records | terms + ADRs | `knowledge/glossary/01-business-terms.md`, `knowledge/glossary/02-technical-terms.md`, `knowledge/decisions/04-adr-NNNN-slug.md`, `knowledge/ASSUMPTIONS.md` (§ `LOCKED` ADR index pointer row only) |
+| knowledge-base | concepts + catalogs | `.skillgrid/knowledge/<decisions\|invariants\|workflows\|glossary\|reference>/*.md` + `knowledge/index.md` / `knowledge/log.md` / `knowledge/reverse-index.md` (same-edit rule); ADR numbering stays with `architectural-decision-records` |
+| research | findings | `specs/<topic>/findings.md` (`## Research:` section) + durable findings to `knowledge/reference/06-research-findings.md` |
 | prototype | findings + probe | `prototypes/NNN-name/` (`prototype.md` + throwaway code, permanently retained) + `specs/<topic>/findings.md` (`## Prototype:` section) |
 | sketch | findings | `specs/<topic>/findings.md` (`## Sketch:` section) |
 | writing-blueprints | plan + critic validation + state | `specs/<topic>/blueprint.md`, `state.yaml` (phase → `blueprint` then `blueprint-validated`) |
@@ -213,29 +222,29 @@ notes: "Serial development: one change at a time."
 | execution | progress + state | `sdd/<plan>/progress.md` + `tasks.md` `[x]` marks + session `commit` events, `state.yaml` (phase) |
 | qa | report (QA half) + state | `specs/<topic>/report.md` (test plan + verdict + evidence; retro half left empty), `state.yaml` (phase) |
 | review | findings + state | `specs/<topic>/` (review artifacts), `state.yaml` (phase) |
-| ship | move + state | **moves** `specs/<topic>/` → `archive/YYYY-MM-DD-<topic>/`; `state.yaml` (completed_changes +1, current_change cleared) |
-| reflect | report (retro half) + state + artifacts | completes `archive/YYYY-MM-DD-<topic>/report.md` in place (from `## Final-State Facts` onward); lifts durable findings to `artifacts/06-research-findings.md`; `state.yaml` (terminal phase) + Mnemonic session close |
+| ship | move + state | **moves** `specs/<topic>/` → `xarchive/YYYY-MM-DD-<topic>/`; `state.yaml` (remove `changes.<topic>` entry, completed_changes +1) |
+| reflect | report (retro half) + state + artifacts | completes `xarchive/YYYY-MM-DD-<topic>/report.md` in place (from `## Final-State Facts` onward); lifts durable findings to `knowledge/reference/06-research-findings.md`; `state.yaml` (terminal phase) + Mnemonic session close |
 
 ## Writing Rules
 
 - Create the change folder **before** writing the briefing.
 - READ before UPDATE; never blind overwrite.
 - Commit spec-zone changes (`.skillgrid/specs/`) before code changes — the `pre-commit` zone guard enforces it.
-- ADRs live as `artifacts/04-adr-NNNN-slug.md` — one file per decision, created lazily, global, not per-change. `ASSUMPTIONS.md` § `LOCKED` (the ADR index) stores a short description + the path only; `status`/`supersedes`/`date` live in the file's frontmatter. The per-change `specs/<topic>/adr.md` is a manifest of pointers to those files, never a copy.
-- Terms live in `artifacts/01-business-terms.md` / `02-technical-terms.md` — a glossary and nothing else.
-- `state.yaml` is updated on every phase transition (see the Artifact File Paths table); it is the dynamic counterparty to `artifacts/` (the durable knowledge).
-- `artifacts/` files are committed (durable knowledge that survives across machines); `state.yaml` is committed (the change log of phase transitions lives in its git history).
+- ADRs live as `knowledge/decisions/04-adr-NNNN-slug.md` — one file per decision, created lazily, global, not per-change. `knowledge/ASSUMPTIONS.md` § `LOCKED` (the ADR index) stores a short description + the path only; `status`/`supersedes`/`date` live in the file's frontmatter. The per-change `specs/<topic>/adr.md` is a manifest of pointers to those files, never a copy.
+- Terms live in `knowledge/glossary/01-business-terms.md` / `02-technical-terms.md` — a glossary and nothing else.
+- `state.yaml` is updated on every phase transition (see the Artifact File Paths table); it is the dynamic counterparty to the knowledge bundle (the durable knowledge).
+- Knowledge bundle files are committed (durable knowledge that survives across machines); `state.yaml` is committed (the change log of phase transitions lives in its git history).
 
 ## `state.yaml` drift guard
 
-`.agents/skills/qa/scripts/state-drift-check.mjs` is a **read-only** verifier that compares
+`.agents/skills/verification/qa/scripts/state-drift-check.mjs` is a **read-only** verifier that compares
 `.skillgrid/state.yaml` against the spec zone (`.skillgrid/specs/`) and
 reports a named drift verdict. It does **not** own the write — pipeline
 skills keep writing `state.yaml` directly at every phase transition; the
 guard owns the verification.
 
-**Run:** `node .agents/skills/qa/scripts/state-drift-check.mjs [project-root]` (defaults to
-cwd). ADR: `.skillgrid/artifacts/04-adr-0008-state-drift-guard-js-yaml.md` (Node.js + `yaml` package).
+**Run:** `node .agents/skills/verification/qa/scripts/state-drift-check.mjs [project-root]` (defaults to
+cwd). ADR: `.skillgrid/knowledge/decisions/04-adr-0008-state-drift-guard-js-yaml.md` (Node.js + `yaml` package).
 
 **Exit codes:** 0 clean, 1 drift (prints field/stale/derived table), 2
 usage/parse error.
@@ -244,8 +253,8 @@ usage/parse error.
 
 | Check | Spec-zone source of truth | `state.yaml` field | Drift when |
 |-------|--------------------------|-------------------|------------|
-| 1 phase | deepest present artifact in `specs/<change>/` | `pipeline.current_phase` | field ≠ derived phase |
-| 2 change | active change dir under `specs/` | `pipeline.current_change` | field names a dir that isn't the active one |
+| 1 phase | deepest present artifact in `specs/<change>/` | `changes.<slug>.phase` | map entry's phase ≠ derived phase |
+| 2 presence | every `specs/<slug>/` dir vs `changes:` map keys | `changes:` map | dir exists without a map entry, or map entry names a dir that doesn't exist (bidirectional) |
 | 3 completion | `report.md` shippable verdict (PASS, WAIVED, or CONCERNS+override) on any change dir | `progress.completed_changes` | shippable change exists but counter is 0 |
 
 ### Phase derivation (Check 1)
@@ -261,8 +270,7 @@ matching the Artifact File Paths table above:
 | `tasks.md` + `sdd/<plan>/progress.md` with `[x]` or `tasks.md` with `[x]` | `execution` |
 | `report.md` (any content — qa writes the Test Plan first, then the verdict) | `qa` |
 
-When `current_change` is empty (shipped/idle), no phase is derived — the
-dirs under `specs/` are closed changes, not the active one.
+For v2: every `specs/<slug>/` dir is compared against its `changes.<slug>` entry. A dir with no map entry is presence drift (Check 2); a map entry with no dir is also presence drift. Phase drift (Check 1) is per-entry.
 
 ### Wiring
 
@@ -314,15 +322,16 @@ block — it warns.
 **CLI:** `node scripts/state-lock.mjs <acquire|release|check> [args]`.
 
 **Lifecycle:**
-- **`brainstorming`** (acquire): after setting `current_change`, runs
+- **`brainstorming`** (acquire): after adding the `changes.<topic>` entry, runs
   `acquire <topic> [session-id]`. Exit 1 (active lock for a different
   change) → surface the conflict warning (advisory). Exit 0 → continue.
-- **`ship`** (release): after clearing `current_change`, runs
+- **`ship`** (release): after removing the `changes.<topic>` entry, runs
   `release <topic>`. Always exit 0.
 - **Stale threshold:** 2 hours. A stale lock is overwritten with a warning.
 
-**Rule:** advisory only. The serial rule ("one change at a time") is a human
-decision; the lock surfaces conflicts without enforcing them.
+**Rule:** advisory only. With parallel development, the lock warns about
+concurrent sessions touching the *same* change; different changes can
+proceed independently.
 
 ## Byte budget (SKILL.md size ratchet)
 
@@ -331,7 +340,7 @@ the budget JSON records the last-known size.
 
 **Budget file:** `.agents/skills/_shared/skill-size-budget.json` — `{ ceiling, tiers, skills }`.
 
-**CLI:** `node .agents/skills/qa/scripts/skill-size-budget.mjs check [--write] [project-root]`.
+**CLI:** `node .agents/skills/verification/qa/scripts/skill-size-budget.mjs check [--write] [project-root]`.
 
 **Tiers:** `standard` 22KB (default), `large` 38KB, `xl` 40KB. Skills
 explicitly assigned a tier in the `tiers` map; unlisted skills use `standard`.
@@ -352,7 +361,7 @@ integration, while the spec is still the contract. The anticipated set is
 the union of `tasks.md` Files column and `blueprint.md` Global Constraints
 paths.
 
-**CLI:** `node .agents/skills/qa/scripts/ship-drift-check.mjs check <base-ref>
+**CLI:** `node .agents/skills/verification/qa/scripts/ship-drift-check.mjs check <base-ref>
 --anticipated <dir>... [--exclude <glob>...] [project-root]`.
 
 **Default excludes:** `*.lock`, `*.sum`, `package-lock.json`, `yarn.lock`,
@@ -368,13 +377,14 @@ cheap to fix (before integration).
 
 ## Archive
 
-On completion, **`ship`** moves the change folder out of the active `specs/` zone into a top-level, immutable `archive/` zone:
+On completion, **`ship`** moves the change folder out of the active `specs/` zone into the top-level, immutable `xarchive/` zone:
 
 ```
-.skillgrid/specs/YYYY-MM-DD-<topic>/  ──►  .skillgrid/archive/YYYY-MM-DD-<topic>/
+.skillgrid/specs/YYYY-MM-DD-<topic>/  ──►  .skillgrid/xarchive/YYYY-MM-DD-<topic>/
 ```
 
-- **`specs/` is active-only.** A folder present in `specs/` is in-flight; a folder in `archive/` is closed. The date prefix in the folder name is preserved as the archive key.
+- **`specs/` is active-only.** A folder present in `specs/` is in-flight; a folder in `xarchive/` is closed. The date prefix in the folder name is preserved as the archive key.
+- **`xarchive/` is the single closed sink for the spec zone** — the only place a closed change's committed artifacts (briefing, blueprint, tasks, report, review) live. It is distinct from `sdd/`, which is **live execution scratch** (the Execution Ledger, ADR-0020): `sdd/<plan>/` holds the in-flight `progress.md` / briefs / reviews, is gitignored, and is ephemeral — `git clean -fdx` is the assumed disposal. A closed change's ledger is **not moved into `xarchive/`**; it simply stops being live. The two are separate sinks for separate lifetimes — never mix them, and never leave a closed change's ledger in `sdd/`.
 - **The move is mechanical** (shell `git mv` / `mv` only, never model Read→Write) with a **`diff -r` readback** against a pre-move snapshot — an empty diff is the only passing evidence. See `ship` (Step 7).
 - **`reflect`** then runs read-only over the archived folder: it completes `report.md`'s retro half in place (from `## Final-State Facts` onward — integration evidence + retrospective + archive summary) and owns the Mnemonic session close.
-- `archive/` is created lazily by `ship` if absent. Archived changes are **never deleted or modified** after the move (except the retro sections of `report.md`, completed in place by `reflect` after the move — the QA half is pre-move and included in the `diff -r` readback; the retro half is appended after).
+- `xarchive/` is created lazily by `ship` if absent. Archived changes are **never deleted or modified** after the move (except the retro sections of `report.md`, completed in place by `reflect` after the move — the QA half is pre-move and included in the `diff -r` readback; the retro half is appended after).

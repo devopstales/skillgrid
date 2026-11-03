@@ -1,0 +1,62 @@
+=== commits ===
+2324c38e docs(onboarding): finish with skillgrid init
+=== stat ===
+ .agents/skills/lifecycle/onboarding/SKILL.md |  6 ++++++
+ skillgrid-cli/cmd/skillgrid/init_cmd_test.go | 30 ++++++++++++++++++++++++++++
+ 2 files changed, 36 insertions(+)
+=== diff ===
+diff --git a/.agents/skills/lifecycle/onboarding/SKILL.md b/.agents/skills/lifecycle/onboarding/SKILL.md
+index daaade90..d899f2b1 100644
+--- a/.agents/skills/lifecycle/onboarding/SKILL.md
++++ b/.agents/skills/lifecycle/onboarding/SKILL.md
+@@ -230,6 +230,12 @@ If the user corrects anything, use their value. If they say "looks good" or "yes
+ - `git add .skillgrid/config.yaml` + `.skillgrid/state.yaml` + the `.skillgrid/artifacts/` files + the AGENTS.md file
+ - `git commit -m "chore: add Skillgrid config + state + artifacts"`
+ 
++**9. Project init (deterministic finish):**
++- Run `skillgrid init` from the project root (add `--force` only if the user asked to rebuild the preamble).
++- If the user named extra documentation paths, pass each as `--docs <path>`.
++- Do not walk files or call `mem_save` for docs here — the CLI owns ingest and the code index.
++- If `skillgrid` is not on PATH, tell the user to install the CLI and re-run `skillgrid init`; continue the rest of onboarding.
++
+ ### Step 4: Verify
+ 
+ Show the user:
+diff --git a/skillgrid-cli/cmd/skillgrid/init_cmd_test.go b/skillgrid-cli/cmd/skillgrid/init_cmd_test.go
+index 2f6152cd..902f88f5 100644
+--- a/skillgrid-cli/cmd/skillgrid/init_cmd_test.go
++++ b/skillgrid-cli/cmd/skillgrid/init_cmd_test.go
+@@ -284,3 +284,33 @@ func TestInitIndexFailureIsNonFatal(t *testing.T) {
+ 		t.Fatalf("Errors = %q, want index failed", joined)
+ 	}
+ }
++
++func TestOnboardingSkillCallsSkillgridInit(t *testing.T) {
++	body, err := os.ReadFile(onboardingSkillPath(t))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !bytes.Contains(body, []byte("skillgrid init")) {
++		t.Fatal("onboarding must name skillgrid init")
++	}
++}
++
++func TestOnboardingSkillHasNoSecondIngest(t *testing.T) {
++	body, err := os.ReadFile(onboardingSkillPath(t))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if bytes.Contains(body, []byte("walk docs/ and mem_save each file")) {
++		t.Fatal("skill must not re-specify ingest")
++	}
++}
++
++func onboardingSkillPath(t *testing.T) string {
++	t.Helper()
++	// repo root: this file is skillgrid-cli/cmd/skillgrid
++	p := filepath.Join("..", "..", "..", ".agents", "skills", "lifecycle", "onboarding", "SKILL.md")
++	if _, err := os.Stat(p); err != nil {
++		t.Fatal(err)
++	}
++	return p
++}

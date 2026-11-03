@@ -5,7 +5,7 @@ status: ready-for-agent
 assignee: []
 created_date: '2026-10-06 13:44'
 labels: []
-milestone: m-6
+milestone: 2026-10-06-kanban-milestones
 dependencies:
   - TASK-047
 priority: medium

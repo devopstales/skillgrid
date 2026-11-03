@@ -7,7 +7,7 @@ created_date: '2026-10-02 13:11'
 updated_date: '2026-10-06 08:35'
 labels:
   - webui-rewrite
-milestone: m-2
+milestone: 2026-10-02-mnemonic-webui-rewrite
 dependencies: []
 references:
   - .skillgrid/specs/2026-10-02-mnemonic-webui-rewrite/briefing.md

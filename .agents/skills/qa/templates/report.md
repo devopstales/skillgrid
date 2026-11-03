@@ -1,6 +1,6 @@
 # Report — <feature>
 
-> Change: `.skillgrid/specs/YYYY-MM-DD-<topic>/` (moves to `.skillgrid/archive/YYYY-MM-DD-<topic>/` at ship)
+> Change: `.skillgrid/specs/YYYY-MM-DD-<topic>/` (moves to `.skillgrid/xarchive/YYYY-MM-DD-<topic>/` at ship)
 > Generated: <ISO 8601 timestamp> (qa)
 > Gate: PASS / CONCERNS / FAIL / WAIVED
 >
@@ -218,10 +218,27 @@
 | P0 pass rate | <run P0 tests> | <quality.p0_pass_rate> | <actual %> | PASS / FAIL |
 | P1 pass rate | <run P1 tests> | <quality.p1_pass_rate> | <actual %> | PASS / FAIL |
 | Trivy security | <security.trivy.command or "not configured"> | <security.trivy.fail_on or "report only"> | <n findings ≥ fail_on> | PASS / FAIL / N/A |
+| Duplication (jscpd) | <duplication.command or "not configured"> | <duplication.fail_on or "report only"> | <actual % of changed files> | PASS / FAIL / N/A |
 
 **Quality config status:** <configured / not configured — using defaults>
 
 **Dead code (if configured):** <n findings — SUGGESTION> / N/A
+
+**Duplication (if configured):** scoped to <changed-files / duplication.target>; <n clones · P%> — advisory (SUGGESTION) unless `duplication.fail_on` > 0.
+
+## Duplication
+
+> Per `skillgrid:qa` Step 9 (Duplication / jscpd). Scoped to the changed files.
+> Advisory by default; a clone introduced by this change is a SUGGESTION (FAIL only if `duplication.fail_on` > 0 and exceeded).
+
+**Command:** `npx jscpd --reporters ai <flags> <changed-files>` (or N/A — <reason: command empty / change too small>)
+
+**Result:** <n clones · P% duplication> — scope: <COMPLETE / TRUNCATED / n/a>
+
+| Files (lines) | Kind | Introduced? | Severity | Note |
+|---------------|------|-------------|----------|------|
+| <a.go:10-25 ~ b.go:42-57> | exact | yes / no / pre-existing | SUGGESTION | <refactor hint or "looks intentional"> |
+
 
 ## State Drift
 
@@ -233,7 +250,7 @@
 
 | Field | Stale (state.yaml) | Derived (spec zone) |
 |-------|-------------------|---------------------|
-| <pipeline.current_phase> | <stale> | <derived> |
+| <changes.<slug>.phase> | <stale> | <derived> |
 
 **Fix applied:** <state.yaml patched to match / no drift / parse error: <detail>>
 
@@ -377,6 +394,25 @@ MISSING_RED / UNREADABLE, the floor caps the gate accordingly.>
 
 - <item + path to resolution> (or "None")
 
+## Web-cache promotion candidates
+
+<!-- Written by `skillgrid:reflect` Step 3.7 (retro half), not qa. Proposals, never
+     writes: one card per selected web_cache entry. No concept file is written by
+     the promotion itself — a card becomes a concept only on explicit human
+     confirmation, and concept + index/log entries land in the same edit.
+     Unconfirmed candidates expire harmlessly. -->
+
+<!-- If no entries were selected, replace this section with one line:
+     "No web-cache promotion candidates — web cache disabled/empty." -->
+
+### Candidate: <title, from the cache entry>
+
+- **Concept home:** <where the concept would live, e.g. `decisions/` or `invariants/`>
+- **Why:** <why this is worth promoting — reusable across changes, not true for this change alone>
+- **sources:** <the cache source — context7 | exa | deepwiki | fetch | manual>
+- **Claim:** <the checkable claim, one falsifiable statement>
+- **Cache id + URL:** <id> · <url>
+
 ## Prior-Change Follow-Through
 
 | Prior open item (from previous archived change) | Addressed by this change? | Evidence |
@@ -385,7 +421,7 @@ MISSING_RED / UNREADABLE, the floor caps the gate accordingly.>
 
 ## Move Evidence (from ship context)
 
-**From:** `.skillgrid/specs/YYYY-MM-DD-<topic>/` → **To:** `.skillgrid/archive/YYYY-MM-DD-<topic>/`
+**From:** `.skillgrid/specs/YYYY-MM-DD-<topic>/` → **To:** `.skillgrid/xarchive/YYYY-MM-DD-<topic>/`
 **`diff -r` readback:** <empty → PASS | verbatim output → FAIL>
 
 ## Overrides / Waivers / Contradictions

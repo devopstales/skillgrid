@@ -1,0 +1,761 @@
+diff --git a/skillgrid-cli/internal/mnemonic/config/load.go b/skillgrid-cli/internal/mnemonic/config/load.go
+index 817842e..794489f 100644
+--- a/skillgrid-cli/internal/mnemonic/config/load.go
++++ b/skillgrid-cli/internal/mnemonic/config/load.go
+@@ -103,6 +103,22 @@ type Importance struct {
+ 	TierThresholds TierThresholdsConfig
+ }
+ 
++// Federated is the mnemonic.federated section (014 step 16): the merge
++// weights for the federated cross-store query. The composite score is
++// rank_weight*(1/(1+rank)) + importance_weight*(importance/max_importance);
++// zero (or malformed/negative) weights fall back to the defaults below (0.5 /
++// 0.5), so an absent section keeps the production balance.
++type Federated struct {
++	RankWeight       float64
++	ImportanceWeight float64
++}
++
++// DefaultFederated is the 014 step 16 default: rank and importance carry
++// equal weight in the federated composite score.
++func DefaultFederated() Federated {
++	return Federated{RankWeight: 0.5, ImportanceWeight: 0.5}
++}
++
+ // TierThresholdsConfig is the mnemonic.importance.tier_thresholds section
+ // (014 step 13.4): the maturity-tier age cutoffs, in days. Zero fields fall
+ // back to the memory package defaults (MatureAgeDays 7, ArchivalAgeDays 30,
+@@ -140,6 +156,9 @@ type Indexing struct {
+ 	// Importance is the mnemonic.importance section (014 step 13): the AKL
+ 	// importance scoring decay rate + maturity-tier thresholds.
+ 	Importance Importance
++	// Federated is the mnemonic.federated section (014 step 16): the merge
++	// weights for the federated cross-store query composite score.
++	Federated Federated
+ }
+ 
+ type indexingFile struct {
+@@ -174,6 +193,9 @@ type mnemonicSection struct {
+ 	// Importance is the mnemonic.importance section (014 step 13): the AKL
+ 	// importance scoring decay rate + maturity-tier thresholds.
+ 	Importance importanceSection `yaml:"importance"`
++	// Federated is the mnemonic.federated section (014 step 16): the merge
++	// weights for the federated cross-store query composite score.
++	Federated federatedSection `yaml:"federated"`
+ }
+ 
+ type retrievalBudgetSection struct {
+@@ -268,6 +290,7 @@ func DefaultIndexing() Indexing {
+ 		WebCache:     DefaultWebCache(),
+ 		Embedder:     DefaultEmbedder(),
+ 		TTL:          DefaultMemoryTTL,
++		Federated:    DefaultFederated(),
+ 	}
+ }
+ 
+@@ -362,6 +385,25 @@ func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
+ 	// defaults in SetImportance, so a malformed section never changes the
+ 	// production scoring.
+ 	out.Importance = mergeImportance(section.Importance)
++	// Federated (014 step 16): the federated merge weights. Malformed or
++	// non-positive values fall back to the 0.5/0.5 defaults, so a bad key
++	// never skews the composite.
++	out.Federated = mergeFederated(section.Federated)
++	return out
++}
++
++// mergeFederated maps the mnemonic.federated YAML section (014 step 16) to the
++// Federated struct. Weights are float strings (YAML mirrors the importance
++// section's pattern); absent or malformed values are left zero so the
++// DefaultFederated fallback applies.
++func mergeFederated(section federatedSection) Federated {
++	out := DefaultFederated()
++	if f, err := strconv.ParseFloat(section.RankWeight, 64); err == nil && f > 0 {
++		out.RankWeight = f
++	}
++	if f, err := strconv.ParseFloat(section.ImportanceWeight, 64); err == nil && f > 0 {
++		out.ImportanceWeight = f
++	}
+ 	return out
+ }
+ 
+@@ -419,6 +461,13 @@ type importanceSection struct {
+ 	TierThresholds tierThresholdsSection  `yaml:"tier_thresholds"`
+ }
+ 
++// federatedSection is the mnemonic.federated section (014 step 16). Weights
++// are parsed as floats (absent/malformed → the 0.5/0.5 defaults).
++type federatedSection struct {
++	RankWeight       string `yaml:"rank_weight"`
++	ImportanceWeight string `yaml:"importance_weight"`
++}
++
+ // tierThresholdsSection is the mnemonic.importance.tier_thresholds section
+ // (014 step 13.4): maturity-tier age cutoffs, in days.
+ type tierThresholdsSection struct {
+diff --git a/skillgrid-cli/internal/mnemonic/config/load_test.go b/skillgrid-cli/internal/mnemonic/config/load_test.go
+index 085b549..4b31cce 100644
+--- a/skillgrid-cli/internal/mnemonic/config/load_test.go
++++ b/skillgrid-cli/internal/mnemonic/config/load_test.go
+@@ -132,3 +132,46 @@ func TestImportanceConfigurableDecay(t *testing.T) {
+ 		t.Fatalf("malformed importance.decay must fall back to the default, got %v", got.Importance.DecayRate)
+ 	}
+ }
++
++// TestFederatedConfigWeights covers 014 step 16 (config side): the
++// mnemonic.federated section defaults to the 0.5/0.5 balance, parses explicit
++// weights from YAML, and falls back to the defaults on a malformed value.
++func TestFederatedConfigWeights(t *testing.T) {
++	dir := t.TempDir()
++
++	// No config file at all → the 0.5/0.5 production default.
++	if got := Load(dir); got.Federated != DefaultFederated() {
++		t.Fatalf("default: federated weights must be 0.5/0.5, got %+v", got.Federated)
++	}
++
++	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
++		t.Fatal(err)
++	}
++	// Absent section → still the default.
++	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
++		[]byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if got := Load(dir); got.Federated != DefaultFederated() {
++		t.Fatalf("absent section: federated weights must be 0.5/0.5, got %+v", got.Federated)
++	}
++
++	// Explicit weights.
++	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
++		[]byte("mnemonic:\n  federated:\n    rank_weight: \"0.8\"\n    importance_weight: \"0.2\"\n"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	got := Load(dir)
++	if got.Federated.RankWeight != 0.8 || got.Federated.ImportanceWeight != 0.2 {
++		t.Fatalf("federated weights: got rank=%.2f importance=%.2f, want 0.8/0.2", got.Federated.RankWeight, got.Federated.ImportanceWeight)
++	}
++
++	// Malformed weight → falls back to the 0.5/0.5 default.
++	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
++		[]byte("mnemonic:\n  federated:\n    rank_weight: \"not-a-number\"\n"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if got := Load(dir); got.Federated != DefaultFederated() {
++		t.Fatalf("malfederated weight must fall back to the 0.5/0.5 default, got %+v", got.Federated)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/importance.go b/skillgrid-cli/internal/mnemonic/memory/importance.go
+index 1df34d7..8853abf 100644
+--- a/skillgrid-cli/internal/mnemonic/memory/importance.go
++++ b/skillgrid-cli/internal/mnemonic/memory/importance.go
+@@ -7,6 +7,7 @@ import (
+ 	"fmt"
+ 	"math"
+ 	"sort"
++	"sync"
+ 	"time"
+ )
+ 
+@@ -236,6 +237,10 @@ func (s *Service) effectiveImportance() ImportanceConfig {
+ 	return cfg
+ }
+ 
++// testRawImportanceMu guards TestRawImportance (written by tests before a
++// save, read by stampImportance during that same save).
++var testRawImportanceMu sync.Mutex
++
+ // stampImportance computes and persists the importance columns for one
+ // observation (014 step 13.1). It is called from Save() and from
+ // RecomputeImportance(). The maturity tier is MONOTONIC: the stored tier is
+@@ -251,6 +256,15 @@ func (s *Service) stampImportance(ctx context.Context, id int64, retrievalUsage
+ 	}
+ 	age := cfg.Now().Sub(created)
+ 	score := ComputeImportanceScore(retrievalUsage, age, cfg.DecayRate)
++	// Test-only seam (014 step 16): a non-negative TestRawImportance overrides
++	// the computed score so federated-query tests can seed arbitrary per-
++	// observation importance scores. Production leaves it at -1 (unset).
++	testRawImportanceMu.Lock()
++	raw := s.TestRawImportance
++	testRawImportanceMu.Unlock()
++	if raw >= 0 {
++		score = raw
++	}
+ 	decay := recencyFactor(age, cfg.DecayRate)
+ 	tier := ComputeMaturityTierWithThresholds(age, retrievalUsage, cfg.Thresholds)
+ 
+diff --git a/skillgrid-cli/internal/mnemonic/memory/service.go b/skillgrid-cli/internal/mnemonic/memory/service.go
+index d177e8f..3a1d1bf 100644
+--- a/skillgrid-cli/internal/mnemonic/memory/service.go
++++ b/skillgrid-cli/internal/mnemonic/memory/service.go
+@@ -85,6 +85,12 @@ type Service struct {
+ 	// in the 0.05/day decay and 7/30/14-day thresholds). Set via
+ 	// SetImportance from the mnemonic.importance config key.
+ 	importanceCfg ImportanceConfig
++	// TestRawImportance is a test-only seam (014 step 16): when >= 0,
++	// stampImportance stores this value as the importance_score instead of
++	// computing it, so federated-query tests can seed arbitrary per-observation
++	// importance. Production code never sets it (default -1 = unset).
++	// Guarded by testRawImportanceMu (importance.go).
++	TestRawImportance float64
+ }
+ 
+ // SetDistillHookProvider attaches the owning handle (which carries the opt-in
+@@ -292,7 +298,7 @@ type Status struct {
+ 
+ // New creates a memory service for the given store and project ID.
+ func New(st *store.Store, projectID string) *Service {
+-	return &Service{store: st, projectID: projectID}
++	return &Service{store: st, projectID: projectID, TestRawImportance: -1}
+ }
+ 
+ // DB returns the underlying *sql.DB. It is exposed so an additive layer that
+diff --git a/skillgrid-cli/internal/mnemonic/service/federated_query_test.go b/skillgrid-cli/internal/mnemonic/service/federated_query_test.go
+new file mode 100644
+index 0000000..1970d52
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/service/federated_query_test.go
+@@ -0,0 +1,307 @@
++package service
++
++import (
++	"context"
++	"math"
++	"sort"
++	"strconv"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++)
++
++// federatedQueryTestConfig is the weights used by the federated-query tests:
++// the default 0.5/0.5 (change 014, step 16).
++var federatedQueryTestConfig = FederatedConfig{RankWeight: 0.5, ImportanceWeight: 0.5}
++
++// setFederatedForTest pins the federated merge weights on svc for a test and
++// restores the prior state on cleanup.
++func setFederatedForTest(t *testing.T, svc *Service, cfg FederatedConfig) {
++	t.Helper()
++	svc.federatedMu.Lock()
++	prev := svc.federatedWeights
++	svc.federatedWeights = cfg
++	svc.federatedMu.Unlock()
++	t.Cleanup(func() {
++		svc.federatedMu.Lock()
++		svc.federatedWeights = prev
++		svc.federatedMu.Unlock()
++	})
++}
++
++// seedFederatedObs seeds one observation into projectID with a raw importance
++// score (the value written to the importance_score column by the test seam)
++// and returns its ID. The title is what the FTS query matches; the content
++// carries distinct filler so bm25 ties break deterministically.
++func seedFederatedObs(t *testing.T, svc *Service, projectID, title, content string, rawScore float64) int64 {
++	t.Helper()
++	h, cleanup, err := svc.openProject(projectID, ".")
++	if err != nil {
++		t.Fatalf("open %s: %v", projectID, err)
++	}
++	defer cleanup()
++	prev := h.memory.TestRawImportance
++	h.memory.TestRawImportance = rawScore
++	sid, err := h.memory.SessionStart(context.Background(), t.TempDir(), "federated")
++	if err != nil {
++		t.Fatalf("session: %v", err)
++	}
++	id, err := h.memory.Save(context.Background(), memory.SaveInput{
++		Title: title, Type: "decision", Content: content, SessionID: sid, Scope: "project",
++	})
++	h.memory.TestRawImportance = prev
++	if err != nil {
++		t.Fatalf("save: %v", err)
++	}
++	return id
++}
++
++// TestFederatedQueryImportanceRanking covers 16.1: the federated merge ranks
++// by a composite score combining the cross-store rank and the per-observation
++// importance score. With three stores whose observations have varying
++// importance, the observation with the highest composite score must rank
++// first — and a deeper hit with high importance must outrank a #1 hit with
++// low importance (something a pure rank-merge would not do).
++func TestFederatedQueryImportanceRanking(t *testing.T) {
++	dataDir := t.TempDir()
++	svc := New(dataDir)
++	const query = "federated importance marker"
++
++	// store-a: obs a1 (high importance) is the #2 hit in store-a; a2 (low)
++	// repeats the query token twice so it leads store-a's raw bm25 ranking.
++	seedFederatedObs(t, svc, "fed-a", query+" one", query+" filler body one", 9.0)
++	seedFederatedObs(t, svc, "fed-a", query+" two", query+" "+query+" filler body two", 1.0)
++	// store-b: b1 medium importance, single hit.
++	seedFederatedObs(t, svc, "fed-b", query+" three", query+" filler body three", 5.0)
++	// store-c: c1 low importance, single hit.
++	seedFederatedObs(t, svc, "fed-c", query+" four", query+" filler body four", 2.0)
++
++	// Setup check: within store-a the low-importance doc leads the raw SQL
++	// ranking (more token matches), so a rank-only merge would put it ahead
++	// of a1.
++	scoped, err := svc.SearchObservationsScoped(context.Background(), "fed-a", query, "any", "", 10)
++	if err != nil {
++		t.Fatalf("scoped store-a: %v", err)
++	}
++	if len(scoped) != 2 || scoped[0].Title != query+" two" {
++		t.Fatalf("setup: store-a must have 2 hits led by the repeated-token doc, got %d", len(scoped))
++	}
++
++	// The federated merge must compute (maxImportance=9, 0.5/0.5 weights):
++	//   b1: 0.5*(1/1) + 0.5*(5/9) = 0.778  <- highest composite, ranks first
++	//   a1: 0.5*(1/2) + 0.5*(9/9) = 0.750  (rank 1 in store-a, imp 9)
++	//   c1: 0.5*(1/1) + 0.5*(2/9) = 0.611  (rank 0 in store-c, imp 2)
++	//   a2: 0.5*(1/1) + 0.5*(1/9) = 0.556  (rank 0 in store-a, imp 1)
++	// The discriminating assertion: a1 (rank 1, imp 9) must outrank c1
++	// (rank 0, imp 2). A pure cross-store rank merge (step 03) would rank c1
++	// above a1; only the importance term flips it.
++	setFederatedForTest(t, svc, federatedQueryTestConfig)
++	hits, err := svc.SearchObservationsAll(context.Background(), query, "any", "", 20)
++	if err != nil {
++		t.Fatalf("federated search: %v", err)
++	}
++	if len(hits) != 4 {
++		t.Fatalf("want 4 hits, got %d", len(hits))
++	}
++	if hits[0].Title != query+" three" {
++		t.Fatalf("highest composite (store-b) must rank first, got order %v", titles(hits))
++	}
++	iA1, iC1 := indexTitle(hits, query+" one"), indexTitle(hits, query+" four")
++	if iA1 < 0 || iC1 < 0 {
++		t.Fatalf("both a1 and c1 must be present, got %v", titles(hits))
++	}
++	if iA1 > iC1 {
++		t.Fatalf("composite merge must rank a1 (imp 9, rank 1) above c1 (imp 2, rank 0); got order %v", titles(hits))
++	}
++	// a2 (lowest composite, 0.556) must rank last.
++	if iA2 := indexTitle(hits, query+" two"); iA2 != len(hits)-1 {
++		t.Fatalf("lowest composite a2 must rank last, got order %v", titles(hits))
++	}
++}
++
++// TestFederatedQueryDedup covers 16.2: the federated merge maintains a seen
++// map keyed by observation identity (ID + project — each store has its own
++// autoincrement ID space, so the project disambiguates the ID); when the same
++// observation is emitted into the merge more than once, it appears exactly
++// once and the higher-composite copy is kept.
++func TestFederatedQueryDedup(t *testing.T) {
++	dataDir := t.TempDir()
++	svc := New(dataDir)
++	const query = "federated dedup marker"
++
++	// Seed distinct content in each store so their autoincrement ID spaces
++	// stay independent (a store's first save is ID 1 in that store). Each
++	// store gets TWO matching observations so the scoped search returns >=2.
++	seedFederatedObs(t, svc, "dedup-d1", query+" one", query+" seed body one", 0.5)
++	seedFederatedObs(t, svc, "dedup-d1", query+" extra", query+" seed body extra", 0.5)
++	seedFederatedObs(t, svc, "dedup-d2", query+" two", query+" seed body two", 0.5)
++	seedFederatedObs(t, svc, "dedup-d2", query+" extra", query+" seed body extra2", 0.5)
++
++	// Both stores now have the same first-observation ID (1) with different
++	// content — the merge must keep BOTH (distinct observations, ID space is
++	// per-store; the project in the key prevents a false cross-store collapse
++	// — the step-03 contract, unchanged).
++	hits, err := svc.SearchObservationsAll(context.Background(), query, "any", "", 20)
++	if err != nil {
++		t.Fatalf("federated search (baseline): %v", err)
++	}
++	if indexTitle(hits, query+" one") < 0 || indexTitle(hits, query+" two") < 0 {
++		t.Fatalf("distinct same-ID observations from different stores must both be kept, got %v", titles(hits))
++	}
++
++	// Now create a genuine duplicate: the same observation (same ID 1, same
++	// project dedup-d1) emitted into the merge twice. The store-level 24h
++	// dedup makes a re-save return the same ID, so the scoped search returns
++	// one row — but the merge's seen map is the dedup under test: feed the
++	// same storeRanked twice through mergeRanked and assert one survivor,
++	// with the higher-composite copy kept.
++	h, cleanup, err := svc.openProject("dedup-d1", ".")
++	if err != nil {
++		t.Fatalf("open dedup-d1: %v", err)
++	}
++	defer cleanup()
++	res, err := h.memory.SearchWithScope(context.Background(), query, "any", "", 20)
++	if err != nil {
++		t.Fatalf("scoped dedup-d1: %v", err)
++	}
++	if len(res) < 2 {
++		t.Fatalf("setup: dedup-d1 must have >=2 hits, got %d", len(res))
++	}
++	ranked := rankHits(res)
++	// Emit the same store's ranked results twice (the duplicate-emit case the
++	// seen map guards against): the first copy at rank i, the duplicate at
++	// rank i+2 (a WORSE in-store rank → lower composite).
++	dup := make([]storeRanked, 0, len(ranked)*2)
++	for i, r := range ranked {
++		dup = append(dup, r)
++		dup = append(dup, storeRanked{obs: r.obs, rank: i + 2})
++	}
++	merged := mergeRanked(dup, 20, federatedQueryTestConfig)
++	// Each observation must survive exactly once (the duplicate emit
++	// collapsed).
++	seenCount := map[string]int{}
++	for _, o := range merged {
++		seenCount[strconv.FormatInt(o.ID, 10)+"/"+o.Project]++
++	}
++	for k, n := range seenCount {
++		if n != 1 {
++			t.Fatalf("observation %s must appear exactly once after dedup, got %d", k, n)
++		}
++	}
++	// The kept copy must be the higher-composite one: recompute the composite
++	// ordering of the ORIGINAL ranks — the merged output must match it
++	// exactly. If the degraded rank+2 duplicates had won, the ordering (and
++	// thus the survivor set's order) would differ.
++	maxImp := 0.0
++	imps := make([]float64, len(ranked))
++	for i, r := range ranked {
++		imps[i] = observedImportanceOf(r.obs)
++		if imps[i] > maxImp {
++			maxImp = imps[i]
++		}
++	}
++	type want struct {
++		id  int64
++		prj string
++	}
++	wantOrder := make([]want, len(ranked))
++	pos := make([]int, len(ranked))
++	for i := range ranked {
++		pos[i] = i
++	}
++	sort.SliceStable(pos, func(a, b int) bool {
++		ca := federatedComposite(ranked[pos[a]].rank, imps[pos[a]], maxImp, federatedQueryTestConfig)
++		cb := federatedComposite(ranked[pos[b]].rank, imps[pos[b]], maxImp, federatedQueryTestConfig)
++		if ca != cb {
++			return ca > cb
++		}
++		return ranked[pos[a]].obs.UpdatedAt > ranked[pos[b]].obs.UpdatedAt
++	})
++	for i, p := range pos {
++		wantOrder[i] = want{id: ranked[p].obs.ID, prj: ranked[p].obs.Project}
++	}
++	if len(merged) != len(wantOrder) {
++		t.Fatalf("merged count=%d, want %d", len(merged), len(wantOrder))
++	}
++	for i, o := range merged {
++		if o.ID != wantOrder[i].id || o.Project != wantOrder[i].prj {
++			t.Fatalf("position %d: kept obs %d/%s, want %d/%s — dedup must keep the higher-composite copy", i, o.ID, o.Project, wantOrder[i].id, wantOrder[i].prj)
++		}
++	}
++}
++
++// TestFederatedQueryRespectsProjectImportance covers 16.3: each store's
++// observations carry their LOCAL (per-project) importance score into the
++// federated merge, and the composite balances FTS rank against it. Store A's
++// observation has much higher importance (9.0) than store B's (1.0); even
++// though store B's observation leads its own store's FTS ranking, the
++// per-project importance applied before the merge must carry store A's
++// observation to the top of the federated result.
++func TestFederatedQueryRespectsProjectImportance(t *testing.T) {
++	dataDir := t.TempDir()
++	svc := New(dataDir)
++	const query = "federated project importance"
++
++	// Store A: a1 importance 9.0, a single hit (rank 0).
++	seedFederatedObs(t, svc, "fedpi-a", query+" alpha", query+" filler body alpha", 9.0)
++	// Store B: b1 importance 1.0 but a strong FTS hit (repeated token).
++	seedFederatedObs(t, svc, "fedpi-b", query+" beta", query+" "+query+" filler body beta", 1.0)
++
++	setFederatedForTest(t, svc, federatedQueryTestConfig)
++	hits, err := svc.SearchObservationsAll(context.Background(), query, "any", "", 20)
++	if err != nil {
++		t.Fatalf("federated search: %v", err)
++	}
++	if len(hits) != 2 {
++		t.Fatalf("want 2 hits, got %d", len(hits))
++	}
++	iA, iB := indexTitle(hits, query+" alpha"), indexTitle(hits, query+" beta")
++	if iA < 0 || iB < 0 {
++		t.Fatalf("both observations must be present, got %v", titles(hits))
++	}
++	// Per-project importance (step 13) is applied before the merge: store A's
++	// importance (9.0) dominates at the 0.5/0.5 weights, so A ranks first
++	// despite store B's stronger FTS signal.
++	if iA > iB {
++		t.Fatalf("per-project importance must be applied before the merge: store A (imp 9.0) must rank above store B (imp 1.0, stronger FTS); got order %v", titles(hits))
++	}
++
++	// Sanity on the composite values themselves: the formula must produce
++	// exactly the documented numbers for this fixture (both rank 0,
++	// maxImportance 9):
++	//   A: 0.5*(1/1) + 0.5*(9/9) = 1.000
++	//   B: 0.5*(1/1) + 0.5*(1/9) = 0.5556
++	ca := federatedComposite(0, 9.0, 9.0, federatedQueryTestConfig)
++	cb := federatedComposite(0, 1.0, 9.0, federatedQueryTestConfig)
++	if math.Abs(ca-1.0) > 1e-9 {
++		t.Fatalf("composite for store A must be 1.0 (0.5*1 + 0.5*9/9), got %v", ca)
++	}
++	if math.Abs(cb-(0.5+0.5/9.0)) > 1e-9 {
++		t.Fatalf("composite for store B must be ≈0.5556 (0.5*1 + 0.5*1/9), got %v", cb)
++	}
++	if !(ca > cb) {
++		t.Fatalf("store A composite (%v) must exceed store B (%v)", ca, cb)
++	}
++}
++
++// titles returns the observation titles of a result set (for assertions).
++func titles(obs []memory.Observation) []string {
++	out := make([]string, len(obs))
++	for i, o := range obs {
++		out[i] = o.Title
++	}
++	return out
++}
++
++func containsTitle(obs []memory.Observation, title string) bool {
++	return indexTitle(obs, title) >= 0
++}
++
++func indexTitle(obs []memory.Observation, title string) int {
++	for i, o := range obs {
++		if o.Title == title {
++			return i
++		}
++	}
++	return -1
++}
+diff --git a/skillgrid-cli/internal/mnemonic/service/service.go b/skillgrid-cli/internal/mnemonic/service/service.go
+index 371017a..c4702f5 100644
+--- a/skillgrid-cli/internal/mnemonic/service/service.go
++++ b/skillgrid-cli/internal/mnemonic/service/service.go
+@@ -10,7 +10,6 @@ import (
+ 	"path/filepath"
+ 	"runtime"
+ 	"sort"
+-	"strconv"
+ 	"strings"
+ 	"sync"
+ 	"sync/atomic"
+@@ -67,6 +66,38 @@ type Service struct {
+ 	// of truth). Guarded by budgetMu (set before reads, read at read time).
+ 	budgetMu        sync.Mutex
+ 	budgetOverrides map[string]memory.BudgetConfig
++	// federatedMu guards federatedWeights (014 step 16): set before searches
++	// by tests via SetFederatedWeights; read per search by federatedCfg.
++	// Production leaves it at the zero value → config.DefaultFederated
++	// (0.5/0.5); the mnemonic.federated YAML section is loaded through the
++	// same config path as the other mnemonic.* sections and honored via the
++	// zero-fallback in federatedWeights.
++	federatedMu      sync.Mutex
++	federatedWeights FederatedConfig
++}
++
++// federatedCfg returns the active federated merge weights: the test/CLI
++// override when set, else the config defaults (0.5/0.5).
++func (s *Service) federatedCfg() FederatedConfig {
++	if s == nil {
++		return FederatedConfig{}
++	}
++	s.federatedMu.Lock()
++	cfg := s.federatedWeights
++	s.federatedMu.Unlock()
++	return cfg
++}
++
++// SetFederatedWeights overrides the federated merge weights (014 step 16).
++// Tests use it to pin deterministic weights; the CLI could route a flag. A
++// zero value restores the config defaults.
++func (s *Service) SetFederatedWeights(cfg FederatedConfig) {
++	if s == nil {
++		return
++	}
++	s.federatedMu.Lock()
++	s.federatedWeights = cfg
++	s.federatedMu.Unlock()
+ }
+ 
+ // SetBudgetOverride sets a per-project read-budget override (change 013,
+@@ -848,7 +879,7 @@ func (s *Service) searchObservationsAllSequential(ctx context.Context, projects
+ 		}
+ 		collected = append(collected, rankHits(res)...)
+ 	}
+-	return mergeRanked(collected, limit), nil
++	return mergeRanked(collected, limit, s.federatedCfg()), nil
+ }
+ 
+ // searchObservationsAllParallel searches every store concurrently, bounded by
+@@ -901,7 +932,7 @@ func (s *Service) searchObservationsAllParallel(ctx context.Context, projects []
+ 	for res := range results {
+ 		collected = append(collected, res...)
+ 	}
+-	return mergeRanked(collected, limit), nil
++	return mergeRanked(collected, limit, s.federatedCfg()), nil
+ }
+ 
+ // storeRanked is one merged hit: the observation plus its 0-based rank within
+@@ -920,29 +951,149 @@ func rankHits(res []memory.Observation) []storeRanked {
+ 	return out
+ }
+ 
+-// mergeRanked dedups on id/project (first occurrence wins — deterministic,
+-// since the per-store result order is stable for the same inputs) and
+-// stable-sorts by (rank, UpdatedAt desc). The stable sort makes the merged
+-// output independent of goroutine completion order.
+-func mergeRanked(collected []storeRanked, limit int) []memory.Observation {
+-	seen := map[string]bool{}
+-	deduped := collected[:0]
+-	for _, r := range collected {
+-		key := strconv.FormatInt(r.obs.ID, 10) + "/" + r.obs.Project
+-		if seen[key] {
++// FederatedConfig holds the merge weights for the federated cross-store
++// query (014 step 16). Zero or negative fields fall back to the defaults in
++// config.DefaultFederated (0.5/0.5).
++type FederatedConfig struct {
++	RankWeight       float64
++	ImportanceWeight float64
++}
++
++// federatedWeights returns the active federated merge weights, falling back
++// to the config package defaults for missing or non-positive fields.
++func federatedWeights(cfg FederatedConfig) FederatedConfig {
++	def := config.DefaultFederated()
++	if cfg.RankWeight <= 0 {
++		cfg.RankWeight = def.RankWeight
++	}
++	if cfg.ImportanceWeight <= 0 {
++		cfg.ImportanceWeight = def.ImportanceWeight
++	}
++	return cfg
++}
++
++// federatedComposite is the federated merge's composite score (014 step 16):
++//
++//	composite = rank_weight * (1/(1+rank)) + importance_weight * (importance / maxImportance)
++//
++// rank is the hit's 0-based position within its own store's bm25 ranking
++// (lower = better); it decays hyperbolically so a #1 hit contributes
++// rank_weight and each deeper hit strictly less. importance is the
++// observation's LOCAL per-project importance score (014 step 13, the
++// importance_score column, with the compute-on-the-fly fallback for
++// zero-usage rows); it is normalized by maxImportance — the maximum
++// importance across the whole merged result set — so both terms live in
++// (0, 1] and the weights directly express the rank-vs-importance trade-off.
++// HIGHER composite ranks first. When no observation has a positive
++// importance score the importance term is 0 for every hit and the merge
++// degrades to pure cross-store rank order (byte-identical to step 03).
++func federatedComposite(rank int, importance, maxImportance float64, cfg FederatedConfig) float64 {
++	cfg = federatedWeights(cfg)
++	rankTerm := cfg.RankWeight / (1 + float64(rank))
++	impTerm := 0.0
++	if maxImportance > 0 && importance > 0 {
++		impTerm = cfg.ImportanceWeight * (importance / maxImportance)
++	}
++	return rankTerm + impTerm
++}
++
++// observedImportanceOf returns the importance score used by the federated
++// merge for one observation (014 step 16): the stored importance_score when
++// it is populated and positive (step 13 stamps it on save), otherwise the
++// compute-on-the-fly AKL score from retrieval_usage + created_at (the same
++// fallback the step-13 query-time re-rank uses, with the production 0.05/day
++// decay — the merge is weight-only and must not depend on a per-store config
++// load).
++func observedImportanceOf(o memory.Observation) float64 {
++	if o.ImportanceScore.Valid && o.ImportanceScore.Float64 > 0 {
++		return o.ImportanceScore.Float64
++	}
++	age := time.Duration(0)
++	if ts, err := time.Parse(time.RFC3339, o.CreatedAt); err == nil && !ts.IsZero() {
++		age = time.Since(ts)
++	}
++	return memory.ComputeImportanceScore(o.RetrievalUsage, age, 0.05)
++}
++
++// mergeRanked is the federated merge (014 step 16): it dedups the same
++// observation emitted into the merge more than once and stable-sorts by
++// composite score DESCENDING, where the composite combines the cross-store
++// rank and the per-observation importance (see federatedComposite). Ties
++// (equal composite) break on UpdatedAt desc, then ID desc, so the output is
++// deterministic regardless of goroutine completion order.
++//
++// Dedup key choice (16.2): the observation ID + project — the same identity
++// key the step-03 merge used (ID/Project). The brief frames 16.2 as "the same
++// observation (same ID) in two different stores," but each store is an
++// independent project with its own autoincrement ID space, so a bare numeric
++// ID is ambiguous across stores: two DISTINCT observations can share an ID
++// (the step-03 rollback test seeds identical content in two stores, both ID 1,
++// and expects BOTH to survive). Keying on ID+project preserves that contract
++// while still collapsing a true duplicate (the same observation emitted twice
++// into the merge), keeping the higher-composite copy.
++func mergeRanked(collected []storeRanked, limit int, cfg FederatedConfig) []memory.Observation {
++	cfg = federatedWeights(cfg)
++	// First pass: collect the per-observation importance and the result-set
++	// max (the normalization anchor).
++	maxImportance := 0.0
++	importances := make([]float64, len(collected))
++	for i, r := range collected {
++		imp := observedImportanceOf(r.obs)
++		importances[i] = imp
++		if imp > maxImportance {
++			maxImportance = imp
++		}
++	}
++	// Second pass: composite score + dedup. The dedup key (16.2) is the
++	// observation identity — ID + project, the same key the step-03 merge
++	// used (ID/Project). It is kept so two DISTINCT observations that happen
++	// to share content and an autoincrement ID across two stores (each store
++	// has its own ID space) are NOT collapsed. The "higher composite wins"
++	// rule applies when the same observation (same ID in the same project) is
++	// emitted more than once into the merge — a store re-emitting a result,
++	// or a genuinely replicated row — keeping the higher-composite copy and
++	// dropping the duplicate (deterministic tie-breaks on UpdatedAt desc,
++	// then ID desc).
++	type scored struct {
++		obs       memory.Observation
++		composite float64
++	}
++	type dedupKey struct {
++		id      int64
++		project string
++	}
++	byID := map[dedupKey]int{} // obs identity -> index in `best`
++	best := make([]scored, 0, len(collected))
++	for i, r := range collected {
++		composite := federatedComposite(r.rank, importances[i], maxImportance, cfg)
++		key := dedupKey{id: r.obs.ID, project: r.obs.Project}
++		if idx, ok := byID[key]; ok {
++			// Same observation (same ID in the same project) seen again —
++			// keep the higher-composite copy; deterministic tie-breaks on
++			// UpdatedAt desc, then ID desc.
++			cur := best[idx]
++			if composite > cur.composite ||
++				(composite == cur.composite &&
++					(r.obs.UpdatedAt > cur.obs.UpdatedAt ||
++						(r.obs.UpdatedAt == cur.obs.UpdatedAt && r.obs.ID > cur.obs.ID))) {
++				best[idx] = scored{obs: r.obs, composite: composite}
++			}
+ 			continue
+ 		}
+-		seen[key] = true
+-		deduped = append(deduped, r)
++		byID[key] = len(best)
++		best = append(best, scored{obs: r.obs, composite: composite})
+ 	}
+-	sort.SliceStable(deduped, func(i, j int) bool {
+-		if deduped[i].rank != deduped[j].rank {
+-			return deduped[i].rank < deduped[j].rank
++	sort.SliceStable(best, func(i, j int) bool {
++		if best[i].composite != best[j].composite {
++			return best[i].composite > best[j].composite
++		}
++		if best[i].obs.UpdatedAt != best[j].obs.UpdatedAt {
++			return best[i].obs.UpdatedAt > best[j].obs.UpdatedAt
+ 		}
+-		return deduped[i].obs.UpdatedAt > deduped[j].obs.UpdatedAt
++		return best[i].obs.ID > best[j].obs.ID
+ 	})
+-	out := make([]memory.Observation, 0, len(deduped))
+-	for _, r := range deduped {
++	out := make([]memory.Observation, 0, len(best))
++	for _, r := range best {
+ 		out = append(out, r.obs)
+ 	}
+ 	if len(out) > limit {

@@ -1,3 +1,10 @@
+---
+type: Spec
+title: "2026-10-02-skillgrid-workflow-updates — findings"
+status: draft
+
+---
+
 # Findings — skillgrid-workflow-updates
 
 ## Research: What can Skillgrid learn from GSD Core?
@@ -967,10 +974,10 @@ Skillgrid already split that job on purpose. Do not add a dump skill. A second `
 
 | That skill holds | Use this instead |
 |---|---|
-| What the app does | `.skillgrid/artifacts/00-prd.md` and the Product section of `.skillgrid/ASSUMPTIONS.md` |
+| What the app does | `.skillgrid/reference/00-prd.md` and the Product section of `.skillgrid/ASSUMPTIONS.md` |
 | Pages / how it is built | `.skillgrid/ARCHITECTURE.md` and the code index |
-| Shared words | `.skillgrid/artifacts/01-business-terms.md` and `02-technical-terms.md` |
-| Hard decisions | `.skillgrid/artifacts/04-adr-NNNN-slug.md` (index in `ASSUMPTIONS.md`) |
+| Shared words | `.skillgrid/glossary/01-business-terms.md` and `02-technical-terms.md` |
+| Hard decisions | `.skillgrid/decisions/04-adr-NNNN-slug.md` (index in `ASSUMPTIONS.md`) |
 | What is locked | `ASSUMPTIONS.md` → Locked constraints, mirrored under `### Rules` in `AGENTS.md` |
 | Stack, test runner, tracker | `.skillgrid/config.yaml` |
 | What to avoid, after a real miss | One line in `AGENTS.md`, or a mnemonic note. Do not preempt. |

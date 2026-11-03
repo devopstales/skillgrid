@@ -1,0 +1,751 @@
+diff --git a/skillgrid-cli/internal/mnemonic/config/load.go b/skillgrid-cli/internal/mnemonic/config/load.go
+index b1468dc..8b5b16e 100644
+--- a/skillgrid-cli/internal/mnemonic/config/load.go
++++ b/skillgrid-cli/internal/mnemonic/config/load.go
+@@ -4,6 +4,7 @@ package config
+ import (
+ 	"os"
+ 	"path/filepath"
++	"strconv"
+ 	"time"
+ 
+ 	"gopkg.in/yaml.v3"
+@@ -66,6 +67,20 @@ type Extraction struct {
+ 	LLM bool
+ }
+ 
++// Improvement is the mnemonic.improve section (014 step 08): the
++// self-improvement feedback loop (retrieval-usage boost/decay re-ranking in
++// mem_search). OPT-IN: Enabled defaults to false so the default search
++// behavior is byte-identical to the pre-improve SQL ordering. The rates are
++// tunable; zero fields fall back to the memory package defaults.
++type Improvement struct {
++	Enabled   bool
++	Threshold int
++	MaxUsage  int
++	BoostRate float64
++	DecayRate float64
++	Cooldown  time.Duration
++}
++
+ // Indexing holds code index settings from indexing.yaml mnemonic section.
+ type Indexing struct {
+ 	Include      []string
+@@ -84,6 +99,9 @@ type Indexing struct {
+ 	// Extraction is the mnemonic.extraction section (014 step 05): LLM passive
+ 	// extraction is opt-in (LLM defaults to false → regex floor).
+ 	Extraction Extraction
++	// Improvement is the mnemonic.improve section (014 step 08): the
++	// self-improvement feedback loop. OPT-IN (Enabled defaults to false).
++	Improvement Improvement
+ }
+ 
+ type indexingFile struct {
+@@ -109,6 +127,9 @@ type mnemonicSection struct {
+ 	// Extraction is the mnemonic.extraction section (014 step 05): the LLM
+ 	// passive-extraction opt-in switch.
+ 	Extraction extractionSection `yaml:"extraction"`
++	// Improvement is the mnemonic.improve section (014 step 08): the
++	// self-improvement feedback loop opt-in + tunable rates.
++	Improvement improvementSection `yaml:"improve"`
+ }
+ 
+ type retrievalBudgetSection struct {
+@@ -124,6 +145,18 @@ type extractionSection struct {
+ 	LLM bool `yaml:"llm"`
+ }
+ 
++// improvementSection is the mnemonic.improve section (014 step 08). Enabled
++// defaults to false: the self-improvement feedback loop is opt-in, so the
++// default search behavior is byte-identical to the pre-improve SQL ordering.
++type improvementSection struct {
++	Enabled   bool   `yaml:"enabled"`
++	Threshold int    `yaml:"threshold"`
++	MaxUsage  int    `yaml:"max_usage"`
++	BoostRate string `yaml:"boost_rate"`
++	DecayRate string `yaml:"decay_rate"`
++	Cooldown  string `yaml:"cooldown"` // Go duration string, e.g. "60s"
++}
++
+ type embedderSection struct {
+ 	Provider  string         `yaml:"provider"`
+ 	Dimension int            `yaml:"dimension"`
+@@ -273,6 +306,30 @@ func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
+ 	// Extraction (014 step 05): the LLM opt-in switch. The section has no
+ 	// non-zero default, so the YAML value applies as-is (absent → false).
+ 	out.Extraction = Extraction{LLM: section.Extraction.LLM}
++	// Improvement (014 step 08): the self-improvement feedback loop. OPT-IN —
++	// Enabled defaults to false (absent → byte-identical search). Zero rate
++	// fields fall back to the memory package defaults in SetImprove.
++	out.Improvement = mergeImprovement(section.Improvement)
++	return out
++}
++
++// mergeImprovement maps the mnemonic.improve YAML section to the Improvement
++// struct. Enabled is applied as-is (absent → false = opt-in off). Rate fields
++// are parsed as floats/durations; a missing or malformed value leaves the
++// field zero so SetImprove applies its default.
++func mergeImprovement(section improvementSection) Improvement {
++	out := Improvement{Enabled: section.Enabled, Threshold: section.Threshold, MaxUsage: section.MaxUsage}
++	if f, err := strconv.ParseFloat(section.BoostRate, 64); err == nil && f > 0 {
++		out.BoostRate = f
++	}
++	if f, err := strconv.ParseFloat(section.DecayRate, 64); err == nil && f > 0 {
++		out.DecayRate = f
++	}
++	if section.Cooldown != "" {
++		if d, err := time.ParseDuration(section.Cooldown); err == nil && d > 0 {
++			out.Cooldown = d
++		}
++	}
+ 	return out
+ }
+ 
+diff --git a/skillgrid-cli/internal/mnemonic/config/load_test.go b/skillgrid-cli/internal/mnemonic/config/load_test.go
+index 0c6207d..bb88497 100644
+--- a/skillgrid-cli/internal/mnemonic/config/load_test.go
++++ b/skillgrid-cli/internal/mnemonic/config/load_test.go
+@@ -4,6 +4,7 @@ import (
+ 	"os"
+ 	"path/filepath"
+ 	"testing"
++	"time"
+ )
+ 
+ // TestExtractionLLMConfigDefaultOff is 05.3: the mnemonic.extraction.llm key
+@@ -37,3 +38,46 @@ func TestExtractionLLMConfigDefaultOff(t *testing.T) {
+ 		t.Fatalf("extraction.llm: true must opt in, got false")
+ 	}
+ }
++
++// TestImprovementConfigDefaultOff is 08.3: the mnemonic.improve key defaults
++// to disabled (the self-improvement feedback loop is opt-in) and opts in only
++// when explicitly enabled; rate fields parse from the YAML section.
++func TestImprovementConfigDefaultOff(t *testing.T) {
++	dir := t.TempDir()
++
++	// No config file at all → defaults: improve disabled.
++	if got := Load(dir); got.Improvement.Enabled {
++		t.Fatalf("default: improve.enabled must be false, got true")
++	}
++
++	// A config without the improve section → still off.
++	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
++		[]byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if got := Load(dir); got.Improvement.Enabled {
++		t.Fatalf("absent section: improve.enabled must be false, got true")
++	}
++
++	// Explicit opt-in with tunable rates.
++	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
++		[]byte("mnemonic:\n  improve:\n    enabled: true\n    threshold: 10\n    max_usage: 100\n    boost_rate: \"0.2\"\n    decay_rate: \"0.5\"\n    cooldown: 30s\n"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	got := Load(dir)
++	if !got.Improvement.Enabled {
++		t.Fatalf("improve.enabled: true must opt in, got false")
++	}
++	if got.Improvement.Threshold != 10 || got.Improvement.MaxUsage != 100 {
++		t.Fatalf("improve rates: got threshold=%d max_usage=%d, want 10/100", got.Improvement.Threshold, got.Improvement.MaxUsage)
++	}
++	if got.Improvement.BoostRate != 0.2 || got.Improvement.DecayRate != 0.5 {
++		t.Fatalf("improve rates: got boost=%.2f decay=%.2f, want 0.2/0.5", got.Improvement.BoostRate, got.Improvement.DecayRate)
++	}
++	if got.Improvement.Cooldown != 30*time.Second {
++		t.Fatalf("improve.cooldown: got %v, want 30s", got.Improvement.Cooldown)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/improve.go b/skillgrid-cli/internal/mnemonic/memory/improve.go
+new file mode 100644
+index 0000000..2751e42
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/improve.go
+@@ -0,0 +1,192 @@
++package memory
++
++import (
++	"context"
++	"errors"
++	"sort"
++	"strings"
++	"time"
++)
++
++// parseObsTimestamp parses an observation created_at/updated_at value, which
++// the codebase persists as RFC3339 (UTC, "Z"). Falls back to the SQLite
++// "YYYY-MM-DD HH:MM:SS" shape some legacy rows use (treated as UTC).
++func parseObsTimestamp(s string) (time.Time, error) {
++	s = strings.TrimSpace(s)
++	if s == "" {
++		return time.Time{}, errors.New("empty timestamp")
++	}
++	if t, err := time.Parse(time.RFC3339, s); err == nil {
++		return t, nil
++	}
++	return time.Parse("2006-01-02 15:04:05", s)
++}
++
++// improveDefaultCooldown is the default minimum interval between two
++// re-rankings of the same search result set (014 step 08). A zero or
++// negative configured cooldown falls back to this, so consecutive searches
++// cannot churn the ranking more often than once per minute.
++const improveDefaultCooldown = time.Minute
++
++// ImproveConfig tunes the self-improvement feedback loop (014 step 08). It is
++// OPT-IN: Enabled defaults to false so the default search behavior is
++// byte-identical to the pre-improve SQL ordering. The rates are configurable
++// via the mnemonic.improve config section (mnemonic/config).
++//
++// Formulas (applied in-memory after the SQL has ranked the results):
++//
++//	boost = min(retrieval_usage, MaxUsage) * BoostRate   (when retrieval_usage > Threshold)
++//	decay = max(0, age - TTL) / TTL * DecayRate          (when retrieval_usage == 0)
++//	score = baseRankScore + boost - decay
++//
++// baseRankScore is the position-based rank of the SQL result set (0 for the
++// top hit, +1 per position). The re-ranked order is deterministic and is the
++// order SearchOwnerScoped returns when improve is enabled.
++type ImproveConfig struct {
++	// Enabled gates the whole loop (config mnemonic.improve.enabled,
++	// default false → improve() is a no-op and search output is unchanged).
++	Enabled bool
++	// Threshold is the minimum retrieval_usage that earns a boost (default 5).
++	Threshold int
++	// MaxUsage caps the boost input so one hot observation cannot outrank
++	// everything unbounded (default 50).
++	MaxUsage int
++	// BoostRate multiplies the capped usage into the boost score (default 0.1).
++	BoostRate float64
++	// DecayRate multiplies the TTL-excess fraction into the decay score
++	// (default 0.25).
++	DecayRate float64
++	// Cooldown is the minimum interval between re-rankings on the same
++	// service (default improveDefaultCooldown). Zero/negative → the default.
++	Cooldown time.Duration
++	// Now is the clock seam for tests (default time.Now). The age of an
++	// observation is now - created_at.
++	Now func() time.Time
++}
++
++// defaultImproveConfig returns the production defaults: disabled (opt-in),
++// with the documented rates so an operator enabling the loop gets sane values
++// out of the box.
++func defaultImproveConfig() ImproveConfig {
++	return ImproveConfig{
++		Threshold:   5,
++		MaxUsage:    50,
++		BoostRate:   0.1,
++		DecayRate:   0.25,
++		Cooldown:    improveDefaultCooldown,
++		Now:         time.Now,
++	}
++}
++
++// SetImprove configures the opt-in feedback loop (014 step 08). The service
++// layer calls it from the mnemonic.improve config key; a zero-value call
++// reverts every field to the production defaults (still disabled, since the
++// config section is absent by default).
++func (s *Service) SetImprove(cfg ImproveConfig) {
++	if s == nil {
++		return
++	}
++	def := defaultImproveConfig()
++	if cfg.Threshold <= 0 {
++		cfg.Threshold = def.Threshold
++	}
++	if cfg.MaxUsage <= 0 {
++		cfg.MaxUsage = def.MaxUsage
++	}
++	if cfg.BoostRate <= 0 {
++		cfg.BoostRate = def.BoostRate
++	}
++	if cfg.DecayRate <= 0 {
++		cfg.DecayRate = def.DecayRate
++	}
++	if cfg.Cooldown <= 0 {
++		cfg.Cooldown = def.Cooldown
++	}
++	if cfg.Now == nil {
++		cfg.Now = def.Now
++	}
++	s.improveCfg = cfg
++	s.improveLast = time.Time{}
++}
++
++// ImproveConfig returns the active feedback-loop configuration (the zero
++// value is the disabled default). Tests use it to snapshot and restore the
++// config around raw-order captures.
++func (s *Service) ImproveConfig() ImproveConfig {
++	if s == nil {
++		return ImproveConfig{}
++	}
++	return s.improveCfg
++}
++
++// improve re-ranks an already-SQL-ranked search result set by retrieval
++// usage (014 step 08, self-improvement feedback loop). It is the
++// in-memory re-rank the brief requires: the SQL ORDER BY (pinned, bm25) is
++// untouched, and when improve is disabled (the default) it returns the input
++// unchanged, so default search is byte-identical to pre-improve.
++//
++// A nil/empty input is returned as-is. The cooldown (per service) prevents
++// excessive re-weighting on consecutive searches: within the cooldown window
++// the input is returned unchanged.
++func (s *Service) improve(_ context.Context, results []Observation) []Observation {
++	if s == nil || len(results) == 0 || !s.improveCfg.Enabled {
++		return results
++	}
++	now := s.improveCfg.Now()
++	if !s.improveLast.IsZero() && now.Sub(s.improveLast) < s.improveCfg.Cooldown {
++		return results
++	}
++	s.improveLast = now
++	ttl := s.effectiveTTL()
++	scores := make([]float64, len(results))
++	for i, o := range results {
++		scores[i] = float64(i)
++		scores[i] += s.improveBoost(o.RetrievalUsage)
++		scores[i] -= s.improveDecay(o.RetrievalUsage, o.CreatedAt, now, ttl)
++	}
++	// Stable partition by score descending; equal scores keep the SQL rank.
++	idx := make([]int, len(results))
++	for i := range idx {
++		idx[i] = i
++	}
++	sort.SliceStable(idx, func(a, b int) bool { return scores[idx[a]] > scores[idx[b]] })
++	out := make([]Observation, len(results))
++	for i, j := range idx {
++		out[i] = results[j]
++	}
++	return out
++}
++
++// improveBoost is the retrieval-usage boost: capped linear in usage, only
++// past the threshold. boost = min(retrieval_usage, MaxUsage) * BoostRate.
++func (s *Service) improveBoost(usage int) float64 {
++	if s == nil || !s.improveCfg.Enabled || usage <= s.improveCfg.Threshold {
++		return 0
++	}
++	c := usage
++	if c > s.improveCfg.MaxUsage {
++		c = s.improveCfg.MaxUsage
++	}
++	return float64(c) * s.improveCfg.BoostRate
++}
++
++// improveDecay is the never-accessed decay: proportional to how far the
++// observation's age exceeds the TTL.
++// decay = max(0, age - TTL) / TTL * DecayRate, applied only when
++// retrieval_usage == 0. An observation created within the TTL (or ever
++// retrieved) never decays.
++func (s *Service) improveDecay(usage int, createdAt string, now time.Time, ttl time.Duration) float64 {
++	if s == nil || !s.improveCfg.Enabled || usage != 0 || ttl <= 0 {
++		return 0
++	}
++	created, err := parseObsTimestamp(createdAt)
++	if err != nil || created.IsZero() {
++		return 0
++	}
++	age := now.Sub(created)
++	excess := age - ttl
++	if excess <= 0 {
++		return 0
++	}
++	return float64(excess) / float64(ttl) * s.improveCfg.DecayRate
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/improve_test.go b/skillgrid-cli/internal/mnemonic/memory/improve_test.go
+new file mode 100644
+index 0000000..15ced7a
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/improve_test.go
+@@ -0,0 +1,340 @@
++package memory
++
++import (
++	"context"
++
++	"slices"
++	"testing"
++	"time"
++)
++
++// newImproveFixture opens a store and service, enabling the opt-in improve()
++// feedback loop (014 step 08) with a known config, and a session for saves.
++func newImproveFixture(t *testing.T, project string) *ownerFixture {
++	t.Helper()
++	fx := newOwnerFixture(t, project)
++	fx.svc.SetImprove(ImproveConfig{
++		Enabled:     true,
++		Threshold:   5,
++		MaxUsage:    50,
++		BoostRate:   0.1,
++		DecayRate:   0.25,
++		// Cooldown: 1ns → the default 1-minute fallback does not kick in, so
++		// consecutive searches in a test are never blocked by the cooldown.
++		Cooldown:    time.Nanosecond,
++		Now:         func() time.Time { return time.Now().UTC() },
++	})
++	return fx
++}
++
++// seedImproveObs inserts an observation directly with a controlled
++// retrieval_usage and created_at (the FTS trigger keeps search in sync).
++// createdOffset is how far in the past created_at sits relative to now.
++func seedImproveObs(t *testing.T, fx *ownerFixture, title, body, owner string, usage int, createdOffset time.Duration) int64 {
++	t.Helper()
++	now := time.Now().UTC()
++	fmtS := func(d time.Time) string { return d.UTC().Format(time.RFC3339) }
++	created := fmtS(now.Add(-createdOffset))
++	updated := fmtS(now)
++	expires := fmtS(now.Add(7 * 24 * time.Hour))
++	res, err := fx.st.DB.Exec(`
++		INSERT INTO observations (
++			session_id, type, title, content, project, scope,
++			normalized_hash, created_at, updated_at, source,
++			owner, visibility, status, retrieval_usage, expires_at
++		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
++		fx.sessionID, "decision", title, body, fx.svc.ProjectID(), "",
++		"", created, updated, "manual", owner, "private", "active", usage, expires,
++	)
++	if err != nil {
++		t.Fatalf("seed observation %q: %v", title, err)
++	}
++	id, err := res.LastInsertId()
++	if err != nil {
++		t.Fatalf("seed last insert id %q: %v", title, err)
++	}
++	return id
++}
++
++// TestImproveBoostsHighUsageObservations covers @step-08 (Scenario:
++// high-usage-observations-are-boosted): with improve() enabled, an
++// observation with retrieval_usage=100 outranks one with retrieval_usage=10,
++// which outranks one with retrieval_usage=0 (below threshold).
++func TestImproveBoostsHighUsageObservations(t *testing.T) {
++	fx := newImproveFixture(t, "improve-boost")
++	ctx := context.Background()
++
++	// The 0-usage observation matches the most query tokens (title token +
++	// its distinctive "shared" body token), so the raw SQL bm25 order is
++	// [0-usage, 100-usage, 10-usage] — the opposite of the boosted order.
++	seedImproveObs(t, fx, "improvealpha highusage asset", "improvealpha filler body one", fx.ownerA, 100, 1*time.Hour)
++	seedImproveObs(t, fx, "improvebeta midusage asset", "improvebeta filler body two", fx.ownerA, 10, 1*time.Hour)
++	seedImproveObs(t, fx, "improveceta lowusage asset", "improveceta shared filler body three", fx.ownerA, 0, 1*time.Hour)
++
++	// Capture the raw SQL ranking first (improve off): this is the
++	// pre-improve order the boost must correct.
++	rawCfg := fx.svc.ImproveConfig()
++	fx.svc.SetImprove(ImproveConfig{Enabled: false})
++	raw, err := fx.svc.SearchOwnerScoped(ctx, fx.ownerA, "agent",
++		"improvealpha improvebeta improveceta shared", "any", "", 10)
++	if err != nil {
++		t.Fatalf("search (raw): %v", err)
++	}
++	fx.svc.SetImprove(rawCfg)
++	if len(raw) != 3 {
++		t.Fatalf("expected 3 hits, got %d", len(raw))
++	}
++	rawUsage := make([]int, len(raw))
++	for i, h := range raw {
++		rawUsage[i] = h.RetrievalUsage
++	}
++	if slices.Equal(rawUsage, []int{100, 10, 0}) {
++		t.Fatalf("test setup broken: raw SQL order is already usage-desc (%v); "+
++			"pick tokens/usage so the pre-improve order differs from the boosted order", rawUsage)
++	}
++
++	// Now with improve() enabled the same search must be re-ranked by
++	// retrieval usage: 100 > 10 > 0.
++	hits, err := fx.svc.SearchOwnerScoped(ctx, fx.ownerA, "agent",
++		"improvealpha improvebeta improveceta shared", "any", "", 10)
++	if err != nil {
++		t.Fatalf("search: %v", err)
++	}
++	if len(hits) != 3 {
++		t.Fatalf("expected 3 hits, got %d", len(hits))
++	}
++	gotOrder := make([]int, len(hits))
++	for i, h := range hits {
++		gotOrder[i] = h.RetrievalUsage
++	}
++	// The raw-capture search above bumped each hit by one (governance
++	// retrieval-usage), so the boosted values are +1: 101 > 11 > 1.
++	want := []int{101, 11, 1}
++	if !slices.Equal(gotOrder, want) {
++		t.Fatalf("improve() must re-rank by retrieval usage desc: raw SQL order %v, got %v, want %v",
++			rawUsage, gotOrder, want)
++	}
++}
++
++// TestImproveDecaysNeverAccessed covers @step-08 (Scenario:
++// never-accessed-observations-decay): an observation that has never been
++// retrieved (retrieval_usage=0) and is older than the TTL decays in rank —
++// it must rank below an accessed observation, and the decay is proportional
++// to age (the older of two never-accessed observations ranks last).
++//
++// The SQL ORDER BY for these three documents is deterministic (bm25 ranks by
++// relevance, not by age or insertion order), so the raw order is always
++// [accessed, oldNever, olderNever]. improve() must keep accessed first (it is
++// boosted by usage and never decays) and confirm the age-proportional ordering
++// of the two never-accessed docs.
++func TestImproveDecaysNeverAccessed(t *testing.T) {
++	fx := newImproveFixture(t, "improve-decay")
++	ctx := context.Background()
++
++	ttl := fx.svc.EffectiveTTL()
++	// never-accessed, age = 8 TTL (> TTL) — decays by (8-1)/1 * DecayRate.
++	oldNever := seedImproveObs(t, fx, "decayold never accessed", "decayold filler body one", fx.ownerA, 0, 20*ttl)
++	// never-accessed, age = 10 TTL (> TTL) — decays by (10-1)/1 * DecayRate.
++	// Its body repeats "decayolder" so it matches the most query tokens and
++	// leads the raw SQL bm25 ranking — the decay must then flip it behind
++	// the 8-TTL doc (proportional-to-age proof).
++	olderNever := seedImproveObs(t, fx, "decayolder never accessed", "decayolder decayolder decayolder filler body two", fx.ownerA, 0, 30*ttl)
++	// accessed (usage 50 > 0 → never decays, boosted), fresh (age < TTL → no decay).
++	// Usage 50 (the MaxUsage cap) gives a large boost so the accessed doc
++	// decisively outranks the never-accessed ones regardless of base rank.
++	accessed := seedImproveObs(t, fx, "decayfresh accessed asset", "decayfresh filler body three", fx.ownerA, 50, 1*time.Hour)
++
++	// Fetch all three by id (no search, so no usage bumps) and verify the
++	// SQL ranking would put the accessed doc first (bm25 is deterministic
++	// here: each doc matches exactly one query token, so the order is by
++	// document structure, not insertion order). We build the raw order from
++	// a single SearchOwnerScoped with improve disabled, then re-enable and
++	// call improve() directly on that slice — isolating the decay from any
++	// usage bump.
++	// Build the raw slice via a direct SQL query (no usage bump) so the
++	// never-accessed docs stay at retrieval_usage=0 for the decay check.
++	rawCfg := fx.svc.ImproveConfig()
++	raw, err := rawSQLSearch(ctx, fx, "decayold decayolder decayfresh")
++	if err != nil {
++		t.Fatalf("search (raw): %v", err)
++	}
++	_ = rawCfg
++	if len(raw) != 3 {
++		t.Fatalf("expected 3 hits, got %d", len(raw))
++	}
++	rawOrder := ids(raw)
++	t.Logf("raw SQL order: %v (accessed=%d oldNever=%d olderNever=%d)", rawOrder, accessed, oldNever, olderNever)
++
++	// improve() on the raw slice must rank the accessed doc first (boosted,
++	// no decay) and the 8-TTL never-accessed doc before the 10-TTL one
++	// (decay proportional to age: (10-1)/1 > (8-1)/1 → 10-TTL decays more).
++	reranked := fx.svc.improve(ctx, raw)
++	got := ids(reranked)
++	if got[0] != accessed {
++		t.Fatalf("accessed observation must rank first (no decay for used obs): raw %v, got %v", rawOrder, got)
++	}
++	// The 10-TTL never-accessed doc — which led the raw SQL ranking by
++	// matching more query tokens — must now rank BELOW the 8-TTL one: decay
++	// is proportional to age ((10-1)/1 * DecayRate > (8-1)/1 * DecayRate),
++	// and the extra decay outweighs its 1-position base-rank lead.
++	if got[1] != oldNever || got[2] != olderNever {
++		t.Fatalf("decay must be proportional to age (8-TTL before 10-TTL): raw %v, got %v, want [%d %d %d]",
++			rawOrder, got, accessed, oldNever, olderNever)
++	}
++}
++
++// ids returns the observation IDs in slice order.
++func ids(obs []Observation) []int64 {
++	out := make([]int64, len(obs))
++	for i, o := range obs {
++		out[i] = o.ID
++	}
++	return out
++}
++
++// TestImproveDisabledNoRegression covers @step-08 (Scenarios:
++// improve-is-opt-in / does-not-regress-when-disabled): with the
++// mnemonic.improve config absent (Enabled=false, the default), mem_search
++// returns the exact pre-improve SQL ordering — no boost, no decay — and the
++// config loader defaults the section off. The loop is also gated by a
++// cooldown: consecutive searches within the window are not re-ranked again.
++func TestImproveDisabledNoRegression(t *testing.T) {
++	fx := newOwnerFixture(t, "improve-disabled")
++	ctx := context.Background()
++
++	// No SetImprove call → the zero-value cfg is disabled (the opt-in
++	// default, matching a config file without the mnemonic.improve section).
++	cfg := fx.svc.ImproveConfig()
++	if cfg.Enabled {
++		t.Fatalf("improve() must be disabled by default (opt-in), got Enabled=true")
++	}
++
++	// Mixed usage: a hot doc (100), a mid doc (10), a cold fresh doc (0).
++	// The cold doc matches the most query tokens so the SQL ranking is
++	// [cold, hot, mid] — the OPPOSITE of the boosted order [hot, mid, cold].
++	seedImproveObs(t, fx, "disablalpha cold fresh", "disablalpha disablalpha disablalpha filler body one", fx.ownerA, 0, 1*time.Hour)
++	seedImproveObs(t, fx, "disablbeta hot used", "disablbeta filler body two", fx.ownerA, 100, 1*time.Hour)
++	seedImproveObs(t, fx, "disablgamma mid used", "disablgamma filler body three", fx.ownerA, 10, 1*time.Hour)
++
++	// Disabled: the search must return the raw SQL order, untouched.
++	hits, err := fx.svc.SearchOwnerScoped(ctx, fx.ownerA, "agent",
++		"disablalpha disablbeta disablgamma", "any", "", 10)
++	if err != nil {
++		t.Fatalf("search: %v", err)
++	}
++	if len(hits) != 3 {
++		t.Fatalf("expected 3 hits, got %d", len(hits))
++	}
++	usageOrder := make([]int, len(hits))
++	for i, h := range hits {
++		usageOrder[i] = h.RetrievalUsage
++	}
++	// The SQL ranking (cold first by token match) must be preserved verbatim:
++	// no boost/decay may reorder it while disabled.
++	wantSQL := []int{0, 100, 10}
++	if !slices.Equal(usageOrder, wantSQL) {
++		t.Fatalf("disabled improve() must keep the pre-improve SQL order: got %v, want %v", usageOrder, wantSQL)
++	}
++
++	// Re-enabling the loop (the config opt-in) must change the order — proof
++	// the disabled path skipped the re-rank entirely.
++	fx.svc.SetImprove(ImproveConfig{
++		Enabled:     true,
++		Threshold:   5,
++		MaxUsage:    50,
++		BoostRate:   0.1,
++		DecayRate:   0.25,
++		Cooldown:    time.Nanosecond,
++		Now:         func() time.Time { return time.Now().UTC() },
++	})
++	enabled, err := fx.svc.SearchOwnerScoped(ctx, fx.ownerA, "agent",
++		"disablalpha disablbeta disablgamma", "any", "", 10)
++	if err != nil {
++		t.Fatalf("search (enabled): %v", err)
++	}
++	if slices.Equal(ids(hits), ids(enabled)) {
++		t.Fatalf("enabled improve() must re-rank differently from the disabled SQL order")
++	}
++	if len(enabled) != 3 || enabled[0].RetrievalUsage != 101 {
++		t.Fatalf("enabled improve() must boost the high-usage doc first, got %+v", usageOrders(enabled))
++	}
++
++	// Cooldown: a fresh service (clean usage counters) with a long cooldown —
++	// the first search re-ranks (boosted), the second (within the window)
++	// must NOT re-rank again and returns the raw SQL order.
++	fx2 := newOwnerFixture(t, "improve-cooldown")
++	seedImproveObs(t, fx2, "disablalpha cold fresh", "disablalpha disablalpha disablalpha filler body one", fx2.ownerA, 0, 1*time.Hour)
++	seedImproveObs(t, fx2, "disablbeta hot used", "disablbeta filler body two", fx2.ownerA, 100, 1*time.Hour)
++	seedImproveObs(t, fx2, "disablgamma mid used", "disablgamma filler body three", fx2.ownerA, 10, 1*time.Hour)
++	fx2.svc.SetImprove(ImproveConfig{
++		Enabled:     true,
++		Threshold:   5,
++		MaxUsage:    50,
++		BoostRate:   0.1,
++		DecayRate:   0.25,
++		Cooldown:    time.Hour,
++		Now:         func() time.Time { return time.Now().UTC() },
++	})
++	first, err := fx2.svc.SearchOwnerScoped(ctx, fx2.ownerA, "agent",
++		"disablalpha disablbeta disablgamma", "any", "", 10)
++	if err != nil {
++		t.Fatalf("search (cooldown 1st): %v", err)
++	}
++	second, err := fx2.svc.SearchOwnerScoped(ctx, fx2.ownerA, "agent",
++		"disablalpha disablbeta disablgamma", "any", "", 10)
++	if err != nil {
++		t.Fatalf("search (cooldown 2nd): %v", err)
++	}
++	// The second search is inside the cooldown window → returned as the raw
++	// SQL order (cold doc first by token match), so it differs from the
++	// boosted first search (hot doc first).
++	if slices.Equal(ids(first), ids(second)) {
++		t.Fatalf("second search within the cooldown must not re-rank (got identical order %v)", ids(first))
++	}
++	// The first search is boosted (hot doc first). Its values are the
++	// pre-bump usage (the bump happens after the re-rank): 100 > 10 > 0.
++	if first[0].RetrievalUsage != 100 {
++		t.Fatalf("first search must be boosted (hot doc first), got %+v", usageOrders(first))
++	}
++	// The second search is within the cooldown → raw SQL order (cold doc
++	// first by token match), values bumped once by the first search: cold=1.
++	if second[0].RetrievalUsage != 1 {
++		t.Fatalf("second search within cooldown must be the raw SQL order (cold doc first), got %+v", usageOrders(second))
++	}
++}
++
++// usageOrders returns the retrieval-usage values in slice order (for error
++// messages).
++func usageOrders(obs []Observation) []int {
++	out := make([]int, len(obs))
++	for i, o := range obs {
++		out[i] = o.RetrievalUsage
++	}
++	return out
++}
++
++// rawSQLSearch runs the same FTS query as SearchOwnerScoped but WITHOUT the
++// retrieval-usage bump, so tests can capture the pre-improve SQL ranking with
++// usage values untouched (the decay check needs usage=0 to be meaningful).
++func rawSQLSearch(ctx context.Context, fx *ownerFixture, query string) ([]Observation, error) {
++	db := fx.st.DB
++	ftsQuery := buildFTSQuery(query, "any")
++	rows, err := db.QueryContext(ctx, `
++		SELECT o.id, o.session_id, o.type, o.title, o.content, o.project, o.scope,
++		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at,
++		       COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
++		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0)
++		FROM observations o
++		INNER JOIN observations_fts ON observations_fts.rowid = o.id
++		WHERE observations_fts MATCH ? AND o.deleted_at IS NULL AND o.project = ?
++		  AND (o.expires_at IS NULL OR o.expires_at = '' OR strftime('%s', o.expires_at) > strftime('%s', 'now'))
++		ORDER BY COALESCE(o.pinned, 0) DESC, bm25(observations_fts)
++		LIMIT 10`,
++		ftsQuery, fx.svc.ProjectID(),
++	)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	return scanObservations(rows)
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/service.go b/skillgrid-cli/internal/mnemonic/memory/service.go
+index d0a5768..c4ed27e 100644
+--- a/skillgrid-cli/internal/mnemonic/memory/service.go
++++ b/skillgrid-cli/internal/mnemonic/memory/service.go
+@@ -65,6 +65,14 @@ type Service struct {
+ 	// is only tried when this is true; otherwise CapturePassive stays on the
+ 	// deterministic regex floor.
+ 	extractionLLMEnabled bool
++	// improveCfg is the opt-in self-improvement feedback loop (014, step 08):
++	// retrieval-usage boost/decay re-ranking applied in-memory before search
++	// results are returned. The zero-value cfg is disabled (Enabled false),
++	// so a Service built directly (unit tests, no config) keeps the exact
++	// pre-improve SQL ordering. Set via SetImprove from the mnemonic.improve
++	// config key; improveLast is the cooldown anchor.
++	improveCfg  ImproveConfig
++	improveLast time.Time
+ }
+ 
+ // SetDistillHookProvider attaches the owning handle (which carries the opt-in
+@@ -132,6 +140,13 @@ func (s *Service) effectiveTTL() time.Duration {
+ 	return defaultMemoryTTL
+ }
+ 
++// EffectiveTTL returns the active default soft expiry (the mnemonic.ttl
++// override or defaultMemoryTTL). Exposed for tests that position observation
++// ages relative to the TTL (014 step 08 decay).
++func (s *Service) EffectiveTTL() time.Duration {
++	return s.effectiveTTL()
++}
++
+ // SaveInput holds fields for a new or updated observation.
+ type SaveInput struct {
+ 	Title     string
+@@ -565,7 +580,10 @@ func (s *Service) SearchOwnerScoped(ctx context.Context, readerOwner, readerAgen
+ 	for _, o := range out {
+ 		s.BumpRetrievalUsage(ctx, o.ID)
+ 	}
+-	return out, nil
++	// Self-improvement feedback loop (014 step 08): opt-in in-memory
++	// re-rank by retrieval usage before the results go out. A no-op
++	// (byte-identical order) when the mnemonic.improve config is off.
++	return s.improve(ctx, out), nil
+ }
+ 
+ // Recent returns stored observations, newest first, without FTS.

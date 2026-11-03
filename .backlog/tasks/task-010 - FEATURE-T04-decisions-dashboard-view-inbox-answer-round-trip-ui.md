@@ -6,7 +6,7 @@ assignee: []
 created_date: '2026-09-19 14:50'
 updated_date: '2026-10-06 08:35'
 labels: []
-milestone: m-5
+milestone: 2026-09-19-embed-visual-companion
 dependencies:
   - TASK-008
   - TASK-009

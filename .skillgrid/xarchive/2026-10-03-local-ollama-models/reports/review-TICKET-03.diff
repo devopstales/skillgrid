@@ -1,0 +1,68 @@
+# Review package: c64d8fb..HEAD
+
+## Commits
+38b0bced feat(embedder): default Ollama embed model to embeddinggemma:300m
+
+## Files changed
+ skillgrid-cli/internal/mnemonic/embedder/ollama.go      |  2 +-
+ skillgrid-cli/internal/mnemonic/embedder/ollama_test.go | 15 +++++++++++++++
+ 2 files changed, 16 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/skillgrid-cli/internal/mnemonic/embedder/ollama.go b/skillgrid-cli/internal/mnemonic/embedder/ollama.go
+index cd608c83..c426ded5 100644
+--- a/skillgrid-cli/internal/mnemonic/embedder/ollama.go
++++ b/skillgrid-cli/internal/mnemonic/embedder/ollama.go
+@@ -9,21 +9,21 @@ import (
+ 	"net/http"
+ 	"time"
+ 
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
+ )
+ 
+ // DefaultOllamaBaseURL is the stock Ollama server endpoint.
+ const DefaultOllamaBaseURL = "http://localhost:11434"
+ 
+ // DefaultOllamaModel is the default Ollama embedding model.
+-const DefaultOllamaModel = "nomic-embed-code"
++const DefaultOllamaModel = "embeddinggemma:300m"
+ 
+ // OllamaConfig configures the Ollama embedder (provider "ollama"). The base
+ // URL defaults to the stock Ollama port (11434) and is configurable so tests
+ // can point at a mock server.
+ type OllamaConfig struct {
+ 	BaseURL   string
+ 	Model     string
+ 	Dimension int
+ }
+ 
+diff --git a/skillgrid-cli/internal/mnemonic/embedder/ollama_test.go b/skillgrid-cli/internal/mnemonic/embedder/ollama_test.go
+index 6c725e43..b3e571d9 100644
+--- a/skillgrid-cli/internal/mnemonic/embedder/ollama_test.go
++++ b/skillgrid-cli/internal/mnemonic/embedder/ollama_test.go
+@@ -121,10 +121,25 @@ func TestOllamaEmbedError(t *testing.T) {
+ 
+ 	o := NewOllama(OllamaConfig{BaseURL: srv.URL, Model: "nope", Dimension: 8})
+ 	_, err := o.Embed(context.Background(), "test text")
+ 	if err == nil {
+ 		t.Fatal("Embed on 404: want error, got nil")
+ 	}
+ 	if !strings.Contains(err.Error(), "404") {
+ 		t.Fatalf("error=%q, want it to mention the status", err)
+ 	}
+ }
++
++// TestDefaultOllamaModelIsEmbeddinggemma (TICKET-03/TASK-044): the runtime
++// default Ollama embedding model is embeddinggemma:300m, and an embedder built
++// with no explicit Model falls back to it. This is the one-way-door change that
++// forwards the runtime default for existing local installs that don't pin a model.
++func TestDefaultOllamaModelIsEmbeddinggemma(t *testing.T) {
++	const want = "embeddinggemma:300m"
++	if DefaultOllamaModel != want {
++		t.Fatalf("DefaultOllamaModel = %q, want %q", DefaultOllamaModel, want)
++	}
++	o := NewOllama(OllamaConfig{BaseURL: "http://127.0.0.1:0"})
++	if o.Model() != want {
++		t.Fatalf("NewOllama fallback Model = %q, want %q", o.Model(), want)
++	}
++}

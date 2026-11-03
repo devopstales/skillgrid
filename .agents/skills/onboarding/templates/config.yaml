@@ -5,13 +5,17 @@ context: >-
 
 # --- Ticketing ---
 # Set enabled: false to skip ticket publishing entirely (tasks.md only).
-# type: backlogmd (default, local) | gh | glab | jira
+# type: backlogmd (default, local) | gh | glab | jira | hermes-kanban
 ticketing:
   enabled: {ticketing_enabled}
   type: {ticketing_type}
   # Required when type: jira
   # project_key: {jira_project_key}
   # instance: https://{jira_org}.atlassian.net
+  # Required when type: hermes-kanban (written by `skillgrid install --agents hermes`)
+  # kanban:
+  #   board: {project}        # Hermes Kanban board slug (defaults to the project name)
+  #   assignee: default       # Hermes profile that executes the tickets
   backlogmd:
     dir: .backlog
     task_prefix: "task"
@@ -97,9 +101,9 @@ conventions:
   specs_root: .skillgrid/specs
   scratch_dir: .skillgrid/sdd
   # Durable project knowledge. Decisions (PRD understanding, ADRs, locked
-  # constraints) live at the repo root in .skillgrid/ASSUMPTIONS.md (a single
+  # constraints) live at the repo root in .skillgrid/knowledge/ASSUMPTIONS.md (a single
   # file with ### ADR-NNNN entries under § LOCKED) and the live repo/program
-  # structure in .skillgrid/ARCHITECTURE.md. Durable artifacts (terms glossary
+  # structure in .skillgrid/knowledge/ARCHITECTURE.md. Durable artifacts (terms glossary
   # + research findings) live here. Replaces the former per-file ADR/PRD/
   # locked-constraints layout.
   artifacts: .skillgrid/artifacts
@@ -206,7 +210,7 @@ rules:
     T3: { name: GA,        blueprint: full,  qa: L4,        review: parallel+fresh-model }
   # --- Ship (integration + archive move) ---
   # skillgrid:ship merges/PRs/keeps the branch, then moves the change folder
-  # specs/ -> archive/. No release mechanics (VERSION/CHANGELOG) and no docs
+  # specs/ -> xarchive/. No release mechanics (VERSION/CHANGELOG) and no docs
   # check in any variant. fast_track_light: trivial/small skip PR-body
   # generation but the mechanical move is never waived.
   ship:

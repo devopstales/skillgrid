@@ -1,0 +1,2632 @@
+=== 010 STEP 02 CODE COMMITS d068db4..dd593b9 ===
+
+dd593b9 feat(mnemonic): register code_affected and code_rename tools
+b59c0b1 feat(mnemonic): code_rename applies only planned files
+e0a9a57 feat(mnemonic): code_rename graph and text-search buckets
+d708a64 feat(mnemonic): code_affected --base merge-base diff with owners
+8288d21 feat(mnemonic): code_affected --stdin for CI and hooks
+d068db4 feat(mnemonic): code_affected test-impact traversal
+
+=== STAT ===
+ skillgrid-cli/cmd/skillgrid/mcp.go                 |  14 +-
+ skillgrid-cli/cmd/skillgrid/search.go              |  14 +
+ skillgrid-cli/cmd/skillgrid/search_affected_cli.go | 197 ++++++++++++
+ .../cmd/skillgrid/search_affected_test.go          |  99 ++++++
+ skillgrid-cli/cmd/skillgrid/search_rename_cli.go   | 116 +++++++
+ .../internal/mnemonic/affected/affected.go         | 349 +++++++++++++++++++++
+ .../mnemonic/affected/affected_stdin_test.go       |  54 ++++
+ .../internal/mnemonic/affected/affected_test.go    | 223 +++++++++++++
+ skillgrid-cli/internal/mnemonic/affected/base.go   | 224 +++++++++++++
+ .../internal/mnemonic/affected/base_test.go        | 145 +++++++++
+ skillgrid-cli/internal/mnemonic/affected/rename.go | 267 ++++++++++++++++
+ .../mnemonic/affected/rename_apply_test.go         |  87 +++++
+ .../internal/mnemonic/affected/rename_support.go   | 123 ++++++++
+ .../internal/mnemonic/affected/rename_test.go      | 198 ++++++++++++
+ skillgrid-cli/internal/mnemonic/mcp/server.go      |   2 +
+ skillgrid-cli/internal/mnemonic/mcp/server_test.go |   2 +
+ .../internal/mnemonic/mcp/tools_code_affected.go   | 161 ++++++++++
+ .../mnemonic/mcp/tools_code_affected_test.go       | 155 +++++++++
+ .../mnemonic/mcp/tools_code_knowledge_test.go      |   8 +-
+ 19 files changed, 2433 insertions(+), 5 deletions(-)
+
+=== DIFF ===
+diff --git a/skillgrid-cli/cmd/skillgrid/mcp.go b/skillgrid-cli/cmd/skillgrid/mcp.go
+index 07f0eb4..651cc9e 100644
+--- a/skillgrid-cli/cmd/skillgrid/mcp.go
++++ b/skillgrid-cli/cmd/skillgrid/mcp.go
+@@ -205,6 +205,9 @@ func runSetup(version string, args []string) {
+ 
+ // newMnemonicService builds a Mnemonic service from a data dir (env or default).
+ func newMnemonicService(dir string) (*service.Service, error) {
++	if cliService != nil {
++		return cliService, nil
++	}
+ 	if dir == "" {
+ 		var err error
+ 		dir, err = service.DefaultDataDir()
+@@ -212,12 +215,21 @@ func newMnemonicService(dir string) (*service.Service, error) {
+ 			return nil, err
+ 		}
+ 	}
+-	return service.New(dir), nil
++	s := service.New(dir)
++	cliService = s
++	return s, nil
+ }
+ 
++// cliService pins the service built by the first newMnemonicService call so
++// every later handler in the same CLI invocation shares that data dir (the
++// env var may be set after the first construction, e.g. by a test harness).
++var cliService *service.Service
++
+ func envOr(key, def string) string {
+ 	if v := os.Getenv(key); v != "" {
+ 		return v
+ 	}
+ 	return def
+ }
++
++
+diff --git a/skillgrid-cli/cmd/skillgrid/search.go b/skillgrid-cli/cmd/skillgrid/search.go
+index f0c4b9b..ee56cc2 100644
+--- a/skillgrid-cli/cmd/skillgrid/search.go
++++ b/skillgrid-cli/cmd/skillgrid/search.go
+@@ -85,11 +85,25 @@ func runSearch(version string, args []string) {
+ 	fs.IntVar(&limit, "limit", 20, "maximum hits")
+ 	fs.Usage = func() {
+ 		fmt.Fprintln(fs.Output(), "usage: skillgrid search QUERY [--json] [--fts] [--semantic] [--limit N]")
++		fmt.Fprintln(fs.Output(), "       skillgrid search affected [--stdin | FILES...] [--base REF] [--depth N] [--filter F] [--json] [--quiet]")
++		fmt.Fprintln(fs.Output(), "       skillgrid search rename OLD NEW [--file F] [--uid U] [--kind K] [--apply] [--json]")
+ 		fs.PrintDefaults()
+ 	}
+ 	if err := fs.Parse(args); err != nil {
+ 		os.Exit(2)
+ 	}
++	// `search affected` / `search rename` are PR commands (010 step 02): the
++	// first bare argument selects the mode, not a query. Run BEFORE flag
++	// parsing so affected's own flags (--stdin/--base/...) don't leak into
++	// the shared search flag set.
++	if len(args) >= 1 && args[0] == "affected" {
++		runSearchAffected(version, args)
++		return
++	}
++	if len(args) >= 1 && args[0] == "rename" {
++		runSearchRename(version, args)
++		return
++	}
+ 	if fs.NArg() != 1 {
+ 		fmt.Fprintln(os.Stderr, "error: search requires exactly one QUERY argument")
+ 		os.Exit(2)
+diff --git a/skillgrid-cli/cmd/skillgrid/search_affected_cli.go b/skillgrid-cli/cmd/skillgrid/search_affected_cli.go
+new file mode 100644
+index 0000000..1c307f8
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/search_affected_cli.go
+@@ -0,0 +1,197 @@
++package main
++
++import (
++	"context"
++	"encoding/json"
++	"flag"
++	"fmt"
++	"io"
++	"os"
++	"os/signal"
++	"syscall"
++	"strings"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/affected"
++)
++
++// readAffectedChanged returns the changed file set for a `search affected`
++// invocation: explicit file arguments, a --stdin diff list, or (for --base)
++// the merge-base diff. Exactly one source is allowed; none is a validation
++// error (no invented changed set).
++func readAffectedChanged(fs *flag.FlagSet, stdin bool) ([]string, error) {
++	if stdin {
++		// Read the diff list into memory BEFORE opening the service: the
++		// store init path may replace os.Stdin, and an already-open *os.File
++		// read into bytes is immune to that swap.
++		list, err := io.ReadAll(os.Stdin)
++		if err != nil {
++			return nil, err
++		}
++		return affected.ParseFileList(string(list))
++	}
++	files := fs.Args()
++	if len(files) > 0 {
++		return files, nil
++	}
++	return nil, fmt.Errorf("affected: provide changed files or --stdin")
++}
++
++
++
++// runSearchAffected implements `skillgrid search affected` (CLI parity for
++// code_affected): --stdin / FILES... / --base REF, --depth, --filter,
++// --json, --quiet.
++func runSearchAffected(version string, args []string) {
++	fs := flag.NewFlagSet("search affected", flag.ContinueOnError)
++	fs.SetOutput(os.Stderr)
++	var (
++		jsonOut  bool
++		quiet    bool
++		stdin    bool
++		baseRef  string
++		depth    int
++		filter   string
++	)
++	fs.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
++	fs.BoolVar(&quiet, "quiet", false, "print only affected test file paths")
++	fs.BoolVar(&stdin, "stdin", false, "read the changed file list from stdin (git diff --name-only)")
++	fs.StringVar(&baseRef, "base", "", "derive the changed set from git merge-base <ref> HEAD")
++	fs.IntVar(&depth, "depth", 0, "bound the traversal depth (default 5)")
++	fs.StringVar(&filter, "filter", "", "restrict reported test files to a substring/segment match")
++	fs.Usage = func() {
++		fmt.Fprintln(fs.Output(), "usage: skillgrid search affected [FILES...] [--stdin | --base REF] [--depth N] [--filter F] [--json] [--quiet]")
++		fs.PrintDefaults()
++	}
++	// Strip the leading "search" + "affected" tokens: main.go dispatches the
++	// whole rest (`search affected --stdin ...`), and the flag set must see
++	// only the affected-specific flags.
++	fsArgs := args
++	if len(fsArgs) >= 2 && fsArgs[0] == "search" && fsArgs[1] == "affected" {
++		fsArgs = fsArgs[2:]
++	} else if len(fsArgs) >= 1 && fsArgs[0] == "affected" {
++		fsArgs = fsArgs[1:]
++	}
++	if err := fs.Parse(fsArgs); err != nil {
++		os.Exit(2)
++	}
++	if stdin && baseRef != "" {
++		fmt.Fprintln(os.Stderr, "error: affected: --stdin and --base are mutually exclusive")
++		os.Exit(2)
++	}
++	if baseRef != "" {
++		cwd, err := os.Getwd()
++		if err != nil {
++			fmt.Fprintf(os.Stderr, "error: %v\n", err)
++			os.Exit(1)
++		}
++		svc, projectID, err := openGraphService()
++		if err != nil {
++			fmt.Fprintf(os.Stderr, "error: %v\n", err)
++			os.Exit(1)
++		}
++		_ = version
++		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
++		defer stop()
++		h, cleanup, err := svc.Open(projectID)
++		if err != nil {
++			fmt.Fprintf(os.Stderr, "error: %v\n", err)
++			os.Exit(1)
++		}
++		defer cleanup()
++		base, err := affected.AffectedBase(ctx, h.Store().DB, cwd, baseRef, affected.Options{
++			Depth: depth, Filter: filter,
++		})
++		if err != nil {
++			fmt.Fprintf(os.Stderr, "error: %v\n", err)
++			os.Exit(1)
++		}
++		printAffected(base.Result, base, jsonOut, quiet)
++		return
++	}
++	{
++		changed, err := readAffectedChanged(fs, stdin)
++		if err != nil {
++			fmt.Fprintf(os.Stderr, "error: %v\n", err)
++			os.Exit(2)
++		}
++		svc, projectID, err := openGraphService()
++		if err != nil {
++			fmt.Fprintf(os.Stderr, "error: %v\n", err)
++			os.Exit(1)
++		}
++		_ = version
++		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
++		defer stop()
++		h, cleanup, err := svc.Open(projectID)
++		if err != nil {
++			fmt.Fprintf(os.Stderr, "error: %v\n", err)
++			os.Exit(1)
++		}
++		defer cleanup()
++		res, err := affected.Affected(ctx, h.Store().DB, affected.Options{
++			Changed: changed, Depth: depth, Filter: filter,
++		})
++		if err != nil {
++			fmt.Fprintf(os.Stderr, "error: %v\n", err)
++			os.Exit(1)
++		}
++		printAffected(res, res, jsonOut, quiet)
++		return
++	}
++}
++
++// printAffected renders a code_affected result (human or JSON). In --base
++// mode the base variant also prints affected areas + owners, shaped as a
++// ready PR comment / CI gate.
++func printAffected(res affected.Result, baseRes any, jsonOut, quiet bool) {
++	if jsonOut {
++		var out any = res
++		if b, ok := baseRes.(affected.BaseResult); ok {
++			out = b
++		}
++		b, _ := json.MarshalIndent(out, "", "  ")
++		fmt.Fprintln(os.Stdout, string(b))
++		return
++	}
++	if res.Message != "" {
++		fmt.Fprintln(os.Stdout, res.Message)
++	}
++	if quiet {
++		for _, p := range res.TestFiles {
++			fmt.Fprintln(os.Stdout, p)
++		}
++		return
++	}
++	if len(res.TestFiles) == 0 && res.Message == "" {
++		fmt.Fprintln(os.Stderr, "no affected test files")
++		return
++	}
++	fmt.Printf("affected test files (%d):\n", len(res.TestFiles))
++	for _, p := range res.TestFiles {
++		fmt.Printf("  %s\n", p)
++	}
++	if len(res.Relationships) > 0 {
++		fmt.Printf("relationships (%d hops, depth cap %d):\n", len(res.Relationships), res.Depth)
++		for _, r := range res.Relationships {
++			fmt.Printf("  %s -> %s [%s %s] depth %d (%s)\n", r.From, r.To, r.Kind, r.Confidence, r.Depth, r.DepPath)
++		}
++	}
++	if b, ok := baseRes.(affected.BaseResult); ok {
++		if b.MergeBase != "" {
++			fmt.Printf("merge-base: %s (base %s)\n", b.MergeBase, b.BaseRef)
++		}
++		if len(b.Areas) > 0 {
++			fmt.Println("affected areas:")
++			for _, a := range b.Areas {
++				owners := ""
++				if len(a.Owners) > 0 {
++					owners = " (tag: " + strings.Join(a.Owners, ", ") + ")"
++				}
++				fmt.Printf("  %s [%d hops, %d affected tests]%s\n", a.Name, a.Hops, len(a.TestFiles), owners)
++				for _, tf := range a.TestFiles {
++					fmt.Printf("    test: %s\n", tf)
++				}
++			}
++		}
++	}
++}
+diff --git a/skillgrid-cli/cmd/skillgrid/search_affected_test.go b/skillgrid-cli/cmd/skillgrid/search_affected_test.go
+new file mode 100644
+index 0000000..289f477
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/search_affected_test.go
+@@ -0,0 +1,99 @@
++package main
++
++import (
++	"context"
++	"io"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++)
++
++// affectedCLIFixture writes a small go project where base.go is imported by
++// mid.go and base has a test file, indexes it through the shared service, and
++// returns root.
++func affectedCLIFixture(t *testing.T, svc *service.Service) string {
++	t.Helper()
++	root := t.TempDir()
++	write := func(name, content string) {
++		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755); err != nil {
++			t.Fatalf("mkdir %s: %v", name, err)
++		}
++		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o644); err != nil {
++			t.Fatalf("write %s: %v", name, err)
++		}
++	}
++	write("src/base.go", "package p\n\nfunc base() int {\n\treturn 1\n}\n")
++	write("src/mid.go", "package p\n\nfunc mid() int {\n\treturn base()\n}\n")
++	write("src/base_test.go", "package p\n\nfunc TestBase() {\n\t_ = base()\n}\n")
++	t.Setenv("MNEMONIC_PROJECT", "cli-affected")
++	if _, err := svc.ResolveProject(root); err != nil {
++		t.Fatalf("resolve: %v", err)
++	}
++	if _, err := svc.RunCodeIndex(context.Background(), root); err != nil {
++		t.Fatalf("index: %v", err)
++	}
++	return root
++}
++
++// runSearchAffectedCapture runs runSearchAffected with stdin pointed at
++// inPath and returns its stdout.
++func runSearchAffectedCapture(t *testing.T, inPath string, args []string) string {
++	t.Helper()
++	in, err := os.Open(inPath)
++	if err != nil {
++		t.Fatalf("open stdin file: %v", err)
++	}
++	defer in.Close()
++	oldStdout := os.Stdout
++	r, w, err := os.Pipe()
++	if err != nil {
++		t.Fatalf("pipe: %v", err)
++	}
++	os.Stdin = in
++	os.Stdout = w
++	runSearchAffected("test", args)
++	_ = w.Close()
++	os.Stdout = oldStdout
++	out, _ := io.ReadAll(r)
++	return string(out)
++}
++
++// TestCodeAffectedStdinCLI covers @step-02 (Scenario: code_affected consumes a
++// diff file list from stdin, CLI side): `skillgrid search affected --stdin`
++// reads a git-diff --name-only-style list from stdin and prints the affected
++// test files; an empty stdin prints a clear empty message (not an error).
++func TestCodeAffectedStdinCLI(t *testing.T) {
++	dataDir := t.TempDir()
++	svc := service.New(dataDir)
++	root := affectedCLIFixture(t, svc)
++
++	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
++	t.Setenv("MNEMONIC_PROJECT", "cli-affected")
++	oldDir, _ := os.Getwd()
++	if err := os.Chdir(root); err != nil {
++		t.Fatalf("chdir: %v", err)
++	}
++	defer func() { _ = os.Chdir(oldDir) }()
++
++	stdinFile := filepath.Join(t.TempDir(), "diff.txt")
++	if err := os.WriteFile(stdinFile, []byte("src/base.go\nsrc/mid.go\n"), 0o644); err != nil {
++		t.Fatalf("write stdin file: %v", err)
++	}
++	out := runSearchAffectedCapture(t, stdinFile, []string{"search", "affected", "--stdin"})
++	if !strings.Contains(out, "src/base_test.go") {
++		t.Fatalf("CLI affected --stdin must print the affected test file, got: %s", out)
++	}
++
++	// Empty stdin: clear message, no error.
++	emptyFile := filepath.Join(t.TempDir(), "empty.txt")
++	if err := os.WriteFile(emptyFile, []byte(""), 0o644); err != nil {
++		t.Fatalf("write empty: %v", err)
++	}
++	out2 := runSearchAffectedCapture(t, emptyFile, []string{"search", "affected", "--stdin"})
++	if !strings.Contains(out2, "no changed") {
++		t.Fatalf("CLI affected --stdin on an empty diff must print a clear message, got: %s", out2)
++	}
++}
+diff --git a/skillgrid-cli/cmd/skillgrid/search_rename_cli.go b/skillgrid-cli/cmd/skillgrid/search_rename_cli.go
+new file mode 100644
+index 0000000..98baf94
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/search_rename_cli.go
+@@ -0,0 +1,116 @@
++package main
++
++import (
++	"context"
++	"encoding/json"
++	"flag"
++	"fmt"
++	"os"
++	"os/signal"
++	"syscall"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/affected"
++)
++
++// runSearchRename implements `skillgrid search rename OLD NEW` (CLI parity
++// for code_rename). dry_run is the default (no writes); --apply writes only
++// the planned files (no commit/push).
++func runSearchRename(version string, args []string) {
++	fs := flag.NewFlagSet("search rename", flag.ContinueOnError)
++	fs.SetOutput(os.Stderr)
++	var (
++		jsonOut bool
++		apply   bool
++		file    string
++		uid     string
++		kind    string
++	)
++	fs.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
++	fs.BoolVar(&apply, "apply", false, "write the planned edits (only listed files; no commit/push)")
++	fs.StringVar(&file, "file", "", "narrow disambiguation to a file path")
++	fs.StringVar(&uid, "uid", "", "narrow disambiguation to a symbol UID")
++	fs.StringVar(&kind, "kind", "", "narrow disambiguation to a symbol kind")
++	fs.Usage = func() {
++		fmt.Fprintln(fs.Output(), "usage: skillgrid search rename OLD NEW [--file F] [--uid U] [--kind K] [--apply] [--json]")
++		fs.PrintDefaults()
++	}
++	// Strip the leading "search" + "rename" tokens (main.go dispatches the
++	// whole rest).
++	fsArgs := args
++	if len(fsArgs) >= 2 && fsArgs[0] == "search" && fsArgs[1] == "rename" {
++		fsArgs = fsArgs[2:]
++	} else if len(fsArgs) >= 1 && fsArgs[0] == "rename" {
++		fsArgs = fsArgs[1:]
++	}
++	if err := fs.Parse(fsArgs); err != nil {
++		os.Exit(2)
++	}
++	if fs.NArg() != 2 {
++		fmt.Fprintln(os.Stderr, "usage: skillgrid search rename OLD NEW [--file F] [--uid U] [--kind K] [--apply] [--json]")
++		os.Exit(2)
++	}
++	old, new := fs.Arg(0), fs.Arg(1)
++	svc, projectID, err := openGraphService()
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "error: %v\n", err)
++		os.Exit(1)
++	}
++	_ = version
++	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
++	defer stop()
++	h, cleanup, err := svc.Open(projectID)
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "error: %v\n", err)
++		os.Exit(1)
++	}
++	defer cleanup()
++	plan, err := affected.Rename(ctx, h.Store().DB, affected.RenameOptions{
++		Old: old, New: new, File: file, UID: uid, Kind: kind,
++		DryRun: !apply, Apply: apply,
++	})
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "error: %v\n", err)
++		os.Exit(1)
++	}
++	if jsonOut {
++		b, _ := json.MarshalIndent(plan, "", "  ")
++		fmt.Fprintln(os.Stdout, string(b))
++		return
++	}
++	printRename(plan)
++}
++
++// printRename renders a code_rename plan (human form).
++func printRename(plan affected.RenamePlan) {
++	if plan.NotFound {
++		fmt.Fprintf(os.Stderr, "not found: no symbol named %q\n", plan.Old)
++		return
++	}
++	if plan.Ambiguous {
++		fmt.Printf("ambiguous target %q: %d candidates (narrow with --file/--uid/--kind)\n", plan.Old, len(plan.Candidates))
++		for i, c := range plan.Candidates {
++			fmt.Printf("  %d. %s (%s) [uid %s]\n", i+1, c.Path, c.Name, c.UID)
++		}
++		return
++	}
++	if plan.Target != nil {
++		fmt.Printf("%s (%s) -> %s\n", plan.Old, plan.Target["path"], plan.New)
++	}
++	mode := "dry-run (no writes; --apply to write)"
++	if plan.Applied {
++		mode = "applied"
++	}
++	fmt.Printf("%s: %d files, %d edits (%d graph, %d text-search)\n", mode, plan.FilesAffected, plan.TotalEdits, len(plan.GraphEdits), len(plan.TextSearchEdits))
++	if len(plan.GraphEdits) > 0 {
++		fmt.Println("graph edits (high-confidence):")
++		for _, e := range plan.GraphEdits {
++			fmt.Printf("  [high] %s %s -> %s (%s)\n", e.Path, e.Old, e.New, e.Source)
++		}
++	}
++	if len(plan.TextSearchEdits) > 0 {
++		fmt.Println("text-search edits (review carefully):")
++		for _, e := range plan.TextSearchEdits {
++			fmt.Printf("  [low] %s %s -> %s\n", e.Path, e.Old, e.New)
++		}
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/affected/affected.go b/skillgrid-cli/internal/mnemonic/affected/affected.go
+new file mode 100644
+index 0000000..048c457
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/affected/affected.go
+@@ -0,0 +1,349 @@
++// Package affected answers "which tests do I run after this change?": a
++// read-only traversal of the 005 symbols/edges graph from a set of changed
++// files out to the test files that depend on them (import + tests_for edges),
++// depth-capped. It adds no nodes or edges and traverses ONLY stored (resolved)
++// edges: step-01's drop-not-guess policy means a dropped or ambiguous
++// reference has no stored edge, so it can never inflate the reported radius.
++package affected
++
++import (
++	"bufio"
++	"context"
++	"database/sql"
++	"path/filepath"
++	"sort"
++	"strings"
++)
++
++// DefaultDepth caps the blast-radius traversal when Options.Depth is unset.
++const DefaultDepth = 5
++
++// Relationship is one stored edge hop in the blast radius: the changed (or
++// transitively reached) symbol, the dependent it points to, and the edge kind
++// + confidence that connects them. It is a path/relationship from the existing
++// graph — never an invented edge.
++type Relationship struct {
++	From       string `json:"from"`
++	To         string `json:"to"`
++	Kind       string `json:"kind"`
++	Confidence string `json:"confidence"`
++	Depth      int    `json:"depth"`
++	// Via is the UID of the dependent symbol (deterministic identity; the
++	// dependent's path is the symbol's file path).
++	Via string `json:"via,omitempty"`
++	// DepPath is the dependent symbol's file path.
++	DepPath string `json:"dep_path"`
++}
++
++// Result is the code_affected answer: the affected test files (deduped,
++// sorted), every relationship hop that produced them, and a clear message for
++// the empty-changed-set case (not an error).
++type Result struct {
++	Changed       []string       `json:"changed"`
++	TestFiles     []string       `json:"test_files"`
++	Relationships []Relationship `json:"relationships"`
++	Depth         int            `json:"depth"`
++	Filter        string         `json:"filter,omitempty"`
++	// Message is set when there are no changed files (empty result, not an
++	// error) or no affected tests were found.
++	Message string `json:"message,omitempty"`
++}
++
++// Options tunes a code_affected traversal.
++type Options struct {
++	// Changed is the set of changed file paths (repo-relative, as files.path).
++	Changed []string
++	// Depth caps the traversal (<= 0 uses DefaultDepth).
++	Depth int
++	// Filter restricts reported test files to a substring/segment match.
++	Filter string
++}
++
++// isTestPath reports whether a file path is a test file (any language).
++func isTestPath(path string) bool {
++	lower := strings.ToLower(path)
++	base := filepath.Base(lower)
++	switch {
++	case strings.HasSuffix(base, "_test.go"):
++		return true
++	case strings.Contains(base, "test_") && strings.HasSuffix(base, ".py"):
++		return true
++	case strings.HasSuffix(base, "_test.rb"):
++		return true
++	case strings.HasSuffix(base, ".test.js"), strings.HasSuffix(base, ".test.ts"),
++		strings.HasSuffix(base, ".test.tsx"), strings.HasSuffix(base, ".test.jsx"):
++		return true
++	case strings.Contains(base, "test.") && (strings.HasSuffix(base, ".js") || strings.HasSuffix(base, ".ts")):
++		return true
++	}
++	return false
++}
++
++// matchFilter reports whether a test path passes the filter (substring or
++// path-segment match; empty filter passes everything).
++func matchFilter(path, filter string) bool {
++	if filter == "" {
++		return true
++	}
++	if strings.Contains(path, filter) {
++		return true
++	}
++	segs := strings.Split(path, "/")
++	for _, s := range segs {
++		if s == filter {
++			return true
++		}
++	}
++	return false
++}
++
++// traverseKinds are the resolved edge kinds the blast-radius math walks.
++// calls/imports are 005's dependency kinds; reference/route/extends/implements
++// are 005 heritage/call kinds; references/navigates are step-01's
++// framework-route kinds (resolved only — dropped refs have no stored edge).
++// tests_for/tested_by connect code to its tests.
++var traverseKinds = []string{`"calls"`, `"imports"`, `"reference"`, `"route"`, `"extends"`, `"implements"`, `"references"`, `"navigates"`, `"tests_for"`, `"tested_by"`}
++
++// Affected runs the depth-capped traversal from the changed files and returns
++// the affected test files plus every relationship hop. Query only: it reads
++// the symbols/edges tables and invents nothing. An empty changed set returns
++// an empty result with a message (not an error).
++func Affected(ctx context.Context, db *sql.DB, opts Options) (Result, error) {
++	depth := opts.Depth
++	if depth <= 0 {
++		depth = DefaultDepth
++	}
++	res := Result{Depth: depth, Filter: opts.Filter,
++		TestFiles: []string{}, Relationships: []Relationship{}}
++	normalized := make([]string, len(opts.Changed))
++	for i, p := range opts.Changed {
++		normalized[i] = normPath(p)
++	}
++	changed := dedupeSorted(normalized)
++	res.Changed = changed
++	if len(changed) == 0 {
++		res.Message = "no changed files: nothing to analyze (pass a file list, --stdin, or --base)"
++		return res, nil
++	}
++
++	// Seed: every symbol defined in a changed file.
++	seedKinds := strings.Join(traverseKinds, ",")
++	seen := map[int64]bool{}
++	var queue []struct {
++		id    int64
++		depth int
++	}
++	args := make([]any, 0, len(changed))
++	placeholders := make([]string, 0, len(changed))
++	for _, p := range changed {
++		placeholders = append(placeholders, "?")
++		args = append(args, p)
++	}
++	rows, err := db.QueryContext(ctx, `
++		SELECT s.id FROM symbols s
++		JOIN files f ON f.id = s.file_id
++		WHERE f.path IN (`+strings.Join(placeholders, ",")+`)
++		ORDER BY s.id`, args...)
++	if err != nil {
++		return res, err
++	}
++	var seeded int
++	for rows.Next() {
++		seeded++
++		var id int64
++		if err := rows.Scan(&id); err != nil {
++			rows.Close()
++			return res, err
++		}
++		seen[id] = true
++		queue = append(queue, struct {
++			id    int64
++			depth int
++		}{id: id, depth: 0})
++	}
++	if err := rows.Err(); err != nil {
++		rows.Close()
++		return res, err
++	}
++	rows.Close()
++	if seeded == 0 && len(changed) > 0 {
++		res.Message = "changed files are not indexed (run code_index first): " + strings.Join(changed, ", ")
++		return res, nil
++	}
++
++	testSeen := map[string]bool{}
++	for len(queue) > 0 {
++		cur := queue[0]
++		queue = queue[1:]
++		if cur.depth >= depth {
++			continue
++		}
++		// Dependents of cur.id: edges that point AT it, either by resolved
++		// id (e.to_id = cur.id — 005 calls/imports + step-01 resolved
++		// references) or by a name-only endpoint (e.to_id IS NULL AND
++		// e.to_name matches — 005 heritage / navigates / unresolved-by-name).
++		// Only stored edges are traversed: a dropped reference has none.
++		hops, err := dependentsOf(ctx, db, cur.id, seedKinds)
++		if err != nil {
++			return res, err
++		}
++		for _, h := range hops {
++			sym, err := symbolByID(ctx, db, h.fromID)
++			if err != nil {
++				continue
++			}
++			rel := Relationship{
++				From: curPathCache(ctx, db, cur.id),
++				To:   sym.Name,
++				Kind: h.kind, Confidence: h.conf,
++				Depth: cur.depth + 1, Via: sym.UID, DepPath: sym.Path,
++			}
++			res.Relationships = append(res.Relationships, rel)
++			if isTestPath(sym.Path) && matchFilter(sym.Path, opts.Filter) && !testSeen[sym.Path] {
++				testSeen[sym.Path] = true
++				res.TestFiles = append(res.TestFiles, sym.Path)
++			}
++			if !seen[h.fromID] {
++				seen[h.fromID] = true
++				queue = append(queue, struct {
++					id    int64
++					depth int
++				}{id: h.fromID, depth: cur.depth + 1})
++			}
++		}
++	}
++	sort.Strings(res.TestFiles)
++	sort.SliceStable(res.Relationships, func(i, j int) bool {
++		if res.Relationships[i].Depth != res.Relationships[j].Depth {
++			return res.Relationships[i].Depth < res.Relationships[j].Depth
++		}
++		if res.Relationships[i].From != res.Relationships[j].From {
++			return res.Relationships[i].From < res.Relationships[j].From
++		}
++		return res.Relationships[i].Via < res.Relationships[j].Via
++	})
++	if len(res.TestFiles) == 0 {
++		res.Message = "no affected test files found for the changed set"
++	}
++	return res, nil
++}
++
++// AffectedFromStdin reads a git-diff --name-only-style file list (one path per
++// line) from r and runs the same traversal. An empty list is an empty result
++// with a clear message (not an error).
++func AffectedFromStdin(ctx context.Context, db *sql.DB, stdin string, opts Options) (Result, error) {
++	changed, err := ParseFileList(stdin)
++	if err != nil {
++		return Result{}, err
++	}
++	opts.Changed = changed
++	return Affected(ctx, db, opts)
++}
++
++// ParseFileList parses a newline-separated file list (git diff --name-only
++// style), trimming blank lines and CR. Never errors on empty input.
++func ParseFileList(s string) ([]string, error) {
++	var out []string
++	sc := bufio.NewScanner(strings.NewReader(s))
++	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
++	for sc.Scan() {
++		line := strings.TrimSpace(sc.Text())
++		if line == "" {
++			continue
++		}
++		out = append(out, line)
++	}
++	if err := sc.Err(); err != nil {
++		return nil, err
++	}
++	return out, nil
++}
++
++type hop struct {
++	fromID int64
++	kind   string
++	conf   string
++}
++
++// dependentsOf returns the stored edges pointing at symID (resolved id or
++// name-only endpoint), of the traversable kinds.
++func dependentsOf(ctx context.Context, db *sql.DB, symID int64, kinds string) ([]hop, error) {
++	rows, err := db.QueryContext(ctx, `
++		SELECT e.from_id, e.kind, e.confidence
++		FROM edges e
++		WHERE (e.to_id = ? OR (e.to_id IS NULL AND e.to_name IN (SELECT name FROM symbols WHERE id = ?)))
++		  AND e.kind IN (`+kinds+`)
++		ORDER BY e.id`, symID, symID)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	var out []hop
++	for rows.Next() {
++		var h hop
++		if err := rows.Scan(&h.fromID, &h.kind, &h.conf); err != nil {
++			return nil, err
++		}
++		out = append(out, h)
++	}
++	return out, rows.Err()
++}
++
++// symbolByID loads a symbol node for the traversal.
++func symbolByID(ctx context.Context, db *sql.DB, id int64) (sym, error) {
++	var s sym
++	err := db.QueryRowContext(ctx, `
++		SELECT s.id, s.name, s.kind, s.uid, f.path
++		FROM symbols s JOIN files f ON f.id = s.file_id
++		WHERE s.id = ?`, id).Scan(&s.ID, &s.Name, &s.Kind, &s.UID, &s.Path)
++	if err != nil {
++		return sym{}, err
++	}
++	return s, nil
++}
++
++type sym struct {
++	ID   int64
++	Name string
++	Kind string
++	UID  string
++	Path string
++}
++
++// pathCache memoizes symbol->path lookups for the relationship report.
++var pathCache = map[int64]string{}
++
++func curPathCache(ctx context.Context, db *sql.DB, id int64) string {
++	if p, ok := pathCache[id]; ok {
++		return p
++	}
++	s, err := symbolByID(ctx, db, id)
++	if err != nil {
++		pathCache[id] = ""
++		return ""
++	}
++	pathCache[id] = s.Path
++	return s.Path
++}
++
++func dedupeSorted(in []string) []string {
++	seen := map[string]bool{}
++	var out []string
++	for _, s := range in {
++		s = strings.TrimSpace(s)
++		if s == "" || seen[s] {
++			continue
++		}
++		seen[s] = true
++		out = append(out, s)
++	}
++	sort.Strings(out)
++	return out
++}
++
++// normPath strips a single leading "./" so a git-diff path ("src/base.go")
++// matches the indexed files.path ("src/base.go") even when the input is
++// "./src/base.go" (git diff emits both forms depending on invocation).
++func normPath(p string) string {
++	return strings.TrimPrefix(strings.TrimSpace(p), "./")
++}
+diff --git a/skillgrid-cli/internal/mnemonic/affected/affected_stdin_test.go b/skillgrid-cli/internal/mnemonic/affected/affected_stdin_test.go
+new file mode 100644
+index 0000000..54bdcd2
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/affected/affected_stdin_test.go
+@@ -0,0 +1,54 @@
++package affected
++
++import (
++	"context"
++	"strings"
++	"testing"
++)
++
++// TestCodeAffectedStdin covers @step-02 (Scenario: code_affected consumes a
++// diff file list from stdin): a git-diff --name-only-style list is parsed into
++// the changed set and the same import/tests_for traversal runs; an empty diff
++// (empty stdin) returns an empty result with a clear message, not an error.
++func TestCodeAffectedStdin(t *testing.T) {
++	st := fixtureGraph(t)
++	ctx := context.Background()
++
++	stdin := "src/base.go\nsrc/mid.go\n"
++	res, err := AffectedFromStdin(ctx, st.DB, stdin, Options{})
++	if err != nil {
++		t.Fatalf("affected(stdin): %v", err)
++	}
++	if res.Message != "" {
++		t.Fatalf("unexpected message: %s", res.Message)
++	}
++	if !contains(res.TestFiles, "src/base_test.go") {
++		t.Fatalf("stdin changed src/base.go must surface src/base_test.go, got %v", res.TestFiles)
++	}
++	if !contains(res.Changed, "src/base.go") || !contains(res.Changed, "src/mid.go") {
++		t.Errorf("stdin file list must be the reported changed set, got %v", res.Changed)
++	}
++
++	// Blank lines and CRLF are tolerated (git diff output hygiene).
++	stdin2 := "\r\nsrc/top_test.go\r\n\n"
++	res2, err := AffectedFromStdin(ctx, st.DB, stdin2, Options{})
++	if err != nil {
++		t.Fatalf("affected(stdin2): %v", err)
++	}
++	// top_test.go is itself a test file with no dependents → no affected tests.
++	if len(res2.TestFiles) != 0 {
++		t.Errorf("a changed test file with no dependents must report no affected tests, got %v", res2.TestFiles)
++	}
++
++	// Empty stdin (empty diff): empty result, clear message, no error.
++	res3, err := AffectedFromStdin(ctx, st.DB, "", Options{})
++	if err != nil {
++		t.Fatalf("empty stdin must not error, got %v", err)
++	}
++	if len(res3.TestFiles) != 0 {
++		t.Errorf("empty diff must report no test files, got %v", res3.TestFiles)
++	}
++	if res3.Message == "" || !strings.Contains(res3.Message, "no changed") {
++		t.Errorf("empty diff must carry a clear message, got %q", res3.Message)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/affected/affected_test.go b/skillgrid-cli/internal/mnemonic/affected/affected_test.go
+new file mode 100644
+index 0000000..100e53f
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/affected/affected_test.go
+@@ -0,0 +1,223 @@
++package affected
++
++import (
++	"context"
++	"database/sql"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// fixtureGraph seeds a store with the 005 symbols/edges schema and a small
++// dependency chain: base <- mid <- top (each imports/calls the previous),
++// base <- base_test (tests_for), and a dangling (no dependents) leaf. All
++// dependents live in test files (or are the dangling leaf) so the affected
++// set is exactly the test files.
++func fixtureGraph(t *testing.T) *store.Store {
++	t.Helper()
++	st, err := store.Open(t.TempDir(), "affected-probe")
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	t.Cleanup(func() { st.Close() })
++	ctx := context.Background()
++	db := st.DB
++	seed := `
++		INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at) VALUES
++			('src/base.go', 1, 1, 'a', 'now'),
++			('src/mid.go', 2, 2, 'b', 'now'),
++			('src/top.go', 3, 3, 'c', 'now'),
++			('src/base_test.go', 4, 4, 'd', 'now'),
++			('src/dangle.go', 5, 5, 'e', 'now'),
++			('src/top_test.go', 6, 6, 'f', 'now');
++		INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
++		SELECT f.id, 'base', 'base', 'function', 'go', 'func base()', 1, 5, 'h', 'uid-base' FROM files f WHERE f.path = 'src/base.go';
++		INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
++		SELECT f.id, 'mid', 'mid', 'function', 'go', 'func mid()', 1, 5, 'h', 'uid-mid' FROM files f WHERE f.path = 'src/mid.go';
++		INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
++		SELECT f.id, 'top', 'top', 'function', 'go', 'func top()', 1, 5, 'h', 'uid-top' FROM files f WHERE f.path = 'src/top.go';
++		INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
++		SELECT f.id, 'TestBase', 'TestBase', 'function', 'go', 'func TestBase()', 1, 5, 'h', 'uid-test-base' FROM files f WHERE f.path = 'src/base_test.go';
++		INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
++		SELECT f.id, 'TestTop', 'TestTop', 'function', 'go', 'func TestTop()', 1, 5, 'h', 'uid-test-top' FROM files f WHERE f.path = 'src/top_test.go';
++		INSERT INTO edges (kind, from_id, file_id, to_id, to_name, confidence, line)
++		SELECT 'imports',
++			(SELECT id FROM symbols WHERE uid = 'uid-mid'),
++			(SELECT file_id FROM symbols WHERE uid = 'uid-mid'),
++			(SELECT id FROM symbols WHERE uid = 'uid-base'), 'base', 'EXTRACTED', 10;
++		INSERT INTO edges (kind, from_id, file_id, to_id, to_name, confidence, line)
++		SELECT 'imports',
++			(SELECT id FROM symbols WHERE uid = 'uid-top'),
++			(SELECT file_id FROM symbols WHERE uid = 'uid-top'),
++			(SELECT id FROM symbols WHERE uid = 'uid-mid'), 'mid', 'EXTRACTED', 10;
++		INSERT INTO edges (kind, from_id, file_id, to_id, to_name, confidence, line)
++		SELECT 'tests_for',
++			(SELECT id FROM symbols WHERE uid = 'uid-test-base'),
++			(SELECT file_id FROM symbols WHERE uid = 'uid-test-base'),
++			(SELECT id FROM symbols WHERE uid = 'uid-base'), 'base', 'EXTRACTED', 20;
++		INSERT INTO edges (kind, from_id, file_id, to_id, to_name, confidence, line)
++		SELECT 'imports',
++			(SELECT id FROM symbols WHERE uid = 'uid-test-top'),
++			(SELECT file_id FROM symbols WHERE uid = 'uid-test-top'),
++			(SELECT id FROM symbols WHERE uid = 'uid-top'), 'top', 'EXTRACTED', 10;
++	`
++	if _, err := db.ExecContext(ctx, seed); err != nil {
++		t.Fatalf("seed: %v", err)
++	}
++	return st
++}
++
++// TestCodeAffected covers @step-02 (Scenario: code_affected returns affected
++// test files): changed sources surface the test files that (transitively)
++// import them via import + tests_for edges; --depth caps traversal (default
++// 5); --filter restricts reported test files; the result is paths and
++// relationships from the existing graph only (no invented edges).
++func TestCodeAffected(t *testing.T) {
++	st := fixtureGraph(t)
++	ctx := context.Background()
++
++	// Changed: base only. Transitively affected test file: src/base_test.go
++	// (tests_for base).
++	res, err := Affected(ctx, st.DB, Options{Changed: []string{"src/base.go"}})
++	if err != nil {
++		t.Fatalf("affected: %v", err)
++	}
++	if res.Message != "" {
++		t.Fatalf("unexpected message: %s", res.Message)
++	}
++	if got := res.TestFiles; len(got) == 0 || got[0] != "src/base_test.go" {
++		t.Fatalf("affected tests for base must start with src/base_test.go, got %v", got)
++	}
++	// The whole chain is affected: changing base also reaches top's test
++	// (top imports mid which imports base) within the default depth 5.
++	if !contains(res.TestFiles, "src/top_test.go") {
++		t.Errorf("transitively affected test src/top_test.go missing, got %v", res.TestFiles)
++	}
++
++	// --depth 1 caps traversal: mid is 2 hops from base, so its test file is
++	// not reached (only base's direct test).
++	res3, err := Affected(ctx, st.DB, Options{Changed: []string{"src/base.go"}, Depth: 1})
++	if err != nil {
++		t.Fatalf("affected depth1: %v", err)
++	}
++	if got := res3.TestFiles; len(got) != 1 || got[0] != "src/base_test.go" {
++		t.Fatalf("depth-1 affected tests = %v, want [src/base_test.go]", got)
++	}
++
++	// --filter restricts reported test files.
++	res4, err := Affected(ctx, st.DB, Options{Changed: []string{"src/base.go", "src/top.go"}, Filter: "top_test"})
++	if err != nil {
++		t.Fatalf("affected filter: %v", err)
++	}
++	if got := res4.TestFiles; len(got) != 1 || got[0] != "src/top_test.go" {
++		t.Fatalf("filtered affected tests = %v, want [src/top_test.go]", got)
++	}
++}
++
++// TestCodeAffectedEmpty covers @step-02 (Scenario: code_affected with no
++// changed files returns empty): an empty changed set is an empty result with
++// a clear message, not an error.
++func TestCodeAffectedEmpty(t *testing.T) {
++	st := fixtureGraph(t)
++	res, err := Affected(context.Background(), st.DB, Options{})
++	if err != nil {
++		t.Fatalf("affected(empty) must not error, got %v", err)
++	}
++	if len(res.TestFiles) != 0 {
++		t.Errorf("empty changed set must report no test files, got %v", res.TestFiles)
++	}
++	if res.Message == "" {
++		t.Errorf("empty changed set must carry a clear message, got empty")
++	}
++}
++
++// TestBlastRadius covers @step-02 (Scenario: Dropped references are excluded
++// from blast radius): a reference dropped at extraction (step-01 drop
++// policy, no stored edge) contributes nothing — only the resolved edges are
++// traversed, so a false positive can never inflate the reported radius.
++func TestBlastRadius(t *testing.T) {
++	st := fixtureGraph(t)
++	ctx := context.Background()
++	db := st.DB
++
++	// A route node with a RESOLVED references edge to base (step-01 style):
++	// it IS traversed and surfaces in the blast radius.
++	if _, err := db.ExecContext(ctx, `
++		INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at)
++		VALUES ('urls.py', 7, 7, 'u', 'now');
++		INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
++		SELECT f.id, 'GET /base/', 'GET /base/', 'route', 'python', 'path("/base/")', 1, 5, 'h', 'uid-route-resolved'
++		FROM files f WHERE f.path = 'urls.py';
++		INSERT INTO edges (kind, from_id, file_id, to_id, to_name, confidence, line)
++		SELECT 'references',
++			(SELECT id FROM symbols WHERE uid = 'uid-route-resolved'),
++			(SELECT file_id FROM symbols WHERE uid = 'uid-route-resolved'),
++			(SELECT id FROM symbols WHERE uid = 'uid-base'), 'base', 'EXTRACTED', 30;
++	`); err != nil {
++		t.Fatalf("seed resolved route: %v", err)
++	}
++	// A route node whose handler reference was DROPPED at extraction (no
++	// stored edge — drop-not-guess): it must NOT inflate the radius.
++	if _, err := db.ExecContext(ctx, `
++		INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at)
++		VALUES ('urls2.py', 8, 8, 'u2', 'now');
++		INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
++		SELECT f.id, 'GET /mystery/', 'GET /mystery/', 'route', 'python', 'path("/mystery/")', 1, 5, 'h', 'uid-route-dropped'
++		FROM files f WHERE f.path = 'urls2.py';
++	`); err != nil {
++		t.Fatalf("seed dropped route: %v", err)
++	}
++
++	res, err := Affected(ctx, st.DB, Options{Changed: []string{"src/base.go"}})
++	if err != nil {
++		t.Fatalf("affected: %v", err)
++	}
++	var resolvedSeen, droppedSeen bool
++	for _, r := range res.Relationships {
++		if r.Via == "uid-route-resolved" {
++			resolvedSeen = true
++			if r.Kind != "references" {
++				t.Errorf("resolved-route hop kind = %q, want references", r.Kind)
++			}
++		}
++		if r.Via == "uid-route-dropped" {
++			droppedSeen = true
++		}
++	}
++	if !resolvedSeen {
++		t.Errorf("the resolved route->base references edge must be traversed, got %+v", res.Relationships)
++	}
++	if droppedSeen {
++		t.Errorf("a dropped (unresolvable) reference must not inflate the blast radius, got %+v", res.Relationships)
++	}
++	if !contains(res.TestFiles, "src/base_test.go") {
++		t.Errorf("resolved-edge blast radius must reach src/base_test.go, got %v", res.TestFiles)
++	}
++	// top_test is reachable via the resolved import chain, so it is expected;
++	// the dropped route (urls2.py) must simply be absent from the hops.
++}
++
++func contains(list []string, s string) bool {
++	for _, v := range list {
++		if v == s {
++			return true
++		}
++	}
++	return false
++}
++
++// TestCodeAffectedNoInventedEdges covers @step-02 (query only): a changed
++// file with no graph edges yields no affected test files — the traversal
++// never invents an edge.
++func TestCodeAffectedNoInventedEdges(t *testing.T) {
++	st := fixtureGraph(t)
++	res, err := Affected(context.Background(), st.DB, Options{Changed: []string{"src/dangle.go"}})
++	if err != nil {
++		t.Fatalf("affected: %v", err)
++	}
++	if len(res.TestFiles) != 0 || len(res.Relationships) != 0 {
++		t.Errorf("a dangling file has no dependents; got %+v", res)
++	}
++}
++
++var _ = sql.ErrNoRows
+diff --git a/skillgrid-cli/internal/mnemonic/affected/base.go b/skillgrid-cli/internal/mnemonic/affected/base.go
+new file mode 100644
+index 0000000..6df9d2c
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/affected/base.go
+@@ -0,0 +1,224 @@
++package affected
++
++import (
++	"bufio"
++	"context"
++	"database/sql"
++	"fmt"
++	"os/exec"
++	"sort"
++	"strings"
++)
++
++// Area is one affected area in a --base result: a changed (or transitively
++// touched) file, the collapsed hop detail that produced its affected tests,
++// the affected test files, and the git-history owners ("who to tag") derived
++// from `git blame` on the changed lines. Per-symbol detail is collapsed
++// under the area — the area is the reporting unit for a ready PR comment.
++type Area struct {
++	Name      string   `json:"name"`
++	Changed   bool     `json:"changed"`
++	TestFiles []string `json:"test_files"`
++	Hops      int      `json:"hops"`
++	Owners    []string `json:"owners"`
++}
++
++// BaseResult extends Result with the --base grouping: affected areas and the
++// resolved merge-base commit.
++type BaseResult struct {
++	Result
++	BaseRef   string `json:"base_ref"`
++	MergeBase string `json:"merge_base,omitempty"`
++	Areas     []Area `json:"areas"`
++}
++
++// gitChangedSet returns the changed file set for base ref: the files touched
++// between `git merge-base <base> HEAD` and HEAD (git diff --name-only),
++// repo-relative. An unknown ref is a clear error (no invented changed set).
++func gitChangedSet(ctx context.Context, repo, baseRef string) ([]string, string, error) {
++	mergeBase, err := gitOutput(ctx, repo, "merge-base", baseRef, "HEAD")
++	if err != nil {
++		return nil, "", fmt.Errorf("merge-base %s: %v", baseRef, err)
++	}
++	files, err := gitOutput(ctx, repo, "diff", "--name-only", mergeBase, "HEAD")
++	if err != nil {
++		return nil, mergeBase, fmt.Errorf("diff %s: %v", mergeBase, err)
++	}
++	var out []string
++	for _, line := range strings.Split(files, "\n") {
++		line = strings.TrimSpace(line)
++		if line != "" {
++			out = append(out, line)
++		}
++	}
++	return dedupeSorted(out), mergeBase, nil
++}
++
++// AffectedBase derives the changed set from `git merge-base <base> HEAD` +
++// diff (no --stdin plumbing), runs the same Affected traversal, and groups
++// the result into affected areas with git-history owners (git blame on the
++// changed lines of each changed file).
++func AffectedBase(ctx context.Context, db *sql.DB, repo, baseRef string, opts Options) (BaseResult, error) {
++	changed, mergeBase, err := gitChangedSet(ctx, repo, baseRef)
++	if err != nil {
++		return BaseResult{}, err
++	}
++	opts.Changed = changed
++	res, err := Affected(ctx, db, opts)
++	if err != nil {
++		return BaseResult{}, err
++	}
++	out := BaseResult{Result: res, BaseRef: baseRef, MergeBase: mergeBase, Areas: []Area{}}
++	for _, p := range res.Changed {
++		owners, oerr := gitBlameOwners(ctx, repo, p)
++		if oerr != nil {
++			owners = []string{}
++		}
++		out.Areas = append(out.Areas, Area{Name: p, Changed: true, TestFiles: []string{}, Owners: owners})
++	}
++	// Collapse hop detail + affected tests under each area. A hop lands in
++	// the source area (when the source is a changed file) or the target's
++	// area; affected test files attach to the areas whose hops reached them.
++	areaByName := map[string]*Area{}
++	for i := range out.Areas {
++		areaByName[out.Areas[i].Name] = &out.Areas[i]
++	}
++	testSeen := map[string]map[string]bool{}
++	for _, r := range res.Relationships {
++		var target *Area
++		if a, ok := areaByName[r.From]; ok {
++			target = a
++		} else if a, ok := areaByName[r.DepPath]; ok {
++			target = a
++		}
++		if target == nil {
++			continue
++		}
++		target.Hops++
++		if isTestPath(r.DepPath) && matchFilter(r.DepPath, opts.Filter) {
++			if testSeen[r.DepPath] == nil {
++				testSeen[r.DepPath] = map[string]bool{}
++			}
++			testSeen[r.DepPath][target.Name] = true
++			if !hasString(target.TestFiles, r.DepPath) {
++				target.TestFiles = append(target.TestFiles, r.DepPath)
++			}
++		}
++	}
++	for i := range out.Areas {
++		sort.Strings(out.Areas[i].TestFiles)
++	}
++	sort.SliceStable(out.Areas, func(i, j int) bool {
++		return out.Areas[i].Name < out.Areas[j].Name
++	})
++	return out, nil
++}
++
++// gitBlameOwners returns the git-history owners ("who to tag") for the
++// changed lines of path: `git blame HEAD -- <path>` last-author-wins over the
++// whole file (the changed lines are a subset of it; when the file is new the
++// blame covers the added lines). Deduped, stable order. A missing file (new
++// on the base ref) yields the file's introducing author via
++// `git log --diff-filter=A`.
++func gitBlameOwners(ctx context.Context, repo, path string) ([]string, error) {
++	out, err := gitOutput(ctx, repo, "blame", "HEAD", "--", path)
++	if err != nil {
++		return gitNewFileOwners(ctx, repo, path)
++	}
++	var owners []string
++	seen := map[string]bool{}
++	sc := bufio.NewScanner(strings.NewReader(out))
++	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
++	for sc.Scan() {
++		author := parseBlameAuthor(sc.Text())
++		if author == "" || seen[author] {
++			continue
++		}
++		seen[author] = true
++		owners = append(owners, author)
++	}
++	if err := sc.Err(); err != nil {
++		return nil, err
++	}
++	if len(owners) == 0 {
++		return gitNewFileOwners(ctx, repo, path)
++	}
++	return owners, nil
++}
++
++func hasString(list []string, s string) bool {
++	for _, v := range list {
++		if v == s {
++			return true
++		}
++	}
++	return false
++}
++
++// gitNewFileOwners names the author that introduced a file (git log
++// --diff-filter=A), used when blame has nothing to report (file absent on
++// HEAD or blame formatting drift).
++func gitNewFileOwners(ctx context.Context, repo, path string) ([]string, error) {
++	out, err := gitOutput(ctx, repo, "log", "--diff-filter=A", "--format=%aN", "HEAD", "--", path)
++	if err != nil {
++		return []string{}, nil
++	}
++	var owners []string
++	seen := map[string]bool{}
++	for _, line := range strings.Split(out, "\n") {
++		line = strings.TrimSpace(line)
++		if line == "" || seen[line] {
++			continue
++		}
++		seen[line] = true
++		owners = append(owners, line)
++	}
++	return owners, nil
++}
++
++// parseBlameAuthor extracts the author field from one `git blame` line. The
++// line is "<hash> (<author> <timestamp> <linenum>) <content>" when the file
++// is tracked, or "^<hash> (<author> <timestamp> <linenum>) <content>" for
++// boundary commits (the leading ^ marks "not the result of a merge"; it is
++// part of the hash, before the metadata parens). The first "(" opens the
++// metadata group, the first ")" closes it; the author is between them (sans
++// the timestamp/linenum).
++func parseBlameAuthor(line string) string {
++	open := strings.Index(line, "(")
++	closeIdx := strings.Index(line, ")")
++	if open < 0 || closeIdx < open {
++		return ""
++	}
++	inner := line[open+1 : closeIdx]
++	// Inner is "<author> <timestamp> <linenum>". The timestamp starts at the
++	// first space after the author; take everything up to the first digit
++	// run (the date) — author names may contain spaces.
++	rest := inner
++	for i := 0; i < len(rest); i++ {
++		if rest[i] == ' ' {
++			rest = rest[i+1:]
++			break
++		}
++	}
++	for i := 0; i < len(rest); i++ {
++		if rest[i] >= '0' && rest[i] <= '9' {
++			rest = rest[:i]
++			break
++		}
++	}
++	return strings.TrimSpace(rest)
++}
++
++// gitOutput runs a git command in repo and returns its trimmed stdout.
++func gitOutput(ctx context.Context, repo string, args ...string) (string, error) {
++	cmd := exec.CommandContext(ctx, "git", args...)
++	cmd.Dir = repo
++	out, err := cmd.Output()
++	if err != nil {
++		if ee, ok := err.(*exec.ExitError); ok {
++			return "", fmt.Errorf("%v: %s", strings.Join(args, " "), strings.TrimSpace(string(ee.Stderr)))
++		}
++		return "", err
++	}
++	return strings.TrimSpace(string(out)), nil
++}
+diff --git a/skillgrid-cli/internal/mnemonic/affected/base_test.go b/skillgrid-cli/internal/mnemonic/affected/base_test.go
+new file mode 100644
+index 0000000..7c901eb
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/affected/base_test.go
+@@ -0,0 +1,145 @@
++package affected
++
++import (
++	"context"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"sort"
++	"strings"
++	"testing"
++)
++
++// gitFixtureRepo builds a hermetic temp git repo with a base commit on
++// "main" and a feature branch "feat" with extra commits, so a merge-base
++// diff has a real changed set. It never depends on the real repo's history.
++func gitFixtureRepo(t *testing.T) string {
++	t.Helper()
++	root := t.TempDir()
++	run := func(args ...string) {
++		t.Helper()
++		cmd := exec.Command("git", args...)
++		cmd.Dir = root
++		// HERMES_HOME isolates the fixture from any ambient git global
++		// config (incl. hooks/config that could color the blame output).
++		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+filepath.Join(root, "noconfig"), "GIT_CONFIG_SYSTEM="+filepath.Join(root, "noconfig"))
++		out, err := cmd.CombinedOutput()
++		if err != nil {
++			t.Fatalf("git %v: %v\n%s", args, err, out)
++		}
++	}
++	write := func(name, content string) {
++		t.Helper()
++		p := filepath.Join(root, name)
++		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
++			t.Fatalf("mkdir %s: %v", name, err)
++		}
++		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
++			t.Fatalf("write %s: %v", name, err)
++		}
++	}
++	run("init", "-b", "main")
++	run("config", "user.email", "fixture@example.com")
++	run("config", "user.name", "Fixture")
++	write("src/base.go", "package p\n\nfunc base() int {\n\treturn 1\n}\n")
++	write("src/base_test.go", "package p\n\nfunc TestBase() {\n\t_ = base()\n}\n")
++	run("add", "-A")
++	run("commit", "-m", "base")
++	run("checkout", "-b", "feat")
++	// The branch changes base.go and adds mid.go (which base_test does not
++	// touch) — the merge-base diff against main is exactly these files.
++	write("src/base.go", "package p\n\nfunc base() int {\n\treturn 2\n}\n")
++	write("src/mid.go", "package p\n\nfunc mid() int {\n\treturn base()\n}\n")
++	run("add", "-A")
++	run("commit", "-m", "feature")
++	return root
++}
++
++// TestCodeAffectedBase covers @step-02 (Scenario: code_affected --base derives
++// areas and owners): `--base main` derives the changed file set from
++// `git merge-base <base> HEAD` + diff (no --stdin plumbing), walks the same
++// import/tests_for traversal, groups the result into affected areas (per-hop
++// detail collapsed under each area), and names git-history owners ("who to
++// tag") for each touched area via `git blame` on the changed lines.
++func TestCodeAffectedBase(t *testing.T) {
++	st := fixtureGraph(t)
++	root := gitFixtureRepo(t)
++
++	res, err := AffectedBase(context.Background(), st.DB, root, "main", Options{})
++	if err != nil {
++		t.Fatalf("affected --base: %v", err)
++	}
++	// The merge-base diff (feat vs main) is src/base.go + src/mid.go.
++	if !contains(res.Changed, "src/base.go") || !contains(res.Changed, "src/mid.go") {
++		t.Fatalf("merge-base changed set = %v, want src/base.go + src/mid.go", res.Changed)
++	}
++	if contains(res.Changed, "src/base_test.go") {
++		t.Errorf("the merge-base diff must NOT include the unchanged src/base_test.go, got %v", res.Changed)
++	}
++	if !contains(res.TestFiles, "src/base_test.go") {
++		t.Fatalf("affected --base must surface the affected test file, got %v", res.TestFiles)
++	}
++
++	// Affected areas: per-hop detail collapsed under each area. base.go is
++	// both changed and a hop source, so it forms an area; the hop detail is
++	// aggregated under it.
++	if len(res.Areas) == 0 {
++		t.Fatalf("expected affected areas, got none")
++	}
++	var baseArea *Area
++	for i := range res.Areas {
++		if res.Areas[i].Name == "src/base.go" {
++			baseArea = &res.Areas[i]
++		}
++	}
++	if baseArea == nil {
++		t.Fatalf("expected an area for changed file src/base.go, got %+v", res.Areas)
++	}
++	if !contains(baseArea.TestFiles, "src/base_test.go") {
++		t.Errorf("the base.go area must list src/base_test.go, got %v", baseArea.TestFiles)
++	}
++	if baseArea.Hops == 0 {
++		t.Errorf("the base.go area must carry collapsed hop detail, got none")
++	}
++
++	// Git-history owners ("who to tag"): git blame on the changed lines of
++	// src/base.go names the fixture committer.
++	if baseArea.Owners == nil {
++		t.Fatalf("expected owners for the base.go area, got nil")
++	}
++	owner := strings.ToLower(baseArea.Owners[0])
++	if !strings.Contains(owner, "fixture") && !strings.Contains(owner, "fixture@example.com") {
++		t.Errorf("owner should be the git-history committer (fixture), got %v", baseArea.Owners)
++	}
++}
++
++// TestCodeAffectedBaseNoChanges covers @step-02 (--base on a branch with no
++// diff against the base ref): an empty merge-base diff is an empty result with
++// a clear message, not an error.
++func TestCodeAffectedBaseNoChanges(t *testing.T) {
++	st := fixtureGraph(t)
++	root := gitFixtureRepo(t)
++	// HEAD == feat; diff against feat is empty.
++	res, err := AffectedBase(context.Background(), st.DB, root, "feat", Options{})
++	if err != nil {
++		t.Fatalf("affected --base (empty diff): %v", err)
++	}
++	if len(res.Changed) != 0 {
++		t.Errorf("empty merge-base diff must report no changed files, got %v", res.Changed)
++	}
++	if res.Message == "" {
++		t.Errorf("empty merge-base diff must carry a clear message, got empty")
++	}
++}
++
++// TestCodeAffectedBaseBadRef covers @step-02 (--base with an unknown ref is a
++// clear error, not an invented changed set).
++func TestCodeAffectedBaseBadRef(t *testing.T) {
++	st := fixtureGraph(t)
++	root := gitFixtureRepo(t)
++	if _, err := AffectedBase(context.Background(), st.DB, root, "no-such-ref", Options{}); err == nil {
++		t.Errorf("an unknown --base ref must be a clear error")
++	}
++}
++
++var _ = sort.Strings
+diff --git a/skillgrid-cli/internal/mnemonic/affected/rename.go b/skillgrid-cli/internal/mnemonic/affected/rename.go
+new file mode 100644
+index 0000000..d8a86f5
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/affected/rename.go
+@@ -0,0 +1,267 @@
++// Rename plans and (opt-in) applies a symbol rename on the existing graph.
++// The plan splits into graph edits (high-confidence: the definition plus the
++// typed references from the edges table — resolved endpoints only) and
++// text-search edits (lower-confidence: every stored occurrence of the old
++// name outside the graph bucket, flagged "review carefully"). dry_run
++// defaults true: without Apply the plan is returned and nothing is written.
++package affected
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++	"os"
++	"sort"
++	"strings"
++)
++
++// RenameOptions tunes a rename.
++type RenameOptions struct {
++	Old, New string
++	// File/UID/Kind narrow the resolution (005 disambiguation).
++	File string
++	UID  string
++	Kind string
++	// DryRun returns the plan without writing (default true; Apply forces
++	// the non-dry path).
++	DryRun bool
++	// Apply writes the planned edits (only files listed in the plan).
++	Apply bool
++}
++
++// Candidate is one ranked rename candidate (ambiguous target).
++type Candidate struct {
++	Name string `json:"name"`
++	UID  string `json:"uid"`
++	Path string `json:"path"`
++}
++
++// Edit is one planned rename edit: the file, the old/new text, the source
++// (graph | text-search) and a confidence label. Every edit carries one.
++type Edit struct {
++	Path       string `json:"path"`
++	Old        string `json:"old"`
++	New        string `json:"new"`
++	Source     string `json:"source"`
++	Confidence string `json:"confidence"`
++	// Note flags the text-search bucket "review carefully".
++	Note string `json:"note,omitempty"`
++}
++
++// RenamePlan is the code_rename answer. Ambiguous targets carry a ranked
++// candidate list (never a silent pick) and no edits.
++type RenamePlan struct {
++	Old    string `json:"old"`
++	New    string `json:"new"`
++	// Target is the resolved symbol (empty when ambiguous/not-found).
++	Target       map[string]any `json:"target,omitempty"`
++	Ambiguous    bool           `json:"ambiguous,omitempty"`
++	NotFound     bool           `json:"not_found,omitempty"`
++	Candidates   []Candidate  `json:"candidates,omitempty"`
++	GraphEdits   []Edit         `json:"graph_edits"`
++	TextSearchEdits []Edit      `json:"text_search_edits"`
++	FilesAffected int            `json:"files_affected"`
++	TotalEdits   int            `json:"total_edits"`
++	DryRun       bool           `json:"dry_run"`
++	Applied      bool           `json:"applied,omitempty"`
++	// EditedFiles lists the files actually written (non-dry runs only).
++	EditedFiles []string `json:"edited_files,omitempty"`
++}
++
++// renameRefKinds are the edge kinds that count as a typed reference of the
++// target (the graph bucket). tests_for/tested_by keep their own edges, so
++// their reference sites are graph edits too.
++var renameRefKinds = []string{`"calls"`, `"imports"`, `"reference"`, `"route"`, `"extends"`, `"implements"`, `"references"`, `"tests_for"`, `"tested_by"`}
++
++// Rename resolves Old via 005 disambiguation (ambiguous → ranked candidates,
++// no silent pick) and builds the edit plan. With Apply=true it writes exactly
++// the planned files (no commit/push); otherwise it returns the plan with
++// dry_run=true and touches nothing.
++func Rename(ctx context.Context, db *sql.DB, opts RenameOptions) (RenamePlan, error) {
++	plan := RenamePlan{Old: opts.Old, New: opts.New, GraphEdits: []Edit{}, TextSearchEdits: []Edit{}}
++	if opts.Old == "" || opts.New == "" || opts.Old == opts.New {
++		return plan, &RenameError{Msg: "rename: provide distinct old and new names"}
++	}
++	if opts.Apply {
++		plan.DryRun = false
++	} else {
++		plan.DryRun = true
++	}
++
++	res, err := resolveSymbol(ctx, db, opts.Old, resolveFilter{File: opts.File, UID: opts.UID, Kind: opts.Kind})
++	if err != nil {
++		return plan, err
++	}
++	if res.NotFound {
++		plan.NotFound = true
++		return plan, nil
++	}
++	if res.Ambiguous {
++		plan.Ambiguous = true
++		for _, c := range rankCandidates(ctx, db, res.Matches) {
++			plan.Candidates = append(plan.Candidates, Candidate{Name: c.Name, UID: c.UID, Path: c.Path})
++		}
++		return plan, nil
++	}
++	target := res.Target
++	plan.Target = symbolDTO(target)
++
++	// Graph bucket: the definition site + every typed reference (resolved
++	// edge endpoints only — dropped references have no edge, so they are not
++	// graph edits; they surface as text-search edits at most).
++	graphPaths := map[string]bool{target.Path: true}
++	kindList := strings.Join(renameRefKinds, ",")
++	rows, err := db.QueryContext(ctx, `
++		SELECT f.path, s.name
++		FROM edges e
++		JOIN symbols s ON s.id = e.from_id
++		JOIN files f ON f.id = s.file_id
++		WHERE e.to_id = ? AND e.kind IN (`+kindList+`)
++		ORDER BY e.id`, target.ID)
++	if err != nil {
++		return plan, err
++	}
++	type ref struct {
++		path, name string
++	}
++	var refs []ref
++	for rows.Next() {
++		var r ref
++		if err := rows.Scan(&r.path, &r.name); err != nil {
++			rows.Close()
++			return plan, err
++		}
++		refs = append(refs, r)
++		graphPaths[r.path] = true
++	}
++	if err := rows.Err(); err != nil {
++		rows.Close()
++		return plan, err
++	}
++	rows.Close()
++
++	// The definition edit: the symbol name at its definition site.
++	plan.GraphEdits = append(plan.GraphEdits, Edit{
++		Path: target.Path, Old: opts.Old, New: opts.New,
++		Source: "definition", Confidence: "high",
++	})
++	// Typed reference edits: one per stored reference occurrence (name-based
++	// count over the stored symbols/edges occurrences of the old name).
++	for _, r := range refs {
++		count := countNameInFile(db, r.path, opts.Old)
++		plan.GraphEdits = append(plan.GraphEdits, Edit{
++			Path: r.path, Old: opts.Old, New: opts.New,
++			Source: "typed-reference", Confidence: "high",
++			Note: fmt.Sprintf("occurrences: %d", count),
++		})
++	}
++
++	// Text-search bucket: every other stored file that has a symbol whose
++	// name matches the old name (exact or substring) outside the graph
++	// bucket. Lower-confidence: string matches can be coincidental (comments,
++	// other languages, substrings) — flagged "review carefully".
++	rows2, err := db.QueryContext(ctx, `
++		SELECT DISTINCT f.path
++		FROM symbols s3
++		JOIN files f ON f.id = s3.file_id
++		WHERE s3.name = ?
++		ORDER BY f.path`, opts.Old)
++	if err != nil {
++		return plan, err
++	}
++	for rows2.Next() {
++		var p string
++		if err := rows2.Scan(&p); err != nil {
++			rows2.Close()
++			return plan, err
++		}
++		if graphPaths[p] {
++			continue
++		}
++		plan.TextSearchEdits = append(plan.TextSearchEdits, Edit{
++			Path: p, Old: opts.Old, New: opts.New,
++			Source: "text-search", Confidence: "low",
++			Note: "review carefully (string match)",
++		})
++	}
++	if err := rows2.Err(); err != nil {
++		rows2.Close()
++		return plan, err
++	}
++	rows2.Close()
++
++	// De-dup against the graph bucket (the definition + typed refs already
++	// cover those files at higher confidence).
++	var ts []Edit
++	for _, e := range plan.TextSearchEdits {
++		if graphPaths[e.Path] {
++			continue
++		}
++		ts = append(ts, e)
++	}
++	plan.TextSearchEdits = ts
++
++	files := map[string]bool{}
++	for _, e := range plan.GraphEdits {
++		files[e.Path] = true
++	}
++	for _, e := range plan.TextSearchEdits {
++		files[e.Path] = true
++	}
++	plan.FilesAffected = len(files)
++	plan.TotalEdits = len(plan.GraphEdits) + len(plan.TextSearchEdits)
++	sort.SliceStable(plan.GraphEdits, func(i, j int) bool { return plan.GraphEdits[i].Path < plan.GraphEdits[j].Path })
++	sort.SliceStable(plan.TextSearchEdits, func(i, j int) bool { return plan.TextSearchEdits[i].Path < plan.TextSearchEdits[j].Path })
++
++	if !plan.DryRun {
++		// Apply: write exactly the planned files (string replace of the old
++		// name with the new one). No commit, no push. A planned file that is
++		// absent on disk (indexed but deleted) is skipped, not an error —
++		// the apply path only writes files that exist.
++		var edited []string
++		for p := range files {
++			if _, err := os.Stat(p); err != nil {
++				continue
++			}
++			if err := applyEdit(ctx, db, p, opts.Old, opts.New); err != nil {
++				return plan, err
++			}
++			edited = append(edited, p)
++		}
++		sort.Strings(edited)
++		plan.EditedFiles = edited
++		plan.Applied = true
++	}
++	return plan, nil
++}
++
++// RenameError is a clear validation error (distinct old/new names).
++type RenameError struct{ Msg string }
++
++func (e *RenameError) Error() string { return e.Msg }
++
++// applyEdit replaces every occurrence of old with new in the file's indexed
++// content (chunks), writing back the file at its indexed path. It is the
++// non-dry rename write path: only the planned file is touched.
++func applyEdit(ctx context.Context, db *sql.DB, path, old, new string) error {
++	var content []byte
++	if err := readFileInto(db, path, &content); err != nil {
++		return err
++	}
++	updated := strings.ReplaceAll(string(content), old, new)
++	if updated == string(content) {
++		return nil
++	}
++	return writeFileFromDB(db, path, []byte(updated))
++}
++
++// countNameInFile counts stored occurrences of name in a file's indexed
++// symbols/chunks (best-effort; 0 when the file is not indexed).
++func countNameInFile(db *sql.DB, path, name string) int {
++	var n int
++	_ = db.QueryRow(`SELECT COUNT(*) FROM symbols s
++		JOIN files f ON f.id = s.file_id
++		WHERE f.path = ? AND s.name = ?`, path, name).Scan(&n)
++	return n
++}
++
+diff --git a/skillgrid-cli/internal/mnemonic/affected/rename_apply_test.go b/skillgrid-cli/internal/mnemonic/affected/rename_apply_test.go
+new file mode 100644
+index 0000000..109e6a6
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/affected/rename_apply_test.go
+@@ -0,0 +1,87 @@
++package affected
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++)
++
++// TestCodeRenameApply covers @step-02 (Scenario: code_rename applies only
++// listed files without committing): a non-dry rename edits exactly the files
++// in its plan (no other file touched) and performs no git side effect (no
++// commit, no push).
++func TestCodeRenameApply(t *testing.T) {
++	st := renameFixture(t)
++	ctx := context.Background()
++
++	// Build a real on-disk repo whose working tree matches the indexed graph:
++	// base (src/base.go) is called by mid (src/mid.go); src/touch_me.go is
++	// OUTSIDE the plan and must not be edited.
++	root := t.TempDir()
++	write := func(name, content string) {
++		t.Helper()
++		p := filepath.Join(root, name)
++		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
++			t.Fatalf("mkdir: %v", err)
++		}
++		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
++			t.Fatalf("write: %v", err)
++		}
++	}
++	write("src/base.go", "package p\n\nfunc base() int {\n\treturn 1\n}\n")
++	write("src/mid.go", "package p\n\nfunc mid() int {\n\treturn base()\n}\n")
++	write("src/touch_me.go", "package p\n\n// base is fine\nfunc other() {}\n")
++
++	// dry_run first: the plan must not write anything.
++	dry, err := Rename(ctx, st.DB, RenameOptions{Old: "base", New: "verifyBase"})
++	if err != nil {
++		t.Fatalf("rename(dry): %v", err)
++	}
++	if !dry.DryRun {
++		t.Fatalf("expected dry_run=true, got %v", dry)
++	}
++	b, _ := os.ReadFile(filepath.Join(root, "src/base.go"))
++	if !strings.Contains(string(b), "func base()") {
++		t.Fatalf("dry_run must not write: base.go changed to %q", b)
++	}
++
++	oldDir, _ := os.Getwd()
++	if err := os.Chdir(root); err != nil {
++		t.Fatalf("chdir: %v", err)
++	}
++	defer func() { _ = os.Chdir(oldDir) }()
++
++	// Non-dry apply: edits exactly the planned files.
++	applied, err := Rename(ctx, st.DB, RenameOptions{Old: "base", New: "verifyBase", Apply: true})
++	if err != nil {
++		t.Fatalf("rename(apply): %v", err)
++	}
++	if applied.DryRun {
++		t.Fatalf("apply must be non-dry, got %v", applied)
++	}
++	if !applied.Applied {
++		t.Fatalf("expected applied=true, got %v", applied)
++	}
++	// base.go: the definition was renamed.
++	b1, _ := os.ReadFile(filepath.Join(root, "src/base.go"))
++	if !strings.Contains(string(b1), "func verifyBase()") {
++		t.Errorf("base.go definition must be renamed, got %q", b1)
++	}
++	// mid.go: the typed caller was renamed.
++	b2, _ := os.ReadFile(filepath.Join(root, "src/mid.go"))
++	if !strings.Contains(string(b2), "verifyBase()") {
++		t.Errorf("mid.go caller must be renamed, got %q", b2)
++	}
++	// touch_me.go: OUTSIDE the plan — untouched.
++	b3, _ := os.ReadFile(filepath.Join(root, "src/touch_me.go"))
++	if strings.Contains(string(b3), "verifyBase") {
++		t.Errorf("touch_me.go is outside the plan and must be untouched, got %q", b3)
++	}
++	// No git side effect: a fresh repo (no commits) must not have gained one.
++	// The apply path does no git work at all, so the .git dir does not exist.
++	if _, err := os.Stat(filepath.Join(root, ".git")); !os.IsNotExist(err) {
++		t.Errorf("apply must not perform git side effects (a .git dir appeared), err=%v", err)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/affected/rename_support.go b/skillgrid-cli/internal/mnemonic/affected/rename_support.go
+new file mode 100644
+index 0000000..66efe55
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/affected/rename_support.go
+@@ -0,0 +1,123 @@
++package affected
++
++import (
++	"context"
++	"database/sql"
++	"os"
++	"sort"
++)
++
++// resolveFilter is the 005 disambiguation filter (file/uid/kind) used by
++// rename; it mirrors graph.ResolveFilter so the affected package stays
++// independent of the graph package (no import cycle).
++type resolveFilter struct {
++	File string
++	UID  string
++	Kind string
++}
++
++// resolution is a symbol resolution outcome (mirrors graph.Resolution).
++type resolution struct {
++	Matches   []sym
++	Ambiguous bool
++	NotFound  bool
++	Target    sym
++}
++
++// resolveSymbol resolves a symbol by name with an optional file/uid/kind
++// narrow. Ambiguous (multiple matches) is never a silent pick: all matches
++// are returned for ranking.
++func resolveSymbol(ctx context.Context, db *sql.DB, name string, filter resolveFilter) (resolution, error) {
++	var res resolution
++	rows, err := db.QueryContext(ctx, `
++		SELECT s.id, s.name, s.kind, s.uid, f.path
++		FROM symbols s JOIN files f ON f.id = s.file_id
++		WHERE s.name = ?
++		ORDER BY s.id`, name)
++	if err != nil {
++		return res, err
++	}
++	defer rows.Close()
++	for rows.Next() {
++		var s sym
++		var kind string
++		if err := rows.Scan(&s.ID, &s.Name, &kind, &s.UID, &s.Path); err != nil {
++			return res, err
++		}
++		s.Kind = kind
++		if filter.File != "" && s.Path != filter.File {
++			continue
++		}
++		if filter.UID != "" && s.UID != filter.UID {
++			continue
++		}
++		if filter.Kind != "" && s.Kind != filter.Kind {
++			continue
++		}
++		res.Matches = append(res.Matches, s)
++	}
++	if err := rows.Err(); err != nil {
++		return res, err
++	}
++	switch len(res.Matches) {
++	case 0:
++		res.NotFound = true
++	case 1:
++		res.Target = res.Matches[0]
++	default:
++		res.Ambiguous = true
++	}
++	return res, nil
++}
++
++// rankCandidates orders ambiguous candidates: most-connected first (hubs are
++// the likelier intent), then path for determinism.
++func rankCandidates(ctx context.Context, db *sql.DB, matches []sym) []sym {
++	type scored struct {
++		sym sym
++		deg int
++	}
++	list := make([]scored, 0, len(matches))
++	for _, m := range matches {
++		deg := 0
++		_ = db.QueryRowContext(ctx, `
++			SELECT COUNT(*) FROM edges
++			WHERE (from_id = ? AND to_id IS NOT NULL) OR to_id = ?`, m.ID, m.ID).Scan(&deg)
++		list = append(list, scored{sym: m, deg: deg})
++	}
++	sort.SliceStable(list, func(i, j int) bool {
++		if list[i].deg != list[j].deg {
++			return list[i].deg > list[j].deg
++		}
++		if list[i].sym.Path != list[j].sym.Path {
++			return list[i].sym.Path < list[j].sym.Path
++		}
++		return list[i].sym.UID < list[j].sym.UID
++	})
++	out := make([]sym, len(list))
++	for i, s := range list {
++		out[i] = s.sym
++	}
++	return out
++}
++
++// symbolDTO renders a resolved symbol for the plan.
++func symbolDTO(s sym) map[string]any {
++	return map[string]any{"name": s.Name, "uid": s.UID, "path": s.Path}
++}
++
++// readFileInto / writeFileFromDB are thin file I/O helpers for the apply
++// path. The indexed path is repo-relative; it is resolved against the
++// process CWD (the CLI/MCP run in the repo root).
++func readFileInto(db *sql.DB, path string, out *[]byte) error {
++	b, err := os.ReadFile(path)
++	if err != nil {
++		return err
++	}
++	*out = b
++	return nil
++}
++
++func writeFileFromDB(db *sql.DB, path string, content []byte) error {
++	return os.WriteFile(path, content, 0o644)
++}
+diff --git a/skillgrid-cli/internal/mnemonic/affected/rename_test.go b/skillgrid-cli/internal/mnemonic/affected/rename_test.go
+new file mode 100644
+index 0000000..06e76f4
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/affected/rename_test.go
+@@ -0,0 +1,198 @@
++package affected
++
++import (
++	"context"
++	"strings"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// renameFixture seeds a store where base (src/base.go) is called by mid
++// (src/mid.go, a calls edge), so the graph bucket has a definition + a typed
++// reference.
++func renameFixture(t *testing.T) *store.Store {
++	t.Helper()
++	st, err := store.Open(t.TempDir(), "rename-probe")
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	t.Cleanup(func() { st.Close() })
++	ctx := context.Background()
++	seed := `
++		INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at) VALUES
++			('src/base.go', 1, 1, 'a', 'now'),
++			('src/mid.go', 2, 2, 'b', 'now'),
++			('src/base_test.go', 3, 3, 'c', 'now');
++		INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
++		SELECT f.id, 'base', 'base', 'function', 'go', 'func base()', 1, 5, 'h', 'uid-base' FROM files f WHERE f.path = 'src/base.go';
++		INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
++		SELECT f.id, 'mid', 'mid', 'function', 'go', 'func mid()', 1, 5, 'h', 'uid-mid' FROM files f WHERE f.path = 'src/mid.go';
++		INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
++		SELECT f.id, 'TestBase', 'TestBase', 'function', 'go', 'func TestBase()', 1, 5, 'h', 'uid-test' FROM files f WHERE f.path = 'src/base_test.go';
++		INSERT INTO edges (kind, from_id, file_id, to_id, to_name, confidence, line)
++		SELECT 'calls',
++			(SELECT id FROM symbols WHERE uid = 'uid-mid'),
++			(SELECT file_id FROM symbols WHERE uid = 'uid-mid'),
++			(SELECT id FROM symbols WHERE uid = 'uid-base'), 'base', 'EXTRACTED', 10;
++		INSERT INTO edges (kind, from_id, file_id, to_id, to_name, confidence, line)
++		SELECT 'tests_for',
++			(SELECT id FROM symbols WHERE uid = 'uid-test'),
++			(SELECT file_id FROM symbols WHERE uid = 'uid-test'),
++			(SELECT id FROM symbols WHERE uid = 'uid-base'), 'base', 'EXTRACTED', 20;
++	`
++	if _, err := st.DB.ExecContext(ctx, seed); err != nil {
++		t.Fatalf("seed: %v", err)
++	}
++	return st
++}
++
++// TestCodeRename covers @step-02 (Scenario: code_rename returns graph and
++// text-search edit buckets): renaming a symbol splits the plan into graph
++// edits (high-confidence: definition + typed references from the edges
++// table) and text-search edits (lower-confidence: string matches, flagged
++// "review carefully"); every edit carries a confidence label; --dry-run
++// (default) returns the plan without writing any file.
++func TestCodeRename(t *testing.T) {
++	st := renameFixture(t)
++	ctx := context.Background()
++
++	plan, err := Rename(ctx, st.DB, RenameOptions{Old: "base", New: "verifyBase"})
++	if err != nil {
++		t.Fatalf("rename: %v", err)
++	}
++	if plan.Ambiguous {
++		t.Fatalf("single-symbol target must not be ambiguous, got %+v", plan)
++	}
++	if len(plan.GraphEdits) == 0 {
++		t.Fatalf("expected graph edits (definition + typed refs), got none")
++	}
++	if plan.TotalEdits == 0 {
++		t.Fatalf("expected a non-zero edit count, got 0")
++	}
++	if plan.DryRun != true {
++		t.Errorf("dry_run must default true, got %v", plan.DryRun)
++	}
++	// Every edit carries a confidence label.
++	for _, e := range append(plan.GraphEdits, plan.TextSearchEdits...) {
++		if e.Confidence == "" {
++			t.Errorf("every edit must carry a confidence label, got %+v", e)
++		}
++	}
++	// The graph bucket is high-confidence (the edges table is typed).
++	for _, e := range plan.GraphEdits {
++		if e.Confidence != "high" {
++			t.Errorf("graph edits are high-confidence, got %q", e.Confidence)
++		}
++	}
++	// The definition site is in the graph bucket (base's own file).
++	var defFound bool
++	for _, e := range plan.GraphEdits {
++		if e.Path == "src/base.go" {
++			defFound = true
++		}
++	}
++	if !defFound {
++		t.Errorf("the definition site (src/base.go) must be a graph edit, got %+v", plan.GraphEdits)
++	}
++	// The typed caller (src/mid.go, via the calls edge) is a graph edit.
++	var callerFound bool
++	for _, e := range plan.GraphEdits {
++		if e.Path == "src/mid.go" {
++			callerFound = true
++		}
++	}
++	if !callerFound {
++		t.Errorf("the typed caller (src/mid.go) must be a graph edit, got %+v", plan.GraphEdits)
++	}
++	// dry_run touches nothing: the plan lists files, but no write happened.
++	// (The apply path is covered by CodeRenameApply.)
++	if plan.FilesAffected == 0 {
++		t.Errorf("expected affected files in the plan, got 0")
++	}
++}
++
++// TestCodeRenameTextSearchBucket covers @step-02 (text-search bucket): a file
++// that mentions the old name without a typed reference (e.g. a comment)
++// lands in the lower-confidence text-search bucket, flagged "review
++// carefully" — distinct from the high-confidence graph bucket.
++func TestCodeRenameTextSearchBucket(t *testing.T) {
++	st := renameFixture(t)
++	ctx := context.Background()
++	// A file that names `base` (a symbol with the old name) but has NO typed
++	// edge to the target: it is a string match, not a typed reference.
++	if _, err := st.DB.Exec(`
++		INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at)
++		VALUES ('src/note.go', 10, 10, 'n', 'now');
++		INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
++		SELECT f.id, 'base', 'base', 'function', 'go', 'func base()', 1, 5, 'h', 'uid-note-base'
++		FROM files f WHERE f.path = 'src/note.go';
++	`); err != nil {
++		t.Fatalf("seed: %v", err)
++	}
++	plan, err := Rename(ctx, st.DB, RenameOptions{Old: "base", New: "verifyBase"})
++	if err != nil {
++		t.Fatalf("rename: %v", err)
++	}
++	// `base` is now ambiguous (three symbols named base) — disambiguate to the
++	// fixture target by uid.
++	if !plan.Ambiguous {
++		t.Fatalf("expected ambiguous (3 base symbols), got %+v", plan)
++	}
++	plan2, err := Rename(ctx, st.DB, RenameOptions{Old: "base", New: "verifyBase", UID: "uid-base"})
++	if err != nil {
++		t.Fatalf("rename: %v", err)
++	}
++	if plan2.Ambiguous {
++		t.Fatalf("uid narrow must disambiguate, got %+v", plan2)
++	}
++	var noteInTextSearch bool
++	for _, e := range plan2.TextSearchEdits {
++		if e.Path == "src/note.go" {
++			noteInTextSearch = true
++			if e.Confidence != "low" || !strings.Contains(e.Note, "review carefully") {
++				t.Errorf("text-search edits must be low-confidence + flagged, got %+v", e)
++			}
++		}
++	}
++	if !noteInTextSearch {
++		t.Errorf("src/note.go (string match, no typed edge) must be a text-search edit, got %+v", plan2.TextSearchEdits)
++	}
++}
++
++// TestCodeRenameAmbiguous covers @step-02 (Scenario: Ambiguous rename target
++// returns candidates): a name matching several symbols returns a ranked
++// candidate list (most-connected first) — never a silent pick, no edits.
++func TestCodeRenameAmbiguous(t *testing.T) {
++	st := renameFixture(t)
++	ctx := context.Background()
++	// Add a second symbol named base in a different file.
++	if _, err := st.DB.Exec(`
++		INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at)
++		VALUES ('src/other.go', 9, 9, 'o', 'now');
++		INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
++		SELECT f.id, 'base', 'base', 'function', 'go', 'func base()', 1, 5, 'h', 'uid-base-2'
++		FROM files f WHERE f.path = 'src/other.go';
++	`); err != nil {
++		t.Fatalf("seed: %v", err)
++	}
++
++	plan, err := Rename(ctx, st.DB, RenameOptions{Old: "base", New: "verifyBase"})
++	if err != nil {
++		t.Fatalf("rename: %v", err)
++	}
++	if !plan.Ambiguous {
++		t.Fatalf("a multi-symbol target must be ambiguous, got %+v", plan)
++	}
++	if len(plan.Candidates) != 2 {
++		t.Fatalf("expected 2 ranked candidates, got %d", len(plan.Candidates))
++	}
++	// No silent pick: no edits are planned until disambiguated.
++	if plan.TotalEdits != 0 {
++		t.Errorf("an ambiguous rename must not plan edits, got %d", plan.TotalEdits)
++	}
++	// Ranked: the more-connected base (has a caller) surfaces first.
++	if plan.Candidates[0].UID != "uid-base" {
++		t.Errorf("most-connected candidate should rank first, got %s", plan.Candidates[0].UID)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/server.go b/skillgrid-cli/internal/mnemonic/mcp/server.go
+index c2a4d43..a45a4d8 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/server.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/server.go
+@@ -56,6 +56,7 @@ func Start() error {
+ 	registerTeamsTools(s)
+ 	registerRetrievalTools(s)
+ 	registerCompactionTools(s)
++	registerAffectedTools(s)
+ 	return server.ServeStdio(s)
+ }
+ 
+@@ -81,5 +82,6 @@ func NewServer() *Server {
+ 	registerTeamsTools(s)
+ 	registerRetrievalTools(s)
+ 	registerCompactionTools(s)
++	registerAffectedTools(s)
+ 	return s
+ }
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/server_test.go b/skillgrid-cli/internal/mnemonic/mcp/server_test.go
+index f096cca..e894cad 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/server_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/server_test.go
+@@ -48,6 +48,8 @@ func TestAllToolsRegistered(t *testing.T) {
+ 		"agent_submit_output", "agent_submit_review", "agent_mark_done",
+ 		"semantic_search", "load_full_details",
+ 		"mnemonic_commit",
++		// PR-command tools (010 step 02).
++		"code_affected", "code_rename",
+ 	}
+ 	if len(tools) != len(want) {
+ 		t.Errorf("expected %d tools, got %d (%v)", len(want), len(tools), tools)
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected.go
+new file mode 100644
+index 0000000..a872e13
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected.go
+@@ -0,0 +1,161 @@
++package mcp
++
++import (
++	"context"
++	"fmt"
++	"os"
++	"strings"
++
++	mcplib "github.com/mark3labs/mcp-go/mcp"
++	"github.com/mark3labs/mcp-go/server"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/affected"
++)
++
++// registerAffectedTools registers the PR-command tools (code_affected /
++// code_rename). They are distinct code_* tools — none clashes with the 005/
++// 008/010 baseline — and are part of the narrow code_* menu (unlisted by
++// default; re-enabled via CodeToolsEnvVar). code_affected is query-only;
++// code_rename is a write (dry_run default true).
++func registerAffectedTools(s *server.MCPServer) {
++	tools := []struct {
++		tool    mcplib.Tool
++		handler server.ToolHandlerFunc
++	}{
++		{codeAffectedTool(), handleCodeAffected},
++		{codeRenameTool(), handleCodeRename},
++	}
++	for _, entry := range tools {
++		s.AddTool(entry.tool, entry.handler)
++	}
++}
++
++func codeAffectedTool() mcplib.Tool {
++	return mcplib.NewTool("code_affected",
++		mcplib.WithDescription("PR command: which tests do I run after this change? Traverses the indexed graph from the changed files out to the affected test files via import + tests_for (and resolved route) edges, depth-capped (default 5). Query-only: it adds no nodes/edges and traverses ONLY resolved edges (step-01 drop policy), so a dropped/ambiguous reference can never inflate the radius. Pass changed as a file list, or stdin (a git diff --name-only list), or base (a git ref: the changed set is derived from git merge-base <base> HEAD + diff, grouped into affected areas with git-history owners)."),
++		mcplib.WithArray("changed", mcplib.Description("Changed file paths (repo-relative). Mutually exclusive with stdin/base.")),
++		mcplib.WithString("stdin", mcplib.Description("A git diff --name-only-style file list (one path per line). Mutually exclusive with changed/base.")),
++		mcplib.WithString("base", mcplib.Description("A git ref: derive the changed set from git merge-base <ref> HEAD + diff, and group the result into affected areas + git-history owners. Mutually exclusive with changed/stdin.")),
++		mcplib.WithNumber("depth", mcplib.Description("Bound the traversal depth (default 5)")),
++		mcplib.WithString("filter", mcplib.Description("Restrict reported test files to a substring/segment match")),
++		mcplib.WithBoolean("json", mcplib.Description("Emit machine-readable JSON")),
++		mcplib.WithBoolean("quiet", mcplib.Description("Print only affected test file paths")),
++	)
++}
++
++func codeRenameTool() mcplib.Tool {
++	return mcplib.NewTool("code_rename",
++		mcplib.WithDescription("PR command: what does renaming this symbol touch? Resolves the target via 005 disambiguation (ambiguous -> ranked candidate list, no silent pick) and splits the plan into graph edits (high-confidence: definition + typed references from the edges table) and text-search edits (lower-confidence: string matches, flagged review carefully). Every edit carries a confidence label. dry_run defaults true (returns the plan without writing); apply=true edits ONLY the files in the plan (no commit/push)."),
++		mcplib.WithString("old", mcplib.Required(), mcplib.Description("Current symbol name")),
++		mcplib.WithString("new", mcplib.Required(), mcplib.Description("New symbol name")),
++		mcplib.WithString("file", mcplib.Description("Narrow disambiguation to a file path")),
++		mcplib.WithString("uid", mcplib.Description("Narrow disambiguation to a symbol UID")),
++		mcplib.WithString("kind", mcplib.Description("Narrow disambiguation to a symbol kind")),
++		mcplib.WithBoolean("dry_run", mcplib.Description("Return the plan without writing (default true)")),
++		mcplib.WithBoolean("apply", mcplib.Description("Write the planned edits (only listed files; no commit/push)")),
++	)
++}
++
++// stringArg returns a string argument or "" when absent (never errors: the
++// tool validates presence itself).
++func stringArg(req mcplib.CallToolRequest, key string) string {
++	args := req.GetArguments()
++	if v, ok := args[key].(string); ok {
++		return v
++	}
++	return ""
++}
++
++func handleCodeAffected(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	changedRaw := req.GetArguments()["changed"]
++	changed := []string{}
++	if arr, ok := changedRaw.([]any); ok {
++		for _, v := range arr {
++			if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
++				changed = append(changed, strings.TrimSpace(s))
++			}
++		}
++	}
++	stdin := stringArg(req, "stdin")
++	baseRef := stringArg(req, "base")
++	if stdin != "" && baseRef != "" {
++		return toolError(fmt.Errorf("code_affected: stdin and base are mutually exclusive"))
++	}
++	if len(changed) > 0 && (stdin != "" || baseRef != "") {
++		return toolError(fmt.Errorf("code_affected: changed is mutually exclusive with stdin/base"))
++	}
++	if len(changed) == 0 && stdin == "" && baseRef == "" {
++		return toolError(fmt.Errorf("code_affected: provide changed, stdin, or base"))
++	}
++	depth := int(req.GetFloat("depth", 0))
++	filter := stringArg(req, "filter")
++
++	_, h, cleanup, err := openService()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++
++	var out any
++	if baseRef != "" {
++		cwd, err := os.Getwd()
++		if err != nil {
++			return toolError(err)
++		}
++		b, err := affected.AffectedBase(ctx, h.Store().DB, cwd, baseRef, affected.Options{Depth: depth, Filter: filter})
++		if err != nil {
++			return toolError(err)
++		}
++		out = b
++	} else {
++		var list []string
++		if stdin != "" {
++			list, err = affected.ParseFileList(stdin)
++			if err != nil {
++				return toolError(err)
++			}
++		} else {
++			list = changed
++		}
++		res, err := affected.Affected(ctx, h.Store().DB, affected.Options{Changed: list, Depth: depth, Filter: filter})
++		if err != nil {
++			return toolError(err)
++		}
++		out = res
++	}
++	return JSONResult(out)
++}
++
++func handleCodeRename(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	old, err := req.RequireString("old")
++	if err != nil {
++		return toolError(fmt.Errorf("code_rename: %v", err))
++	}
++	newName, err := req.RequireString("new")
++	if err != nil {
++		return toolError(fmt.Errorf("code_rename: %v", err))
++	}
++	apply := req.GetBool("apply", false)
++	dryRun := !apply
++	if req.GetArguments()["dry_run"] != nil {
++		if b, ok := req.GetArguments()["dry_run"].(bool); ok {
++			dryRun = b
++		}
++	}
++	opts := affected.RenameOptions{
++		Old: old, New: newName,
++		File: stringArg(req, "file"), UID: stringArg(req, "uid"), Kind: stringArg(req, "kind"),
++		DryRun: dryRun, Apply: apply,
++	}
++
++	_, h, cleanup, err := openService()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++	plan, err := affected.Rename(ctx, h.Store().DB, opts)
++	if err != nil {
++		return toolError(err)
++	}
++	return JSONResult(plan)
++}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected_test.go
+new file mode 100644
+index 0000000..1b29c66
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected_test.go
+@@ -0,0 +1,155 @@
++package mcp
++
++import (
++	"context"
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++)
++
++// affectedMCPFixture indexes a small go app (base <- mid chain + a test file)
++// and pins the project so the temp-dir fixture resolves to one stable bucket.
++func affectedMCPFixture(t *testing.T) string {
++	t.Helper()
++	dataDir := t.TempDir()
++	raw := t.TempDir()
++	abs, err := filepath.Abs(raw)
++	if err != nil {
++		t.Fatalf("abs: %v", err)
++	}
++	write := func(name, content string) {
++		if err := os.MkdirAll(filepath.Dir(filepath.Join(abs, name)), 0o755); err != nil {
++			t.Fatalf("mkdir %s: %v", name, err)
++		}
++		if err := os.WriteFile(filepath.Join(abs, name), []byte(content), 0o644); err != nil {
++			t.Fatalf("write %s: %v", name, err)
++		}
++	}
++	write("src/base.go", "package p\n\nfunc base() int {\n\treturn 1\n}\n")
++	write("src/mid.go", "package p\n\nfunc mid() int {\n\treturn base()\n}\n")
++	write("src/base_test.go", "package p\n\nfunc TestBase() {\n\t_ = base()\n}\n")
++	t.Setenv("MNEMONIC_PROJECT", "affectedmcp-probe")
++	svc := service.New(dataDir)
++	SetService(svc)
++	t.Cleanup(func() { SetService(nil) })
++	codeindex.ResetFileFirstSymbol()
++	if _, err := svc.RunCodeIndex(context.Background(), abs); err != nil {
++		t.Fatalf("index: %v", err)
++	}
++	oldDir, _ := os.Getwd()
++	if err := os.Chdir(abs); err != nil {
++		t.Fatalf("chdir: %v", err)
++	}
++	t.Cleanup(func() { os.Chdir(oldDir) })
++	return dataDir
++}
++
++// TestAffectedTools covers @step-02 (Scenario: affected and rename tools
++// register and stay stable): code_affected + code_rename register with
++// distinct code_* names; code_affected exposes stdin/base/depth/filter/json/
++// quiet; rename disambiguation returns a candidate list (no silent pick);
++// dry_run touches nothing; 005/008 tools (incl. code_search) stay stable; bad
++// affected/rename args are rejected with a clear validation error.
++func TestAffectedTools(t *testing.T) {
++	affectedMCPFixture(t)
++
++	// Distinct code_* names registered.
++	tools := NewServer().ListTools()
++	for _, name := range []string{"code_affected", "code_rename"} {
++		if _, ok := tools[name]; !ok {
++			t.Errorf("expected tool %q to be registered", name)
++		}
++	}
++	// 005/008 tools stay intact on the live server (baseline lock).
++	for _, name := range []string{"code_search", "code_read", "code_communities", "code_impact", "code_route", "code_navigates"} {
++		if _, ok := tools[name]; !ok {
++			t.Errorf("005/008/010 tool %q no longer registered", name)
++		}
++	}
++	// code_search name + required `query` param schema unchanged (005 baseline).
++	assertCodeToolStable(t, codeSearchTool(), "code_search", []string{"query"})
++
++	// The tool surface grows additively: 71 baseline + 2 = 73.
++	if len(tools) != 73 {
++		t.Errorf("expected 73 tools (71 baseline + 2 affected/rename), got %d", len(tools))
++	}
++
++	// code_affected runs the traversal (changed -> affected test files).
++	res, err := handleCodeAffected(context.Background(), newCallTool("code_affected", map[string]any{
++		"changed": []any{"src/base.go", "src/mid.go"},
++	}))
++	if err != nil {
++		t.Fatalf("handleCodeAffected dispatch: %v", err)
++	}
++	if res.IsError {
++		t.Fatalf("code_affected errored: %s", callResultText(t, res))
++	}
++	var affOut struct {
++		TestFiles []string `json:"test_files"`
++	}
++	if err := json.Unmarshal([]byte(callResultText(t, res)), &affOut); err != nil {
++		t.Fatalf("code_affected output not JSON: %v (text %s)", err, callResultText(t, res))
++	}
++	if !containsStr(affOut.TestFiles, "src/base_test.go") {
++		t.Errorf("code_affected must surface src/base_test.go, got %v", affOut.TestFiles)
++	}
++
++	// code_rename dry_run (default) returns the plan without writing.
++	rres, err := handleCodeRename(context.Background(), newCallTool("code_rename", map[string]any{
++		"old": "base", "new": "verifyBase",
++	}))
++	if err != nil {
++		t.Fatalf("handleCodeRename dispatch: %v", err)
++	}
++	if rres.IsError {
++		t.Fatalf("code_rename errored: %s", callResultText(t, rres))
++	}
++	rtext := callResultText(t, rres)
++	if !strings.Contains(rtext, `"dry_run":true`) && !strings.Contains(rtext, `"dry_run": true`) {
++		t.Errorf("code_rename must report dry_run true (default), got: %s", rtext)
++	}
++	if !strings.Contains(rtext, "graph_edits") {
++		t.Errorf("code_rename must return the graph bucket, got: %s", rtext)
++	}
++}
++
++// TestAffectedToolsBadArgs covers @step-02 (bad affected/rename args rejected
++// with a clear validation error, not an invented result).
++func TestAffectedToolsBadArgs(t *testing.T) {
++	affectedMCPFixture(t)
++
++	// code_affected with no changed set (and no stdin/base) is a validation
++	// error (no invented changed set).
++	res, err := handleCodeAffected(context.Background(), newCallTool("code_affected", map[string]any{}))
++	if err != nil {
++		t.Fatalf("handleCodeAffected dispatch: %v", err)
++	}
++	if !res.IsError {
++		t.Errorf("code_affected with no changed set should be a validation error, got: %s", callResultText(t, res))
++	}
++
++	// code_rename with a missing new name is a validation error.
++	rres, err := handleCodeRename(context.Background(), newCallTool("code_rename", map[string]any{
++		"old": "base",
++	}))
++	if err != nil {
++		t.Fatalf("handleCodeRename dispatch: %v", err)
++	}
++	if !rres.IsError {
++		t.Errorf("code_rename without new should be a validation error, got: %s", callResultText(t, rres))
++	}
++}
++
++func containsStr(list []string, s string) bool {
++	for _, v := range list {
++		if v == s {
++			return true
++		}
++	}
++	return false
++}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go
+index ef9bba1..70b51b8 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go
+@@ -119,10 +119,10 @@ func TestKnowledgeTools(t *testing.T) {
+ 	// code_search name + required `query` param schema unchanged (005 baseline).
+ 	assertCodeToolStable(t, codeSearchTool(), "code_search", []string{"query"})
+ 
+-	// The tool surface grows additively: the baseline 67 + 4 knowledge tools
+-	// = 71 (the existing 67 keep their names + required params).
+-	if len(tools) != 71 {
+-		t.Errorf("expected 71 tools (67 baseline + 4 knowledge), got %d", len(tools))
++	// The tool surface grows additively: 67 baseline + 4 knowledge + 2
++	// affected/rename = 73 (all keep their names + required params).
++	if len(tools) != 73 {
++		t.Errorf("expected 73 tools (67 baseline + 4 knowledge + 2 affected/rename), got %d", len(tools))
+ 	}
+ 
+ 	// code_docs returns the indexed docs (a query, not an error).

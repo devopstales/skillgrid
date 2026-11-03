@@ -2,7 +2,7 @@
 
 > In-force ADR review + the new ADRs for this change. The in-force set comes from the
 > `## LOCKED` ADR index in `.skillgrid/ASSUMPTIONS.md` (highest in use: **0042** —
-> `04-adr-0042-goldfish-plan-review.md`; the memory change's last was 0041). A blueprint
+> `04-adr-0054-goldfish-plan-review.md`; the memory change's last was 0041). A blueprint
 > that contradicts an in-force ADR must either follow it or record a new superseding ADR.
 
 ## In-force ADRs this change relies on (substrate)
@@ -10,8 +10,8 @@
 | ADR | Decision | How this change uses it |
 |---|---|---|
 | ADR-0031 | Go 1.22+ minimum to build | `mnemonic-v2/go.mod` declares `go 1.26.0` (the go.work floor); the code-index adds no new Go-version requirement. |
-| ADR-0040 | mnemonic-v2 module extraction | The code-index lives in the same fresh `mnemonic-v2/` module the memory change created; no new module. |
-| ADR-0041 | Postgres driver (`lib/pq`) | The code-index's Postgres dialect render (Task 8c) uses the same `lib/pq` driver; no new driver. |
+| ADR-0052 | mnemonic-v2 module extraction | The code-index lives in the same fresh `mnemonic-v2/` module the memory change created; no new module. |
+| ADR-0053 | Postgres driver (`lib/pq`) | The code-index's Postgres dialect render (Task 8c) uses the same `lib/pq` driver; no new driver. |
 | ADR-0008 | The `yaml` package dependency | The code-index's config (`MaxFileSize`, include/exclude, debounce) re-uses the memory change's `yaml.v3` config load; no new config dep. |
 
 ## New ADRs introduced by this change (0043–0046)
@@ -19,10 +19,10 @@
 Next ADR number after 0042 (0042 is already used by `goldfish-plan-review` — this
 change's four ADRs were renumbered from 0042–0045 to 0043–0046 at the critic-revision
 pass; every blueprint/tasks.md reference follows). Each body is written under
-`.skillgrid/artifacts/04-adr-NNNN-slug.md` at execution (T0) and added to the
+`.skillgrid/knowledge/decisions/04-adr-NNNN-slug.md` at execution (T0) and added to the
 ASSUMPTIONS.md index.
 
-### ADR-0043 — tree-sitter dependency (`gotreesitter`)
+### ADR-0055 — tree-sitter dependency (`gotreesitter`)
 
 - **Status:** proposed → in-force at T0
 - **Context:** the code-index's extraction ladder (Task 3) needs a parser for the 6 rich
@@ -39,7 +39,7 @@ ASSUMPTIONS.md index.
   extract/`). A gotreesitter upgrade later is a re-test of the extraction ladder (the
   `extractor_stamp` content hash, D-STAMP, catches a behavior change → full re-walk).
 
-### ADR-0044 — fsnotify dependency
+### ADR-0056 — fsnotify dependency
 
 - **Status:** proposed → in-force at T0
 - **Context:** the watch loop (Task 6) needs filesystem events to keep the graph live. v1
@@ -51,7 +51,7 @@ ASSUMPTIONS.md index.
 - **Consequences:** the watch loop is a background goroutine (a process-integration threat
   row). `fsnotify` is stable (v1.10.x); the watch is per-process (opt-in, not a daemon).
 
-### ADR-0045 — conditional onnxer dependency (the 768-dim embedder)
+### ADR-0057 — conditional onnxer dependency (the 768-dim embedder)
 
 - **Status:** proposed → in-force at T0 (conditional)
 - **Context:** D-CI8 makes the semantic store model-agnostic; the **default** embedder is
@@ -71,7 +71,7 @@ ASSUMPTIONS.md index.
   provider. Either way the store is model-agnostic (the `embed_meta` model-swap guard is
   lifted from v1).
 
-### ADR-0046 — the `Store` interface extension (code-index methods)
+### ADR-0058 — the `Store` interface extension (code-index methods)
 
 - **Status:** proposed → in-force at T0
 - **Context:** the code-index adds the 7 content + 2 FTS tables + the graph reads + the
@@ -105,5 +105,5 @@ None. There is no in-force HNSW ADR — the v1 HNSW decision was part of the ret
 (0001–0006, 0009, 0011–0012, 0016–0018, 0020, 0022–0030, 0032–0038; deleted 2026-10-31, numbers
 not reissued). The v2 semantic store (D-CI8) lifts the v1 HNSW *mechanism* (M=16/efConstruction=64/
 efSearch=96, pure-Go) and records it as a design choice of this change, not a re-issued ADR. If the
-768-dim ONNX path is taken, ADR-0045 covers that dependency; the HNSW index itself is pure-Go and
+768-dim ONNX path is taken, ADR-0057 covers that dependency; the HNSW index itself is pure-Go and
 needs no new dep.

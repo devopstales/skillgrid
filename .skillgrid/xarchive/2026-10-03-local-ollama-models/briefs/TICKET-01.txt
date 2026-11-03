@@ -1,0 +1,11 @@
+### TICKET-01 — Ollama version floor comparison
+
+- **Tracker ID:** TASK-042
+- **Scope:** Add `ollamaRequiredVersion` (`0.35.1`), `ollamaVersionAtLeast`, `parseOllamaVersion`, `versionLessThan` to `provider.go`, with a pure-function test table.
+- **Acceptance:** `go test ./skillgrid-cli/internal/install -count=1 -run TestOllamaVersionAtLeast` PASS. `ollamaVersionAtLeast("0.35.1")`==true, `("0.35.0")`==false, `("")`==false, `("not-a-version")`==false, `("0.35.10")`==true.
+- **SATISFIES:** happy path version floor gates heavy models (parsing half)
+- **Files:** `skillgrid-cli/internal/install/provider.go`, `skillgrid-cli/internal/install/provider_test.go`
+- **Size:** ~120 (S)
+- **Blocks:** TICKET-02
+- **Blocked by:** none
+

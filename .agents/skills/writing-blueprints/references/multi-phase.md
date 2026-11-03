@@ -22,5 +22,5 @@ Rules:
 - Task numbering is **global** (Task 1–N across all phases), not per-phase
 - Each phase folder is a valid skillgrid change: independently sliceable, executable, reviewable, archiveable
 - The parent `blueprint.md` is the source of truth for the phase table
-- `state.yaml` `current_change` points to the **active phase folder**
+- `state.yaml` `changes.<phase-slug>` entries track each phase folder independently; the **active phase** is the one with `status: in_progress`
 

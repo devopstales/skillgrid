@@ -31,6 +31,9 @@ type Config struct {
 	SkipClone      bool
 	SkipTools      bool
 	SkipAgentsCopy bool
+	// LSP opts into LSP server installation + harness configuration
+	// (opencode "lsp" object, skill-pi conf.d/lsp.conf + cclsp package).
+	LSP bool
 
 	// Provider setup (ADR-0023, TICKET-03): which LLM/embedder host to wire
 	// into the home config. Provider is "local" (Ollama) or "external"
@@ -65,12 +68,20 @@ type Agent struct {
 	Hint string
 }
 
-// AvailableAgents returns the installable agents (first cut: opencode, kilo, cursor).
+// AvailableAgents returns the installable agents (opencode, kilo, cursor,
+// skill-pi, hermes). skill-pi is a first-class harness
+// (ADR-0038/0039/0042): its mnemonic extension is installed by the memory
+// component (mnemonic setup pi, ADR-0043) — this row only owns the npm CLI
+// install. Hermes (2026-10-24-hermes-integration) has no npm CLI: the
+// hermes binary (uv tool install hermes-agent) is a non-fatal prerequisite
+// and the memory component owns its full setup (mnemonic setup hermes).
 func AvailableAgents() []Agent {
 	return []Agent{
 		{Key: "opencode", Name: "OpenCode", NPM: "@opencode/cli", Bin: "opencode", Hint: "npm: @opencode/cli"},
 		{Key: "kilo", Name: "Kilo", NPM: "@kilocode/cli", Bin: "kilo", Hint: "npm: @kilocode/cli"},
 		{Key: "cursor", Name: "Cursor", NPM: "", Bin: "", Hint: "app-side only"},
+		{Key: "skill-pi", Name: "Skill-Pi", NPM: "@devopstales/skill-pi", Bin: "skill-pi", Hint: "npm: @devopstales/skill-pi"},
+		{Key: "hermes", Name: "Hermes", NPM: "", Bin: "hermes", Hint: "uv tool install hermes-agent"},
 	}
 }
 
@@ -126,7 +137,6 @@ type SecTool struct {
 func SecurityTools() []SecTool {
 	return []SecTool{
 		{Name: "wapiti3", Manager: "uv", InstallArgs: []string{"tool", "install", "wapiti3"}, Bin: "wapiti3", Hint: "curl -LsSf https://astral.sh/uv/install.sh | sh"},
-		{Name: "semgrep", Manager: "uv", InstallArgs: []string{"tool", "install", "semgrep"}, Bin: "semgrep", Hint: "curl -LsSf https://astral.sh/uv/install.sh | sh"},
 		{Name: "akca", Manager: "go", InstallArgs: []string{"install", "github.com/akha-security/akca/engine/cmd/akca@latest"}, Bin: "akca", Hint: "install Go, then: " + "go install github.com/akha-security/akca/engine/cmd/akca@latest"},
 		{Name: "nuclei", Manager: "go", InstallArgs: []string{"install", "-v", "github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"}, Bin: "nuclei", Hint: "install Go, then: " + "go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"},
 		{Name: "trivy", Manager: "go", InstallArgs: []string{"install", "github.com/aquasecurity/trivy/cmd/trivy@latest"}, Bin: "trivy", Hint: "install Go, then: " + "go install github.com/aquasecurity/trivy/cmd/trivy@latest"},

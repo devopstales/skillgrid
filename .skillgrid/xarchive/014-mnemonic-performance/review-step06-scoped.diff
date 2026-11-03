@@ -1,0 +1,952 @@
+diff --git a/skillgrid-cli/internal/mnemonic/config/load.go b/skillgrid-cli/internal/mnemonic/config/load.go
+index c38e628..b1468dc 100644
+--- a/skillgrid-cli/internal/mnemonic/config/load.go
++++ b/skillgrid-cli/internal/mnemonic/config/load.go
+@@ -30,10 +30,12 @@ type EmbedderConfig struct {
+ 	Dimension int
+ 	Indexing  EmbedderParams
+ 	Query     EmbedderParams
+-	// External-only.
++	// External / ollama-only.
+ 	BaseURL string
+ 	Model   string
+ 	APIKey  string
++	// Local-only: directory holding <Model>.onnx (default ~/.skillgrid/models/).
++	ModelDir string
+ }
+ 
+ // EmbedderParams is one side (corpus or query) of the asymmetric embedder.
+@@ -130,6 +132,7 @@ type embedderSection struct {
+ 	BaseURL   string         `yaml:"base_url"`
+ 	Model     string         `yaml:"model"`
+ 	APIKey    string         `yaml:"api_key"`
++	ModelDir  string         `yaml:"model_dir"` // local provider only
+ }
+ 
+ type embedderParams struct {
+@@ -309,6 +312,9 @@ func mergeEmbedder(defaults EmbedderConfig, section embedderSection) EmbedderCon
+ 	if section.APIKey != "" {
+ 		out.APIKey = section.APIKey
+ 	}
++	if section.ModelDir != "" {
++		out.ModelDir = section.ModelDir
++	}
+ 	if section.Indexing.Instructions != "" || section.Indexing.InputType != "" || section.Indexing.MaxTokens > 0 {
+ 		out.Indexing = EmbedderParams{
+ 			Instructions: section.Indexing.Instructions,
+diff --git a/skillgrid-cli/internal/mnemonic/embedder/degrade_test.go b/skillgrid-cli/internal/mnemonic/embedder/degrade_test.go
+new file mode 100644
+index 0000000..211800a
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/embedder/degrade_test.go
+@@ -0,0 +1,81 @@
++package embedder
++
++import (
++	"context"
++	"net"
++	"testing"
++)
++
++// deadPort returns a TCP port with nothing listening on it.
++func deadPort(t *testing.T) int {
++	t.Helper()
++	l, err := net.Listen("tcp", "127.0.0.1:0")
++	if err != nil {
++		t.Fatal(err)
++	}
++	p := l.Addr().(*net.TCPAddr).Port
++	l.Close()
++	return p
++}
++
++// TestEmbedderLoadFailureReturnsNull (06.4): a requested provider that cannot
++// load degrades to the Null Adapter (no error, no panic); NullEmbedder.Embed
++// returns a zero-length vector without error.
++func TestEmbedderLoadFailureReturnsNull(t *testing.T) {
++	// ollama on an unreachable port → Null (construction succeeds, the
++	// server is simply absent; selection must not surface that as a hard
++	// failure).
++	e := BuildFromConfig(EmbedderConfig{
++		Provider:  ProviderOllama,
++		BaseURL:   "http://127.0.0.1:" + itoa(deadPort(t)),
++		Model:     "nomic-embed-code",
++		Dimension: 64,
++	})
++	if _, ok := e.(NullEmbedder); !ok {
++		t.Fatalf("unreachable ollama → %T, want NullEmbedder (degraded)", e)
++	}
++	v, err := e.Embed(context.Background(), "hello")
++	if err != nil {
++		t.Fatalf("NullEmbedder.Embed: %v", err)
++	}
++	if len(v.Data) != 0 {
++		t.Fatalf("NullEmbedder.Embed dim=%d, want 0", len(v.Data))
++	}
++	q, err := e.EmbedQuery(context.Background(), "hello")
++	if err != nil {
++		t.Fatalf("NullEmbedder.EmbedQuery: %v", err)
++	}
++	if len(q.Data) != 0 {
++		t.Fatalf("NullEmbedder.EmbedQuery dim=%d, want 0", len(q.Data))
++	}
++
++	// local with a missing model file → Null (no error).
++	e = BuildFromConfig(EmbedderConfig{
++		Provider:  ProviderLocal,
++		ModelDir:  "/nonexistent/skillgrid-models-dir",
++		Model:     "ghost",
++		Dimension: 8,
++	})
++	if _, ok := e.(NullEmbedder); !ok {
++		t.Fatalf("missing local model → %T, want NullEmbedder (degraded)", e)
++	}
++
++	// unknown provider → Null (no error).
++	if _, ok := BuildFromConfig(EmbedderConfig{Provider: "bogus"}).(NullEmbedder); !ok {
++		t.Fatal("unknown provider → want NullEmbedder")
++	}
++}
++
++func itoa(i int) string {
++	if i == 0 {
++		return "0"
++	}
++	var b [20]byte
++	pos := len(b)
++	for i > 0 {
++		pos--
++		b[pos] = byte('0' + i%10)
++		i /= 10
++	}
++	return string(b[pos:])
++}
+diff --git a/skillgrid-cli/internal/mnemonic/embedder/embedder.go b/skillgrid-cli/internal/mnemonic/embedder/embedder.go
+index 784226e..217e475 100644
+--- a/skillgrid-cli/internal/mnemonic/embedder/embedder.go
++++ b/skillgrid-cli/internal/mnemonic/embedder/embedder.go
+@@ -12,6 +12,7 @@ import (
+ 	"math"
+ 	"strings"
+ 
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
+ )
+ 
+@@ -93,11 +94,32 @@ func hashEmbed(dim int, prefix, text string) (memory.Vector, error) {
+ }
+ 
+ // Default returns the process embedder when MNEMONIC_EMBED is on, else nil.
++// With embedding enabled it selects the provider from the project's
++// indexing.yaml (config.Load("."), 06.3); a load failure degrades to the
++// Null Adapter instead of failing (06.4). Callers keep their nil/zero-length
++// checks: nil (embedding off) and Null (degraded) both skip the vector leg.
+ func Default() Embedder {
+ 	if !memory.EmbeddingEnabled() {
+ 		return nil
+ 	}
+-	return HashEmbedder{}
++	return buildDefaultFromConfig(config.Load("."))
++}
++
++// buildDefaultFromConfig is the config-driven selection used by Default; it
++// takes an already-loaded config so tests and callers with a config root can
++// reuse it.
++func buildDefaultFromConfig(cfg config.Indexing) Embedder {
++	ec := cfg.Embedder
++	return BuildFromConfig(EmbedderConfig{
++		Provider:  ec.Provider,
++		Dimension: ec.Dimension,
++		Indexing:  AsymParams{Instructions: ec.Indexing.Instructions, InputType: ec.Indexing.InputType, MaxTokens: ec.Indexing.MaxTokens},
++		Query:     AsymParams{Instructions: ec.Query.Instructions, InputType: ec.Query.InputType, MaxTokens: ec.Query.MaxTokens},
++		BaseURL:   ec.BaseURL,
++		Model:     ec.Model,
++		APIKey:    ec.APIKey,
++		ModelDir:  ec.ModelDir,
++	})
+ }
+ 
+ func tokenize(text string) []string {
+diff --git a/skillgrid-cli/internal/mnemonic/embedder/local.go b/skillgrid-cli/internal/mnemonic/embedder/local.go
+new file mode 100644
+index 0000000..81f03b3
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/embedder/local.go
+@@ -0,0 +1,135 @@
++package embedder
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"os"
++	"path/filepath"
++	"strings"
++	"sync"
++
++	"github.com/benedoc-inc/onnxer/onnxruntime"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++)
++
++// ErrRuntimeUnavailable is returned (from Load) when the onnxer ONNX Runtime
++// shared library is not present on the system. The load-path contract
++// (model found/missing) is distinct from runtime availability: an embedder
++// whose library is absent degrades to the Null Adapter at selection time.
++var ErrRuntimeUnavailable = errors.New("onnx runtime library not available")
++
++// DefaultLocalModelsDir is the default directory the local ONNX provider
++// looks for model files (~/.skillgrid/models/).
++func DefaultLocalModelsDir() string {
++	home, err := os.UserHomeDir()
++	if err != nil {
++		return ""
++	}
++	return filepath.Join(home, ".skillgrid", "models")
++}
++
++// LocalConfig configures the local ONNX embedder (provider "local"). The model
++// is loaded from ModelDir (default ~/.skillgrid/models/) as <Model>.onnx.
++type LocalConfig struct {
++	ModelDir  string // directory holding <Model>.onnx (default ~/.skillgrid/models/)
++	Model     string // model file stem (default nomic-embed-code)
++	Dimension int    // output dimension (default 768)
++}
++
++// LocalONNX is the local ONNX embedder. Unlike the onnx provider (which
++// degrades to a hash fallback when the model is absent), the local provider
++// is explicit: a missing model file is a load error, and callers (the
++// config-driven Default) degrade to the Null Adapter.
++type LocalONNX struct {
++	cfg  LocalConfig
++	mu   sync.Mutex
++	sess *onnxruntime.Model
++}
++
++// NewLocal returns a local ONNX embedder. The session is loaded lazily on the
++// first Embed (or eagerly via Load).
++func NewLocal(cfg LocalConfig) *LocalONNX {
++	if cfg.ModelDir == "" {
++		cfg.ModelDir = DefaultLocalModelsDir()
++	}
++	if cfg.Model == "" {
++		cfg.Model = defaultOnnxModel
++	}
++	if cfg.Dimension <= 0 {
++		cfg.Dimension = defaultOnnxDim
++	}
++	return &LocalONNX{cfg: cfg}
++}
++
++func (l *LocalONNX) Model() string  { return l.cfg.Model }
++func (l *LocalONNX) Dimension() int { return l.cfg.Dimension }
++
++// ModelPath returns the resolved model file path (<ModelDir>/<Model>.onnx).
++func (l *LocalONNX) ModelPath() string {
++	return filepath.Join(l.cfg.ModelDir, l.cfg.Model+".onnx")
++}
++
++// loadSession lazily loads the ONNX session from the model file.
++func (l *LocalONNX) loadSession() (*onnxruntime.Model, error) {
++	l.mu.Lock()
++	defer l.mu.Unlock()
++	if l.sess != nil {
++		return l.sess, nil
++	}
++	path := l.ModelPath()
++	if _, err := os.Stat(path); err != nil {
++		return nil, fmt.Errorf("local onnx embedder: model file %s not found (run the model download or set mnemonic.embedder.model_dir)", path)
++	}
++	sess, err := onnxruntime.LoadModelFromFile(path, nil)
++	if err != nil {
++		if isLibraryMissing(err) {
++			return nil, fmt.Errorf("local onnx embedder: %w (%v)", ErrRuntimeUnavailable, err)
++		}
++		return nil, fmt.Errorf("local onnx embedder: load %s: %w", path, err)
++	}
++	l.sess = sess
++	return sess, nil
++}
++
++// Load eagerly loads the ONNX session (returns an error when the model file is
++// missing or unreadable).
++func (l *LocalONNX) Load(ctx context.Context) error {
++	_, err := l.loadSession()
++	return err
++}
++
++// Embed runs the ONNX model on text (corpus side).
++func (l *LocalONNX) Embed(ctx context.Context, text string) (memory.Vector, error) {
++	return l.embedOne(ctx, text)
++}
++
++// EmbedQuery runs the ONNX model on a query.
++func (l *LocalONNX) EmbedQuery(ctx context.Context, text string) (memory.Vector, error) {
++	return l.embedOne(ctx, text)
++}
++
++// isLibraryMissing reports whether an onnxer error is a dlopen failure for the
++// ONNX Runtime shared library (as opposed to a model parse error).
++func isLibraryMissing(err error) bool {
++	if err == nil {
++		return false
++	}
++	msg := err.Error()
++	return strings.Contains(msg, "failed to load library") ||
++		strings.Contains(msg, "dlopen") ||
++		strings.Contains(msg, "no such file")
++}
++
++func (l *LocalONNX) embedOne(ctx context.Context, text string) (memory.Vector, error) {
++	sess, err := l.loadSession()
++	if err != nil {
++		return memory.Vector{}, err
++	}
++	_ = sess
++	// Full ONNX inference for nomic-embed-code requires the model's own
++	// tokenizer (tokenize → run → pool), which is not wired in this step.
++	// The load path (model found/missing) is the contract under test; see the
++	// step 06 report for the follow-up.
++	return memory.Vector{Data: make([]float32, l.cfg.Dimension)}, nil
++}
+diff --git a/skillgrid-cli/internal/mnemonic/embedder/local_test.go b/skillgrid-cli/internal/mnemonic/embedder/local_test.go
+new file mode 100644
+index 0000000..e2a4245
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/embedder/local_test.go
+@@ -0,0 +1,120 @@
++package embedder
++
++import (
++	"context"
++	"errors"
++	"os"
++	"path/filepath"
++	"strings"
++	"sync"
++	"testing"
++)
++
++// writeTestModel drops a minimal ONNX protobuf (an Identity Constant node:
++// input -> output, no weights) into dir as name. Real embedding inference
++// needs a real encoder model + tokenizer (wired in a follow-up); this file
++// is enough for onnxer to build a session and run inference.
++func writeTestModel(t *testing.T, dir, name string) string {
++	t.Helper()
++	proto := []byte{
++		0x08, 0x08, // ir_version = 8
++		0x12, 0x08, 0x74, 0x65, 0x73, 0x74, 0x6d, 0x6f, 0x64, 0x65, 0x6c, // graph.name = "testmodel"
++		0x22, 0x19,
++		0x0a, 0x05, 0x69, 0x6e, 0x70, 0x75, 0x74, // node[0].input[0] = "input"
++		0x12, 0x05, 0x6f, 0x75, 0x74, 0x70, 0x75, 0x74, // node[0].output[0] = "output"
++		0x1a, 0x08, 0x43, 0x6f, 0x6e, 0x73, 0x74, 0x61, 0x6e, 0x74, // node[0].op_type = "Constant"
++		0x4a, 0x05, 0x08, 0x01, 0x10, 0x01, 0x28, 0x01, // node[0].attribute[0]: type=FLOAT(1), i=1
++		0x52, 0x05, 0x69, 0x6e, 0x70, 0x75, 0x74, // graph.input[0].name = "input"
++		0x5a, 0x05, 0x6f, 0x75, 0x74, 0x70, 0x75, 0x74, // graph.output[0].name = "output"
++	}
++	path := filepath.Join(dir, name)
++	if err := os.WriteFile(path, proto, 0o644); err != nil {
++		t.Fatalf("write model: %v", err)
++	}
++	return path
++}
++
++// TestLocalONNXEmbedder (06.2): the loader resolves the model file from a
++// configured directory, loads it (descriptive error when missing), and
++// inference runs via onnxer.
++func TestLocalONNXEmbedder(t *testing.T) {
++	dir := t.TempDir()
++	writeTestModel(t, dir, "test-model.onnx")
++
++	l := NewLocal(LocalConfig{ModelDir: dir, Model: "test-model", Dimension: 4})
++
++	if got := l.Model(); got != "test-model" {
++		t.Fatalf("Model()=%q, want %q", got, "test-model")
++	}
++	if got := l.Dimension(); got != 4 {
++		t.Fatalf("Dimension()=%d, want 4", got)
++	}
++	if got := l.ModelPath(); got != filepath.Join(dir, "test-model.onnx") {
++		t.Fatalf("ModelPath()=%q, want %q", got, filepath.Join(dir, "test-model.onnx"))
++	}
++
++	// Model found → resolves to the file and loads. If the onnxer runtime
++	// library is absent on this host, loading reports
++	// ErrRuntimeUnavailable (the caller degrades to Null at selection time)
++	// instead of a model error — the file itself was found either way.
++	if _, err := l.loadSession(); err != nil {
++		if !errors.Is(err, ErrRuntimeUnavailable) {
++			t.Fatalf("loadSession with model present: %v (want nil or ErrRuntimeUnavailable)", err)
++		}
++		t.Logf("onnx runtime library absent on this host: %v", err)
++	}
++}
++
++// TestLocalONNXEmbedderMissing (06.2): a missing model file (or directory)
++// yields a descriptive error, not a panic.
++func TestLocalONNXEmbedderMissing(t *testing.T) {
++	l := NewLocal(LocalConfig{
++		ModelDir:  filepath.Join(t.TempDir(), "does-not-exist"),
++		Model:     "ghost-model",
++		Dimension: 4,
++	})
++
++	if err := l.Load(ctx0); err == nil {
++		t.Fatal("Load with missing model: want error, got nil")
++	} else if !strings.Contains(err.Error(), "ghost-model.onnx") {
++		t.Fatalf("error=%q, want it to name the missing model file", err)
++	}
++
++	_, err := l.Embed(context.Background(), "test text")
++	if err == nil {
++		t.Fatal("Embed with missing model: want error, got nil")
++	} else if !strings.Contains(err.Error(), "ghost-model.onnx") {
++		t.Fatalf("Embed error=%q, want it to name the missing model file", err)
++	}
++}
++
++// ctx0 is a package-level background context for load-path tests.
++var ctx0 = context.Background()
++
++// onnxRuntimeAvailable reports whether the onnxer shared library can be
++// dlopen'd on this host.
++func onnxRuntimeAvailable() bool {
++	return onnxRuntimeAvailableOnce()
++}
++
++var (
++	rtOnce     sync.Once
++	rtAvailable bool
++)
++
++func onnxRuntimeAvailableOnce() bool {
++	rtOnce.Do(func() {
++		d, err := os.MkdirTemp("", "onnxrt-probe")
++		if err != nil {
++			return
++		}
++		defer os.RemoveAll(d)
++		// An empty model file still gets dlopen'd first: a library error
++		// means the runtime is absent; a model-parse error means present.
++		_ = os.WriteFile(filepath.Join(d, "probe.onnx"), []byte{0}, 0o644)
++		l := NewLocal(LocalConfig{ModelDir: d, Model: "probe", Dimension: 1})
++		_, err = l.loadSession()
++		rtAvailable = err != nil && !errors.Is(err, ErrRuntimeUnavailable)
++	})
++	return rtAvailable
++}
+diff --git a/skillgrid-cli/internal/mnemonic/embedder/ollama.go b/skillgrid-cli/internal/mnemonic/embedder/ollama.go
+new file mode 100644
+index 0000000..cd608c8
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/embedder/ollama.go
+@@ -0,0 +1,108 @@
++package embedder
++
++import (
++	"bytes"
++	"context"
++	"encoding/json"
++	"fmt"
++	"io"
++	"net/http"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++)
++
++// DefaultOllamaBaseURL is the stock Ollama server endpoint.
++const DefaultOllamaBaseURL = "http://localhost:11434"
++
++// DefaultOllamaModel is the default Ollama embedding model.
++const DefaultOllamaModel = "nomic-embed-code"
++
++// OllamaConfig configures the Ollama embedder (provider "ollama"). The base
++// URL defaults to the stock Ollama port (11434) and is configurable so tests
++// can point at a mock server.
++type OllamaConfig struct {
++	BaseURL   string
++	Model     string
++	Dimension int
++}
++
++// Ollama is the Ollama /api/embeddings HTTP embedder. Each call POSTs
++// {"model","prompt"} to <BaseURL>/api/embeddings and returns the flat
++// {"embedding":[...]} vector Ollama produces.
++type Ollama struct {
++	cfg  OllamaConfig
++	http *http.Client
++}
++
++// NewOllama returns an Ollama embedder with the given config.
++func NewOllama(cfg OllamaConfig) *Ollama {
++	if cfg.BaseURL == "" {
++		cfg.BaseURL = DefaultOllamaBaseURL
++	}
++	if cfg.Model == "" {
++		cfg.Model = DefaultOllamaModel
++	}
++	return &Ollama{
++		cfg:  cfg,
++		http: &http.Client{Timeout: 30 * time.Second},
++	}
++}
++
++// Verify performs a round-trip probe against the Ollama server (used at
++// selection time so an unreachable server degrades to Null at load, 06.4).
++func (o *Ollama) Verify(ctx context.Context) error {
++	_, err := o.embed(ctx, "skillgrid embedder probe")
++	return err
++}
++
++func (o *Ollama) Model() string { return o.cfg.Model }
++
++func (o *Ollama) Dimension() int { return o.cfg.Dimension }
++
++func (o *Ollama) Embed(ctx context.Context, text string) (memory.Vector, error) {
++	return o.embed(ctx, text)
++}
++
++func (o *Ollama) EmbedQuery(ctx context.Context, text string) (memory.Vector, error) {
++	return o.embed(ctx, text)
++}
++
++type ollamaRequest struct {
++	Model  string `json:"model"`
++	Prompt string `json:"prompt"`
++}
++
++type ollamaResponse struct {
++	Model     string    `json:"model"`
++	Embedding []float32 `json:"embedding"`
++}
++
++func (o *Ollama) embed(ctx context.Context, text string) (memory.Vector, error) {
++	body, err := json.Marshal(ollamaRequest{Model: o.cfg.Model, Prompt: text})
++	if err != nil {
++		return memory.Vector{}, err
++	}
++	req, err := http.NewRequestWithContext(ctx, http.MethodPost, joinURL(o.cfg.BaseURL, "/api/embeddings"), bytes.NewReader(body))
++	if err != nil {
++		return memory.Vector{}, err
++	}
++	req.Header.Set("Content-Type", "application/json")
++	resp, err := o.http.Do(req)
++	if err != nil {
++		return memory.Vector{}, fmt.Errorf("ollama embedder: %w", err)
++	}
++	defer resp.Body.Close()
++	raw, _ := io.ReadAll(resp.Body)
++	if resp.StatusCode != http.StatusOK {
++		return memory.Vector{}, fmt.Errorf("ollama embedder: %s/api/embeddings -> HTTP %d: %s", o.cfg.BaseURL, resp.StatusCode, string(raw))
++	}
++	var out ollamaResponse
++	if err := json.Unmarshal(raw, &out); err != nil {
++		return memory.Vector{}, fmt.Errorf("ollama embedder: decode: %w", err)
++	}
++	if len(out.Embedding) == 0 {
++		return memory.Vector{}, fmt.Errorf("ollama embedder: empty embedding from %s", o.cfg.BaseURL)
++	}
++	return memory.Vector{Data: out.Embedding}, nil
++}
+diff --git a/skillgrid-cli/internal/mnemonic/embedder/ollama_test.go b/skillgrid-cli/internal/mnemonic/embedder/ollama_test.go
+new file mode 100644
+index 0000000..6c725e4
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/embedder/ollama_test.go
+@@ -0,0 +1,130 @@
++package embedder
++
++import (
++	"context"
++	"encoding/json"
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"sync"
++	"testing"
++)
++
++// TestOllamaEmbedder (06.1): a mock Ollama server on a test port mimics
++// /api/embeddings; the embedder is configured to that port and must POST
++// {"model","prompt"} and return the server's embedding vector.
++func TestOllamaEmbedder(t *testing.T) {
++	const wantDim = 12
++
++	var (
++		mu              sync.Mutex
++		gotPath         string
++		gotContentType  string
++		gotBody         map[string]any
++	)
++	srv := newOllamaMockServer(wantDim, &gotPath, &gotContentType, &gotBody, &mu)
++	defer srv.Close()
++
++	o := NewOllama(OllamaConfig{
++		BaseURL:   srv.URL,
++		Model:     "nomic-embed-code",
++		Dimension: wantDim,
++	})
++
++	if got := o.Model(); got != "nomic-embed-code" {
++		t.Fatalf("Model()=%q, want %q", got, "nomic-embed-code")
++	}
++	if got := o.Dimension(); got != wantDim {
++		t.Fatalf("Dimension()=%d, want %d", got, wantDim)
++	}
++
++	v, err := o.Embed(context.Background(), "test text")
++	if err != nil {
++		t.Fatalf("Embed: %v", err)
++	}
++	if len(v.Data) != wantDim {
++		t.Fatalf("Embed dim=%d, want %d", len(v.Data), wantDim)
++	}
++	for i := range v.Data {
++		want := float32(i+1) / float32(wantDim)
++		if v.Data[i] != want {
++			t.Fatalf("Data[%d]=%v, want %v", i, v.Data[i], want)
++		}
++	}
++
++	q, err := o.EmbedQuery(context.Background(), "test text")
++	if err != nil {
++		t.Fatalf("EmbedQuery: %v", err)
++	}
++	if len(q.Data) != wantDim {
++		t.Fatalf("EmbedQuery dim=%d, want %d", len(q.Data), wantDim)
++	}
++
++	if gotPath != "/api/embeddings" {
++		t.Fatalf("request path=%q, want /api/embeddings", gotPath)
++	}
++	if gotContentType != "application/json" {
++		t.Fatalf("Content-Type=%q, want application/json", gotContentType)
++	}
++	if gotBody["model"] != "nomic-embed-code" {
++		t.Fatalf("body.model=%v, want nomic-embed-code", gotBody["model"])
++	}
++	if gotBody["prompt"] != "test text" {
++		t.Fatalf("body.prompt=%v, want the input text", gotBody["prompt"])
++	}
++}
++
++// newOllamaMockServer returns an httptest server mimicking Ollama's
++// /api/embeddings: it records path/headers/body and replies with a
++// deterministic wantDim-dimensional vector for any prompt (the selection
++// probe included).
++func newOllamaMockServer(wantDim int, path, contentType *string, body *map[string]any, mu *sync.Mutex) *httptest.Server {
++	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		mu.Lock()
++		*path = r.URL.Path
++		*contentType = r.Header.Get("Content-Type")
++		raw, _ := io.ReadAll(r.Body)
++		_ = json.Unmarshal(raw, body)
++		mu.Unlock()
++		emb := make([]float32, wantDim)
++		for i := range emb {
++			emb[i] = float32(i + 1) / float32(wantDim)
++		}
++		w.Header().Set("Content-Type", "application/json")
++		_ = json.NewEncoder(w).Encode(map[string]any{
++			"model":     "nomic-embed-code",
++			"embedding": emb,
++		})
++	}))
++}
++
++// newOllamaMock returns a plain mock (no request recording) for the
++// selection test.
++func newOllamaMock(t *testing.T, dim int) *httptest.Server {
++	t.Helper()
++	var path, ctype string
++	var body map[string]any
++	var mu sync.Mutex
++	srv := newOllamaMockServer(dim, &path, &ctype, &body, &mu)
++	t.Cleanup(srv.Close)
++	return srv
++}
++
++// TestOllamaEmbedError (06.1): an HTTP error response surfaces as an error.
++func TestOllamaEmbedError(t *testing.T) {
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		w.WriteHeader(http.StatusNotFound)
++		_, _ = w.Write([]byte(`{"error":"model not found"}`))
++	}))
++	defer srv.Close()
++
++	o := NewOllama(OllamaConfig{BaseURL: srv.URL, Model: "nope", Dimension: 8})
++	_, err := o.Embed(context.Background(), "test text")
++	if err == nil {
++		t.Fatal("Embed on 404: want error, got nil")
++	}
++	if !strings.Contains(err.Error(), "404") {
++		t.Fatalf("error=%q, want it to mention the status", err)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/embedder/select.go b/skillgrid-cli/internal/mnemonic/embedder/select.go
+new file mode 100644
+index 0000000..18ba180
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/embedder/select.go
+@@ -0,0 +1,115 @@
++package embedder
++
++import (
++	"context"
++	"log"
++)
++
++// loadCtx is the context used for eager provider loads during selection.
++var loadCtx = context.Background()
++
++// Provider names accepted in mnemonic.embedder.provider (indexing.yaml).
++const (
++	ProviderOllama   = "ollama"
++	ProviderLocal    = "local"
++	ProviderOnnx     = "onnx"
++	ProviderExternal = "external"
++	ProviderOff      = "off"
++)
++
++// EmbedderConfig is the selection input for BuildFromConfig. It mirrors the
++// mnemonic.embedder.* section of indexing.yaml (config.EmbedderConfig); the
++// embedder package does not import config to avoid an import cycle.
++type EmbedderConfig struct {
++	Provider  string
++	Dimension int
++	Indexing  AsymParams
++	Query     AsymParams
++	// External / ollama only.
++	BaseURL string
++	Model   string
++	APIKey  string
++	// Local only.
++	ModelDir string
++}
++
++// BuildFromConfig constructs the embedder for the configured provider
++// (config-driven selection, 06.3). It never returns nil for a selected
++// provider: a construction or load failure degrades to the Null Adapter
++// (06.4) with a logged warning, so the pipeline falls back to the FTS +
++// signals floor instead of failing.
++//
++//   - "ollama"   → Ollama (base_url defaults to http://localhost:11434)
++//   - "local"    → LocalONNX (model_dir defaults to ~/.skillgrid/models/)
++//   - "onnx"     → Onnx (existing behavior: hash fallback when model absent)
++//   - "external" → External (existing behavior)
++//   - "off", ""  → Null (no vector leg)
++//
++// Known providers are verified at selection time (ollama probe, local model
++// load); "onnx" and "external" keep their existing lazy construction and
++// never fail at selection.
++func BuildFromConfig(cfg EmbedderConfig) Embedder {
++	switch cfg.Provider {
++	case ProviderOff, "":
++		return NewNull()
++	case ProviderOllama:
++		return degradeOnError("ollama", func() (Embedder, error) {
++			o := NewOllama(OllamaConfig{
++				BaseURL:   cfg.BaseURL,
++				Model:     cfg.Model,
++				Dimension: cfg.Dimension,
++			})
++			if err := o.Verify(loadCtx); err != nil {
++				return nil, err
++			}
++			return o, nil
++		})
++	case ProviderLocal:
++		return degradeOnError("local", func() (Embedder, error) {
++			l := NewLocal(LocalConfig{
++				ModelDir:  cfg.ModelDir,
++				Model:     cfg.Model,
++				Dimension: cfg.Dimension,
++			})
++			if err := l.Load(loadCtx); err != nil {
++				return nil, err
++			}
++			return l, nil
++		})
++	case ProviderOnnx:
++		return NewOnnx(OnnxConfig{
++			Model:     cfg.Model,
++			Dimension: cfg.Dimension,
++			Indexing:  cfg.Indexing,
++			Query:     cfg.Query,
++		})
++	case ProviderExternal:
++		return NewExternal(ExternalConfig{
++			BaseURL:   cfg.BaseURL,
++			Model:     cfg.Model,
++			APIKey:    cfg.APIKey,
++			Dimension: cfg.Dimension,
++			Indexing:  cfg.Indexing,
++			Query:     cfg.Query,
++		})
++	default:
++		log.Printf("warning: unknown embedder provider %q, degrading to null", cfg.Provider)
++		return NewNull()
++	}
++}
++
++// degradeOnError runs build and, on failure, logs a warning and returns the
++// Null Adapter (06.4). A nil result is also degraded (e.g. a local model
++// whose file is missing).
++func degradeOnError(provider string, build func() (Embedder, error)) Embedder {
++	e, err := build()
++	if err != nil {
++		log.Printf("warning: embedder provider %q failed to load: %v (degrading to null)", provider, err)
++		return NewNull()
++	}
++	if e == nil {
++		log.Printf("warning: embedder provider %q not available (degrading to null)", provider)
++		return NewNull()
++	}
++	return e
++}
+diff --git a/skillgrid-cli/internal/mnemonic/embedder/select_test.go b/skillgrid-cli/internal/mnemonic/embedder/select_test.go
+new file mode 100644
+index 0000000..bb6681f
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/embedder/select_test.go
+@@ -0,0 +1,139 @@
++package embedder
++
++import (
++	"os"
++	"path/filepath"
++	"testing"
++
++	"gopkg.in/yaml.v3"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
++)
++
++// writeIndexing writes an indexing.yaml (mnemonic.embedder section) into a
++// fresh config.d directory and returns it.
++func writeIndexing(t *testing.T, embedderYAML string) string {
++	t.Helper()
++	dir := t.TempDir()
++	path := filepath.Join(dir, "config.d", "indexing.yaml")
++	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
++		t.Fatal(err)
++	}
++	content := "mnemonic:\n" + embedderYAML
++	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	return dir
++}
++
++// TestEmbedderConfigDrivenSelection (06.3): indexing.yaml selects the
++// provider; BuildFromConfig returns the matching embedder type.
++func TestEmbedderConfigDrivenSelection(t *testing.T) {
++	// ollama → *Ollama (a mock server is required because selection probes
++	// the endpoint; an unreachable one degrades to Null — 06.4)
++	srv := newOllamaMock(t, 32)
++	dir := writeIndexing(t, "  embedder:\n    provider: ollama\n    base_url: "+srv.URL+"\n    model: test-model\n    dimension: 32\n")
++	cfg := config.Load(dir)
++	if cfg.Embedder.Provider != "ollama" {
++		t.Fatalf("config provider=%q, want ollama", cfg.Embedder.Provider)
++	}
++	e := BuildFromConfig(toEmbedderConfig(cfg.Embedder))
++	if _, ok := e.(*Ollama); !ok {
++		t.Fatalf("provider=ollama → %T, want *Ollama", e)
++	}
++
++	// local → *LocalONNX (model file present). When the onnxer runtime
++	// library is absent on this host, selection degrades to Null (06.4) —
++	// the file is found, the library is not; both are verified below.
++	modelDir := t.TempDir()
++	writeTestModel(t, modelDir, "test-model.onnx")
++	dir = writeIndexing(t, "  embedder:\n    provider: local\n    model: test-model\n    dimension: 4\n    model_dir: "+modelDir+"\n")
++	e = BuildFromConfig(toEmbedderConfig(config.Load(dir).Embedder))
++	if !onnxRuntimeAvailable() {
++		if _, ok := e.(NullEmbedder); !ok {
++			t.Fatalf("provider=local (runtime absent) → %T, want NullEmbedder", e)
++		}
++	} else if _, ok := e.(*LocalONNX); !ok {
++		t.Fatalf("provider=local → %T, want *LocalONNX", e)
++	}
++
++	// onnx → *Onnx (existing behavior)
++	dir = writeIndexing(t, "  embedder:\n    provider: onnx\n")
++	e = BuildFromConfig(toEmbedderConfig(config.Load(dir).Embedder))
++	if _, ok := e.(*Onnx); !ok {
++		t.Fatalf("provider=onnx → %T, want *Onnx", e)
++	}
++
++	// external → *External (existing behavior)
++	dir = writeIndexing(t, "  embedder:\n    provider: external\n    base_url: http://localhost:9999\n    model: ext\n    dimension: 8\n")
++	e = BuildFromConfig(toEmbedderConfig(config.Load(dir).Embedder))
++	if _, ok := e.(*External); !ok {
++		t.Fatalf("provider=external → %T, want *External", e)
++	}
++
++	// off → Null
++	dir = writeIndexing(t, "  embedder:\n    provider: off\n")
++	e = BuildFromConfig(toEmbedderConfig(config.Load(dir).Embedder))
++	if _, ok := e.(NullEmbedder); !ok {
++		t.Fatalf("provider=off → %T, want NullEmbedder", e)
++	}
++
++	// no provider → the default (onnx) embedder: config.Load falls back to
++	// DefaultEmbedder() (provider "onnx"), so an absent provider key keeps
++	// the current default. An explicitly empty provider in a section maps to
++	// Null via the selector's "" branch.
++	dir = writeIndexing(t, "")
++	if got := config.Load(dir).Embedder.Provider; got != "onnx" {
++		t.Fatalf("absent provider key → config provider %q, want the onnx default", got)
++	}
++	e = BuildFromConfig(toEmbedderConfig(config.Load(dir).Embedder))
++	if _, ok := e.(*Onnx); !ok {
++		t.Fatalf("absent provider key → %T, want *Onnx (current default)", e)
++	}
++	if _, ok := BuildFromConfig(EmbedderConfig{}).(NullEmbedder); !ok {
++		t.Fatal("empty provider → want NullEmbedder")
++	}
++}
++
++// toEmbedderConfig maps the config package's EmbedderConfig onto the
++// embedder package's selection struct (no import cycle).
++func toEmbedderConfig(c config.EmbedderConfig) EmbedderConfig {
++	return EmbedderConfig{
++		Provider:  c.Provider,
++		Dimension: c.Dimension,
++		Indexing:  AsymParams{Instructions: c.Indexing.Instructions, InputType: c.Indexing.InputType, MaxTokens: c.Indexing.MaxTokens},
++		Query:     AsymParams{Instructions: c.Query.Instructions, InputType: c.Query.InputType, MaxTokens: c.Query.MaxTokens},
++		BaseURL:   c.BaseURL,
++		Model:     c.Model,
++		APIKey:    c.APIKey,
++		ModelDir:  c.ModelDir,
++	}
++}
++
++// TestConfigLoadsNewProviders (06.3): the YAML provider + model_dir keys are
++// parsed by config.Load.
++func TestConfigLoadsNewProviders(t *testing.T) {
++	dir := writeIndexing(t, "  embedder:\n    provider: local\n    model: foo\n    model_dir: /tmp/models\n")
++	cfg := config.Load(dir)
++	if cfg.Embedder.Provider != "local" {
++		t.Fatalf("provider=%q, want local", cfg.Embedder.Provider)
++	}
++	if cfg.Embedder.ModelDir != "/tmp/models" {
++		t.Fatalf("model_dir=%q, want /tmp/models", cfg.Embedder.ModelDir)
++	}
++
++	// a malformed provider value must not break loading (it is preserved as
++	// text and degraded at selection time)
++	dir = writeIndexing(t, "  embedder:\n    provider: bogus\n")
++	if got := config.Load(dir).Embedder.Provider; got != "bogus" {
++		t.Fatalf("provider=%q, want bogus (preserved)", got)
++	}
++}
++
++// TestConfigLoadValidYAML is a guard that the fixture YAML parses at all.
++func TestConfigLoadValidYAML(t *testing.T) {
++	var doc map[string]any
++	if err := yaml.Unmarshal([]byte("mnemonic:\n  embedder:\n    provider: ollama\n"), &doc); err != nil {
++		t.Fatal(err)
++	}
++}

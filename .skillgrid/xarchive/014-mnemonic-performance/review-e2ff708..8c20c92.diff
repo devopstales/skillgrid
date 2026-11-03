@@ -1,0 +1,292 @@
+# Review package: 8c20c92~1..HEAD
+
+## Commits
+8c20c92 fix(mnemonic): robust WAL-busy detection + exercise openWithWALRetry in test
+
+## Files changed
+ .../store/migrations/020_ttl_extraction.sql        |   5 +-
+ skillgrid-cli/internal/mnemonic/store/store.go     |  22 ++--
+ .../internal/mnemonic/store/store_pooling_test.go  | 137 +++++++++++++++++++++
+ 3 files changed, 155 insertions(+), 9 deletions(-)
+
+## Diff
+diff --git a/skillgrid-cli/internal/mnemonic/store/migrations/020_ttl_extraction.sql b/skillgrid-cli/internal/mnemonic/store/migrations/020_ttl_extraction.sql
+index 44cfb56..fd8185e 100644
+--- a/skillgrid-cli/internal/mnemonic/store/migrations/020_ttl_extraction.sql
++++ b/skillgrid-cli/internal/mnemonic/store/migrations/020_ttl_extraction.sql
+@@ -1,13 +1,14 @@
+ -- 020: TTL config + extraction metadata (change 014, step 01).
+--- Additive: new tables only; no existing schema is touched.
+--- The filename sorts after 019_session_relay.sql so it applies last.
++-- Change-014's migration, sequenced as 020 (the brief's 014_ prefix collides
++-- with the existing 014_process_flows.sql); sorts after 019_session_relay.sql
++-- so it applies last. Additive: new tables only; no existing schema is touched.
+ 
+ CREATE TABLE IF NOT EXISTS ttl_config (
+     key TEXT PRIMARY KEY,
+     value TEXT NOT NULL
+ );
+ 
+ CREATE TABLE IF NOT EXISTS extraction_metadata (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     session_id TEXT,
+     content_hash TEXT,
+diff --git a/skillgrid-cli/internal/mnemonic/store/store.go b/skillgrid-cli/internal/mnemonic/store/store.go
+index 4760494..fc4e6a5 100644
+--- a/skillgrid-cli/internal/mnemonic/store/store.go
++++ b/skillgrid-cli/internal/mnemonic/store/store.go
+@@ -1,27 +1,29 @@
+ // Package store wraps a project-scoped SQLite database with embedded SQL migrations.
+ package store
+ 
+ import (
+ 	"context"
+ 	"database/sql"
+ 	"embed"
++	"errors"
+ 	"fmt"
+ 	"os"
+ 	"path/filepath"
+ 	"sort"
+ 	"strings"
+ 	"sync"
+ 	"sync/atomic"
+ 	"time"
+ 
+-	_ "modernc.org/sqlite"
++	"modernc.org/sqlite"
++	sqlite3 "modernc.org/sqlite/lib"
+ )
+ 
+ //go:embed migrations/*.sql
+ var migrationsFS embed.FS
+ 
+ // Store is the shared SQLite handle for one project.
+ type Store struct {
+ 	DB   *sql.DB
+ 	path string
+ 	// cacheKey is the pool key (store path) when this Store wraps a pooled
+@@ -140,32 +142,38 @@ func openWithWALRetry(dbPath string) (*sql.DB, error) {
+ 		}
+ 		lastErr = err
+ 		if !isWALBusy(err) || attempt+1 >= maxOpenAttempts {
+ 			break
+ 		}
+ 		time.Sleep(walBackoffs[attempt])
+ 	}
+ 	return nil, lastErr
+ }
+ 
+-// isWALBusy reports whether err is a transient SQLite busy/locked error
++// isWALBusy reports whether err is a transient SQLite busy error
+ // (SQLITE_BUSY, code 5) caused by a concurrent writer holding the WAL lock.
+-// The modernc/sqlite driver renders that as "database is locked (5)
+-// (SQLITE_BUSY)"; both spellings are matched so the retry triggers on any
+-// busy variant without a new module dependency.
++// It prefers the driver's typed error (*sqlite.Error with
++// Code() == sqlite3.SQLITE_BUSY); the text fallback matches the driver's
++// rendered busy messages, e.g. "database is locked (5) (SQLITE_BUSY)"
++// (verified against modernc.org/sqlite v1.45.0, error.go / conn.go).
+ func isWALBusy(err error) bool {
+ 	if err == nil {
+ 		return false
+ 	}
++	var typed *sqlite.Error
++	if errors.As(err, &typed) {
++		return typed.Code() == sqlite3.SQLITE_BUSY
++	}
+ 	msg := err.Error()
+-	return strings.Contains(msg, "database is locked") ||
+-		strings.Contains(msg, "SQLITE_BUSY") ||
++	return strings.Contains(msg, "SQLITE_BUSY") ||
++		strings.Contains(msg, "The database file is locked") ||
++		strings.Contains(msg, "database is locked") ||
+ 		strings.Contains(msg, "database table is locked")
+ }
+ 
+ func openDatabase(dbPath string) (*sql.DB, error) {
+ 	db, err := sql.Open("sqlite", dbPath)
+ 	if err != nil {
+ 		return nil, fmt.Errorf("open database: %w", err)
+ 	}
+ 	db.SetMaxOpenConns(1)
+ 	for _, pragma := range []string{
+diff --git a/skillgrid-cli/internal/mnemonic/store/store_pooling_test.go b/skillgrid-cli/internal/mnemonic/store/store_pooling_test.go
+index 9c350e3..32332c1 100644
+--- a/skillgrid-cli/internal/mnemonic/store/store_pooling_test.go
++++ b/skillgrid-cli/internal/mnemonic/store/store_pooling_test.go
+@@ -1,16 +1,21 @@
+ package store
+ 
+ import (
+ 	"database/sql"
++	"errors"
++	"fmt"
++	"path/filepath"
+ 	"testing"
+ 	"time"
++
++	sqlitedrv "modernc.org/sqlite"
+ )
+ 
+ // TestStoreOpenReusesCachedHandle covers @step-01 (Scenario: Cached handle
+ // reuse on second open + Handle closes only when reference count reaches
+ // zero): a second Open for the same store path returns the same underlying
+ // *sql.DB without re-opening, a different project gets a different handle,
+ // Close refcounts (the connection stays open until the last reference is
+ // returned), and the cache is evicted when the refcount hits zero.
+ func TestStoreOpenReusesCachedHandle(t *testing.T) {
+ 	dir := t.TempDir()
+@@ -148,20 +153,152 @@ func TestStoreOpenWALRetry(t *testing.T) {
+ 	// Both rows present: the contended write landed after the retry.
+ 	var n int
+ 	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM walprobe`).Scan(&n); err != nil {
+ 		t.Fatalf("count walprobe: %v", err)
+ 	}
+ 	if n != 2 {
+ 		t.Fatalf("expected 2 walprobe rows after contended write, got %d", n)
+ 	}
+ }
+ 
++// TestStoreOpenWALRetryLoop covers @step-01 (Scenarios: WAL lock retry with
++// exponential backoff + retry count on a locked open): a cold Open (cache
++// disabled so no pooled handle is reused) whose PRAGMA journal_mode=WAL hits
++// a write lock held by a concurrent connection is RETRIED by
++// openWithWALRetry — the first attempt fails with a typed SQLITE_BUSY error
++// (isWALBusy must classify it as busy), a backoff elapses, and the retry
++// succeeds once the lock is released. The elapsed-time floor proves the
++// retry happened rather than the open succeeding on attempt 0.
++func TestStoreOpenWALRetryLoop(t *testing.T) {
++	t.Setenv(envCacheDisable, "1")
++	dir := t.TempDir()
++	dbPath := filepath.Join(dir, "retryproj.sqlite")
++
++	// Create the file and hold a write lock on it (deferred tx + insert,
++	// verified to hold the WAL write lock in this environment).
++	hold, err := sql.Open("sqlite", dbPath)
++	if err != nil {
++		t.Fatalf("open holder: %v", err)
++	}
++	hold.SetMaxOpenConns(1)
++	if _, err := hold.Exec(`CREATE TABLE IF NOT EXISTS walprobe (id INTEGER PRIMARY KEY, v TEXT)`); err != nil {
++		t.Fatalf("holder create: %v", err)
++	}
++	walTx, err := hold.Begin()
++	if err != nil {
++		t.Fatalf("holder begin: %v", err)
++	}
++	if _, err := walTx.Exec(`INSERT INTO walprobe (v) VALUES ('hold')`); err != nil {
++		t.Fatalf("holder insert: %v", err)
++	}
++	defer func() {
++		_ = walTx.Commit()
++		_ = hold.Close()
++	}()
++
++	// Cold Open in a goroutine (cache disabled → no pooled handle, so the
++	// open goes through openWithWALRetry). The first attempt's
++	// PRAGMA journal_mode=WAL hits the held write lock (verified: this is
++	// the real contention path — a journal-mode transition under lock),
++	// isWALBusy classifies it as busy, and the retry succeeds after the
++	// 50ms backoff once the lock is released at 80ms.
++	opened := make(chan *Store, 1)
++	openErr := make(chan error, 1)
++	start := time.Now()
++	go func() {
++		s, err := Open(dir, "retryproj")
++		if err != nil {
++			openErr <- err
++			return
++		}
++		opened <- s
++	}()
++
++	time.Sleep(80 * time.Millisecond)
++	if err := walTx.Commit(); err != nil {
++		t.Fatalf("commit holder tx: %v", err)
++	}
++
++	select {
++	case s := <-opened:
++		defer s.Close()
++	case err := <-openErr:
++		t.Fatalf("open under WAL lock should succeed after the retry loop absorbs the busy error, got: %v", err)
++	case <-time.After(5 * time.Second):
++		t.Fatalf("open did not complete within the retry window")
++	}
++	elapsed := time.Since(start)
++	// At least one 50ms backoff must have elapsed: the first attempt hit the
++	// lock and openWithWALRetry slept before retrying.
++	if elapsed < 50*time.Millisecond {
++		t.Fatalf("expected openWithWALRetry to back off at least 50ms before the retry, finished in %v", elapsed)
++	}
++	t.Logf("open succeeded after %v (retry absorbed the transient WAL lock)", elapsed)
++}
++
++// TestIsWALBusyClassification unit-tests the retry decision: isWALBusy must
++// classify real busy errors (the driver's *sqlite.Error surfaced through
++// openDatabase's %w wrap) as busy, and reject unrelated errors.
++func TestIsWALBusyClassification(t *testing.T) {
++	busy := openDatabaseBusyWrap(t)
++	var typed *sqlitedrv.Error
++	if !errors.As(busy, &typed) || typed.Code() != 5 {
++		t.Fatalf("precondition: wrapped openDatabase error must be *sqlite.Error with code 5 (SQLITE_BUSY), got %v", busy)
++	}
++	cases := []struct {
++		name string
++		err  error
++		want bool
++	}{
++		{"nil", nil, false},
++		{"real wrapped busy from openDatabase", busy, true},
++		{"unrelated", fmt.Errorf("apply PRAGMA journal_mode=WAL: no such table: foo"), false},
++	}
++	for _, tc := range cases {
++		if got := isWALBusy(tc.err); got != tc.want {
++			t.Fatalf("%s: isWALBusy = %v, want %v", tc.name, got, tc.want)
++		}
++	}
++}
++
++func openDatabaseBusyWrap(t *testing.T) error {
++	t.Helper()
++	dir := t.TempDir()
++	dbPath := filepath.Join(dir, "busywrap.sqlite")
++	hold, err := sql.Open("sqlite", dbPath)
++	if err != nil {
++		t.Fatalf("open holder: %v", err)
++	}
++	hold.SetMaxOpenConns(1)
++	if _, err := hold.Exec(`CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY)`); err != nil {
++		t.Fatalf("holder create: %v", err)
++	}
++	tx, err := hold.Begin()
++	if err != nil {
++		t.Fatalf("holder begin: %v", err)
++	}
++	if _, err := tx.Exec(`INSERT INTO t VALUES (1)`); err != nil {
++		t.Fatalf("holder insert: %v", err)
++	}
++	defer func() {
++		_ = tx.Commit()
++		_ = hold.Close()
++	}()
++	// openDatabase sets journal_mode=WAL first — with the lock held it must
++	// return the wrapped busy error.
++	_, err = openDatabase(dbPath)
++	if err == nil {
++		t.Fatalf("expected openDatabase to be busy while the lock is held")
++	}
++	return err
++}
++
+ // TestStoreOpenCacheDisabledByEnv covers @step-01 (Scenario: Cache disabled
+ // by environment variable): SKILLGRID_MNEMONIC_DISABLE_CACHE=1 makes every
+ // Open create a fresh underlying connection and no handle is stored in the
+ // cache (each Store owns its database and closes it outright).
+ func TestStoreOpenCacheDisabledByEnv(t *testing.T) {
+ 	t.Setenv("SKILLGRID_MNEMONIC_DISABLE_CACHE", "1")
+ 	dir := t.TempDir()
+ 
+ 	st1, err := Open(dir, "nocache")
+ 	if err != nil {

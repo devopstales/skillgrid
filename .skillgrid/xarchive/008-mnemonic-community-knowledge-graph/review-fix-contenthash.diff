@@ -1,0 +1,223 @@
+=== COMMIT c042f74 (content-hash fix) ===
+
+c042f74 fix(mnemonic): use real sha1 content hash for leiden cache key
+
+=== STAT ===
+ .../internal/mnemonic/community/leiden.go          | 65 ++++++++++----
+ .../internal/mnemonic/community/leiden_test.go     | 99 ++++++++++++++++++++++
+ 2 files changed, 149 insertions(+), 15 deletions(-)
+
+=== DIFF ===
+diff --git a/skillgrid-cli/internal/mnemonic/community/leiden.go b/skillgrid-cli/internal/mnemonic/community/leiden.go
+index 80091c5..f109056 100644
+--- a/skillgrid-cli/internal/mnemonic/community/leiden.go
++++ b/skillgrid-cli/internal/mnemonic/community/leiden.go
+@@ -5,10 +5,13 @@ package community
+ 
+ import (
+ 	"context"
++	"crypto/sha1"
+ 	"database/sql"
+ 	"encoding/hex"
+ 	"fmt"
+ 	"sort"
++	"strconv"
++	"strings"
+ 	"time"
+ 
+ 	"github.com/bluuewhale/loom/graph"
+@@ -126,23 +129,54 @@ func loadGraph(db *sql.DB) (*graph.NodeRegistry, *graph.Graph, []nodeRef, error)
+ 	return reg, g, nodes, nil
+ }
+ 
+-// contentKey summarizes the edge set so the cache key is stable across index
+-// runs with the same graph and changes when the graph changes.
++// contentKey computes a genuine content hash over the deterministic graph row
++// set (the sorted edge set AND the symbol id set) so the cache key is stable
++// across index runs with the same graph and changes whenever the graph
++// changes — including a changed intermediate edge (same min/max/count) or a
++// symbol delete/rename that preserves the edge count. The hash is computed in
++// Go (modernc.org/sqlite has no sha1() SQL function), not a min/max/count summary.
+ func contentKey(db *sql.DB) (string, error) {
+-	var a, b string
+-	err := db.QueryRow(`
+-		SELECT COALESCE(MIN(from_id),0) || '-' || COALESCE(MIN(to_id),0) || '-' ||
+-		       COALESCE(MAX(from_id),0) || '-' || COALESCE(MAX(to_id),0) || '-' ||
+-		       COUNT(*),
+-		       COUNT(DISTINCT from_id || '-' || COALESCE(to_id, 0))
+-		FROM edges WHERE to_id IS NOT NULL`).Scan(&a, &b)
+-	if err == sql.ErrNoRows {
+-		return "empty", nil
++	h := sha1.New()
++
++	rows, err := db.Query(`SELECT from_id, to_id FROM edges WHERE to_id IS NOT NULL ORDER BY from_id, to_id`)
++	if err != nil {
++		return "", err
++	}
++	for rows.Next() {
++		var from, to int64
++		if err := rows.Scan(&from, &to); err != nil {
++			rows.Close()
++			return "", err
++		}
++		_, _ = h.Write([]byte(strconv.FormatInt(from, 10) + ":" + strconv.FormatInt(to, 10) + ";"))
++	}
++	serr := rows.Err()
++	rows.Close()
++	if serr != nil {
++		return "", serr
+ 	}
++	// NUL separator so a trailing-edge ambiguity can't collide with the symbol set.
++	_, _ = h.Write([]byte{0})
++
++	symRows, err := db.Query(`SELECT id FROM symbols ORDER BY id`)
+ 	if err != nil {
+ 		return "", err
+ 	}
+-	return a + "|" + b, nil
++	for symRows.Next() {
++		var id int64
++		if err := symRows.Scan(&id); err != nil {
++			symRows.Close()
++			return "", err
++		}
++		_, _ = h.Write([]byte(strconv.FormatInt(id, 10) + ","))
++	}
++	symErr := symRows.Err()
++	symRows.Close()
++	if symErr != nil {
++		return "", symErr
++	}
++
++	return hex.EncodeToString(h.Sum(nil)), nil
+ }
+ 
+ // Detect runs the community pass, consulting the community_meta cache first.
+@@ -357,7 +391,8 @@ func communityLabel(db *sql.DB, id int) string {
+ }
+ 
+ // writeMeta caches the detected partition: one community_meta row per
+-// community (label + symbol count) and the content-hash cache key.
++// community (label + symbol count + god-node names) and the content-hash cache
++// key.
+ func writeMeta(db *sql.DB, res *Result) error {
+ 	tx, err := db.Begin()
+ 	if err != nil {
+@@ -368,8 +403,8 @@ func writeMeta(db *sql.DB, res *Result) error {
+ 		return err
+ 	}
+ 	for _, c := range res.Communities {
+-		if _, err := tx.Exec(`INSERT INTO community_meta (id, label, symbol_count, cache_key) VALUES (?, ?, ?, ?)`,
+-			c.ID, c.Label, len(c.Members), res.CacheKey); err != nil {
++		if _, err := tx.Exec(`INSERT INTO community_meta (id, label, symbol_count, god_nodes, cache_key) VALUES (?, ?, ?, ?, ?)`,
++			c.ID, c.Label, len(c.Members), strings.Join(c.GodNodes, ","), res.CacheKey); err != nil {
+ 			return err
+ 		}
+ 	}
+diff --git a/skillgrid-cli/internal/mnemonic/community/leiden_test.go b/skillgrid-cli/internal/mnemonic/community/leiden_test.go
+index e0307d8..23c70a6 100644
+--- a/skillgrid-cli/internal/mnemonic/community/leiden_test.go
++++ b/skillgrid-cli/internal/mnemonic/community/leiden_test.go
+@@ -214,3 +214,102 @@ func partitionKey(r *Result) string {
+ 	}
+ 	return b.String()
+ }
++
++// TestCacheInvalidatesOnChangedGraph covers the review finding: the cache key
++// is a real content hash over the edge + symbol sets, so a changed graph
++// (even one that preserves min/max/count, or a symbol delete that preserves
++// the edge count) yields a NEW key and forces re-detection, while an unchanged
++// graph is a cache hit.
++func TestCacheInvalidatesOnChangedGraph(t *testing.T) {
++	db := communityFixture(t)
++	base, err := Detect(context.Background(), db, Options{})
++	if err != nil {
++		t.Fatalf("Detect base: %v", err)
++	}
++
++	// (a) Changing an intermediate edge (a2->a3 becomes a2->b3) preserves the
++	// edge count but changes the set → new key → re-detect (not a cache hit).
++	if _, err := db.Exec(`UPDATE edges SET to_id = (SELECT id FROM symbols WHERE name='bThree') WHERE from_id = (SELECT id FROM symbols WHERE name='aTwo') AND to_id = (SELECT id FROM symbols WHERE name='aThree')`); err != nil {
++		t.Fatalf("mutate edge: %v", err)
++	}
++	changed, err := Detect(context.Background(), db, Options{})
++	if err != nil {
++		t.Fatalf("Detect changed: %v", err)
++	}
++	if changed.CacheKey == base.CacheKey {
++		t.Errorf("changed intermediate edge must change the cache key (content hash, not min/max/count)")
++	}
++	if changed.FromCache {
++		t.Errorf("changed graph must NOT be served from cache")
++	}
++
++	// (b) Deleting a symbol (which cascades its edges) changes the symbol set
++	// → new key → re-detect.
++	db2 := communityFixture(t)
++	base2, err := Detect(context.Background(), db2, Options{})
++	if err != nil {
++		t.Fatalf("Detect base2: %v", err)
++	}
++	if _, err := db2.Exec(`DELETE FROM symbols WHERE name = 'aThree'`); err != nil {
++		t.Fatalf("delete symbol: %v", err)
++	}
++	deleted, err := Detect(context.Background(), db2, Options{})
++	if err != nil {
++		t.Fatalf("Detect deleted: %v", err)
++	}
++	if deleted.CacheKey == base2.CacheKey {
++		t.Errorf("deleting a symbol must change the cache key (symbol set is hashed)")
++	}
++	if deleted.FromCache {
++		t.Errorf("symbol-deleted graph must NOT be served from cache")
++	}
++}
++
++// TestCacheHitOnUnchangedGraph covers the positive side: two Detect calls on a
++// byte-identical graph yield the same key and the second is a cache hit.
++func TestCacheHitOnUnchangedGraph(t *testing.T) {
++	db := communityFixture(t)
++	first, err := Detect(context.Background(), db, Options{})
++	if err != nil {
++		t.Fatalf("Detect 1: %v", err)
++	}
++	second, err := Detect(context.Background(), db, Options{})
++	if err != nil {
++		t.Fatalf("Detect 2: %v", err)
++	}
++	if second.CacheKey != first.CacheKey {
++		t.Errorf("unchanged graph must keep the same cache key: %q vs %q", second.CacheKey, first.CacheKey)
++	}
++	if !second.FromCache {
++		t.Errorf("unchanged graph should be served from cache")
++	}
++}
++
++// TestGodNodesColumnPopulated covers the review finding: writeMeta stores the
++// community's top god-node names in community_meta.god_nodes (no dead column).
++func TestGodNodesColumnPopulated(t *testing.T) {
++	db := communityFixture(t)
++	res, err := Detect(context.Background(), db, Options{})
++	if err != nil {
++		t.Fatalf("Detect: %v", err)
++	}
++	// At least one community in the fixture has god nodes (the clusters have
++	// edges). Its community_meta.god_nodes must be populated, not empty.
++	var populated int
++	for _, c := range res.Communities {
++		var stored string
++		if err := db.QueryRow(`SELECT god_nodes FROM community_meta WHERE id = ?`, c.ID).Scan(&stored); err != nil {
++			t.Fatalf("read god_nodes for community %d: %v", c.ID, err)
++		}
++		if stored != "" {
++			populated++
++		}
++		// The stored value must match the community's GodNodes list.
++		if len(c.GodNodes) > 0 && stored != strings.Join(c.GodNodes, ",") {
++			t.Errorf("community %d god_nodes column %q != GodNodes %q", c.ID, stored, strings.Join(c.GodNodes, ","))
++		}
++	}
++	if populated == 0 {
++		t.Errorf("expected at least one community_meta.god_nodes populated, all empty")
++	}
++}

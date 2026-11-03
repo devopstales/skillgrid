@@ -1,22 +1,10 @@
 // @ts-nocheck
-// v2 (opencode >= 2.0, `@opencode/cli` host) only: default export { id, setup }
-// via Plugin.define from `@opencode/plugin`, which the host resolves for
-// discovery-loaded local plugins (no node_modules beside the file). The named
-// `SkillgridSquad` export is retained for tooling parity only.
-import { Plugin } from "@opencode/plugin"
-
 const BASE_URL =
   process.env.SKILLGRID_CHECKPOINT_URL ||
   process.env.SKILLGRID_MNEMONIC_HTTP_URL ||
   "http://127.0.0.1:7438"
 
 const AGENT = process.env.SKILLGRID_AGENT || "opencode"
-// v1 `tool()` arg-schema shim. The v2 API dropped the root `tool` export
-// (tools register via ctx.tool.transform with effect Schema), so these named
-// v1 tool objects — kept for tooling parity / the mnemonic MCP server — need
-// only their `description` and `execute`; the `args` schemas below are inert
-// strings here (only the v1 `tool()` factory read them, and it no longer runs).
-const tool = { schema: { string: () => ({ optional: () => ({ describe: () => "" }), describe: () => "" }), number: () => ({ optional: () => ({ describe: () => "" }), describe: () => "" }), boolean: () => ({ optional: () => ({ describe: () => "" }), describe: () => "" }) } }
 
 // ── Failure latch (after sdd-task-result-artifacts.ts) ──────────────────────
 // Squad tasks move through a linear pipeline (spawn → pull → output → review
@@ -249,12 +237,64 @@ export const SkillgridSquad = async () => ({
   },
 })
 
-// v2 entry point: schema-valid { id, setup }. The squad_* tools are also exposed
-// via the mnemonic MCP server (the working v2 path); this keeps the plugin
-// loadable in every v2 build. Native v2 tool registration is a follow-up.
+// V2 entrypoint (ADR-0032 V2 port). The V1 named export above is kept for
+// V1.18.29+ harnesses; @opencode/plugin is a bundled OpenCode dependency.
+// The V2 editor takes JSON-Schema inputs, so wrap converts the V1 arg schema
+// (tool.schema.* calls, which collapse to plain objects) to JSON Schema.
+// Every value is optional (the V1 harness validated at the harness boundary);
+// unknown args are rejected by additionalProperties:false.
+function wrap(definition) {
+  const properties = {}
+  const required = []
+  for (const [k, v] of Object.entries(definition.args || {})) {
+    if (v && v.__optional) {
+      properties[k] = v.schema
+    } else {
+      properties[k] = v.schema
+      required.push(k)
+    }
+  }
+  return {
+    name: definition.name,
+    description: definition.description,
+    input: {
+      type: "object",
+      properties,
+      ...(required.length ? { required } : {}),
+      additionalProperties: false,
+    },
+    async execute(input) {
+      return JSON.stringify(await definition.execute(input))
+    },
+  }
+}
+
+async function importPlugin() {
+  try {
+    return await import("@opencode/plugin")
+  } catch {
+    return { Plugin: { define: (def) => def } }
+  }
+}
+
+const { Plugin } = await importPlugin()
+
 export default Plugin.define({
-  id: "skillgrid-squad",
-  setup: async (_ctx) => {
-    // fail-open no-op; tools available via mnemonic MCP (TASK-081)
+  id: "skillgrid.squad",
+  async setup(ctx) {
+    const defs = []
+    for (const [name, d] of Object.entries({
+      squad_spawn_task: squadSpawnTask,
+      squad_pull_next_task: squadPullNextTask,
+      squad_submit_output: squadSubmitOutput,
+      squad_submit_review: squadSubmitReview,
+      squad_read_task: squadReadTask,
+      squad_mark_done: squadMarkDone,
+    })) {
+      defs.push(wrap({ ...d, name }))
+    }
+    await ctx.tool.transform((editor) => {
+      for (const def of defs) editor.add(def)
+    })
   },
 })

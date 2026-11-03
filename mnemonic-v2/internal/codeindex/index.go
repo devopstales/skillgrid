@@ -48,6 +48,12 @@ type IndexOpts struct {
 	Project   string
 	ExtractFn extractFn
 	Stamp     string
+	// LSP is the optional LSP tier (TICKET-08b, CI-6, off by default). When
+	// non-nil the run resolves member calls through it after the core index:
+	// a resolved call → an LSP_RESOLVED edge (the 4th confidence tier).
+	// Best-effort: a failing/timing-out server warns + continues (the static
+	// name-only edge stands, never a partial edge set).
+	LSP *extract.LSPConfig
 }
 
 // IndexReport is the run's first-class outcomes (T1: oversized files are
@@ -226,10 +232,35 @@ func Index(ctx context.Context, root string, st store.Store, opts IndexOpts) (In
 		return rep, fmt.Errorf("codeindex.Index: prune orphans: %w", err)
 	}
 
+	// the LSP tier (TICKET-08b, CI-6 — opt-in, off by default): the member
+	// calls the static pass could not type are resolved through the language
+	// server; a resolved call → an LSP_RESOLVED edge (the 4th confidence
+	// tier). Best-effort: a failing/timing-out server warns + continues
+	// (the static name-only edge stands, never a partial edge set).
+	lspRan := false
+	if opts.LSP != nil {
+		if n, warnings := RunLSPPass(ctx, root, st, opts.LSP); warnings != nil {
+			// The tier's degradation notes (the warn + continue contract —
+			// the handler's Index surfaces them on the run result).
+			if opts.LSP.Warn != nil {
+				for _, w := range warnings {
+					opts.LSP.Warn(w)
+				}
+			}
+			_ = n
+		}
+		lspRan = true
+	}
+
 	// the freshness record (spec 001 §4 — the query-path staleness
-	// contract's data source; the counts are the run's).
+	// contract's data source; the counts are the run's; capabilities.lsp
+	// reflects the tier's wiring — true when --lsp ran, false otherwise).
 	now := nowStampUTC()
-	caps := `{"graph":true,"fts":true,"vector":true,"lsp":false,"pdg":false,"communities":false,"process":false}`
+	lspCap := "false"
+	if lspRan {
+		lspCap = "true"
+	}
+	caps := `{"graph":true,"fts":true,"vector":true,"lsp":` + lspCap + `,"pdg":false,"communities":false,"process":false}`
 	if err := st.UpdateIndexFreshness(ctx, store.FreshnessRecord{
 		Project:         opts.Project,
 		ExtractorStamp:  stamp,
@@ -245,6 +276,174 @@ func Index(ctx context.Context, root string, st store.Store, opts IndexOpts) (In
 		return rep, fmt.Errorf("codeindex.Index: freshness: %w", err)
 	}
 	return rep, nil
+}
+
+// RunLSPPass is the LSP tier pass (TICKET-08b, CI-6): it resolves the member
+// calls the static extract could not type (the language server on PATH, or
+// the injected LSPResolver seam) and writes the resolved calls as
+// LSP_RESOLVED edges over the Store. It runs after the core index (the
+// edges/symbols it resolves over are committed). Best-effort: a missing
+// server, a failing/timing-out server (the per-call 30 s timeout), or a
+// resolution error returns the warnings and NO edges — the static name-only
+// edge stands, never a partial edge set (all-or-nothing per call site).
+// Returns the number of LSP_RESOLVED edges written + the degradation notes.
+func RunLSPPass(ctx context.Context, root string, st store.Store, cfg *extract.LSPConfig) (int, []string) {
+	var warnings []string
+	warn := func(s string) { warnings = append(warnings, s) }
+
+	// The scanned file set (the LSP-covered languages — the walk mirrors the
+	// core index's exclusion set).
+	var files []extract.LSPFile
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // a walk error is a skip, not a failure (best-effort pass)
+		}
+		if d.IsDir() {
+			if p != root && excludedDirs[d.Name()] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			return nil
+		}
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return nil
+		}
+		if extract.LSPLanguageForPath(rel) == "" {
+			return nil
+		}
+		content, err := os.ReadFile(p)
+		if err != nil {
+			return nil
+		}
+		files = append(files, extract.LSPFile{Path: rel, Contents: content})
+		return nil
+	})
+	if len(files) == 0 {
+		return 0, warnings
+	}
+
+	// The client: the injected resolver (the test seam) or the real server
+	// binaries on PATH (a missing server → the warn + continue no-op).
+	var client *extract.LSPClient
+	if cfg.Resolver != nil {
+		client = extract.NewLSPClientForTest(extract.LSPClientOptions{
+			Root: root, Files: func() []extract.LSPFile { return files },
+			Timeout: cfg.Timeout, Warn: warn,
+		}, cfg.Resolver)
+	} else {
+		c, err := extract.NewLSPClient(extract.LSPClientOptions{
+			Root: root, Files: func() []extract.LSPFile { return files },
+			Timeout: cfg.Timeout, Warn: warn,
+		})
+		if err != nil {
+			warn("lsp: " + err.Error() + " (static index unchanged)")
+			return 0, warnings
+		}
+		client = c
+	}
+
+	// The resolution (all-or-nothing: an error → NO edges, the static index
+	// stands — the v1 lspPass's "warn + continue, no partial edge set").
+	edges, err := client.ResolveMemberCalls(ctx)
+	if err != nil {
+		warn("lsp: " + err.Error() + " (static index unchanged)")
+		return 0, warnings
+	}
+	if len(edges) == 0 {
+		return 0, warnings
+	}
+
+	// The persistence: each resolved call → an LSP_RESOLVED edge upsert (the
+	// v1 PersistResolvedEdges shape over the Store's raw seams).
+	written := 0
+	for _, e := range edges {
+		fid, ok := fileIDByPath(ctx, st, e.FilePath)
+		if !ok {
+			continue // the file is not indexed — no edge source (not fabricated)
+		}
+		fromID := enclosingSymbolID(ctx, st, fid, e.Line)
+		if fromID == 0 {
+			continue // no enclosing symbol — no edge source (not fabricated)
+		}
+		var toID *int64
+		if rows, err := st.SymbolByName(ctx, e.Callee); err == nil && len(rows) > 0 {
+			toID = &rows[0].ID
+		}
+		if err := upsertLSPEdge(ctx, st, fid, fromID, toID, e.Callee, e.Line); err != nil {
+			warn(fmt.Sprintf("lsp: persist %s:%d: %v", e.FilePath, e.Line, err))
+			continue
+		}
+		written++
+	}
+	return written, warnings
+}
+
+// fileIDByPath resolves a file's id by its repo-relative path ("" → not
+// found). A query error is not-found (the best-effort pass never errors).
+func fileIDByPath(ctx context.Context, st store.Store, path string) (int64, bool) {
+	f, err := st.FileByPath(ctx, path)
+	if err != nil {
+		return 0, false
+	}
+	return f.ID, true
+}
+
+// enclosingSymbolID resolves the symbol enclosing (file, line) — the
+// function/method whose span contains the line (the narrowest such symbol,
+// the v1 enclosingSymbolForLine shape). 0 = none (no edge source).
+func enclosingSymbolID(ctx context.Context, st store.Store, fileID int64, line int) int64 {
+	syms, err := st.SymbolsByFile(ctx, fileID)
+	if err != nil {
+		return 0
+	}
+	var best int64
+	bestSpan := int64(1 << 30)
+	for _, s := range syms {
+		if s.Kind != "function" && s.Kind != "method" {
+			continue
+		}
+		if s.StartLine <= line && line <= s.EndLine {
+			span := int64(s.EndLine - s.StartLine)
+			if span < bestSpan {
+				bestSpan = span
+				best = s.ID
+			}
+		}
+	}
+	return best
+}
+
+// upsertLSPEdge writes the LSP_RESOLVED edge (a kind=calls row at the call
+// site's line). An existing edge at the same (from, line, kind) is
+// promoted: its confidence becomes LSP_RESOLVED (the v1 ON CONFLICT
+// promotion — the static edge is superseded, not duplicated). A missing raw
+// seam is a no-op (the dialect does not expose it).
+func upsertLSPEdge(ctx context.Context, st store.Store, fileID, fromID int64, toID *int64, toName string, line int) error {
+	re, ok := st.(interface {
+		RawExec(query string, args ...any) error
+	})
+	if !ok {
+		return nil
+	}
+	return re.RawExec(`
+		INSERT INTO edges (kind, from_id, file_id, to_id, to_name, confidence, line, context)
+		VALUES ('calls', $1, $2, $3, $4, 'LSP_RESOLVED', $5, 'lsp')
+		ON CONFLICT(kind, from_id, file_id, to_id, to_name, line) DO UPDATE SET
+			confidence = 'LSP_RESOLVED',
+			to_id = $3,
+			to_name = $4,
+			context = 'lsp'`, fromID, fileID, nullInt64(toID), toName, line)
+}
+
+// nullInt64 renders a *int64 for a raw SQL arg (nil → NULL).
+func nullInt64(p *int64) any {
+	if p == nil {
+		return nil
+	}
+	return *p
 }
 
 // uidsOf collects a symbol set's uids (the prune target's input).

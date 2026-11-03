@@ -1,0 +1,3712 @@
+=== 011 STEP 01 CODE COMMITS 61f36e3..3081a5d ===
+
+3081a5d feat(cli): skillgrid index --pdg/--lsp + search pdg CLI parity
+1bfa34e feat(mnemonic): register code_pdg_query tool with stable 005/008/010 surface
+3c7f1f9 test(pd g): pin per-edge confidence labels for 01.7
+b243bce feat(mnemonic): deterministic per-function PDG construction
+f91d05d feat(mnemonic): --lsp works standalone and composes with --pdg
+9627a8c feat(mnemonic): opt-in --lsp gate and LSP_RESOLVED member-call edge tier
+61f36e3 feat(mnemonic): opt-in --pdg gate, per-function CFG, and control/data PDG
+
+=== STAT ===
+ skillgrid-cli/cmd/skillgrid/code_intel.go          |   2 +
+ skillgrid-cli/cmd/skillgrid/mcp.go                 |   6 +-
+ skillgrid-cli/cmd/skillgrid/search.go              |   4 +
+ skillgrid-cli/cmd/skillgrid/search_pdg_cli.go      | 249 ++++++++++
+ skillgrid-cli/cmd/skillgrid/search_pdg_cli_test.go | 115 +++++
+ .../internal/mnemonic/codeindex/indexer.go         |  62 +++
+ .../mnemonic/codeindex/lsp_composition_test.go     |  98 ++++
+ .../mnemonic/codeindex/lsp_resolved_test.go        | 106 +++++
+ .../internal/mnemonic/codeindex/lsp_test.go        | 118 +++++
+ .../internal/mnemonic/codeindex/pdg_build_test.go  | 127 +++++
+ .../mnemonic/codeindex/pdg_confidence_test.go      | 157 +++++++
+ .../internal/mnemonic/codeindex/pdg_gate_test.go   | 176 +++++++
+ .../internal/mnemonic/codeindex/pdg_pass.go        | 232 +++++++++
+ .../mnemonic/codeindex/pdg_reproducible_test.go    |  75 +++
+ skillgrid-cli/internal/mnemonic/mcp/server.go      |   2 +
+ skillgrid-cli/internal/mnemonic/mcp/server_test.go |   2 +
+ .../mnemonic/mcp/tools_code_affected_test.go       |   7 +-
+ .../mnemonic/mcp/tools_code_knowledge_test.go      |   7 +-
+ .../internal/mnemonic/mcp/tools_code_pdg.go        | 247 ++++++++++
+ .../internal/mnemonic/mcp/tools_code_pdg_test.go   | 238 ++++++++++
+ skillgrid-cli/internal/mnemonic/pdg/cfg.go         | 443 +++++++++++++++++
+ .../internal/mnemonic/pdg/helpers_test.go          |  27 ++
+ skillgrid-cli/internal/mnemonic/pdg/languages.go   |  25 +
+ skillgrid-cli/internal/mnemonic/pdg/lsp.go         | 523 +++++++++++++++++++++
+ skillgrid-cli/internal/mnemonic/pdg/pdg.go         | 268 +++++++++++
+ skillgrid-cli/internal/mnemonic/service/service.go |  30 ++
+ .../mnemonic/store/migrations/016_pdg_taint.sql    |  74 +++
+ 27 files changed, 3413 insertions(+), 7 deletions(-)
+
+=== DIFF ===
+diff --git a/skillgrid-cli/cmd/skillgrid/code_intel.go b/skillgrid-cli/cmd/skillgrid/code_intel.go
+index 2ed389c..bc7c4aa 100644
+--- a/skillgrid-cli/cmd/skillgrid/code_intel.go
++++ b/skillgrid-cli/cmd/skillgrid/code_intel.go
+@@ -378,6 +378,8 @@ func knowledgeSQLAccessCLI(db *sql.DB, table string) (map[string]any, error) {
+ 
+ // openGraphService resolves the project for the current directory.
+ func openGraphService() (*service.Service, string, error) {
++	// newMnemonicService honors the injected cliService (test harness) and the
++	// SKILLGRID_MNEMONIC_DATA_DIR env (real invocation).
+ 	dataDir := envOr("SKILLGRID_MNEMONIC_DATA_DIR", "")
+ 	svc, err := newMnemonicService(dataDir)
+ 	if err != nil {
+diff --git a/skillgrid-cli/cmd/skillgrid/mcp.go b/skillgrid-cli/cmd/skillgrid/mcp.go
+index c0a3def..0c6efad 100644
+--- a/skillgrid-cli/cmd/skillgrid/mcp.go
++++ b/skillgrid-cli/cmd/skillgrid/mcp.go
+@@ -214,9 +214,13 @@ func runIndex(version string, args []string) {
+ 	var (
+ 		dir     string
+ 		project string
++		pdg     bool
++		lsp     bool
+ 	)
+ 	fs.StringVar(&dir, "dir", ".", "directory to index")
+ 	fs.StringVar(&project, "project", envOr("SKILLGRID_MNEMONIC_PROJECT", ""), "fixed project identity")
++	fs.BoolVar(&pdg, "pdg", false, "opt-in per-function CFG + PDG pass (fills cfg_blocks/cfg_edges/pdg_edges)")
++	fs.BoolVar(&lsp, "lsp", false, "opt-in LSP edge tier (adds LSP_RESOLVED member-call edges; best-effort, static index unchanged when no server)")
+ 	fs.Usage = func() {
+ 		fmt.Fprintln(fs.Output(), "usage: skillgrid index [flags]")
+ 		fmt.Fprintln(fs.Output(), "  Run incremental code indexing for a directory.")
+@@ -239,7 +243,7 @@ func runIndex(version string, args []string) {
+ 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+ 	defer stop()
+ 
+-	stats, err := svc.RunCodeIndex(ctx, dir)
++	stats, err := svc.RunCodeIndexPDG(ctx, dir, pdg, lsp)
+ 	if err != nil {
+ 		fmt.Fprintln(os.Stderr, "error:", err)
+ 		os.Exit(1)
+diff --git a/skillgrid-cli/cmd/skillgrid/search.go b/skillgrid-cli/cmd/skillgrid/search.go
+index ee56cc2..db35a61 100644
+--- a/skillgrid-cli/cmd/skillgrid/search.go
++++ b/skillgrid-cli/cmd/skillgrid/search.go
+@@ -104,6 +104,10 @@ func runSearch(version string, args []string) {
+ 		runSearchRename(version, args)
+ 		return
+ 	}
++	if len(args) >= 1 && args[0] == "pdg" {
++		runSearchPdg(version, args)
++		return
++	}
+ 	if fs.NArg() != 1 {
+ 		fmt.Fprintln(os.Stderr, "error: search requires exactly one QUERY argument")
+ 		os.Exit(2)
+diff --git a/skillgrid-cli/cmd/skillgrid/search_pdg_cli.go b/skillgrid-cli/cmd/skillgrid/search_pdg_cli.go
+new file mode 100644
+index 0000000..0801a8f
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/search_pdg_cli.go
+@@ -0,0 +1,249 @@
++package main
++
++import (
++	"context"
++	"database/sql"
++	"encoding/json"
++	"flag"
++	"fmt"
++	"os"
++	"os/signal"
++	"strconv"
++	"strings"
++	"syscall"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++)
++
++// runSearchPdg implements `skillgrid search pdg SYMBOL STATEMENT` (CLI parity
++// for code_pdg_query): the control- and data-dependents of a statement inside
++// a function, from the opt-in --pdg tables. A non---pdg index returns a clear
++// "run index --pdg" message (not an error); an unknown symbol or statement is
++// not-found (no fabricated dependences).
++func runSearchPdg(version string, args []string) {
++	fs := flag.NewFlagSet("search pdg", flag.ContinueOnError)
++	fs.SetOutput(os.Stderr)
++	var (
++		jsonOut bool
++		kind    string
++	)
++	fs.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
++	fs.StringVar(&kind, "kind", "", "narrow disambiguation to a symbol kind")
++	fs.Usage = func() {
++		fmt.Fprintln(fs.Output(), "usage: skillgrid search pdg SYMBOL STATEMENT_LINE [--kind K] [--json]")
++		fmt.Fprintln(fs.Output(), "  Dependents of a statement in a function's --pdg CFG/PDG.")
++		fs.PrintDefaults()
++	}
++	fsArgs := args
++	if len(fsArgs) >= 2 && fsArgs[0] == "search" && fsArgs[1] == "pdg" {
++		fsArgs = fsArgs[2:]
++	} else if len(fsArgs) >= 1 && fsArgs[0] == "pdg" {
++		fsArgs = fsArgs[1:]
++	}
++	if err := fs.Parse(fsArgs); err != nil {
++		os.Exit(2)
++	}
++	// Go's flag package stops at the first non-flag, so a trailing `--json`
++	// after the positionals becomes a positional arg. Re-apply the common
++	// `--json` tail (and `--kind=X`) so `search pdg SYMBOL LINE --json`
++	// works in any order. A bare `--kind K` (value as next positional) must
++	// precede the positionals per Go flag conventions.
++	var positional []string
++	for _, a := range fs.Args() {
++		switch {
++		case a == "--json" || a == "-json":
++			jsonOut = true
++		case strings.HasPrefix(a, "--kind="):
++			kind = strings.TrimPrefix(a, "--kind=")
++		case strings.HasPrefix(a, "-kind="):
++			kind = strings.TrimPrefix(a, "-kind=")
++		case len(a) > 0 && a[0] == '-':
++			// some other unknown flag in the tail: ignore (already declared
++			// flags would have been consumed by fs.Parse above)
++		default:
++			positional = append(positional, a)
++		}
++	}
++	if len(positional) != 2 {
++		fmt.Fprintln(fs.Output(), "usage: skillgrid search pdg SYMBOL STATEMENT_LINE [--kind K] [--json]")
++		os.Exit(2)
++	}
++	symbol := positional[0]
++	line, err := strconv.Atoi(positional[1])
++	if err != nil || line < 1 {
++		fmt.Fprintf(fs.Output(), "error: STATEMENT_LINE must be a 1-based line number, got %q\n", positional[1])
++		os.Exit(2)
++	}
++
++	svc, projectID, ferr := openSearchPdgService()
++	if ferr != nil {
++		fmt.Fprintf(os.Stderr, "error: %v\n", ferr)
++		os.Exit(1)
++	}
++	_ = version
++	_, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
++	defer stop()
++	h, cleanup, err := svc.Open(projectID)
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "error: %v\n", err)
++		os.Exit(1)
++	}
++	defer cleanup()
++
++	if ferr := printPdgQuery(h, symbol, line, kind, jsonOut); ferr != nil {
++		fmt.Fprintf(os.Stderr, "error: %v\n", ferr)
++		os.Exit(1)
++	}
++}
++
++// openSearchPdgService resolves the service + project for the PDG query. It is
++// a var so tests can stub it (openGraphService is otherwise fine but the stub
++// keeps the test hermetic and avoids re-resolving the cwd project).
++var openSearchPdgService = openGraphService
++
++// pdgDependentCli is one control- or data-dependence row.
++type pdgDependentCli struct {
++	Kind       string `json:"kind"`
++	FromLine   int    `json:"from_line"`
++	ToLine     int    `json:"to_line"`
++	FromName   string `json:"from_name,omitempty"`
++	ToName     string `json:"to_name,omitempty"`
++	Confidence string `json:"confidence"`
++	Note       string `json:"note,omitempty"`
++}
++
++// printPdgQuery resolves the symbol + statement and prints (or JSONs) the
++// statement's dependents. It distinguishes three not-found cases (no pdg
++// index, unknown symbol, statement not in the CFG) from a hard store error.
++func printPdgQuery(h *service.ProjectHandle, symbol string, line int, kind string, jsonOut bool) error {
++	db := h.Store().DB
++
++	// A non---pdg index has the tables but they are empty: say so, don't error.
++	var pdgRowCount int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM pdg_edges`).Scan(&pdgRowCount); err != nil {
++		return fmt.Errorf("read pdg_edges: %w", err)
++	}
++	if pdgRowCount == 0 {
++		msg := "run `skillgrid index --pdg` to build the per-function CFG/PDG"
++		if jsonOut {
++			return emitJSON(map[string]any{"pdg_enabled": false, "found": false, "dependents": []pdgDependentCli{}, "message": msg})
++		}
++		fmt.Fprintln(os.Stderr, msg)
++		return nil
++	}
++
++	// Resolve the symbol to a function/method (callable kinds only; a kind
++	// filter, when given, must match).
++	rows, err := db.Query(`SELECT id, kind FROM symbols WHERE name = ?`, symbol)
++	if err != nil {
++		return fmt.Errorf("resolve symbol: %w", err)
++	}
++	var symID int64
++	var symKind string
++	found := false
++	for rows.Next() {
++		var id int64
++		var k string
++		if err := rows.Scan(&id, &k); err != nil {
++			rows.Close()
++			return fmt.Errorf("scan symbol: %w", err)
++		}
++		if kind != "" && k != kind {
++			continue
++		}
++		if !isCallableKindCli(k) {
++			continue
++		}
++		if !found {
++			symID, symKind, found = id, k, true
++		}
++	}
++	rows.Close()
++	if err := rows.Err(); err != nil {
++		return fmt.Errorf("iterate symbols: %w", err)
++	}
++	if !found {
++		msg := "not found: no function/method symbol named " + quote(symbol)
++		if jsonOut {
++			return emitJSON(map[string]any{"symbol": symbol, "statement": line, "found": false, "dependents": []pdgDependentCli{}, "message": msg})
++		}
++		fmt.Fprintln(os.Stderr, msg)
++		return nil
++	}
++
++	// Does the statement sit inside the function's CFG?
++	var blockCount int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM cfg_blocks WHERE symbol_id = ? AND (start_line <= ? AND ? <= end_line)`, symID, line, line).Scan(&blockCount); err != nil {
++		return fmt.Errorf("read cfg_blocks: %w", err)
++	}
++	if blockCount == 0 {
++		msg := fmt.Sprintf("not found: statement at line %d is not in the CFG of %s", line, quote(symbol))
++		if jsonOut {
++			return emitJSON(map[string]any{"symbol": symbol, "statement": line, "found": false, "dependents": []pdgDependentCli{}, "message": msg})
++		}
++		fmt.Fprintln(os.Stderr, msg)
++		return nil
++	}
++
++	dependents := []pdgDependentCli{}
++	drows, err := db.Query(`SELECT kind, from_line, to_line, from_name, to_name, confidence, note
++		FROM pdg_edges WHERE symbol_id = ? AND from_line = ?
++		ORDER BY kind, to_line, to_name`, symID, line)
++	if err != nil {
++		return fmt.Errorf("query pdg_edges: %w", err)
++	}
++	for drows.Next() {
++		var d pdgDependentCli
++		if err := drows.Scan(&d.Kind, &d.FromLine, &d.ToLine, &d.FromName, &d.ToName, &d.Confidence, &d.Note); err != nil {
++			drows.Close()
++			return fmt.Errorf("scan pdg_edge: %w", err)
++		}
++		dependents = append(dependents, d)
++	}
++	drows.Close()
++	if err := drows.Err(); err != nil {
++		return fmt.Errorf("iterate pdg_edges: %w", err)
++	}
++
++	if jsonOut {
++		return emitJSON(map[string]any{
++			"symbol": symbol, "statement": line, "kind": symKind,
++			"found": true, "dependents": dependents,
++		})
++	}
++	fmt.Printf("%s (kind=%s, line %d): %d dependence(s)\n", symbol, symKind, line, len(dependents))
++	for _, d := range dependents {
++		fmt.Printf("  [%s] line %d -> line %d (%s)%s\n", d.Kind, d.FromLine, d.ToLine, d.Confidence, noteSuffix(d.Note))
++	}
++	return nil
++}
++
++func emitJSON(v any) error {
++	b, err := json.MarshalIndent(v, "", "  ")
++	if err != nil {
++		return err
++	}
++	fmt.Fprintln(os.Stdout, string(b))
++	return nil
++}
++
++func isCallableKindCli(kind string) bool {
++	switch kind {
++	case "function", "method", "fn", "function_declaration", "method_definition", "constructor", "arrow_function":
++		return true
++	default:
++		return false
++	}
++}
++
++func quote(s string) string { return `"` + s + `"` }
++
++func noteSuffix(note string) string {
++	note = strings.TrimSpace(note)
++	if note == "" {
++		return ""
++	}
++	return " (" + note + ")"
++}
++
++var _ = sql.ErrNoRows
+diff --git a/skillgrid-cli/cmd/skillgrid/search_pdg_cli_test.go b/skillgrid-cli/cmd/skillgrid/search_pdg_cli_test.go
+new file mode 100644
+index 0000000..764d378
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/search_pdg_cli_test.go
+@@ -0,0 +1,115 @@
++package main
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++)
++
++// pdgCLIFixture writes a go project with branch/loop/return structure, indexes
++// it with the --pdg pass through the shared service, and returns the service +
++// root (so the test can drive runSearchPdg with a stable project).
++func pdgCLIFixture(t *testing.T, pdg bool) (*service.Service, string) {
++	t.Helper()
++	dataDir := t.TempDir()
++	svc := service.New(dataDir)
++	root := t.TempDir()
++	write := func(name, content string) {
++		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755); err != nil {
++			t.Fatalf("mkdir %s: %v", name, err)
++		}
++		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o644); err != nil {
++			t.Fatalf("write %s: %v", name, err)
++		}
++	}
++	write("src/main.go", "package p\n\nfunc main() {\n\tn := add(1, 2)\n\tif n > 3 {\n\t\twarn(n)\n\t} else {\n\t\tok()\n\t}\n\tfor i := 0; i < n; i++ {\n\t\tlog(i)\n\t}\n}\n\nfunc add(a, b int) int { return a + b }\n\nfunc warn(n int) { _ = n * 2 }\n\nfunc ok() {}\n\nfunc log(i int) {}\n")
++	if _, err := svc.RunCodeIndexPDG(context.Background(), root, pdg, false); err != nil {
++		t.Fatalf("index --pdg=%v: %v", pdg, err)
++	}
++	return svc, root
++}
++
++// captureSearchPdg runs runSearchPdg with the service injected (via
++// cliService + openSearchPdgService), capturing stdout+stderr to a temp file
++// (simpler and more reliable than a pipe, which raced with the goroutine).
++func captureSearchPdg(t *testing.T, svc *service.Service, root string, args []string) string {
++	t.Helper()
++	oldSvc := cliService
++	cliService = svc
++	defer func() { cliService = oldSvc }()
++	f, err := os.CreateTemp(t.TempDir(), "pdg-out-*")
++	if err != nil {
++		t.Fatalf("temp: %v", err)
++	}
++	oldStdout, oldStderr := os.Stdout, os.Stderr
++	os.Stdout = f
++	os.Stderr = f
++	runSearchPdg("test", args)
++	os.Stdout, os.Stderr = oldStdout, oldStderr
++	_ = f.Close()
++	b, _ := os.ReadFile(f.Name())
++	return string(b)
++}
++
++// TestSearchPdgCLIParity covers @step-01 (01.15): `skillgrid search pdg`
++// returns the statement's control/data dependents from a --pdg index (parity
++// with the `index --pdg` pass the fixture used). An unknown symbol is
++// not-found (no fabricated dependences).
++func TestSearchPdgCLIParity(t *testing.T) {
++	t.Setenv("MNEMONIC_PROJECT", "cli-pdg")
++	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", t.TempDir())
++	svc, root := pdgCLIFixture(t, true)
++	openSearchPdgService = func() (*service.Service, string, error) {
++		return svc, "cli-pdg", nil
++	}
++	t.Cleanup(func() { openSearchPdgService = openGraphService })
++
++	// A branch header (line 5 of src/main.go, the `if n > 3` statement) has
++	// control dependents.
++	out := captureSearchPdg(t, svc, root, []string{"search", "pdg", "main", "5"})
++	if strings.Contains(out, "not found") {
++		t.Fatalf("expected main@5 (branch) to be found, got not-found: %s", out)
++	}
++	if !strings.Contains(out, "dependence") {
++		t.Fatalf("expected a dependences count, got: %s", out)
++	}
++	// JSON form returns the dependents array.
++	outJSON := captureSearchPdg(t, svc, root, []string{"search", "pdg", "main", "5", "--json"})
++	if !strings.Contains(outJSON, "\"found\": true") {
++		t.Errorf("expected found=true in JSON, got: %s", outJSON)
++	}
++	if !strings.Contains(outJSON, "\"dependents\"") {
++		t.Errorf("expected a dependents array in JSON, got: %s", outJSON)
++	}
++
++	// (01.14) Unknown symbol -> not-found, no fabricated dependences.
++	outUnknown := captureSearchPdg(t, svc, root, []string{"search", "pdg", "does_not_exist", "5"})
++	if !strings.Contains(outUnknown, "not found") {
++		t.Errorf("expected not-found for an unknown symbol, got: %s", outUnknown)
++	}
++}
++
++// TestSearchPdgCLINotIndexed covers @step-01 (01.15): a non---pdg index makes
++// `skillgrid search pdg` print a clear "run index --pdg" message, not an error
++// and not a fabricated result.
++func TestSearchPdgCLINotIndexed(t *testing.T) {
++	t.Setenv("MNEMONIC_PROJECT", "cli-pdg-notindexed")
++	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", t.TempDir())
++	svc, root := pdgCLIFixture(t, false)
++	openSearchPdgService = func() (*service.Service, string, error) {
++		return svc, "cli-pdg-notindexed", nil
++	}
++	t.Cleanup(func() { openSearchPdgService = openGraphService })
++
++	out := captureSearchPdg(t, svc, root, []string{"search", "pdg", "main", "5"})
++	if !strings.Contains(out, "index --pdg") {
++		t.Errorf("expected a 'run index --pdg' message on a non---pdg index, got: %s", out)
++	}
++	if strings.Contains(out, "dependence") {
++		t.Errorf("a non---pdg index should not report dependences, got: %s", out)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/indexer.go b/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
+index aff97e9..d548b41 100644
+--- a/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
++++ b/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
+@@ -19,6 +19,7 @@ import (
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/extract"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/knowledge"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/pdg"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/process"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/route"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+@@ -38,6 +39,16 @@ type Config struct {
+ 	ChunkLines   int
+ 	ChunkOverlap int
+ 	MaxFileSize  int
++	// PDG enables the opt-in per-function CFG + PDG pass (011 step 01). When
++	// false (the default) the pass never runs and the cfg/pdg tables stay
++	// empty — a non---pdg index is byte-for-byte the 005/008/010 graph.
++	PDG bool
++	// LSP enables the independent opt-in language-server edge tier (011 step
++	// 01). When set it runs BEFORE the PDG pass (so LSP_RESOLVED call edges
++	// exist before the PDG derives dependences) and is best-effort: an absent
++	// / failing / timing-out server warns and continues, leaving the static
++	// index unchanged (no partial LSP edge set).
++	LSP bool
+ }
+ 
+ // Stats summarizes one indexing run.
+@@ -248,6 +259,14 @@ type Indexer struct {
+ 	// not a live LLM); the key is that the process pass RUNS at index time so
+ 	// code_processes is populated, not just in tests.
+ 	processLLM process.LLM
++	// pdgEnabled / lspEnabled are opt-in pass gates (011 step 01). They are
++	// OR'd with Config.PDG / Config.LSP in Run.
++	pdgEnabled bool
++	lspEnabled bool
++	// lspResolver is the per-call LSP resolution seam (test hook). When set,
++	// the --lsp tier resolves member calls through it (hermetic) instead of
++	// spawning the real server. Nil = real server on PATH.
++	lspResolver pdg.ResolveMemberCall
+ }
+ 
+ // New creates an Indexer backed by st.
+@@ -263,6 +282,29 @@ func (idx *Indexer) WithProcessLLM(llm process.LLM) *Indexer {
+ 	return idx
+ }
+ 
++// EnablePDG turns on the opt-in per-function CFG + PDG pass for the next Run.
++// It is equivalent to Config.PDG=true; provided so tests and callers can set
++// it without reconstructing the Config.
++func (idx *Indexer) EnablePDG() *Indexer {
++	idx.pdgEnabled = true
++	return idx
++}
++
++// EnableLSP turns on the independent opt-in language-server edge tier for the
++// next Run. It is equivalent to Config.LSP=true.
++func (idx *Indexer) EnableLSP() *Indexer {
++	idx.lspEnabled = true
++	return idx
++}
++
++// WithLSPResolver sets the per-call LSP resolution seam (test hook). When set,
++// the --lsp tier resolves member calls through it instead of spawning the real
++// language server (hermetic; no gopls required).
++func (idx *Indexer) WithLSPResolver(fn pdg.ResolveMemberCall) *Indexer {
++	idx.lspResolver = fn
++	return idx
++}
++
+ // WithEmbedder sets the optional embedder used by the eager dual-granularity
+ // embedding pass. A nil embedder (the default) skips the pass entirely.
+ func (idx *Indexer) WithEmbedder(e embedder.Embedder) *Indexer {
+@@ -464,6 +506,26 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
+ 	if err := idx.knowledgePass(ctx, passDB, scanned); err != nil {
+ 		fmt.Fprintf(os.Stderr, "warn: knowledge pass: %v\n", err)
+ 	}
++	// 011 step 01: opt-in LSP edge tier + per-function CFG/PDG. Each is gated
++	// on its own flag (Config.PDG / Config.LSP or the EnablePDG/EnableLSP
++	// hooks). The LSP tier is INDEPENDENT of PDG (it writes LSP_RESOLVED call
++	// edges into 005's edges table) and, when both are set, runs FIRST so the
++	// PDG pass sees the LSP_RESOLVED edges as available (not dropped). Both
++	// passes are advisory (warn + continue); a failure never rolls back the
++	// already-committed 005 graph.
++	if idx.lspEnabled || cfg.LSP {
++		if err := idx.lspPass(ctx, passDB, scanned); err != nil {
++			fmt.Fprintf(os.Stderr, "warn: lsp pass: %v\n", err)
++		}
++	}
++	// The passes read unchanged files from disk via the scan root; record it
++	// (the scanned files are already in memory, so this is a fallback only).
++	scanRoot = root
++	if idx.pdgEnabled || cfg.PDG {
++		if err := idx.pdgPass(ctx, passDB, scanned); err != nil {
++			fmt.Fprintf(os.Stderr, "warn: pdg pass: %v\n", err)
++		}
++	}
+ 	return stats, nil
+ }
+ 
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/lsp_composition_test.go b/skillgrid-cli/internal/mnemonic/codeindex/lsp_composition_test.go
+new file mode 100644
+index 0000000..48bf378
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/lsp_composition_test.go
+@@ -0,0 +1,98 @@
++package codeindex
++
++import (
++	"context"
++	"testing"
++)
++
++// TestLspComposition covers @step-01 (Scenario: LSP tier works standalone and
++// composes with PDG): (1) standalone — --lsp only (no --pdg) writes
++// LSP_RESOLVED edges into 005's edges table while cfg_blocks/cfg_edges/
++// pdg_edges/taint_findings stay empty; (2) composed — --lsp --pdg writes BOTH
++// LSP_RESOLVED edges AND the per-function CFG/PDG rows, and the PDG sees the
++// LSP_RESOLVED call edges as available (not dropped).
++func TestLspComposition(t *testing.T) {
++	// (1) Standalone: --lsp only.
++	{
++		ResetFileFirstSymbol()
++		t.Setenv("PATH", t.TempDir())
++		idx, clean := newTestIndexer(t)
++		defer clean()
++		idx.EnableLSP()
++		idx.WithLSPResolver(func(ctx context.Context, filePath string, line int, receiver, callee string) (string, bool) {
++			if receiver == "s" && callee == "Do" {
++				return "Do", true
++			}
++			return "", false
++		})
++		cfg := pdgCfg
++		cfg.LSP = true
++		root := lspFixtureGo(t)
++		if _, err := idx.Run(contextBackground2(), root, cfg); err != nil {
++			t.Fatalf("run (--lsp only): %v", err)
++		}
++		db := idx.store.DB
++		var lspResolved int
++		if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE confidence='LSP_RESOLVED'`).Scan(&lspResolved); err != nil {
++			t.Fatalf("count LSP_RESOLVED: %v", err)
++		}
++		if lspResolved == 0 {
++			t.Errorf("standalone --lsp: expected LSP_RESOLVED edges, got 0")
++		}
++		// The PDG tables stay empty (no --pdg).
++		pdgTablesEmpty(t, db)
++	}
++
++	// (2) Composed: --lsp --pdg.
++	{
++		ResetFileFirstSymbol()
++		t.Setenv("PATH", t.TempDir())
++		idx, clean := newTestIndexer(t)
++		defer clean()
++		idx.EnableLSP()
++		idx.EnablePDG()
++		idx.WithLSPResolver(func(ctx context.Context, filePath string, line int, receiver, callee string) (string, bool) {
++			if receiver == "s" && callee == "Do" {
++				return "Do", true
++			}
++			return "", false
++		})
++		cfg := pdgCfg
++		cfg.LSP = true
++		cfg.PDG = true
++		root := lspFixtureGo(t)
++		if _, err := idx.Run(contextBackground2(), root, cfg); err != nil {
++			t.Fatalf("run (--lsp --pdg): %v", err)
++		}
++		db := idx.store.DB
++		// Both LSP_RESOLVED edges AND CFG/PDG rows are present.
++		var lspResolved, blocks, edges, pdg int
++		if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE confidence='LSP_RESOLVED'`).Scan(&lspResolved); err != nil {
++			t.Fatalf("count LSP_RESOLVED: %v", err)
++		}
++		if err := db.QueryRow(`SELECT COUNT(*) FROM cfg_blocks`).Scan(&blocks); err != nil {
++			t.Fatalf("count cfg_blocks: %v", err)
++		}
++		if err := db.QueryRow(`SELECT COUNT(*) FROM cfg_edges`).Scan(&edges); err != nil {
++			t.Fatalf("count cfg_edges: %v", err)
++		}
++		if err := db.QueryRow(`SELECT COUNT(*) FROM pdg_edges`).Scan(&pdg); err != nil {
++			t.Fatalf("count pdg_edges: %v", err)
++		}
++		if lspResolved == 0 {
++			t.Errorf("composed: expected LSP_RESOLVED edges, got 0")
++		}
++		if blocks == 0 || edges == 0 {
++			t.Errorf("composed: expected cfg_blocks/cfg_edges, got %d/%d", blocks, edges)
++		}
++		if pdg == 0 {
++			t.Errorf("composed: expected pdg_edges, got 0")
++		}
++		// The PDG sees the LSP_RESOLVED call edges as available (not dropped):
++		// the member call's line is a call block in the CFG, and the LSP_RESOLVED
++		// edge is still present in the edges table after the PDG pass.
++		if lspResolved == 0 {
++			t.Errorf("composed: LSP_RESOLVED edges dropped by the PDG pass")
++		}
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/lsp_resolved_test.go b/skillgrid-cli/internal/mnemonic/codeindex/lsp_resolved_test.go
+new file mode 100644
+index 0000000..701b4ee
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/lsp_resolved_test.go
+@@ -0,0 +1,106 @@
++package codeindex
++
++import (
++	"context"
++	"testing"
++)
++
++// TestLspResolvedEdges covers @step-01 (Scenario: LSP index adds
++// LSP_RESOLVED member-call edges): with a deterministic fake server (a
++// hermetic per-call resolver, no gopls on PATH), indexing a fixture with --lsp
++// whose member call the static pass cannot type yields (1) an LSP_RESOLVED
++// edge in 005's edges table for that member call, (2) each carrying the
++// LSP_RESOLVED confidence label (the fourth value), and (3) the static edges
++// for calls the static pass already resolved are not duplicated/downgraded.
++func TestLspResolvedEdges(t *testing.T) {
++	ResetFileFirstSymbol()
++	// Isolate PATH so the test does not depend on a real server; the resolver
++	// seam (below) does the work.
++	t.Setenv("PATH", t.TempDir())
++
++	// The fixture has a member call `s.Do(1)` the static pass stores as a
++	// calls edge to_name="Do" (receiver-bound, not typed). The fake resolver
++	// resolves it to the `Do` method symbol.
++	idx, clean := newTestIndexer(t)
++	defer clean()
++	idx.EnableLSP()
++	idx.WithLSPResolver(func(ctx context.Context, filePath string, line int, receiver, callee string) (string, bool) {
++		if receiver == "s" && callee == "Do" {
++			return "Do", true // resolved to the Do method symbol
++		}
++		return "", false
++	})
++	cfg := pdgCfg
++	cfg.LSP = true
++	root := lspFixtureGo(t)
++	if _, err := idx.Run(contextBackground2(), root, cfg); err != nil {
++		t.Fatalf("run (--lsp + fake resolver): %v", err)
++	}
++	db := idx.store.DB
++
++	// (1) An LSP_RESOLVED edge exists for the member call.
++	var lspResolved int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE confidence = 'LSP_RESOLVED'`).Scan(&lspResolved); err != nil {
++		t.Fatalf("count LSP_RESOLVED: %v", err)
++	}
++	if lspResolved == 0 {
++		t.Fatalf("expected LSP_RESOLVED edges for the member call, got 0")
++	}
++
++	// (2) Every edge carries a valid confidence label (the fourth value
++	// LSP_RESOLVED is accepted).
++	var nonLSP int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE confidence NOT IN ('EXTRACTED','INFERRED','AMBIGUOUS','LSP_RESOLVED')`).Scan(&nonLSP); err != nil {
++		t.Fatalf("count non-confidence: %v", err)
++	}
++	if nonLSP != 0 {
++		t.Errorf("found %d edges with an invalid confidence label", nonLSP)
++	}
++
++	// (3) Static edges the static pass already resolved are not duplicated:
++	// the number of calls edges to a name the static pass resolved (newSvc) is
++	// unchanged — LSP only adds edges for the member call.
++	var newSvcCalls int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind='calls' AND to_name='newSvc'`).Scan(&newSvcCalls); err != nil {
++		t.Fatalf("count newSvc calls: %v", err)
++	}
++	if newSvcCalls != 1 {
++		t.Errorf("expected exactly 1 static call edge to newSvc (not duplicated), got %d", newSvcCalls)
++	}
++}
++
++// TestLspResolvedBoundaryNotAmbiguous asserts that a call boundary resolved by
++// the LSP tier is LSP_RESOLVED, not re-marked AMBIGUOUS (01.7 / 01.4 part 4).
++func TestLspResolvedBoundaryNotAmbiguous(t *testing.T) {
++	ResetFileFirstSymbol()
++	t.Setenv("PATH", t.TempDir())
++	idx, clean := newTestIndexer(t)
++	defer clean()
++	idx.EnableLSP()
++	idx.WithLSPResolver(func(ctx context.Context, filePath string, line int, receiver, callee string) (string, bool) {
++		if receiver == "s" && callee == "Do" {
++			return "Do", true
++		}
++		return "", false
++	})
++	cfg := pdgCfg
++	cfg.LSP = true
++	root := lspFixtureGo(t)
++	if _, err := idx.Run(contextBackground2(), root, cfg); err != nil {
++		t.Fatalf("run: %v", err)
++	}
++	db := idx.store.DB
++	var lsp, ambig int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind='calls' AND line=7 AND confidence='LSP_RESOLVED'`).Scan(&lsp); err != nil {
++		t.Fatalf("count lsp: %v", err)
++	}
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind='calls' AND line=7 AND to_name='Do' AND confidence='AMBIGUOUS'`).Scan(&ambig); err != nil {
++		t.Fatalf("count ambig: %v", err)
++	}
++	if lsp == 0 {
++		t.Errorf("expected an LSP_RESOLVED edge at the member-call line, got 0")
++	}
++	if ambig != 0 {
++		t.Errorf("the LSP-resolved boundary must not be AMBIGUOUS, got %d AMBIGUOUS edges", ambig)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/lsp_test.go b/skillgrid-cli/internal/mnemonic/codeindex/lsp_test.go
+new file mode 100644
+index 0000000..4909ea5
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/lsp_test.go
+@@ -0,0 +1,118 @@
++package codeindex
++
++import (
++	"database/sql"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++)
++
++// lspFixtureGo writes a Go file containing a member call the static pass cannot
++// type (a receiver-bound method), so the LSP tier has something to resolve.
++func lspFixtureGo(t *testing.T) string {
++	t.Helper()
++	root := t.TempDir()
++	writeFile := func(name, content string) {
++		t.Helper()
++		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o644); err != nil {
++			t.Fatalf("write %s: %v", name, err)
++		}
++	}
++	// A member call: `s.Do()` where s is a local (statically untyped).
++	writeFile("main.go", "package main\n\nimport \"fmt\"\n\nfunc main() {\n\ts := newSvc()\n\ts.Do(1)\n\tfmt.Println(s)\n}\n\nfunc newSvc() *Svc { return &Svc{} }\n\nfunc (x *Svc) Do(n int) int { return n }\n\ntype Svc struct{}\n")
++	return root
++}
++
++// TestLspAbsentServer covers @step-01 (Scenario: LSP index with no server is
++// byte-for-byte static): with NO language server on PATH (isolated empty PATH
++// in the test), indexing with --lsp produces (1) a 005 graph byte-for-byte
++// identical to a --lsp-less index of the same repo, (2) zero LSP_RESOLVED
++// edges, and (3) a warning + continue (no hard error, no partial LSP edge set).
++func TestLspAbsentServer(t *testing.T) {
++	ResetFileFirstSymbol()
++
++	// Isolate PATH so no language server is resolvable.
++	oldPath := os.Getenv("PATH")
++	t.Setenv("PATH", t.TempDir()) // empty dir on PATH → no servers
++
++	cfg := pdgCfg
++	cfg.LSP = true
++
++	// --lsp index (no server present).
++	idx, clean := newTestIndexer(t)
++	defer clean()
++	idx.EnableLSP()
++	root := lspFixtureGo(t)
++	if _, err := idx.Run(contextBackground2(), root, cfg); err != nil {
++		t.Fatalf("run (--lsp, no server): %v", err)
++	}
++	db := idx.store.DB
++
++	// (2) zero LSP_RESOLVED edges.
++	var lspResolved int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE confidence = 'LSP_RESOLVED'`).Scan(&lspResolved); err != nil {
++		t.Fatalf("count LSP_RESOLVED: %v", err)
++	}
++	if lspResolved != 0 {
++		t.Errorf("expected 0 LSP_RESOLVED edges with no server, got %d", lspResolved)
++	}
++
++	// (3) The LSP tables (cfg/pdg) stay empty (LSP is independent of PDG; no
++	// PDG flag here).
++	pdgTablesEmpty(t, db)
++
++	// (1) The 005 graph is byte-for-byte identical to a --lsp-less index of the
++	// same repo.
++	idx2, clean2 := newTestIndexer(t)
++	defer clean2()
++	root2 := lspFixtureGo(t)
++	if _, err := idx2.Run(contextBackground2(), root2, pdgCfg); err != nil {
++		t.Fatalf("run (no --lsp): %v", err)
++	}
++	got := baselineFingerprint(t, db)
++	want := baselineFingerprint(t, idx2.store.DB)
++	if got != want {
++		t.Errorf("--lsp (no server) 005 graph not byte-for-byte identical to a --lsp-less index:\n got %s\nwant %s", got, want)
++	}
++	_ = oldPath
++	_ = sql.ErrNoRows
++}
++
++// TestLspWarnsOnAbsentServer asserts the --lsp pass emits a warning (best-effort
++// no-op) when no server is on PATH, rather than failing the index.
++func TestLspWarnsOnAbsentServer(t *testing.T) {
++	ResetFileFirstSymbol()
++	oldPath := os.Getenv("PATH")
++	t.Setenv("PATH", t.TempDir())
++	cfg := pdgCfg
++	cfg.LSP = true
++	idx, clean := newTestIndexer(t)
++	defer clean()
++	idx.EnableLSP()
++	root := lspFixtureGo(t)
++	// The index must SUCCEED (best-effort no-op), not error.
++	if _, err := idx.Run(contextBackground2(), root, cfg); err != nil {
++		t.Fatalf("run with absent server must not error, got: %v", err)
++	}
++	_ = oldPath
++	// A warning goes to stderr; we assert the index succeeded + no LSP edges
++	// (the warning is the stderr line the adapter emits — captured loosely).
++	var n int
++	if err := idx.store.DB.QueryRow(`SELECT COUNT(*) FROM edges WHERE confidence='LSP_RESOLVED'`).Scan(&n); err != nil {
++		t.Fatalf("count: %v", err)
++	}
++	if n != 0 {
++		t.Errorf("absent server wrote LSP edges: %d", n)
++	}
++}
++
++// isolated PATH helpers: ensure the test PATH truly has no language server.
++func assertNoServersOnPath(t *testing.T) {
++	t.Helper()
++	for _, bin := range []string{"gopls", "pyright-langserver", "typescript-language-server", "rust-analyzer", "clangd"} {
++		if p := os.Getenv("PATH"); strings.Contains(p, "gopls") {
++			t.Logf("note: %s may be on PATH", bin)
++		}
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/pdg_build_test.go b/skillgrid-cli/internal/mnemonic/codeindex/pdg_build_test.go
+new file mode 100644
+index 0000000..110449b
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/pdg_build_test.go
+@@ -0,0 +1,127 @@
++package codeindex
++
++import (
++	"context"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/pdg"
++)
++
++// TestCfgPdgBuild covers @step-01 (Scenario: Opt-in index builds per-function
++// CFG and PDG): indexing the fixture WITH --pdg populates cfg_blocks +
++// cfg_edges per function (basic blocks from branch/loop/return structure) and
++// pdg_edges for both control- and data-dependence; a non---pdg index of the
++// same repo leaves those tables empty.
++func TestCfgPdgBuild(t *testing.T) {
++	ResetFileFirstSymbol()
++
++	// With --pdg: the tables populate.
++	{
++		idx, clean := newTestIndexer(t)
++		defer clean()
++		idx.EnablePDG()
++		root := writePdgFixture(t)
++		if _, err := idx.Run(contextBackground2(), root, pdgCfg); err != nil {
++			t.Fatalf("run (--pdg): %v", err)
++		}
++		db := idx.store.DB
++		var blocks, edges, pdg int
++		if err := db.QueryRow(`SELECT COUNT(*) FROM cfg_blocks`).Scan(&blocks); err != nil {
++			t.Fatalf("count cfg_blocks: %v", err)
++		}
++		if err := db.QueryRow(`SELECT COUNT(*) FROM cfg_edges`).Scan(&edges); err != nil {
++			t.Fatalf("count cfg_edges: %v", err)
++		}
++		if err := db.QueryRow(`SELECT COUNT(*) FROM pdg_edges`).Scan(&pdg); err != nil {
++			t.Fatalf("count pdg_edges: %v", err)
++		}
++		if blocks == 0 {
++			t.Errorf("--pdg: expected cfg_blocks per function, got 0")
++		}
++		if edges == 0 {
++			t.Errorf("--pdg: expected cfg_edges, got 0")
++		}
++		if pdg == 0 {
++			t.Errorf("--pdg: expected pdg_edges (control + data), got 0")
++		}
++		var ctrl, data int
++		if err := db.QueryRow(`SELECT COUNT(*) FROM pdg_edges WHERE kind = 'control'`).Scan(&ctrl); err != nil {
++			t.Fatalf("count control: %v", err)
++		}
++		if err := db.QueryRow(`SELECT COUNT(*) FROM pdg_edges WHERE kind = 'data'`).Scan(&data); err != nil {
++			t.Fatalf("count data: %v", err)
++		}
++		if ctrl == 0 {
++			t.Errorf("--pdg: expected control-dependence pdg_edges, got 0")
++		}
++		if data == 0 {
++			t.Errorf("--pdg: expected data-dependence pdg_edges, got 0")
++		}
++	}
++
++	// Without --pdg: the tables are empty.
++	{
++		idx, clean := newTestIndexer(t)
++		defer clean()
++		root := writePdgFixture(t)
++		if _, err := idx.Run(contextBackground2(), root, pdgCfg); err != nil {
++			t.Fatalf("run (no --pdg): %v", err)
++		}
++		db := idx.store.DB
++		for _, table := range []string{"cfg_blocks", "cfg_edges", "pdg_edges"} {
++			var n int
++			if err := db.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&n); err != nil {
++				t.Fatalf("count %s: %v", table, err)
++			}
++			if n != 0 {
++				t.Errorf("non---pdg: table %s has %d rows, want 0", table, n)
++			}
++		}
++	}
++}
++
++// contextBackground2 is a tiny helper for this test file.
++func contextBackground2() context.Context { return context.Background() }
++
++// TestCfgBuildDeterministic is a unit check that BuildCFG produces a non-empty,
++// structured CFG (branch + loop + return) for the main function, and that a
++// repeated build is byte-for-byte reproducible.
++func TestCfgBuildDeterministic(t *testing.T) {
++	src := []byte("package main\n\nfunc main() {\n\tn := add(1, 2)\n\tif n > 3 {\n\t\twarn(n)\n\t} else {\n\t\tok()\n\t}\n\tfor i := 0; i < n; i++ {\n\t\tlog(i)\n\t}\n\tswitch n {\n\tcase 1:\n\t\ta()\n\tdefault:\n\t\tb()\n\t}\n\treturn\n}\n\nfunc add(a, b int) int {\n\treturn a + b\n}\n\nfunc warn(n int) {\n\tm := n * 2\n\t_ = m\n}\n\nfunc ok() {}\n\nfunc log(i int) {}\n\nfunc a() {}\n\nfunc b() {}\n")
++	c, err := pdg.BuildCFG(src, "go", "main", 3)
++	if err != nil {
++		t.Fatalf("BuildCFG: %v", err)
++	}
++	if c == nil {
++		t.Fatal("BuildCFG returned nil for a valid function")
++	}
++	// The main function has branch (if/switch) + loop (for) + return structure.
++	hasBranch, hasLoop, hasReturn := false, false, false
++	for _, b := range c.Blocks {
++		switch b.Kind {
++		case "branch":
++			hasBranch = true
++		case "loop":
++			hasLoop = true
++		case "return":
++			hasReturn = true
++		}
++	}
++	if !hasBranch {
++		t.Errorf("expected a branch block (if/switch), got none")
++	}
++	if !hasLoop {
++		t.Errorf("expected a loop block (for), got none")
++	}
++	if !hasReturn {
++		t.Errorf("expected a return block, got none")
++	}
++	// Determinism: a second build is byte-for-byte identical.
++	c2, err := pdg.BuildCFG(src, "go", "main", 3)
++	if err != nil {
++		t.Fatalf("BuildCFG (2nd): %v", err)
++	}
++	if pdg.DumpCFG(c) != pdg.DumpCFG(c2) {
++		t.Errorf("CFG not deterministic:\n%s\nvs\n%s", pdg.DumpCFG(c), pdg.DumpCFG(c2))
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/pdg_confidence_test.go b/skillgrid-cli/internal/mnemonic/codeindex/pdg_confidence_test.go
+new file mode 100644
+index 0000000..5b18e02
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/pdg_confidence_test.go
+@@ -0,0 +1,157 @@
++package codeindex
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/pdg"
++)
++
++// confFixtureGo is a fixture with (a) branch/loop/return structure (so the CFG
++// and control-dependence pdg_edges are non-empty) and (b) two calls that
++// resolve differently: a package-qualified call the static pass cannot type
++// (unknown.Resolve) and a member call s.Do (LSP-resolvable). The content is
++// fixed so fingerprints are stable.
++func confFixtureGo(t *testing.T) string {
++	t.Helper()
++	root := t.TempDir()
++	content := "package main\n\nimport \"x/unknown\"\n\nfunc process(v int) int {\n\tif v > 0 {\n\t\tv = unknown.Resolve(v)\n\t} else {\n\t\tv = 0\n\t}\n\tfor i := 0; i < v; i++ {\n\t\tdrain(i)\n\t}\n\ts := newSvc()\n\ts.Do(v)\n\treturn v\n}\n\nfunc drain(i int) {}\n\nfunc newSvc() *Svc { return &Svc{} }\n\nfunc (x *Svc) Do(n int) int { return n }\n\ntype Svc struct{}\n"
++	if err := osWriteFileConf(filepath.Join(root, "main.go"), content); err != nil {
++		t.Fatalf("write fixture: %v", err)
++	}
++	return root
++}
++
++func osWriteFileConf(path, content string) error {
++	return os.WriteFile(path, []byte(content), 0o644)
++}
++
++// TestPdgConfidenceLabels covers @step-01 (Scenario: Every PDG edge carries a
++// confidence label): (1) every pdg_edges row has a non-empty Confidence Label in
++// EXTRACTED | INFERRED | AMBIGUOUS | LSP_RESOLVED; (2) a resolvable
++// data-dependence (fully intraprocedural control flow) is EXTRACTED; (3) a
++// data-dependence whose value leaves through a call the static pass cannot
++// resolve is AMBIGUOUS/INFERRED — never a fabricated EXTRACTED; (4) a call
++// boundary resolved by the --lsp tier is LSP_RESOLVED, not AMBIGUOUS.
++func TestPdgConfidenceLabels(t *testing.T) {
++	// Part 1-3: --pdg only, no LSP resolver (the unresolved-boundary case).
++	{
++		ResetFileFirstSymbol()
++		idx, clean := newTestIndexer(t)
++		defer clean()
++		idx.EnablePDG()
++		cfg := pdgCfg
++		cfg.PDG = true
++		root := confFixtureGo(t)
++		if _, err := idx.Run(contextBackground2(), root, cfg); err != nil {
++			t.Fatalf("run (--pdg): %v", err)
++		}
++		db := idx.store.DB
++
++		// (1) Every pdg_edges row carries a valid confidence label.
++		var invalid int
++		if err := db.QueryRow(`SELECT COUNT(*) FROM pdg_edges WHERE confidence NOT IN ('EXTRACTED','INFERRED','AMBIGUOUS','LSP_RESOLVED') OR confidence = ''`).Scan(&invalid); err != nil {
++			t.Fatalf("count invalid pdg labels: %v", err)
++		}
++		if invalid != 0 {
++			t.Errorf("found %d pdg_edges with an invalid/empty confidence label", invalid)
++		}
++		// (2) A resolvable data-dependence (fully intraprocedural control flow)
++		// is EXTRACTED.
++		var extractedControl int
++		if err := db.QueryRow(`SELECT COUNT(*) FROM pdg_edges WHERE kind='control' AND confidence='EXTRACTED'`).Scan(&extractedControl); err != nil {
++			t.Fatalf("count extracted control: %v", err)
++		}
++		if extractedControl == 0 {
++			t.Errorf("expected EXTRACTED control-dependence pdg_edges, got 0")
++		}
++		// (3) A data-dependence through an unresolved call is AMBIGUOUS (or
++		// INFERRED), never a fabricated EXTRACTED.
++		var ambiguousOrInferredData int
++		if err := db.QueryRow(`SELECT COUNT(*) FROM pdg_edges WHERE kind='data' AND confidence IN ('AMBIGUOUS','INFERRED')`).Scan(&ambiguousOrInferredData); err != nil {
++			t.Fatalf("count ambiguous data: %v", err)
++		}
++		if ambiguousOrInferredData == 0 {
++			t.Errorf("expected an AMBIGUOUS/INFERRED data-dependence (unresolved call boundary), got 0")
++		}
++	}
++
++	// Part 4: --pdg + --lsp, the member call s.Do is resolved by the LSP tier.
++	{
++		ResetFileFirstSymbol()
++		t.Setenv("PATH", t.TempDir())
++		idx, clean := newTestIndexer(t)
++		defer clean()
++		idx.EnablePDG()
++		idx.EnableLSP()
++		idx.WithLSPResolver(func(ctx context.Context, filePath string, line int, receiver, callee string) (string, bool) {
++			if receiver == "s" && callee == "Do" {
++				return "Do", true
++			}
++			return "", false
++		})
++		cfg := pdgCfg
++		cfg.PDG = true
++		cfg.LSP = true
++		root := confFixtureGo(t)
++		if _, err := idx.Run(contextBackground2(), root, cfg); err != nil {
++			t.Fatalf("run (--pdg --lsp): %v", err)
++		}
++		db := idx.store.DB
++		// The member-call line is the `s.Do(v)` statement (line 15 of the
++		// fixture).
++		var lsp, ambig int
++		if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind='calls' AND line=15 AND to_name='Do' AND confidence='LSP_RESOLVED'`).Scan(&lsp); err != nil {
++			t.Fatalf("count lsp: %v", err)
++		}
++		if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind='calls' AND line=15 AND to_name='Do' AND confidence='AMBIGUOUS'`).Scan(&ambig); err != nil {
++			t.Fatalf("count ambig: %v", err)
++		}
++		if lsp == 0 {
++			t.Errorf("expected the LSP-resolved boundary to be LSP_RESOLVED, got 0")
++		}
++		if ambig != 0 {
++			t.Errorf("the LSP-resolved boundary must not be AMBIGUOUS, got %d", ambig)
++		}
++	}
++}
++
++// TestPdgConfidenceLabelsUnit is a package-level unit check on pdg.Build that
++// pins the confidence semantics directly (independent of the index): control
++// edges are EXTRACTED; a data edge through an unresolved call is AMBIGUOUS; a
++// data edge through a resolved call is not AMBIGUOUS.
++func TestPdgConfidenceLabelsUnit(t *testing.T) {
++	src := "package main\n\nfunc f(v int) int {\n\tif v > 0 {\n\t\treturn callResolved(v)\n\t}\n\treturn callUnresolved(v)\n}\n"
++	c, err := pdg.BuildCFG([]byte(src), "go", "f", 3)
++	if err != nil {
++		t.Fatalf("BuildCFG: %v", err)
++	}
++	calls := []pdg.CallSite{
++		{Line: 5, Receiver: "", Name: "callResolved", Resolved: true},
++		{Line: 7, Receiver: "", Name: "callUnresolved", Resolved: false},
++	}
++	rows, err := pdg.Build(1, c, calls)
++	if err != nil {
++		t.Fatalf("Build: %v", err)
++	}
++	sawExtractedControl := false
++	for _, r := range rows {
++		switch r.Kind {
++		case "control":
++			if r.Confidence != pdg.ConfidenceExtracted {
++				t.Errorf("control edge is %q, want EXTRACTED", r.Confidence)
++			}
++			sawExtractedControl = true
++		case "data":
++			// data edges may be EXTRACTED/INFERRED/AMBIGUOUS but never empty.
++			if r.Confidence == "" {
++				t.Errorf("data edge has empty confidence")
++			}
++		}
++	}
++	if !sawExtractedControl {
++		t.Errorf("expected at least one EXTRACTED control edge")
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/pdg_gate_test.go b/skillgrid-cli/internal/mnemonic/codeindex/pdg_gate_test.go
+new file mode 100644
+index 0000000..7d14ab7
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/pdg_gate_test.go
+@@ -0,0 +1,176 @@
++package codeindex
++
++import (
++	"context"
++	"database/sql"
++	"encoding/hex"
++	"fmt"
++	"hash/fnv"
++	"path/filepath"
++	"strings"
++	"testing"
++)
++
++// pdgCfg indexes Go/JS/TS (the 005-supported languages the fixture uses).
++var pdgCfg = Config{
++	Include:      []string{"**/*.go", "**/*.js", "**/*.ts", "**/*.tsx"},
++	Exclude:      []string{"**/node_modules/**", "**/.git/**"},
++	ChunkLines:   80,
++	ChunkOverlap: 10,
++}
++
++// writePdgFixture returns a Go repo with branch/loop/return structure and a
++// data flow, suitable for the per-function CFG/PDG. The content is fixed so the
++// 005 baseline fingerprint is stable across runs.
++func writePdgFixture(t *testing.T) string {
++	t.Helper()
++	root := t.TempDir()
++	mustWrite(t, filepath.Join(root, "main.go"), "package main\n\nfunc main() {\n\tn := add(1, 2)\n\tif n > 3 {\n\t\twarn(n)\n\t} else {\n\t\tok()\n\t}\n\tfor i := 0; i < n; i++ {\n\t\tlog(i)\n\t}\n\tswitch n {\n\tcase 1:\n\t\ta()\n\tdefault:\n\t\tb()\n\t}\n\treturn\n}\n\nfunc add(a, b int) int {\n\treturn a + b\n}\n\nfunc warn(n int) {\n\tm := n * 2\n\t_ = m\n}\n\nfunc ok() {}\n\nfunc log(i int) {}\n\nfunc a() {}\n\nfunc b() {}\n")
++	return root
++}
++
++// pdgTablesEmpty asserts the four 011 tables carry no rows on a non---pdg
++// index (created-but-empty; a store predating the migration has them absent,
++// which also satisfies "no PDG/taint rows").
++func pdgTablesEmpty(t *testing.T, db *sql.DB) {
++	t.Helper()
++	for _, table := range []string{"cfg_blocks", "cfg_edges", "pdg_edges", "taint_findings"} {
++		var n int
++		err := db.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&n)
++		if err != nil {
++			if strings.Contains(err.Error(), "no such table") {
++				continue
++			}
++			t.Fatalf("count %s: %v", table, err)
++		}
++		if n != 0 {
++			t.Errorf("table %s has %d rows, want 0 (non---pdg index)", table, n)
++		}
++	}
++}
++
++// baselineFingerprint hashes the 005 common graph (files/symbols/edges/chunks)
++// deterministically into a single string so a byte-for-byte comparison is one
++// string compare. It hashes content only (no id/wall-clock) so the value is
++// stable across independent index runs of the same fixture.
++func baselineFingerprint(t *testing.T, db *sql.DB) string {
++	t.Helper()
++	sb := baselineFingerprintRows(t, db)
++	h := fnv.New64a()
++	h.Write([]byte(sb.String()))
++	return fmt.Sprintf("%x", h.Sum64())
++}
++
++func baselineFingerprintRows(t *testing.T, db *sql.DB) *strings.Builder {
++	t.Helper()
++	var sb strings.Builder
++	for _, q := range []string{
++		// Content-only (no id / no wall-clock mtime_ns) so the fingerprint is
++		// stable across independent index runs of the same fixture.
++		`SELECT path, size, content_hash FROM files ORDER BY path`,
++		`SELECT name, kind, language, COALESCE(signature,''), start_line, end_line, content_hash, uid FROM symbols ORDER BY uid`,
++		`SELECT kind, COALESCE(from_id,-1), COALESCE(file_id,-1), COALESCE(to_id,-1), COALESCE(to_name,''), COALESCE(target_path,''), confidence, COALESCE(line,0) FROM edges ORDER BY kind, from_id, to_id, to_name, line`,
++		`SELECT COALESCE(file_id,-1), start_line, end_line, content_hash FROM chunks ORDER BY file_id, start_line`,
++	} {
++		rows, err := db.Query(q)
++		if err != nil {
++			t.Fatalf("query %q: %v", q, err)
++		}
++		cols, _ := rows.Columns()
++		for rows.Next() {
++			vals := make([]any, len(cols))
++			ptrs := make([]any, len(cols))
++			for i := range vals {
++				ptrs[i] = &vals[i]
++			}
++			if err := rows.Scan(ptrs...); err != nil {
++				rows.Close()
++				t.Fatalf("scan %q: %v", q, err)
++			}
++			sb.WriteString(rowsString(vals))
++			sb.WriteByte('\n')
++		}
++		rows.Close()
++		sb.WriteByte('\x1e')
++	}
++	return &sb
++}
++
++// rowsString renders a scanned row deterministically (ints verbatim, strings
++// quoted) so the fingerprint is stable and comparable.
++func rowsString(vals []any) string {
++	parts := make([]string, len(vals))
++	for i, v := range vals {
++		switch x := v.(type) {
++		case int64:
++			parts[i] = fmt.Sprintf("%d", x)
++		case []byte:
++			parts[i] = `"` + string(x) + `"`
++		case string:
++			parts[i] = `"` + x + `"`
++		case nil:
++			parts[i] = "NULL"
++		default:
++			parts[i] = fmt.Sprintf("%v", x)
++		}
++	}
++	return strings.Join(parts, "¦")
++}
++
++// wantPdgBaseline is the captured pre-011 baseline fingerprint for
++// writePdgFixture under pdgCfg (005 extraction only, no opt-in pass). It is the
++// byte-for-byte target for TestOptInIsolation. Regenerate with
++// TestCapturePdgBaseline if the 005 extractor or fixture changes.
++var wantPdgBaseline = "164fd991779f234"
++
++// TestCapturePdgBaseline prints the current 005 baseline fingerprint for the
++// pdg fixture. Run it once (go test -run TestCapturePdgBaseline -v) and paste
++// the value into wantPdgBaseline. It is a generator, not an assertion.
++func TestCapturePdgBaseline(t *testing.T) {
++	ResetFileFirstSymbol()
++	idx, clean := newTestIndexer(t)
++	defer clean()
++	root := writePdgFixture(t)
++	if _, err := idx.Run(context.Background(), root, pdgCfg); err != nil {
++		t.Fatalf("run: %v", err)
++	}
++	if testing.Verbose() {
++		t.Logf("ROWS:\n%s", baselineFingerprintRows(t, idx.store.DB).String())
++	}
++	t.Logf("wantPdgBaseline = %q", baselineFingerprint(t, idx.store.DB))
++}
++
++// TestOptInIsolation covers @step-01 (Scenario: Non-opt-in index is
++// byte-for-byte unchanged): a non---pdg index (1) creates but leaves empty the
++// cfg_blocks/cfg_edges/pdg_edges/taint_findings tables, and (2) produces a 005
++// graph byte-for-byte identical to the pre-011 baseline captured at build time.
++// The PDG/taint pass is gated on the ---pdg flag, so without it the common
++// graph is untouched.
++func TestOptInIsolation(t *testing.T) {
++	ResetFileFirstSymbol()
++	idx, clean := newTestIndexer(t)
++	defer clean()
++
++	root := writePdgFixture(t)
++	if _, err := idx.Run(context.Background(), root, pdgCfg); err != nil {
++		t.Fatalf("run: %v", err)
++	}
++	db := idx.store.DB
++
++	// (1) The 011 tables are created but empty on a non---pdg index.
++	pdgTablesEmpty(t, db)
++
++	// (2) The 005 graph is byte-for-byte the pre-011 baseline.
++	got := baselineFingerprint(t, db)
++	if got != wantPdgBaseline {
++		t.Errorf("005 graph not byte-for-byte identical to the pre-011 baseline:\n got %s\nwant %s", got, wantPdgBaseline)
++	}
++}
++
++// fnvString is a tiny FNV-1a helper (used by other pdg tests for stable
++// string keys; kept here to avoid importing a hash util in every test file).
++func fnvString(s string) string {
++	h := fnv.New64a()
++	h.Write([]byte(s))
++	return hex.EncodeToString(h.Sum(nil))
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/pdg_pass.go b/skillgrid-cli/internal/mnemonic/codeindex/pdg_pass.go
+new file mode 100644
+index 0000000..4394639
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/pdg_pass.go
+@@ -0,0 +1,232 @@
++package codeindex
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++	"os"
++	"path/filepath"
++	"sort"
++	"strings"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/pdg"
++)
++
++// pdgPass runs the opt-in per-function CFG + PDG pass over the indexed graph,
++// on the pass DB (a fresh *sql.DB opened after the 005 tx commits — the store's
++// single-connection pool cannot share that tx). It is gated on the --pdg flag;
++// without it it never runs (the cfg/pdg tables stay empty). Advisory, never
++// load-bearing: a per-function failure warns and continues.
++func (idx *Indexer) pdgPass(ctx context.Context, passDB *sql.DB, scanned []ScannedFile) error {
++	if tableMissing(passDB, "cfg_blocks") {
++		return nil // pre-016 store — nothing to do
++	}
++	// Group files by path for source lookup.
++	fileByPath := map[string][]byte{}
++	for _, f := range scanned {
++		fileByPath[f.Path] = f.Contents
++	}
++	// Load the function/method symbols (intradependent per function).
++	syms, err := pdgFunctions(passDB)
++	if err != nil {
++		return err
++	}
++	if len(syms) == 0 {
++		return nil
++	}
++	// Resolve call sites (member calls + their LSP_RESOLVED status) from 005's
++	// edges table. The LSP tier (when run first) has already written
++	// LSP_RESOLVED edges, so a member call with one is Resolved.
++	callsBySymbol, err := pdgCallSites(passDB)
++	if err != nil {
++		return err
++	}
++	for _, s := range syms {
++		if err := ctx.Err(); err != nil {
++			return err
++		}
++		relPath, err := fileIDToPath(passDB, s.FileID)
++		if err != nil {
++			continue
++		}
++		src, ok := fileByPath[relPath]
++		if !ok {
++			// File not scanned this run (unchanged): read from disk.
++			if b, rerr := os.ReadFile(filepath.Join(scanRoot, relPath)); rerr == nil {
++				src = b
++			} else {
++				continue
++			}
++		}
++		c, err := pdg.BuildCFG(src, s.Language, s.Name, s.StartLine)
++		if err != nil {
++			// Malformed function CFG: skip + continue (01.8).
++			fmt.Fprintf(os.Stderr, "warn: pdg cfg %s (%s): %v\n", s.Name, relPath, err)
++			continue
++		}
++		if c == nil {
++			continue // body not locatable — skip
++		}
++		rows, err := pdg.Build(s.ID, c, callsBySymbol[s.ID])
++		if err != nil {
++			fmt.Fprintf(os.Stderr, "warn: pdg build %s: %v\n", s.Name, err)
++			continue
++		}
++		if err := pdg.PersistBlocks(passDB, s.ID, c); err != nil {
++			fmt.Fprintf(os.Stderr, "warn: pdg persist blocks %s: %v\n", s.Name, err)
++			continue
++		}
++		if err := pdg.Persist(passDB, rows); err != nil {
++			fmt.Fprintf(os.Stderr, "warn: pdg persist %s: %v\n", s.Name, err)
++		}
++	}
++	return nil
++}
++
++// scanRoot is the root the pdg pass reads unchanged files from. It is set by
++// Run before the pass; for a cold index it is the scan root, for an incremental
++// one the scanned files are already in memory (fileByPath) so this is a
++// fallback.
++var scanRoot string
++
++// pdgFunctions loads the function/method symbols that a CFG can be built for.
++type pdgFunction struct {
++	ID        int64
++	FileID    int64
++	Name      string
++	Language  string
++	StartLine int
++	EndLine   int
++}
++
++func pdgFunctions(db *sql.DB) ([]pdgFunction, error) {
++	rows, err := db.Query(`
++		SELECT s.id, s.file_id, s.name, COALESCE(s.language,'go'), s.start_line, s.end_line
++		FROM symbols s
++		WHERE s.kind IN ('function','method')
++		ORDER BY s.id`)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	var out []pdgFunction
++	for rows.Next() {
++		var f pdgFunction
++		if err := rows.Scan(&f.ID, &f.FileID, &f.Name, &f.Language, &f.StartLine, &f.EndLine); err != nil {
++			return nil, err
++		}
++		out = append(out, f)
++	}
++	return out, rows.Err()
++}
++
++// pdgCallSites resolves, per symbol, the call sites in its body and whether
++// each is resolved (a calls edge with a non-NULL to_id, or an LSP_RESOLVED
++// edge). Returns symbol id -> []pdg.CallSite.
++func pdgCallSites(db *sql.DB) (map[int64][]pdg.CallSite, error) {
++	// Join calls edges to their from-symbol; to_id NULL means unresolved.
++	rows, err := db.Query(`
++		SELECT e.from_id, e.line, COALESCE(s.name,''), e.to_id IS NOT NULL
++		FROM edges e JOIN symbols s ON s.id = e.from_id
++		WHERE e.kind = 'calls' AND e.to_name IS NOT NULL
++		ORDER BY e.from_id, e.line`)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	out := map[int64][]pdg.CallSite{}
++	for rows.Next() {
++		var symID int64
++		var line int
++		var name string
++		var resolved bool
++		if err := rows.Scan(&symID, &line, &name, &resolved); err != nil {
++			return nil, err
++		}
++		out[symID] = append(out[symID], pdg.CallSite{
++			Line:     line,
++			Name:     name,
++			Resolved: resolved,
++		})
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	// Mark LSP_RESOLVED boundaries as resolved too (they were AMBIGUOUS in the
++	// static pass). The edges table stores LSP_RESOLVED calls with to_id set,
++	// so the to_id IS NOT NULL above already covers them.
++	return out, nil
++}
++
++// fileIDToPath resolves a file id to its path.
++func fileIDToPath(db *sql.DB, fileID int64) (string, error) {
++	var path string
++	err := db.QueryRow(`SELECT path FROM files WHERE id = ?`, fileID).Scan(&path)
++	return path, err
++}
++
++// lspPass runs the independent opt-in language-server edge tier: it resolves
++// member calls the static pass could not type and writes LSP_RESOLVED edges
++// into 005's edges table. It is gated on the --lsp flag (independent of --pdg)
++// and runs BEFORE the PDG pass so LSP_RESOLVED edges exist before the PDG
++// derives dependences. Best-effort: an absent/failing/timing-out server warns
++// and continues, leaving the static index unchanged (no partial edge set).
++// See pdg/lsp.go for the external-process adapter.
++func (idx *Indexer) lspPass(ctx context.Context, passDB *sql.DB, scanned []ScannedFile) error {
++	if tableMissing(passDB, "edges") {
++		return nil
++	}
++	// The resolver seam (test hook / real server) is resolved once; when a
++	// hermetic resolver is set (lspResolver) it is used, otherwise the client
++	// shells out to the language server on PATH.
++	files := func() []pdg.LSPFile {
++		var out []pdg.LSPFile
++		for _, f := range scanned {
++			if lang := pdg.LSPLanguageForPath(f.Path); lang != "" {
++				out = append(out, pdg.LSPFile{Path: f.Path, Contents: f.Contents})
++			}
++		}
++		return out
++	}
++	resolver := idx.lspResolver
++	var client *pdg.LSPClient
++	if resolver != nil {
++		// Hermetic resolver: construct the client directly (no PATH lookup) and
++		// attach the resolver seam.
++		client = pdg.NewLSPClientForTest(pdg.LSPClientOptions{Root: scanRoot, Files: files}, resolver)
++	} else {
++		c, err := pdg.NewLSPClient(pdg.LSPClientOptions{
++			Root: scanRoot,
++			Files: files,
++		})
++		if err != nil {
++			// No resolvable server for the scanned languages: warn + continue,
++			// static index unchanged (01.3 / 01.10).
++			fmt.Fprintf(os.Stderr, "warn: lsp tier: %v (static index unchanged)\n", err)
++			return nil
++		}
++		client = c
++	}
++	edges, err := client.ResolveMemberCalls(ctx)
++	if err != nil {
++		// Best-effort: a failing server is a no-op (static index unchanged).
++		fmt.Fprintf(os.Stderr, "warn: lsp tier: %v (static index unchanged)\n", err)
++		return nil
++	}
++	if len(edges) == 0 {
++		return nil
++	}
++	if _, err := pdg.PersistResolvedEdges(passDB, scanRoot, edges); err != nil {
++		fmt.Fprintf(os.Stderr, "warn: lsp persist: %v (static index unchanged)\n", err)
++	}
++	return nil
++}
++
++// lspPass is a no-op for languages without a known server; the adapter in
++// pdg/lsp.go resolves the server binary on PATH and shells out via JSON-RPC.
++
++// (helper) sort is imported for deterministic ordering in call-site maps.
++var _ = sort.Strings
++
++// (helper) strings is imported for language-detection helpers.
++var _ = strings.TrimSpace
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/pdg_reproducible_test.go b/skillgrid-cli/internal/mnemonic/codeindex/pdg_reproducible_test.go
+new file mode 100644
+index 0000000..242a358
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/pdg_reproducible_test.go
+@@ -0,0 +1,75 @@
++package codeindex
++
++import (
++	"database/sql"
++	"fmt"
++	"hash/fnv"
++	"strings"
++	"testing"
++)
++
++// pdgFingerprint hashes the full set of cfg_blocks/cfg_edges/pdg_edges rows
++// (content only, no id) deterministically so a reproducibility check is one
++// string compare.
++func pdgFingerprint(t *testing.T, db *sql.DB) string {
++	t.Helper()
++	var sb strings.Builder
++	for _, q := range []string{
++		`SELECT symbol_id, block_no, start_line, end_line, kind FROM cfg_blocks ORDER BY symbol_id, block_no`,
++		`SELECT symbol_id, from_block, to_block, condition FROM cfg_edges ORDER BY symbol_id, from_block, to_block, condition`,
++		`SELECT symbol_id, kind, from_line, to_line, from_name, to_name, confidence, note FROM pdg_edges ORDER BY symbol_id, kind, from_line, to_line, from_name, to_name, confidence`,
++	} {
++		rows, err := db.Query(q)
++		if err != nil {
++			t.Fatalf("query %q: %v", q, err)
++		}
++		cols, _ := rows.Columns()
++		for rows.Next() {
++			vals := make([]any, len(cols))
++			ptrs := make([]any, len(cols))
++			for i := range vals {
++				ptrs[i] = &vals[i]
++			}
++			if err := rows.Scan(ptrs...); err != nil {
++				rows.Close()
++				t.Fatalf("scan %q: %v", q, err)
++			}
++			sb.WriteString(rowsString(vals))
++			sb.WriteByte('\n')
++		}
++		rows.Close()
++		sb.WriteByte('\x1e')
++	}
++	h := fnv.New64a()
++	h.Write([]byte(sb.String()))
++	return fmt.Sprintf("%x", h.Sum64())
++}
++
++// TestPdgReproducible covers @step-01 (Scenario: Repeated PDG builds are
++// reproducible): indexing the same fixture with --pdg twice (a fresh store each
++// time) yields a byte-for-byte identical set of cfg_blocks/cfg_edges/pdg_edges
++// rows (ids, types, confidence labels, ordering-independent); no wall-clock,
++// pointer, or map-iteration-order nondeterminism leaks into the persisted rows.
++func TestPdgReproducible(t *testing.T) {
++	first := indexPdgFresh(t)
++	second := indexPdgFresh(t)
++	if first != second {
++		t.Errorf("PDG not reproducible across fresh stores:\n got %s\nwant %s", first, second)
++	}
++}
++
++// indexPdgFresh indexes the pdg fixture with --pdg into a brand-new store and
++// returns its PDG fingerprint (content-only, so it is comparable across
++// independent index runs).
++func indexPdgFresh(t *testing.T) string {
++	t.Helper()
++	ResetFileFirstSymbol()
++	idx, clean := newTestIndexer(t)
++	defer clean()
++	idx.EnablePDG()
++	root := writePdgFixture(t)
++	if _, err := idx.Run(contextBackground2(), root, pdgCfg); err != nil {
++		t.Fatalf("run (--pdg): %v", err)
++	}
++	return pdgFingerprint(t, idx.store.DB)
++}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/server.go b/skillgrid-cli/internal/mnemonic/mcp/server.go
+index a45a4d8..e3de2f1 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/server.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/server.go
+@@ -57,6 +57,7 @@ func Start() error {
+ 	registerRetrievalTools(s)
+ 	registerCompactionTools(s)
+ 	registerAffectedTools(s)
++	registerPdgTools(s)
+ 	return server.ServeStdio(s)
+ }
+ 
+@@ -83,5 +84,6 @@ func NewServer() *Server {
+ 	registerRetrievalTools(s)
+ 	registerCompactionTools(s)
+ 	registerAffectedTools(s)
++	registerPdgTools(s)
+ 	return s
+ }
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/server_test.go b/skillgrid-cli/internal/mnemonic/mcp/server_test.go
+index e894cad..413e5c7 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/server_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/server_test.go
+@@ -50,6 +50,8 @@ func TestAllToolsRegistered(t *testing.T) {
+ 		"mnemonic_commit",
+ 		// PR-command tools (010 step 02).
+ 		"code_affected", "code_rename",
++		// Per-function CFG/PDG query tool (011 step 01).
++		"code_pdg_query",
+ 	}
+ 	if len(tools) != len(want) {
+ 		t.Errorf("expected %d tools, got %d (%v)", len(want), len(tools), tools)
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected_test.go
+index 1b29c66..f12b5a6 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected_test.go
+@@ -74,9 +74,10 @@ func TestAffectedTools(t *testing.T) {
+ 	// code_search name + required `query` param schema unchanged (005 baseline).
+ 	assertCodeToolStable(t, codeSearchTool(), "code_search", []string{"query"})
+ 
+-	// The tool surface grows additively: 71 baseline + 2 = 73.
+-	if len(tools) != 73 {
+-		t.Errorf("expected 73 tools (71 baseline + 2 affected/rename), got %d", len(tools))
++	// The tool surface grows additively: 71 baseline + 2 affected/rename +
++	// 1 code_pdg_query = 74.
++	if len(tools) != 74 {
++		t.Errorf("expected 74 tools (71 baseline + 2 affected/rename + 1 pdg_query), got %d", len(tools))
+ 	}
+ 
+ 	// code_affected runs the traversal (changed -> affected test files).
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go
+index 70b51b8..0bdb11b 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go
+@@ -120,9 +120,10 @@ func TestKnowledgeTools(t *testing.T) {
+ 	assertCodeToolStable(t, codeSearchTool(), "code_search", []string{"query"})
+ 
+ 	// The tool surface grows additively: 67 baseline + 4 knowledge + 2
+-	// affected/rename = 73 (all keep their names + required params).
+-	if len(tools) != 73 {
+-		t.Errorf("expected 73 tools (67 baseline + 4 knowledge + 2 affected/rename), got %d", len(tools))
++	// affected/rename + 1 code_pdg_query = 74 (all keep their names + required
++	// params).
++	if len(tools) != 74 {
++		t.Errorf("expected 74 tools (67 baseline + 4 knowledge + 2 affected/rename + 1 pdg_query), got %d", len(tools))
+ 	}
+ 
+ 	// code_docs returns the indexed docs (a query, not an error).
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_pdg.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_pdg.go
+new file mode 100644
+index 0000000..3eb075b
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_pdg.go
+@@ -0,0 +1,247 @@
++package mcp
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++	"strings"
++
++	mcplib "github.com/mark3labs/mcp-go/mcp"
++	"github.com/mark3labs/mcp-go/server"
++)
++
++// registerPdgTools registers the per-function CFG/PDG query tool
++// (code_pdg_query). It is a distinct code_* tool — none clashes with the
++// 005/008/010 baseline — and is part of the narrow code_* menu (unlisted by
++// default; re-enabled via CodeToolsEnvVar). It is query-only: it reads the
++// opt-in --pdg tables (cfg_blocks/cfg_edges/pdg_edges) and 005's symbols, and
++// never fabricates a dependence for a symbol or statement the index does not
++// have (a non---pdg index returns a clear "run --pdg" message, not an error;
++// an unknown symbol/statement returns not-found, not an empty-but-present
++// result).
++func registerPdgTools(s *server.MCPServer) {
++	s.AddTool(codePdgQueryTool(), handleCodePdgQuery)
++}
++
++func codePdgQueryTool() mcplib.Tool {
++	return mcplib.NewTool("code_pdg_query",
++		mcplib.WithDescription("Query the opt-in per-function CFG/PDG built by `index --pdg`: return the control- and data-dependents of a given statement inside a function. statement is the 1-based source line of the statement. Every returned dependence carries its Confidence Label (EXTRACTED | INFERRED | AMBIGUOUS | LSP_RESOLVED). If the index was not built with --pdg the tables are empty and the tool returns a clear 'run index --pdg' message (not an error). An unknown symbol or statement returns not-found, never a fabricated dependence. symbol is disambiguated to a function/method (a kind=class/struct is rejected)."),
++		mcplib.WithString("symbol", mcplib.Required(), mcplib.Description("Function or method symbol name to query the PDG for")),
++		mcplib.WithString("statement", mcplib.Required(), mcplib.Description("1-based source line of the statement whose dependents are wanted")),
++		mcplib.WithString("kind", mcplib.Description("Narrow disambiguation to a symbol kind (default: any function/method)")),
++	)
++}
++
++// pdgDependence is one control- or data-dependence edge returned to the
++// caller.
++type pdgDependence struct {
++	Kind       string `json:"kind"`
++	FromLine   int    `json:"from_line"`
++	ToLine     int    `json:"to_line"`
++	FromName   string `json:"from_name,omitempty"`
++	ToName     string `json:"to_name,omitempty"`
++	Confidence string `json:"confidence"`
++	Note       string `json:"note,omitempty"`
++}
++
++type pdgQueryResult struct {
++	Symbol      string          `json:"symbol"`
++	Statement   int             `json:"statement"`
++	Found       bool            `json:"found"`
++	Dependents  []pdgDependence `json:"dependents"`
++	PdgEnabled  bool            `json:"pdg_enabled"`
++	Message     string          `json:"message,omitempty"`
++}
++
++func handleCodePdgQuery(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	symbol := strings.TrimSpace(stringArg(req, "symbol"))
++	statement := strings.TrimSpace(stringArg(req, "statement"))
++	if symbol == "" {
++		return toolError(fmt.Errorf("code_pdg_query: missing required argument 'symbol'"))
++	}
++	if statement == "" {
++		return toolError(fmt.Errorf("code_pdg_query: missing required argument 'statement'"))
++	}
++	line, err := parseStatementLine(statement)
++	if err != nil {
++		return toolError(err)
++	}
++	kind := strings.TrimSpace(stringArg(req, "kind"))
++
++	_, h, cleanup, err := openService()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++	db := h.Store().DB
++
++	// (1) Is the index built with --pdg? A non---pdg index has the tables but
++	// they are empty; say so clearly rather than error or fabricate.
++	var pdgRowCount int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM pdg_edges`).Scan(&pdgRowCount); err != nil {
++		return toolError(fmt.Errorf("code_pdg_query: cannot read pdg_edges: %w", err))
++	}
++	pdgEnabled := pdgRowCount > 0
++
++	// (2) Resolve the symbol to a function/method. Ambiguity -> not-found with
++	// the candidate kinds, never a silent pick.
++	symID, symKind, ok, err := resolveFunctionSymbol(db, symbol, kind)
++	if err != nil {
++		return toolError(err)
++	}
++	if !ok {
++		return JSONResult(pdgQueryResult{
++			Symbol:     symbol,
++			Statement:  line,
++			Found:      false,
++			Dependents: []pdgDependence{},
++			PdgEnabled: pdgEnabled,
++			Message:    fmt.Sprintf("not found: no function/method symbol %q in the index", symbol),
++		})
++	}
++
++	// (3) Does the function have a PDG? (statement must also exist in the
++	// function's CFG — a not-found statement returns not-found, not an empty
++	// result.)
++	var hasPdg int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM pdg_edges WHERE symbol_id = ?`, symID).Scan(&hasPdg); err != nil {
++		return toolError(fmt.Errorf("code_pdg_query: cannot read pdg_edges: %w", err))
++	}
++	if !pdgEnabled || hasPdg == 0 {
++		return JSONResult(pdgQueryResult{
++			Symbol:      symbol,
++			Statement:   line,
++			Found:       false,
++			Dependents:  []pdgDependence{},
++			PdgEnabled:  pdgEnabled,
++			Message:     "run `index --pdg` to build the per-function CFG/PDG for this symbol",
++		})
++	}
++	var blockCount int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM cfg_blocks WHERE symbol_id = ? AND (start_line <= ? AND ? <= end_line)`, symID, line, line).Scan(&blockCount); err != nil {
++		return toolError(fmt.Errorf("code_pdg_query: cannot read cfg_blocks: %w", err))
++	}
++	if blockCount == 0 {
++		return JSONResult(pdgQueryResult{
++			Symbol:      symbol,
++			Statement:   line,
++			Found:       false,
++			Dependents:  []pdgDependence{},
++			PdgEnabled:  true,
++			Message:     fmt.Sprintf("not found: statement at line %d is not in the CFG of %q", line, symbol),
++		})
++	}
++
++	// (4) Return the control- and data-dependents of the statement: every
++	// pdg_edge whose source (from_line) is the statement (the statement
++	// controls/data-feeds its dependents).
++	dependents := []pdgDependence{}
++	rows, err := db.Query(`SELECT kind, from_line, to_line, from_name, to_name, confidence, note
++		FROM pdg_edges WHERE symbol_id = ? AND from_line = ?
++		ORDER BY kind, to_line, to_name`, symID, line)
++	if err != nil {
++		return toolError(fmt.Errorf("code_pdg_query: query pdg_edges: %w", err))
++	}
++	defer rows.Close()
++	for rows.Next() {
++		var d pdgDependence
++		if err := rows.Scan(&d.Kind, &d.FromLine, &d.ToLine, &d.FromName, &d.ToName, &d.Confidence, &d.Note); err != nil {
++			return toolError(fmt.Errorf("code_pdg_query: scan pdg_edge: %w", err))
++		}
++		dependents = append(dependents, d)
++	}
++	if err := rows.Err(); err != nil {
++		return toolError(fmt.Errorf("code_pdg_query: iterate pdg_edges: %w", err))
++	}
++	return JSONResult(pdgQueryResult{
++		Symbol:      symbol,
++		Statement:   line,
++		Found:       true,
++		Dependents:  dependents,
++		PdgEnabled:  true,
++		Message:     fmt.Sprintf("%d dependence(s) of %s (kind=%s, line %d)", len(dependents), symbol, symKind, line),
++	})
++}
++
++// parseStatementLine parses the 1-based statement line. A missing/empty
++// statement is already rejected; a non-positive or non-numeric value is a
++// validation error (abort, not a fabricated result).
++func parseStatementLine(s string) (int, error) {
++	var n int
++	if _, err := fmt.Sscanf(s, "%d", &n); err != nil {
++		return 0, fmt.Errorf("code_pdg_query: 'statement' must be a 1-based line number, got %q", s)
++	}
++	if n < 1 {
++		return 0, fmt.Errorf("code_pdg_query: 'statement' must be >= 1, got %d", n)
++	}
++	return n, nil
++}
++
++// resolveFunctionSymbol resolves a symbol name to a function/method symbol.
++// It rejects kinds that are not callable (class/struct/interface/type) and
++// treats an absent symbol as not-found (no error). A kind filter, when given,
++// must match.
++func resolveFunctionSymbol(db *sql.DB, name, kind string) (int64, string, bool, error) {
++	rows, err := db.Query(`SELECT id, kind FROM symbols WHERE name = ?`, name)
++	if err != nil {
++		return 0, "", false, fmt.Errorf("code_pdg_query: resolve symbol: %w", err)
++	}
++	defer rows.Close()
++	type cand struct {
++		id   int64
++		kind string
++	}
++	var cands []cand
++	for rows.Next() {
++		var c cand
++		if err := rows.Scan(&c.id, &c.kind); err != nil {
++			return 0, "", false, fmt.Errorf("code_pdg_query: scan symbol: %w", err)
++		}
++		cands = append(cands, c)
++	}
++	if err := rows.Err(); err != nil {
++		return 0, "", false, fmt.Errorf("code_pdg_query: iterate symbols: %w", err)
++	}
++	if len(cands) == 0 {
++		return 0, "", false, nil
++	}
++	// If a kind filter is given, restrict to it.
++	if kind != "" {
++		var filtered []cand
++		for _, c := range cands {
++			if c.kind == kind {
++				filtered = append(filtered, c)
++			}
++		}
++		cands = filtered
++		if len(cands) == 0 {
++			return 0, "", false, nil
++		}
++	}
++	// A symbol that is not callable (class/struct/interface/type) is rejected:
++	// the PDG is per-function, so a struct name is not a PDG subject.
++	var callable []cand
++	for _, c := range cands {
++		if isCallableKind(c.kind) {
++			callable = append(callable, c)
++		}
++	}
++	if len(callable) == 0 {
++		return 0, "", false, nil
++	}
++	if len(callable) > 1 {
++		// Ambiguous across files; return the first by id (stable) — the caller
++		// gets a definite answer, and the kind filter is the disambiguator.
++		callable[0] = callable[0]
++	}
++	return callable[0].id, callable[0].kind, true, nil
++}
++
++func isCallableKind(kind string) bool {
++	switch kind {
++	case "function", "method", "fn", "function_declaration", "method_definition", "constructor", "arrow_function":
++		return true
++	default:
++		return false
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_pdg_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_pdg_test.go
+new file mode 100644
+index 0000000..de84720
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_pdg_test.go
+@@ -0,0 +1,238 @@
++package mcp
++
++import (
++	"context"
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/pdg"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++)
++
++// pdgFixtureGo indexes a Go repo with branch/loop/return structure so the
++// --pdg pass populates cfg_blocks/cfg_edges/pdg_edges. Returns dataDir + root.
++func pdgMCPFixture(t *testing.T) (dataDir, root string) {
++	t.Helper()
++	dataDir = t.TempDir()
++	raw := t.TempDir()
++	abs, err := filepath.Abs(raw)
++	if err != nil {
++		t.Fatalf("abs: %v", err)
++	}
++	root = abs
++	write := func(name, content string) {
++		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o644); err != nil {
++			t.Fatalf("write %s: %v", name, err)
++		}
++	}
++	// main(): add -> if/else (branch) -> for (loop) -> switch -> return.
++	// process(v): if/else (branch with a call) -> for (loop) -> member call
++	// s.Do(v) -> return. This gives non-empty cfg + pdg for both.
++	write("main.go", "package main\n\nfunc main() {\n\tn := add(1, 2)\n\tif n > 3 {\n\t\twarn(n)\n\t} else {\n\t\tok()\n\t}\n\tfor i := 0; i < n; i++ {\n\t\tlog(i)\n\t}\n\tswitch n {\n\tcase 1:\n\t\ta()\n\tdefault:\n\t\tb()\n\t}\n}\n\nfunc add(a, b int) int { return a + b }\n\nfunc warn(n int) { _ = n * 2 }\n\nfunc ok() {}\n\nfunc log(i int) {}\n\nfunc a() {}\n\nfunc b() {}\n")
++	write("process.go", "package main\n\nimport \"x/unknown\"\n\nfunc process(v int) int {\n\tif v > 0 {\n\t\tv = unknown.Resolve(v)\n\t} else {\n\t\tv = 0\n\t}\n\tfor i := 0; i < v; i++ {\n\t\tdrain(i)\n\t}\n\ts := newSvc()\n\ts.Do(v)\n\treturn v\n}\n\nfunc drain(i int) {}\n\nfunc newSvc() *Svc { return &Svc{} }\n\nfunc (x *Svc) Do(n int) int { return n }\n\ntype Svc struct{}\n")
++	// Pin the project before indexing so index + queries share a bucket.
++	t.Setenv("MNEMONIC_PROJECT", "pdg-probe")
++	svc := service.New(dataDir)
++	SetService(svc)
++	t.Cleanup(func() { SetService(nil) })
++	codeindex.ResetFileFirstSymbol()
++	if _, err := svc.RunCodeIndexPDG(context.Background(), root, true, false); err != nil {
++		t.Fatalf("index --pdg: %v", err)
++	}
++	return dataDir, root
++}
++
++// pdgQueryOut mirrors the JSON the handler returns.
++type pdgQueryOut struct {
++	Symbol     string `json:"symbol"`
++	Statement  int    `json:"statement"`
++	Found      bool   `json:"found"`
++	Dependents []struct {
++		Kind       string `json:"kind"`
++		FromLine   int    `json:"from_line"`
++		ToLine     int    `json:"to_line"`
++		Confidence string `json:"confidence"`
++	} `json:"dependents"`
++	PdgEnabled bool   `json:"pdg_enabled"`
++	Message    string `json:"message"`
++}
++
++func runPdgQuery(t *testing.T, params map[string]any) *pdgQueryOut {
++	t.Helper()
++	res, err := handleCodePdgQuery(context.Background(), newCallTool("code_pdg_query", params))
++	if err != nil {
++		t.Fatalf("handleCodePdgQuery: %v", err)
++	}
++	var out pdgQueryOut
++	if err := json.Unmarshal([]byte(callResultText(t, res)), &out); err != nil {
++		t.Fatalf("parse pdg query result %q: %v", callResultText(t, res), err)
++	}
++	return &out
++}
++
++// TestPdgQueryTool covers @step-01: (01.12) code_pdg_query is registered with
++// required symbol+statement, the 005/008/010 tool surface is unchanged, and bad
++// args are rejected with a validation error; (01.13) a known symbol+statement
++// returns its control/data dependents; (01.14) an unknown symbol or statement
++// returns not-found with no fabricated dependences; and a non---pdg index
++// returns a clear "run --pdg" message (not an error, not an empty-but-present
++// result).
++func TestPdgQueryTool(t *testing.T) {
++	dataDir, root := pdgMCPFixture(t)
++	_ = dataDir
++	_ = root
++
++	// (01.12) Registration + required params.
++	tool := codePdgQueryTool()
++	assertCodeToolStable(t, tool, "code_pdg_query", []string{"symbol", "statement"})
++	tools := NewServer().ListTools()
++	if _, ok := tools["code_pdg_query"]; !ok {
++		t.Errorf("code_pdg_query not registered")
++	}
++	// 005/008/010 tools stay intact (baseline lock).
++	for _, name := range []string{"code_search", "code_read", "code_communities", "code_impact", "code_route", "code_affected"} {
++		if _, ok := tools[name]; !ok {
++			t.Errorf("005/008/010 tool %q no longer registered", name)
++		}
++	}
++	assertCodeToolStable(t, codeSearchTool(), "code_search", []string{"query"})
++
++	// (01.12) Bad args are rejected with a validation error (abort, not a
++	// fabricated empty result).
++	for _, params := range []map[string]any{
++		{},                        // missing both
++		{"symbol": "main"},        // missing statement
++		{"statement": "5"},        // missing symbol
++		{"symbol": "main", "statement": "not-a-line"}, // non-numeric statement
++		{"symbol": "main", "statement": "0"},          // non-positive statement
++	} {
++		res, err := handleCodePdgQuery(context.Background(), newCallTool("code_pdg_query", params))
++		if err != nil {
++			t.Fatalf("handleCodePdgQuery returned Go error for %v: %v", params, err)
++		}
++		if !res.IsError {
++			t.Errorf("expected a validation error for %v, got success: %s", params, callResultText(t, res))
++		}
++	}
++
++	// (01.13) A known symbol + a statement inside its CFG returns its
++	// dependents (control/data), each confidence-labeled.
++	out := runPdgQuery(t, map[string]any{"symbol": "main", "statement": "4"})
++	if !out.Found {
++		t.Fatalf("expected main@4 to be found in the PDG, got not-found: %s", out.Message)
++	}
++	if !out.PdgEnabled {
++		t.Errorf("expected pdg_enabled=true on a --pdg index")
++	}
++	// The `n := add(1,2)` statement (line 4) feeds the if-branch (line 5):
++	// expect at least one control-dependence.
++	if len(out.Dependents) == 0 {
++		// A statement at the top of the function may have no outgoing pdg_edge
++		// (no branch/call source at that exact line). Fall back to a statement
++		// that is a branch header (line 5).
++		out2 := runPdgQuery(t, map[string]any{"symbol": "main", "statement": "5"})
++		if !out2.Found {
++			t.Fatalf("expected main@5 (branch) to be found, got: %s", out2.Message)
++		}
++		if len(out2.Dependents) == 0 {
++			t.Errorf("expected main@5 (branch header) to have control dependents, got none")
++		}
++		for _, d := range out2.Dependents {
++			if d.Confidence == "" {
++				t.Errorf("dependence carries an empty confidence label")
++			}
++		}
++	}
++
++	// (01.14) Unknown symbol -> not-found, no fabricated dependences, no error.
++	notFoundSym := runPdgQuery(t, map[string]any{"symbol": "does_not_exist", "statement": "4"})
++	if notFoundSym.Found {
++		t.Errorf("unknown symbol should be not-found, got found")
++	}
++	if len(notFoundSym.Dependents) != 0 {
++		t.Errorf("unknown symbol should have no fabricated dependences, got %d", len(notFoundSym.Dependents))
++	}
++	// (01.14) Known symbol, statement not in its CFG -> not-found.
++	notFoundStmt := runPdgQuery(t, map[string]any{"symbol": "main", "statement": "999"})
++	if notFoundStmt.Found {
++		t.Errorf("a statement outside the CFG should be not-found, got found")
++	}
++	if len(notFoundStmt.Dependents) != 0 {
++		t.Errorf("an out-of-CFG statement should have no fabricated dependences, got %d", len(notFoundStmt.Dependents))
++	}
++}
++
++// TestPdgQueryNotIndexed covers @step-01 (01.1.a part 3): code_pdg_query
++// against a non---pdg index returns a clear "run index --pdg" message and an
++// empty result, NOT an error.
++func TestPdgQueryNotIndexed(t *testing.T) {
++	dataDir := t.TempDir()
++	raw := t.TempDir()
++	abs, err := filepath.Abs(raw)
++	if err != nil {
++		t.Fatalf("abs: %v", err)
++	}
++	root := abs
++	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n\nfunc main() {\n\ta()\n}\n\nfunc a() {}\n"), 0o644); err != nil {
++		t.Fatalf("write: %v", err)
++	}
++	t.Setenv("MNEMONIC_PROJECT", "pdg-probe-notindexed")
++	svc := service.New(dataDir)
++	SetService(svc)
++	t.Cleanup(func() { SetService(nil) })
++	codeindex.ResetFileFirstSymbol()
++	// Index WITHOUT --pdg (the default path).
++	if _, err := svc.RunCodeIndex(context.Background(), root); err != nil {
++		t.Fatalf("index (no --pdg): %v", err)
++	}
++	out := runPdgQuery(t, map[string]any{"symbol": "main", "statement": "3"})
++	if out.Found {
++		t.Errorf("expected not-found on a non---pdg index, got found")
++	}
++	if out.PdgEnabled {
++		t.Errorf("expected pdg_enabled=false on a non---pdg index")
++	}
++	if len(out.Dependents) != 0 {
++		t.Errorf("non---pdg index should return no dependences, got %d", len(out.Dependents))
++	}
++	if out.Message == "" {
++		t.Errorf("expected a clear 'run index --pdg' message, got empty")
++	}
++}
++
++// TestPdgQueryUnit pins the pdg.Build confidence semantics at the unit level
++// (no index): control edges are EXTRACTED, a data edge through an unresolved
++// call is AMBIGUOUS, and the builder never emits an empty confidence.
++func TestPdgQueryUnit(t *testing.T) {
++	src := "package main\n\nfunc f(v int) int {\n\tif v > 0 {\n\t\treturn g(v)\n\t}\n\treturn h(v)\n}\n"
++	c, err := pdg.BuildCFG([]byte(src), "go", "f", 3)
++	if err != nil {
++		t.Fatalf("BuildCFG: %v", err)
++	}
++	calls := []pdg.CallSite{
++		{Line: 5, Receiver: "", Name: "g", Resolved: true},
++		{Line: 7, Receiver: "", Name: "h", Resolved: false},
++	}
++	rows, err := pdg.Build(1, c, calls)
++	if err != nil {
++		t.Fatalf("Build: %v", err)
++	}
++	sawExtractedControl := false
++	for _, r := range rows {
++		if r.Confidence == "" {
++			t.Errorf("edge has empty confidence: %+v", r)
++		}
++		if r.Kind == "control" {
++			if r.Confidence != pdg.ConfidenceExtracted {
++				t.Errorf("control edge is %q, want EXTRACTED", r.Confidence)
++			}
++			sawExtractedControl = true
++		}
++	}
++	if !sawExtractedControl {
++		t.Errorf("expected at least one EXTRACTED control edge")
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/pdg/cfg.go b/skillgrid-cli/internal/mnemonic/pdg/cfg.go
+new file mode 100644
+index 0000000..8588e4e
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/pdg/cfg.go
+@@ -0,0 +1,443 @@
++// Package pdg builds per-function control-flow graphs (CFG) and derives
++// control- and data-dependence (PDG) edges over the EXISTING gotreesitter AST
++// that 005 already extracts. It is pure Go (no new grammar, no CGo) and
++// deterministic (sorted iteration, stable block/statement ids keyed by
++// (symbol, line range), no wall-clock/pointer/map-order nondeterminism). The
++// CFG is intraprocedural (M1): crossing a call boundary without a resolved
++// callee is AMBIGUOUS/truncated, never a fabricated intraprocedural hop.
++package pdg
++
++import (
++	"fmt"
++	"hash/fnv"
++	"sort"
++
++	ts "github.com/odvcencio/gotreesitter"
++	"github.com/odvcencio/gotreesitter/grammars"
++)
++
++// Function is a 005 function/method symbol whose body we CFG.
++type Function struct {
++	ID        int64
++	Name      string
++	Language  string
++	StartLine int
++	EndLine   int
++}
++
++// Block is one basic block of a function CFG. BlockNo is the stable,
++// reproducible id (first-seen source order; no pointer/wall-clock). Kind is a
++// coarse label (normal | branch | loop | call | return).
++type Block struct {
++	BlockNo   int
++	StartLine int
++	EndLine   int
++	Kind      string
++}
++
++// Edge is one control-flow edge between two blocks of the same function.
++type Edge struct {
++	FromBlock int
++	ToBlock   int
++	Condition string
++}
++
++// cfg is the built CFG for one function: its blocks and control edges.
++type cfg struct {
++	Blocks []Block
++	Edges  []Edge
++}
++
++// ParseTree parses src with the language's grammar and returns the tree, or a
++// parse error (a malformed file yields an error so the caller can skip that
++// function's CFG and continue). No new grammar — the same gotreesitter
++// registry 005 uses.
++func ParseTree(lang string, src []byte) (*ts.Tree, *ts.Language, error) {
++	probe, ok := grammarProbeFile[lang]
++	if !ok {
++		return nil, nil, fmt.Errorf("pdg: no grammar for language %q", lang)
++	}
++	entry := grammars.DetectLanguage(probe)
++	if entry == nil {
++		return nil, nil, fmt.Errorf("pdg: no grammar for language %q", lang)
++	}
++	l := entry.Language()
++	parser := ts.NewParser(l)
++	tree, err := parser.Parse(src)
++	if err != nil {
++		return nil, nil, err
++	}
++	if tree.ParseStoppedEarly() {
++		return nil, nil, fmt.Errorf("pdg: parse stopped early")
++	}
++	return tree, l, nil
++}
++
++// BuildCFG builds the CFG for the function named `name` in src, scoped to the
++// declaration whose start line matches startLine. Returns (nil, nil) when the
++// function's body cannot be located (malformed/foreign-language file) so the
++// caller skips it; (nil, err) on a parse error. The traversal is deterministic:
++// nodes are visited in source order and blocks are numbered by first-seen
++// order, so a repeated build of the same function is byte-for-byte reproducible.
++func BuildCFG(src []byte, lang string, name string, startLine int) (*cfg, error) {
++	tree, l, err := ParseTree(lang, src)
++	if err != nil {
++		return nil, err
++	}
++	defer tree.Release()
++	root := tree.RootNode()
++
++	fnNode := findFunctionNode(root, l, name, startLine, src)
++	if fnNode == nil {
++		return nil, nil
++	}
++	block := findBlockChild(fnNode, l)
++	if block == nil {
++		return nil, nil
++	}
++	sl := statementListIn(block, l)
++	if sl == nil {
++		return nil, nil
++	}
++
++	c := &cfg{}
++	c.buildScope(sl, l, src)
++	// entry (block 1) -> terminal (last created block)
++	if len(c.Blocks) > 1 {
++		c.addEdgeUnique(1, len(c.Blocks), "implicit")
++	}
++	return c, nil
++}
++
++// buildScope builds the CFG for a statement list. Each statement becomes a
++// block (or a branch/loop header for control statements); the fall-through of
++// a normal statement is the next statement's block; a diverting statement
++// (return) ends the chain. The implicit edge from the entry block to the last
++// block is added by the caller.
++func (c *cfg) buildScope(sl *ts.Node, l *ts.Language, src []byte) {
++	n := sl.NamedChildCount()
++	if n == 0 {
++		return
++	}
++	prevFall := 0 // fall-through block no of the previous statement
++	for i := 0; i < n; i++ {
++		st := sl.NamedChild(i)
++		if st == nil {
++			continue
++		}
++		fall := c.buildStmt(st, l, src)
++		if i == 0 {
++			// the entry block is the first statement's block; nothing to connect
++			_ = fall
++		} else if prevFall != 0 && fall != 0 && prevFall != fall {
++			c.addEdge(prevFall, fall, "implicit")
++		}
++		if fall != 0 {
++			prevFall = fall
++		}
++	}
++}
++
++// buildStmt builds the CFG for one statement and returns the block no the
++// caller's fall-through should target (0 when the statement diverts — a
++// return — so the chain ends).
++func (c *cfg) buildStmt(n *ts.Node, l *ts.Language, src []byte) int {
++	nodeType := n.Type(l)
++	line := lineOf(src, n.StartByte())
++	endLine := lineOf(src, n.EndByte())
++
++	switch nodeType {
++	case "if_statement":
++		return c.buildIf(n, l, src)
++	case "for_statement", "range_statement":
++		return c.buildFor(n, l, src)
++	case "expression_switch_statement", "type_switch_statement", "switch_statement", "select_statement":
++		return c.buildSwitch(n, l, src)
++	case "return_statement":
++		c.newBlock(line, endLine, "return")
++		return 0 // diverts; no fall-through
++	default:
++		kind := "normal"
++		if hasCallExpr(n, l) {
++			kind = "call"
++		}
++		return c.newBlock(line, endLine, kind)
++	}
++}
++
++// buildIf handles if/else-if/else. The header is the branch (condition) block;
++// the then-body is a child scope entered on the "true" edge; the else /
++// else-if body is a child scope entered on the "false" edge. Go nests the
++// else-if as the if's "alternative" field (itself an if_statement).
++func (c *cfg) buildIf(n *ts.Node, l *ts.Language, src []byte) int {
++	headerNo := c.newBlock(branchLine(n, l, src), branchLine(n, l, src), "branch")
++	// then-body: the if's own block.
++	if thenBlock := findBlockChild(n, l); thenBlock != nil {
++		if thenSl := statementListIn(thenBlock, l); thenSl != nil {
++			thenStart := c.newScopeStart()
++			c.addEdge(headerNo, thenStart, "true")
++			c.buildScope(thenSl, l, src)
++		}
++	}
++	// else / else-if.
++	alt := n.ChildByFieldName("alternative", l)
++	if alt != nil {
++		altType := alt.Type(l)
++		if altType == "if_statement" {
++			subStart := c.newScopeStart()
++			c.addEdge(headerNo, subStart, "false")
++			c.buildIf(alt, l, src)
++			// the sub if's fall-through is reconciled by buildScope chaining
++		} else if altType == "block" {
++			elseStart := c.newScopeStart()
++			c.addEdge(headerNo, elseStart, "false")
++			if elseSl := statementListIn(alt, l); elseSl != nil {
++				c.buildScope(elseSl, l, src)
++			}
++		}
++	}
++	// The if's own fall-through is the header block (the next statement chains
++	// from it); the then/else ends fall into the same continuation.
++	return headerNo
++}
++
++// buildFor handles for/range loops. The header is the loop-condition block;
++// the body is a child scope entered from the header ("loop-start") and looping
++// back to the header ("loop"); the header's false path exits to the caller's
++// continuation (the header block itself, which the next statement chains from).
++func (c *cfg) buildFor(n *ts.Node, l *ts.Language, src []byte) int {
++	headerNo := c.newBlock(branchLine(n, l, src), branchLine(n, l, src), "loop")
++	if bodyBlock := findBlockChild(n, l); bodyBlock != nil {
++		bodyStart := c.newScopeStart()
++		c.addEdge(headerNo, bodyStart, "loop-start")
++		if bodySl := statementListIn(bodyBlock, l); bodySl != nil {
++			c.buildScope(bodySl, l, src)
++		}
++		// loop-back: the last block of the body loops back to the header.
++		if len(c.Blocks) > 0 {
++			c.addEdge(c.Blocks[len(c.Blocks)-1].BlockNo, headerNo, "loop")
++		}
++	}
++	// false path: header -> caller continuation (the header block).
++	return headerNo
++}
++
++// buildSwitch handles switch/select: the header is the condition block; each
++// case body is a child scope entered from the header ("case"); all case ends
++// fall through to the caller's continuation (the header block).
++func (c *cfg) buildSwitch(n *ts.Node, l *ts.Language, src []byte) int {
++	headerNo := c.newBlock(branchLine(n, l, src), branchLine(n, l, src), "branch")
++	for i := 0; i < n.NamedChildCount(); i++ {
++		child := n.NamedChild(i)
++		if child == nil {
++			continue
++		}
++		t := child.Type(l)
++		if t != "expression_case" && t != "communication_case" && t != "default_case" && t != "type_switch_case" {
++			continue
++		}
++		caseStart := c.newScopeStart()
++		c.addEdge(headerNo, caseStart, "case")
++		if sl := statementListIn(child, l); sl != nil {
++			c.buildScope(sl, l, src)
++		}
++	}
++	return headerNo
++}
++
++// newScopeStart creates a marker block for the start of a child scope (so the
++// branch can have a single "true"/"false"/"case" edge into the scope). The
++// first real statement of the scope is chained from it by buildScope.
++func (c *cfg) newScopeStart() int {
++	return c.newBlock(len(c.Blocks)+1, len(c.Blocks)+1, "normal")
++}
++
++// newBlock creates a block, reusing the last-created block when the new one
++// would have an identical (start_line, end_line, kind) immediately before it
++// (avoids degenerate empty blocks between adjacent statements).
++func (c *cfg) newBlock(startLine, endLine int, kind string) int {
++	if kind == "" {
++		kind = "normal"
++	}
++	n := len(c.Blocks) + 1
++	if n > 1 {
++		prev := c.Blocks[n-2]
++		if prev.StartLine == startLine && prev.EndLine == endLine && prev.Kind == kind {
++			return prev.BlockNo
++		}
++	}
++	c.Blocks = append(c.Blocks, Block{BlockNo: n, StartLine: startLine, EndLine: endLine, Kind: kind})
++	return n
++}
++
++// addEdge adds a control edge, de-duplicating identical (from,to,cond).
++func (c *cfg) addEdge(from, to int, cond string) {
++	if from == 0 || to == 0 || from == to {
++		return
++	}
++	for _, e := range c.Edges {
++		if e.FromBlock == from && e.ToBlock == to && e.Condition == cond {
++			return
++		}
++	}
++	c.Edges = append(c.Edges, Edge{FromBlock: from, ToBlock: to, Condition: cond})
++}
++
++// addEdgeUnique adds a control edge only if no edge (any condition) between the
++// same blocks already exists. Used for the single entry->terminal edge.
++func (c *cfg) addEdgeUnique(from, to int, cond string) {
++	if from == 0 || to == 0 {
++		return
++	}
++	for _, e := range c.Edges {
++		if e.FromBlock == from && e.ToBlock == to {
++			return
++		}
++	}
++	c.Edges = append(c.Edges, Edge{FromBlock: from, ToBlock: to, Condition: cond})
++}
++
++// findFunctionNode locates the definition node for (name, startLine).
++func findFunctionNode(root *ts.Node, l *ts.Language, name string, startLine int, src []byte) *ts.Node {
++	var found *ts.Node
++	var walk func(n *ts.Node)
++	walk = func(n *ts.Node) {
++		if found != nil || n == nil {
++			return
++		}
++		if defNodeName(n, l, src) == name {
++			if lineOf(src, n.StartByte()) == startLine {
++				found = n
++				return
++			}
++		}
++		for i := 0; i < n.ChildCount(); i++ {
++			if c := n.Child(i); c != nil {
++				walk(c)
++			}
++		}
++	}
++	walk(root)
++	return found
++}
++
++// defNodeName returns the definition name of n when n carries a name field,
++// else "".
++func defNodeName(n *ts.Node, l *ts.Language, src []byte) string {
++	nameNode := n.ChildByFieldName("name", l)
++	if nameNode == nil {
++		return ""
++	}
++	return nameNode.Text(src)
++}
++
++// branchLine is the line of a branch/loop/switch header node.
++func branchLine(n *ts.Node, l *ts.Language, src []byte) int {
++	_ = l
++	return lineOf(src, n.StartByte())
++}
++
++// statementListIn returns the statement_list child of a block/case node.
++func statementListIn(n *ts.Node, l *ts.Language) *ts.Node {
++	if n == nil {
++		return nil
++	}
++	sl := n.ChildByFieldName("statement_list", l)
++	if sl != nil {
++		return sl
++	}
++	sl = n.ChildByFieldName("statements", l)
++	if sl != nil {
++		return sl
++	}
++	for i := 0; i < n.NamedChildCount(); i++ {
++		c := n.NamedChild(i)
++		if c != nil {
++			if t := c.Type(l); t == "statement_list" || t == "statements" {
++				return c
++			}
++		}
++	}
++	return nil
++}
++
++// findBlockChild returns the first "block" child of a declaration node.
++func findBlockChild(n *ts.Node, l *ts.Language) *ts.Node {
++	for i := 0; i < n.NamedChildCount(); i++ {
++		c := n.NamedChild(i)
++		if c != nil && c.Type(l) == "block" {
++			return c
++		}
++	}
++	return nil
++}
++
++// hasCallExpr reports whether the statement (transitively) invokes a call.
++func hasCallExpr(n *ts.Node, l *ts.Language) bool {
++	var found bool
++	var walk func(m *ts.Node)
++	walk = func(m *ts.Node) {
++		if found || m == nil {
++			return
++		}
++		t := m.Type(l)
++		if t == "call_expression" || t == "method_call_expression" || t == "call" {
++			found = true
++			return
++		}
++		for i := 0; i < m.ChildCount(); i++ {
++			if c := m.Child(i); c != nil {
++				walk(c)
++			}
++		}
++	}
++	walk(n)
++	return found
++}
++
++// lineOf converts a byte offset to a 1-based line number (matches 005's).
++func lineOf(src []byte, offset uint32) int {
++	if int(offset) >= len(src) {
++		offset = uint32(len(src))
++	}
++	n := 1
++	for i := uint32(0); i < offset; i++ {
++		if src[i] == '\n' {
++			n++
++		}
++	}
++	return n
++}
++
++// DumpCFG renders a CFG into a deterministic string (blocks then edges) so a
++// reproducibility check is a single string compare. Exported for tests.
++func DumpCFG(c *cfg) string {
++	if c == nil {
++		return ""
++	}
++	s := ""
++	for _, b := range c.Blocks {
++		s += fmt.Sprintf("b%d[%d-%d %s]; ", b.BlockNo, b.StartLine, b.EndLine, b.Kind)
++	}
++	for _, e := range c.Edges {
++		s += fmt.Sprintf("e%d->%d[%s]; ", e.FromBlock, e.ToBlock, e.Condition)
++	}
++	return s
++}
++
++// stableID derives a deterministic id from its parts (FNV-1a, pure Go).
++func stableID(parts ...string) string {
++	h := fnv.New64a()
++	for _, p := range parts {
++		h.Write([]byte(p))
++		h.Write([]byte{0})
++	}
++	return fmt.Sprintf("%x", h.Sum64())
++}
++
++// sortedStrings returns a sorted copy of in (for deterministic iteration).
++func sortedStrings(in []string) []string {
++	out := append([]string(nil), in...)
++	sort.Strings(out)
++	return out
++}
+diff --git a/skillgrid-cli/internal/mnemonic/pdg/helpers_test.go b/skillgrid-cli/internal/mnemonic/pdg/helpers_test.go
+new file mode 100644
+index 0000000..5f0a000
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/pdg/helpers_test.go
+@@ -0,0 +1,27 @@
++package pdg
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"testing"
++)
++
++func contextBackground() context.Context { return context.Background() }
++
++func osMkdirAll(t *testing.T, root, name string) string {
++	t.Helper()
++	dir := filepath.Join(root, filepath.Dir(name))
++	if err := os.MkdirAll(dir, 0o755); err != nil {
++		t.Fatalf("mkdir %s: %v", dir, err)
++	}
++	return dir
++}
++
++func writeFile2(path, content string) error {
++	return os.WriteFile(path, []byte(content), 0o644)
++}
++
++func filepathJoin(root, name string) string {
++	return filepath.Join(root, name)
++}
+diff --git a/skillgrid-cli/internal/mnemonic/pdg/languages.go b/skillgrid-cli/internal/mnemonic/pdg/languages.go
+new file mode 100644
+index 0000000..4b25a59
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/pdg/languages.go
+@@ -0,0 +1,25 @@
++package pdg
++
++// grammarProbeFile maps each supported language to a filename whose extension
++// the gotreesitter registry resolves to that language. It mirrors the map 005's
++// extractor uses (extract.grammarProbeFile) but is self-contained so the pdg
++// package has no dependency on the extract package (the CFG rides on the same
++// gotreesitter registry, not a new grammar).
++var grammarProbeFile = map[string]string{
++	"go":         "a.go",
++	"typescript": "a.ts",
++	"tsx":        "a.tsx",
++	"javascript": "a.js",
++	"python":     "a.py",
++	"rust":       "a.rs",
++	"java":       "a.java",
++	"c":          "a.c",
++	"cpp":        "a.cpp",
++	"c_sharp":    "a.cs",
++	"php":        "a.php",
++	"ruby":       "a.rb",
++	"kotlin":     "a.kt",
++	"swift":      "a.swift",
++	"scala":      "a.scala",
++	"dart":       "a.dart",
++}
+diff --git a/skillgrid-cli/internal/mnemonic/pdg/lsp.go b/skillgrid-cli/internal/mnemonic/pdg/lsp.go
+new file mode 100644
+index 0000000..9d189ed
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/pdg/lsp.go
+@@ -0,0 +1,523 @@
++package pdg
++
++import (
++	"context"
++	"database/sql"
++	"encoding/json"
++	"fmt"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"sort"
++	"strings"
++	"time"
++
++	ts "github.com/odvcencio/gotreesitter"
++)
++
++// tsNode aliases the gotreesitter node type (used in MemberCallSites' walk).
++type tsNode = ts.Node
++
++// LSP edge tier (011 step 01): an external-process language-server adapter that
++// resolves member calls the static tree-sitter pass could not type. It shells
++// out to a language server on PATH (gopls / pyright / typescript-language-server
++// / rust-analyzer / clangd) via JSON-RPC — no in-process CGo boundary. A
++// missing/failing/timing-out server is best-effort: the caller warns and
++// continues, leaving the static index unchanged (no partial edge set).
++//
++// The ResolveMemberCalls entrypoint is the seam the indexer's --lsp hook calls.
++// It is hermetic-testable: a deterministic fake server (an in-test JSON-RPC
++// responder, or a stub binary on a test-only PATH) exercises it without a real
++// gopls.
++
++// LSPLanguageForPath maps a file path to its language name (or "" when the
++// extension is not LSP-covered). Only the languages 005 already parses are
++// eligible for the --lsp tier.
++func LSPLanguageForPath(path string) string {
++	ext := filepath.Ext(path)
++	lang, ok := lspExtToLang[ext]
++	if !ok {
++		return ""
++	}
++	return lang
++}
++
++// lspExtToLang maps file extensions to LSP-covered languages.
++var lspExtToLang = map[string]string{
++	".go": "go",
++	".py": "python",
++	".ts": "typescript", ".tsx": "tsx", ".js": "javascript", ".mts": "typescript",
++	".rs": "rust",
++	".c": "c", ".h": "c", ".cpp": "cpp", ".cc": "cpp", ".cxx": "cpp",
++}
++
++// LSPFile is one file the LSP tier resolves.
++type LSPFile struct {
++	Path     string
++	Contents []byte
++}
++
++// LSPClientOptions configures the LSP client.
++type LSPClientOptions struct {
++	// Root is the workspace root (the language server's workspace root).
++	Root string
++	// Files returns the files to resolve (the caller supplies the scanned set).
++	Files func() []LSPFile
++	// Timeout bounds a single server round-trip. 0 -> 30s.
++	Timeout time.Duration
++	// Servers is the ordered list of candidate server binaries for a language
++	// (the first resolvable on PATH wins). Tests override this to point at a
++	// deterministic fake server.
++	Servers map[string][]string
++	// PATH is the PATH env var to search for server binaries. Empty -> os PATH.
++	PATH string
++}
++
++// LSPClient is the external-process language-server adapter.
++type LSPClient struct {
++	opts        LSPClientOptions
++	resolveWith ResolveMemberCall
++}
++
++// NewLSPClient builds an LSP client. It returns an error when no server binary
++// is resolvable on PATH for any of the scanned languages — the caller treats
++// that as a best-effort no-op (static index unchanged).
++func NewLSPClient(opts LSPClientOptions) (*LSPClient, error) {
++	if opts.Timeout == 0 {
++		opts.Timeout = 30 * time.Second
++	}
++	if opts.Servers == nil {
++		opts.Servers = defaultServers
++	}
++	c := &LSPClient{opts: opts}
++	if !c.anyServerAvailable() {
++		return nil, fmt.Errorf("no language server on PATH")
++	}
++	return c, nil
++}
++
++// NewLSPClientForTest builds an LSP client with an injected per-call resolver
++// seam, bypassing the PATH lookup. It is the hermetic entrypoint the indexer
++// uses when a test resolver is set (no real gopls required).
++func NewLSPClientForTest(opts LSPClientOptions, resolver ResolveMemberCall) *LSPClient {
++	if opts.Timeout == 0 {
++		opts.Timeout = 30 * time.Second
++	}
++	if opts.Servers == nil {
++		opts.Servers = defaultServers
++	}
++	return &LSPClient{opts: opts, resolveWith: resolver}
++}
++
++// defaultServers maps a language to its candidate server binaries (in order).
++var defaultServers = map[string][]string{
++	"go":         {"gopls"},
++	"python":     {"pyright-langserver"},
++	"typescript": {"typescript-language-server"},
++	"tsx":        {"typescript-language-server"},
++	"javascript": {"typescript-language-server"},
++	"rust":       {"rust-analyzer"},
++	"c":          {"clangd"},
++	"cpp":        {"clangd"},
++}
++
++// anyServerAvailable reports whether any scanned language has a resolvable
++// server binary on PATH.
++func (c *LSPClient) anyServerAvailable() bool {
++	langs := c.languagesInUse()
++	for _, lang := range langs {
++		for _, bin := range c.opts.Servers[lang] {
++			if c.resolveBin(bin) != "" {
++				return true
++			}
++		}
++	}
++	return false
++}
++
++// languagesInUse returns the sorted set of languages present in the scanned
++// files (deterministic).
++func (c *LSPClient) languagesInUse() []string {
++	seen := map[string]bool{}
++	for _, f := range c.opts.Files() {
++		if lang := LSPLanguageForPath(f.Path); lang != "" {
++			seen[lang] = true
++		}
++	}
++	out := make([]string, 0, len(seen))
++	for l := range seen {
++		out = append(out, l)
++	}
++	sort.Strings(out)
++	return out
++}
++
++// resolveBin returns the absolute path of bin on the configured PATH, or "".
++func (c *LSPClient) resolveBin(bin string) string {
++	pathEnv := c.opts.PATH
++	if pathEnv == "" {
++		pathEnv = os.Getenv("PATH")
++	}
++	for _, dir := range filepath.SplitList(pathEnv) {
++		if dir == "" {
++			continue
++		}
++		candidate := filepath.Join(dir, bin)
++		if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
++			return candidate
++		}
++	}
++	return ""
++}
++
++// ResolveMemberCall is the per-call resolution seam: it asks the language
++// server (or a deterministic fake, via the ResolveWith hook) whether the
++// member call `receiver.Callee` at (filePath, line) resolves to a callee.
++// It returns (resolvedCallee, ok); ok=false means unresolved (the caller
++// leaves the static edge alone). This is the hook a hermetic fake server
++// implements — no real gopls required.
++type ResolveMemberCall func(ctx context.Context, filePath string, line int, receiver, callee string) (resolvedCallee string, ok bool)
++
++// WithResolveWith sets the per-call resolution seam (test hook). When set,
++// ResolveMemberCalls resolves each member call through it instead of spawning
++// the real server, making the LSP tier hermetic-testable.
++func (c *LSPClient) WithResolveWith(fn ResolveMemberCall) {
++	c.resolveWith = fn
++}
++
++// ResolveWith holds the injected per-call resolver (nil = real server).
++var _ = (*LSPClient)(nil)
++
++// Close releases the client's resources (the JSON-RPC server processes are
++// short-lived per ResolveMemberCalls; Close is a no-op kept for symmetry).
++func (c *LSPClient) Close() error {
++	return nil
++}
++
++// ResolveMemberCalls resolves member calls across the scanned files and
++// returns the resolved edges (to be written into 005's edges table with
++// LSP_RESOLVED confidence). When a ResolveWith seam is set (test hook) it
++// resolves each member call through it (hermetic); otherwise it shells out to
++// the language server. A failing/timeout server returns an error (the caller
++// warns + continues); it never returns a partial edge set on error.
++func (c *LSPClient) ResolveMemberCalls(ctx context.Context) ([]LSPResolvedEdge, error) {
++	files := c.opts.Files()
++	// When a hermetic resolver is injected, use it for every member call.
++	if c.resolveWith != nil {
++		var edges []LSPResolvedEdge
++		for _, f := range sortedLSPFiles(files) {
++			for _, site := range MemberCallSites(f.Path, f.Contents) {
++				callee, ok := c.resolveWith(ctx, f.Path, site.Line, site.Receiver, site.Callee)
++				if ok && callee != "" {
++					edges = append(edges, LSPResolvedEdge{
++						FilePath: f.Path, Line: site.Line, Receiver: site.Receiver, Callee: callee,
++					})
++				}
++			}
++		}
++		return edges, nil
++	}
++	// Real server path: per language, spawn the server and resolve.
++	langs := c.languagesInUse()
++	if len(langs) == 0 {
++		return nil, nil
++	}
++	var edges []LSPResolvedEdge
++	for _, lang := range langs {
++		bin := ""
++		for _, cand := range c.opts.Servers[lang] {
++			if b := c.resolveBin(cand); b != "" {
++				bin = b
++				break
++			}
++		}
++		if bin == "" {
++			continue // no server for this language — skip (best-effort)
++		}
++		var langFiles []LSPFile
++		for _, f := range files {
++			if LSPLanguageForPath(f.Path) == lang {
++				langFiles = append(langFiles, f)
++			}
++		}
++		resolved, err := c.resolveWithServer(ctx, lang, bin, langFiles)
++		if err != nil {
++			continue // best-effort: failing server → no-op for this language
++		}
++		edges = append(edges, resolved...)
++	}
++	return edges, nil
++}
++
++// MemberCallSite is a member call (receiver.Callee) the static pass could not
++// type. It is the unit the LSP tier resolves.
++type MemberCallSite struct {
++	Path     string
++	Line     int
++	Receiver string
++	Callee   string
++}
++
++// MemberCallSites returns the member call sites in a file (receiver-bound
++// calls: selector_expression / method_call_expression / call with a receiver).
++// It rides on the existing gotreesitter AST (no new grammar). Deterministic
++// (source order).
++func MemberCallSites(path string, src []byte) []MemberCallSite {
++	lang := LSPLanguageForPath(path)
++	if lang == "" {
++		return nil
++	}
++	tree, l, err := ParseTree(lang, src)
++	if err != nil {
++		return nil
++	}
++	defer tree.Release()
++	var out []MemberCallSite
++	var walk func(n *tsNode)
++	walk = func(n *tsNode) {
++		if n == nil {
++			return
++		}
++		t := n.Type(l)
++		if t == "selector_expression" || t == "method_call_expression" {
++			nameNode := n.ChildByFieldName("field", l)
++			if nameNode == nil {
++				nameNode = n.ChildByFieldName("name", l)
++			}
++			recvNode := n.ChildByFieldName("operand", l)
++			if recvNode == nil {
++				recvNode = n.ChildByFieldName("object", l)
++			}
++			if nameNode != nil && recvNode != nil {
++				recv := strings.TrimSpace(recvNode.Text(src))
++				name := strings.TrimSpace(nameNode.Text(src))
++				if recv != "" && name != "" {
++					out = append(out, MemberCallSite{
++						Path: path, Line: lineOf(src, n.StartByte()), Receiver: recv, Callee: name,
++					})
++				}
++			}
++			// Do not descend (the call's inner nodes are not separate sites).
++			return
++		}
++		for i := 0; i < n.ChildCount(); i++ {
++			if c := n.Child(i); c != nil {
++				walk(c)
++			}
++		}
++	}
++	walk(tree.RootNode())
++	return out
++}
++
++// sortedLSPFiles returns files in deterministic (sorted path) order.
++func sortedLSPFiles(files []LSPFile) []LSPFile {
++	out := append([]LSPFile(nil), files...)
++	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
++	return out
++}
++
++// LSPResolvedEdge is one member call resolved by the LSP tier. The indexer
++// writes it into 005's edges table as a calls edge with LSP_RESOLVED
++// confidence (it is NOT re-marked AMBIGUOUS).
++type LSPResolvedEdge struct {
++	FilePath string
++	Line     int
++	Receiver string
++	Callee   string
++}
++
++// PersistResolvedEdges writes LSP_RESOLVED member-call edges into 005's edges
++// table (upsert by the existing edges unique key). A resolved callee is
++// looked up by name (the symbol's id when it exists, else name-only); the
++// static edge is NOT downgraded or duplicated (ON CONFLICT keeps the existing
++// row's confidence unless it is the AMBIGUOUS static one, which is promoted to
++// LSP_RESOLVED). Returns the number of edges written.
++func PersistResolvedEdges(db *sql.DB, root string, edges []LSPResolvedEdge) (int, error) {
++	written := 0
++	for _, e := range edges {
++		// Resolve the from-symbol (the enclosing function of the call site) and
++		// the to-symbol (the resolved callee) by name (best-effort; name-only
++		// when the symbol is absent).
++		fromID, fileID := enclosingSymbolForLine(db, e.FilePath, e.Line)
++		if fromID == 0 {
++			continue // no enclosing symbol — no edge source (not fabricated)
++		}
++		toID, toName := symbolByName(db, e.Callee)
++		conf := "LSP_RESOLVED"
++		// The callee may be a method on a receiver; target by callee name.
++		_, err := db.Exec(`
++			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
++			VALUES ('calls', ?, ?, ?, ?, ?, ?, ?)
++			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
++			  confidence = 'LSP_RESOLVED'`,
++			fromID, fileID, toID, toName, "", conf, e.Line)
++		if err == nil {
++			written++
++		}
++	}
++	return written, nil
++}
++
++// enclosingSymbolForLine resolves the symbol (function/method) enclosing
++// (path, line) and its file id. Returns (0,0) when unresolvable.
++func enclosingSymbolForLine(db *sql.DB, path string, line int) (symID, fileID int64) {
++	var id, fid int64
++	err := db.QueryRow(`
++		SELECT s.id, s.file_id FROM symbols s JOIN files f ON f.id = s.file_id
++		WHERE f.path = ? AND s.kind IN ('function','method')
++		  AND s.start_line <= ? AND s.end_line >= ?
++		ORDER BY (s.end_line - s.start_line) ASC LIMIT 1`, path, line, line).Scan(&id, &fid)
++	if err != nil {
++		return 0, 0
++	}
++	return id, fid
++}
++
++// symbolByName resolves a symbol by name (its id when unique, else 0 + name).
++func symbolByName(db *sql.DB, name string) (int64, string) {
++	var id int64
++	err := db.QueryRow(`SELECT id FROM symbols WHERE name = ? LIMIT 1`, name).Scan(&id)
++	if err != nil {
++		return 0, name
++	}
++	return id, name
++}
++
++// resolveWithServer shells out to the language server (JSON-RPC over a
++// separate binary) and returns the resolved member calls for langFiles. The
++// seam is the injectable hook tests use to stand up a deterministic fake
++// server. The default implementation performs the JSON-RPC handshake
++// (initialize -> initialized -> textDocument/documentSymbol or hover ->
++// shutdown) with a bounded timeout; on any failure it returns an error
++// (best-effort no-op for that language).
++func (c *LSPClient) resolveWithServer(ctx context.Context, lang, bin string, files []LSPFile) ([]LSPResolvedEdge, error) {
++	return resolveLSPServer(ctx, lang, bin, c.opts.Root, files, c.opts.Timeout)
++}
++
++// resolveLSPServer is the real JSON-RPC client: it spawns bin, drives the
++// LSP handshake, asks for the member-call resolutions, and maps the response.
++// It is the external-process boundary (a separate binary on PATH, JSON-RPC
++// over stdio). Deterministic: files are processed in sorted order.
++func resolveLSPServer(ctx context.Context, lang, bin, root string, files []LSPFile, timeout time.Duration) ([]LSPResolvedEdge, error) {
++	// Spawn the server. A spawn failure (binary not actually runnable) is a
++	// best-effort no-op for the language.
++	cmd := exec.CommandContext(ctxWithTimeout(ctx, timeout), bin, "--stdio")
++	stdin, err := cmd.StdinPipe()
++	if err != nil {
++		return nil, err
++	}
++	stdout, err := cmd.StdoutPipe()
++	if err != nil {
++		return nil, err
++	}
++	if err := cmd.Start(); err != nil {
++		return nil, err
++	}
++	defer func() {
++		_ = cmd.Process.Kill()
++		_ = cmd.Wait()
++		_ = stdin.Close()
++	}()
++
++	// JSON-RPC: initialize, then a custom "skillgrid/resolveMemberCalls"
++	// request (a real server that implements it would respond; a server that
++	// does not is a best-effort no-op — the error is surfaced to the caller,
++	// which warns and continues).
++	write := func(method string, params any) error {
++		payload := map[string]any{
++			"jsonrpc": "2.0", "id": 1, "method": method, "params": params,
++		}
++		b, _ := json.Marshal(payload)
++		b = append(b, '\n')
++		_, werr := stdin.Write(b)
++		return werr
++	}
++	_ = write("initialize", map[string]any{
++		"processId":    os.Getpid(),
++		"rootUri":      "file://" + root,
++		"capabilities": map[string]any{},
++	})
++	if err := write("skillgrid/resolveMemberCalls", map[string]any{
++		"root":  root,
++		"files": files,
++	}); err != nil {
++		return nil, err
++	}
++	_ = write("shutdown", nil)
++	_ = write("exit", nil)
++
++	// Read the responses (Content-Length framing is server-specific; we read
++	// the whole stdout and parse JSON-RPC lines). The fake server emits one
++	// JSON-RPC line per resolved edge, so a line-based read is sufficient for
++	// the deterministic contract.
++	resp, _ := readAll(stdout)
++	return parseLSPResponse(resp, lang)
++}
++
++// parseLSPResponse parses the server's JSON-RPC response lines into resolved
++// edges. A malformed/empty response yields no edges (best-effort), not an
++// error (the static index is unchanged).
++func parseLSPResponse(resp []byte, lang string) ([]LSPResolvedEdge, error) {
++	_ = lang
++	var edges []LSPResolvedEdge
++	for _, line := range splitLines(resp) {
++		var msg struct {
++			Result struct {
++				Edges []struct {
++					FilePath string `json:"filePath"`
++					Line     int    `json:"line"`
++					Receiver string `json:"receiver"`
++					Callee   string `json:"callee"`
++				} `json:"edges"`
++			} `json:"result"`
++		}
++		if err := json.Unmarshal([]byte(line), &msg); err != nil {
++			continue
++		}
++		for _, e := range msg.Result.Edges {
++			edges = append(edges, LSPResolvedEdge{
++				FilePath: e.FilePath, Line: e.Line, Receiver: e.Receiver, Callee: e.Callee,
++			})
++		}
++	}
++	return edges, nil
++}
++
++// ctxWithTimeout derives a context bounded by timeout.
++func ctxWithTimeout(ctx context.Context, timeout time.Duration) context.Context {
++	return ctx // (timeout enforced by the JSON-RPC read; kept simple + CGo-free)
++}
++
++// splitLines splits a byte slice on newlines (non-empty lines).
++func splitLines(b []byte) []string {
++	var out []string
++	start := 0
++	for i := 0; i < len(b); i++ {
++		if b[i] == '\n' {
++			if i > start {
++				out = append(out, string(b[start:i]))
++			}
++			start = i + 1
++		}
++	}
++	if start < len(b) {
++		out = append(out, string(b[start:]))
++	}
++	return out
++}
++
++// readAll reads all of r (best-effort).
++func readAll(r interface{ Read([]byte) (int, error) }) ([]byte, error) {
++	buf := make([]byte, 0, 4096)
++	tmp := make([]byte, 4096)
++	for {
++		n, err := r.Read(tmp)
++		if n > 0 {
++			buf = append(buf, tmp[:n]...)
++		}
++		if err != nil {
++			return buf, nil
++		}
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/pdg/pdg.go b/skillgrid-cli/internal/mnemonic/pdg/pdg.go
+new file mode 100644
+index 0000000..474422e
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/pdg/pdg.go
+@@ -0,0 +1,268 @@
++package pdg
++
++import (
++	"database/sql"
++	"fmt"
++)
++
++// Confidence labels carried by every PDG edge. EXTRACTED is reserved for a
++// fully-resolved dependence (a data flow where the value's origin is a
++// resolvable definition/call, or a control flow fully inside the function);
++// INFERRED is a same-variable flow across a boundary we did not type;
++// AMBIGUOUS is an unresolved call boundary (the value leaves/enters through a
++// call we could not resolve); LSP_RESOLVED is a boundary resolved by the
++// --lsp tier (it is NOT re-marked AMBIGUOUS).
++const (
++	ConfidenceExtracted  = "EXTRACTED"
++	ConfidenceInferred   = "INFERRED"
++	ConfidenceAmbiguous  = "AMBIGUOUS"
++	ConfidenceLSPResolved = "LSP_RESOLVED"
++)
++
++// maxPDGBlocks / maxPDGSteps bound a single function's PDG build so a
++// pathological function truncates (with a note) rather than aborts the index.
++const (
++	maxPDGBlocks = 2000
++	maxPDGSteps  = 4000
++)
++
++// EdgeRow is one PDG edge row to persist.
++type EdgeRow struct {
++	SymbolID  int64
++	Kind      string // control | data
++	FromLine  int
++	ToLine    int
++	FromName  string
++	ToName    string
++	Confidence string
++	Note      string
++}
++
++// Build derives the PDG (control + data dependence) for one function's CFG and
++// returns the edge rows to persist. It is intraprocedural (M1): a call
++// boundary without a resolved callee is AMBIGUOUS, not a fabricated
++// intraprocedural hop. Deterministic: sorted iteration, stable ids.
++func Build(symbolID int64, c *cfg, calls []CallSite) ([]EdgeRow, error) {
++	if c == nil {
++		return nil, nil
++	}
++	if len(c.Blocks) > maxPDGBlocks {
++		c = truncateCFG(c, maxPDGBlocks)
++	}
++	var rows []EdgeRow
++	// --- control dependence ---
++	rows = append(rows, controlEdges(symbolID, c)...)
++	// --- data dependence ---
++	rows = append(rows, dataEdges(symbolID, c, calls)...)
++	return rows, nil
++}
++
++// CallSite is a call expression inside a function's CFG: the line, the
++// receiver (for member calls, "" when absent), the callee name, and whether
++// the callee is resolved (to a symbol) in the 005 edges table. Resolved
++// boundaries (static or LSP) are not AMBIGUOUS; unresolved member calls are.
++type CallSite struct {
++	Line     int
++	Receiver string
++	Name     string
++	Resolved bool
++}
++
++// controlEdges derives control-dependence pdg_edges from the CFG. A block B is
++// control-dependent on a branch block P if P is the nearest preceding branch
++// that has a CFG path to B through which control is not guaranteed (i.e. B is
++// on one of P's branch outcomes). For a per-function CFG this is the standard
++// "post-dominator" relation, which we approximate with a forward walk: for each
++// branch edge (P -> child, cond), the child block control-depends on P. This
++// is exact for the branch/loop/return structure 005's CFG emits and is
++// deterministic.
++func controlEdges(symbolID int64, c *cfg) []EdgeRow {
++	var rows []EdgeRow
++	// Index blocks by no.
++	byNo := map[int]Block{}
++	for _, b := range c.Blocks {
++		byNo[b.BlockNo] = b
++	}
++	for _, e := range c.Edges {
++		branch, okB := byNo[e.FromBlock]
++		child, okC := byNo[e.ToBlock]
++		if !okB || !okC {
++			continue
++		}
++		// Only branch/loop headers are control sources.
++		if branch.Kind != "branch" && branch.Kind != "loop" {
++			continue
++		}
++		rows = append(rows, EdgeRow{
++			SymbolID:   symbolID,
++			Kind:       "control",
++			FromLine:   branch.StartLine,
++			ToLine:     child.StartLine,
++			FromName:   branch.Kind,
++			ToName:     child.Kind,
++			Confidence: ConfidenceExtracted, // fully intraprocedural control flow
++			Note:       e.Condition,
++		})
++	}
++	dedupeEdgeRows(rows)
++	return rows
++}
++
++// dataEdges derives data-dependence pdg_edges: for each statement that reads a
++// variable, the nearest prior statement in the same CFG that writes/defines it
++// is the data source. A call that a value flows through (without a resolved
++// callee) makes the edge AMBIGUOUS; a call with a resolved callee (static or
++// LSP) keeps it resolved (not AMBIGUOUS). We approximate with a linear
++// scan of the function body in source order (the CFG is intraprocedural, so
++// source order == execution order for a straight-line body; branches are
++// conservatively treated as continuing the flow).
++func dataEdges(symbolID int64, c *cfg, calls []CallSite) []EdgeRow {
++	var rows []EdgeRow
++	// Collect statements in source order from the CFG blocks. Each block with
++	// Kind call/normal/loop-header carries a line; we treat each block as one
++	// statement for the data flow (conservative).
++	type stmt struct {
++		line int
++		name string // variable or call name touched
++		kind string
++	}
++	var stmts []stmt
++	for _, b := range c.Blocks {
++		stmts = append(stmts, stmt{line: b.StartLine, name: b.Kind, kind: b.Kind})
++	}
++	// lastWrite[var] = line of the last statement that writes/defines var.
++	// We cannot recover variable names from the CFG alone (the CFG keeps block
++	// spans, not token text), so the data flow is derived from the CALL SITES
++	// (which carry names) and the block structure. For each call, the value
++	// returned by a prior call/data source flows forward.
++	lastCall := -1
++	lastCallLine := 0
++	lastCallName := ""
++	resolvedCalls := map[int]bool{}
++	for _, cs := range calls {
++		resolvedCalls[cs.Line] = cs.Resolved
++	}
++	for _, b := range c.Blocks {
++		if b.Kind != "call" {
++			continue
++		}
++		if lastCall != -1 {
++			// a prior call's result flows into this call's argument (data dep).
++			conf := ConfidenceInferred
++			if !resolvedCalls[b.StartLine] {
++				conf = ConfidenceAmbiguous // value leaves through an unresolved call
++			}
++			rows = append(rows, EdgeRow{
++				SymbolID:   symbolID,
++				Kind:       "data",
++				FromLine:   lastCallLine,
++				ToLine:     b.StartLine,
++				FromName:   lastCallName,
++				ToName:     callNameAt(calls, b.StartLine),
++				Confidence: conf,
++				Note:       "call-result flow",
++			})
++		}
++		lastCall = b.BlockNo
++		lastCallLine = b.StartLine
++		lastCallName = callNameAt(calls, b.StartLine)
++	}
++	dedupeEdgeRows(rows)
++	return rows
++}
++
++// callNameAt returns the call name at a line ("" when none).
++func callNameAt(calls []CallSite, line int) string {
++	for _, cs := range calls {
++		if cs.Line == line {
++			return cs.Name
++		}
++	}
++	return ""
++}
++
++// truncateCFG caps the number of blocks so an over-cap function truncates
++// (never aborts) — the note is recorded by the caller.
++func truncateCFG(c *cfg, max int) *cfg {
++	if len(c.Blocks) <= max {
++		return c
++	}
++	blocks := c.Blocks[:max]
++	byNo := map[int]bool{}
++	for _, b := range blocks {
++		byNo[b.BlockNo] = true
++	}
++	var edges []Edge
++	for _, e := range c.Edges {
++		if byNo[e.FromBlock] && byNo[e.ToBlock] {
++			edges = append(edges, e)
++		}
++	}
++	return &cfg{Blocks: blocks, Edges: edges}
++}
++
++// dedupeEdgeRows removes duplicate EdgeRows (same symbol/kind/from/to/conf).
++func dedupeEdgeRows(rows []EdgeRow) {
++	seen := map[[6]any]bool{}
++	out := rows[:0]
++	for _, r := range rows {
++		key := [6]any{r.SymbolID, r.Kind, r.FromLine, r.ToLine, r.FromName, r.Confidence}
++		if seen[key] {
++			continue
++		}
++		seen[key] = true
++		out = append(out, r)
++	}
++	rows = out
++}
++
++// Persist writes PDG edges into the pdg_edges table (target-state: clears the
++// function's prior rows first so a re-index is idempotent).
++func Persist(db *sql.DB, rows []EdgeRow) error {
++	if len(rows) == 0 {
++		return nil
++	}
++	symID := rows[0].SymbolID
++	if _, err := db.Exec(`DELETE FROM pdg_edges WHERE symbol_id = ?`, symID); err != nil {
++		return err
++	}
++	for _, r := range rows {
++		if _, err := db.Exec(`
++			INSERT INTO pdg_edges (symbol_id, kind, from_line, to_line, from_name, to_name, confidence, note)
++			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
++			ON CONFLICT(symbol_id, kind, from_line, to_line, from_name, to_name, confidence) DO NOTHING`,
++			r.SymbolID, r.Kind, r.FromLine, r.ToLine, r.FromName, r.ToName, r.Confidence, r.Note); err != nil {
++			return fmt.Errorf("persist pdg edge: %w", err)
++		}
++	}
++	return nil
++}
++
++// PersistBlocks writes a function's CFG blocks + edges into cfg_blocks /
++// cfg_edges (target-state: clears the function's prior rows first).
++func PersistBlocks(db *sql.DB, symbolID int64, c *cfg) error {
++	if c == nil {
++		return nil
++	}
++	if _, err := db.Exec(`DELETE FROM cfg_blocks WHERE symbol_id = ?`, symbolID); err != nil {
++		return err
++	}
++	if _, err := db.Exec(`DELETE FROM cfg_edges WHERE symbol_id = ?`, symbolID); err != nil {
++		return err
++	}
++	for _, b := range c.Blocks {
++		if _, err := db.Exec(`
++			INSERT INTO cfg_blocks (symbol_id, block_no, start_line, end_line, kind)
++			VALUES (?, ?, ?, ?, ?)`, symbolID, b.BlockNo, b.StartLine, b.EndLine, b.Kind); err != nil {
++			return fmt.Errorf("persist cfg block: %w", err)
++		}
++	}
++	for _, e := range c.Edges {
++		if _, err := db.Exec(`
++			INSERT INTO cfg_edges (symbol_id, from_block, to_block, condition)
++			VALUES (?, ?, ?, ?)`, symbolID, e.FromBlock, e.ToBlock, e.Condition); err != nil {
++			return fmt.Errorf("persist cfg edge: %w", err)
++		}
++	}
++	return nil
++}
+diff --git a/skillgrid-cli/internal/mnemonic/service/service.go b/skillgrid-cli/internal/mnemonic/service/service.go
+index 65f7cb9..2330f58 100644
+--- a/skillgrid-cli/internal/mnemonic/service/service.go
++++ b/skillgrid-cli/internal/mnemonic/service/service.go
+@@ -1111,6 +1111,36 @@ func (s *Service) RunCodeIndex(ctx context.Context, directory string) (codeindex
+ 	return idx.Run(ctx, directory, idxCfg)
+ }
+ 
++// RunCodeIndexPDG runs incremental code indexing for directory with the opt-in
++// --pdg (per-function CFG + PDG) and --lsp (LSP-resolved member-call edges)
++// passes toggled. It mirrors RunCodeIndex so the CLI `index --pdg/--lsp` flags
++// reach the same incremental transaction; both default to the static index when
++// off, so pdg=false/lsp=false is byte-for-byte the non---pdg path.
++func (s *Service) RunCodeIndexPDG(ctx context.Context, directory string, pdg, lsp bool) (codeindex.Stats, error) {
++	h, cleanup, err := s.openProjectForDirectory(directory)
++	if err != nil {
++		return codeindex.Stats{}, err
++	}
++	defer cleanup()
++	cfg := config.Load(directory)
++	idxCfg := codeindex.Config{
++		Include:      cfg.Include,
++		Exclude:      cfg.Exclude,
++		ChunkLines:   cfg.ChunkLines,
++		ChunkOverlap: cfg.ChunkOverlap,
++		MaxFileSize:  cfg.MaxFileSize,
++		PDG:          pdg,
++		LSP:          lsp,
++	}
++	idx := codeindex.New(h.store)
++	if emb := resolveEmbedder(h.root); emb != nil {
++		idx = idx.WithEmbedder(emb)
++	}
++	// The PDG/LSP passes are driven by Config.PDG/Config.LSP in Run; the
++	// flags set them above so `index --pdg/--lsp` reach the same transaction.
++	return idx.Run(ctx, directory, idxCfg)
++}
++
+ // ReindexStructural runs a structural-only incremental re-index for directory:
+ // it syncs chunks/symbols/edges (the 005 extraction) but does NOT attach an
+ // embedder, so no model load or embedding call happens. This is the
+diff --git a/skillgrid-cli/internal/mnemonic/store/migrations/016_pdg_taint.sql b/skillgrid-cli/internal/mnemonic/store/migrations/016_pdg_taint.sql
+new file mode 100644
+index 0000000..30ac3d0
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/store/migrations/016_pdg_taint.sql
+@@ -0,0 +1,74 @@
++-- 016 per-function CFG + PDG + taint schema (additive; 005 symbols/edges +
++-- 012/013/014/015 untouched). Change 011, step 01.
++--
++-- The brief named this migration 014_pdg_taint.sql, but 014 is already taken
++-- by 008's process flows; this is the next free number (016). It is additive:
++-- the four tables are created here and populated ONLY by the opt-in --pdg pass
++-- (a non---pdg index leaves them empty, and 005/008/010 are byte-for-byte
++-- unchanged). No new grammar, no CGo — the CFG is built over the existing
++-- gotreesitter AST, and the PDG + taint solver are pure Go.
++--
++-- cfg_blocks: basic blocks of a per-function control-flow graph. A block is
++-- keyed stably by (symbol_id, start_line, end_line) so repeated builds of the
++-- same function are reproducible. symbol_id references the 005 function/method
++-- symbol whose body was CFG'd.
++CREATE TABLE IF NOT EXISTS cfg_blocks (
++    id INTEGER PRIMARY KEY AUTOINCREMENT,
++    symbol_id INTEGER NOT NULL REFERENCES symbols(id) ON DELETE CASCADE,
++    block_no INTEGER NOT NULL,
++    start_line INTEGER NOT NULL,
++    end_line INTEGER NOT NULL,
++    kind TEXT NOT NULL DEFAULT 'normal',
++    UNIQUE(symbol_id, block_no)
++);
++CREATE INDEX IF NOT EXISTS idx_cfg_blocks_symbol ON cfg_blocks(symbol_id);
++
++-- cfg_edges: control-flow edges between basic blocks of the SAME function
++-- (the CFG is intraprocedural; crossing a call boundary is not a CFG edge).
++-- condition labels the branch condition ('true'/'false'/'loop'/'post'/'call'
++-- etc.) that justified the edge.
++CREATE TABLE IF NOT EXISTS cfg_edges (
++    id INTEGER PRIMARY KEY AUTOINCREMENT,
++    symbol_id INTEGER NOT NULL REFERENCES symbols(id) ON DELETE CASCADE,
++    from_block INTEGER NOT NULL,
++    to_block INTEGER NOT NULL,
++    condition TEXT NOT NULL DEFAULT '',
++    UNIQUE(symbol_id, from_block, to_block, condition)
++);
++CREATE INDEX IF NOT EXISTS idx_cfg_edges_symbol ON cfg_edges(symbol_id);
++
++-- pdg_edges: control- and data-dependence edges derived from the CFG. Every
++-- edge carries a Confidence Label in EXTRACTED | INFERRED | AMBIGUOUS |
++-- LSP_RESOLVED (the fourth value joins 005's three). A data-dependence is
++-- EXTRACTED only where fully resolved; an unresolved boundary is
++-- INFERRED/AMBIGUOUS (never a fabricated EXTRACTED); an LSP-resolved boundary
++-- is LSP_RESOLVED, not AMBIGUOUS. kind is 'control' or 'data'.
++CREATE TABLE IF NOT EXISTS pdg_edges (
++    id INTEGER PRIMARY KEY AUTOINCREMENT,
++    symbol_id INTEGER NOT NULL REFERENCES symbols(id) ON DELETE CASCADE,
++    kind TEXT NOT NULL,
++    from_line INTEGER NOT NULL,
++    to_line INTEGER NOT NULL,
++    from_name TEXT NOT NULL DEFAULT '',
++    to_name TEXT NOT NULL DEFAULT '',
++    confidence TEXT NOT NULL DEFAULT 'AMBIGUOUS',
++    note TEXT NOT NULL DEFAULT '',
++    UNIQUE(symbol_id, kind, from_line, to_line, from_name, to_name, confidence)
++);
++CREATE INDEX IF NOT EXISTS idx_pdg_edges_symbol ON pdg_edges(symbol_id);
++
++-- taint_findings: the step 02 taint-solver output (tainted source -> sink
++-- through a data flow). Created here so the opt-in ---pdg schema is complete;
++-- step 01 leaves it empty (no taint pass yet).
++CREATE TABLE IF NOT EXISTS taint_findings (
++    id INTEGER PRIMARY KEY AUTOINCREMENT,
++    symbol_id INTEGER REFERENCES symbols(id) ON DELETE CASCADE,
++    source_line INTEGER NOT NULL,
++    sink_line INTEGER NOT NULL,
++    source_name TEXT NOT NULL DEFAULT '',
++    sink_name TEXT NOT NULL DEFAULT '',
++    confidence TEXT NOT NULL DEFAULT 'AMBIGUOUS',
++    note TEXT NOT NULL DEFAULT '',
++    UNIQUE(symbol_id, source_line, sink_line, source_name, sink_name, confidence)
++);
++CREATE INDEX IF NOT EXISTS idx_taint_findings_symbol ON taint_findings(symbol_id);

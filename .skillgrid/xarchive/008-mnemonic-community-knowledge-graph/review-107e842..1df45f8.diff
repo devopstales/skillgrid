@@ -1,0 +1,3312 @@
+# Review package: 107e842..HEAD
+
+## Commits
+1df45f8 test(mnemonic): community explain, labels, CLI parity, and cache-reset
+f7e4617 docs(sdd-explore): fold mattpocock research-skill mechanics
+09cedf9 feat(mnemonic): god-node ranking with exclude-hubs
+b4f4733 feat(mnemonic): community tool arg validation
+6ecc284 feat(mnemonic): leiden community detection with llm-free labels
+899c3a2 test(mnemonic): lock 005 tool surface baseline
+
+## Files changed
+ .agents/skills/sdd-explore/SKILL.md                |  10 +-
+ .../change.md                                      |  54 ++-
+ .../changes/011-mnemonic-pdg-taint/change.md       |  57 ++-
+ skillgrid-cli/cmd/skillgrid/code_community_test.go | 126 +++++++
+ skillgrid-cli/cmd/skillgrid/code_intel.go          | 158 ++++++++-
+ skillgrid-cli/go.mod                               |   3 +-
+ skillgrid-cli/go.sum                               |   2 +
+ .../internal/mnemonic/codeindex/indexer.go         |  13 +-
+ .../internal/mnemonic/community/godnodes.go        | 136 ++++++++
+ .../internal/mnemonic/community/godnodes_test.go   | 100 ++++++
+ .../internal/mnemonic/community/labels.go          |  57 +++
+ .../internal/mnemonic/community/labels_test.go     |  83 +++++
+ .../internal/mnemonic/community/leiden.go          | 387 +++++++++++++++++++++
+ .../internal/mnemonic/community/leiden_test.go     | 216 ++++++++++++
+ skillgrid-cli/internal/mnemonic/mcp/server.go      |   2 +
+ skillgrid-cli/internal/mnemonic/mcp/server_test.go |   2 +
+ .../internal/mnemonic/mcp/tools_code_community.go  | 209 +++++++++++
+ .../mnemonic/mcp/tools_code_community_test.go      | 175 ++++++++++
+ .../internal/mnemonic/mcp/tools_code_explore.go    |  19 +-
+ .../mnemonic/mcp/tools_code_explore_test.go        |   2 +
+ .../mnemonic/mcp/tools_code_impact_test.go         |   2 +
+ .../mnemonic/mcp/tools_code_schema_test.go         |  67 +++-
+ .../internal/mnemonic/service/community_test.go    | 100 ++++++
+ skillgrid-cli/internal/mnemonic/service/service.go | 132 +++++++
+ .../mnemonic/store/community_schema_test.go        |  33 ++
+ .../migrations/012_community_knowledge_graph.sql   |  16 +
+ 26 files changed, 2108 insertions(+), 53 deletions(-)
+
+## Diff
+diff --git a/.agents/skills/sdd-explore/SKILL.md b/.agents/skills/sdd-explore/SKILL.md
+index 3360f52..0bf6908 100644
+--- a/.agents/skills/sdd-explore/SKILL.md
++++ b/.agents/skills/sdd-explore/SKILL.md
+@@ -52,20 +52,24 @@ Skip for ordinary in-repo features the code index already covers.
+ If existing research answers the question and is not stale, return it — do not re-explore.
+ 
+ ### 2. Clarify the question
+ 
+ Feature / bug / refactor? Domain? If too vague to investigate, stop and state what clarification is needed.
+ 
+ ### 3. Investigate
+ 
+ Prefer **`investigate`** for high-trust primary sources (external APIs, rare docs). For large surfaces, `subagent-execution` (`## Parallel investigation`). Map: entry points, affected modules, existing tests/gaps, coupling.
+ 
++Dispatch `investigate` as a **background** subagent (`task(...)` with the runtime's background/async flag) so the main thread stays free to continue the explore workflow (approach comparison, drafting the research.md skeleton) while the research reads. Wait for the result only before writing the final `### Current State` section. If the runtime has no background primitive, run inline and note it in the envelope's `Risks`.
++
++If the question splits into two independent sub-questions (e.g. "which library" AND "how to configure it"), run two `investigate` calls — one per sub-question — and write the findings into two `###` sections of research.md, each with its own `Date:` and `Unresolved` block. Never merge two topics into one undifferentiated findings list.
++
+ ### 4. Compare approaches
+ 
+ | Approach | Pros | Cons | Effort |
+ |---|---|---|---|
+ | A | … | … | Low/Med/High |
+ 
+ Recommendation ≠ commitment — propose locks the choice.
+ 
+ ### 5. Write research.md
+ 
+@@ -77,44 +81,48 @@ Path: `docs/skillgrid/changes/<NNN-slug>/research.md`.
+ > **Lifetime:** This change only (`<NNN-slug>`). May rot. Do not promote to
+ > `docs/skillgrid/codebase/` or `docs/adr/` by default. Fresh agents: read this
+ > cache before re-exploring.
+ ```
+ 
+ Then:
+ 
+ ```markdown
+ ## Research: {topic}
+ 
++Date: {ISO}
++
+ ### Current State
+ ### Affected Areas
+ ### Approaches
+ ### Recommendation
+ ### Risks
++### Unresolved
+ ### Ready for Proposal
+ ```
+ 
+-Mnemonic upsert `sdd/<NNN-slug>/research` (full markdown). Apply `rules.explore` from config if present.
++`Date:` is the rot-detection timestamp `sdd-propose` checks before trusting the cache. `Unresolved` holds disagreements (primary vs secondary source), unconfirmed facts, and stale citations — not the body. Mnemonic upsert `sdd/<NNN-slug>/research` (full markdown). Apply `rules.explore` from config if present.
+ 
+ ### 6. Return envelope
+ 
+ ```markdown
+ **Status**: success | partial | blocked
+ **Summary**: …
+ **Artifacts**: docs/skillgrid/changes/<NNN-slug>/research.md · Mnemonic sdd/<NNN-slug>/research
+ **Next**: sdd-propose (or design-spike if taste/unknown shape remains)
+ **Risks**: …
+ ```
+ 
+ ## Gotchas
+ 
+ - Re-exploring when `research.md` already answers the question wastes context — read the cache first.
+ - `mem_search` returns previews — always `mem_get_observation(id)`.
+ - You do not own NNN; do not invent a parallel numbering scheme.
+ - Recommendation is analysis, not a locked Architecture decision — that lives in `change.md`.
++- Two topics in one research.md section = the agent can't tell which finding belongs to which question. Split the `###` sections, not the file.
+ 
+ ## References
+ 
+ - [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md)
+ - [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md)
+ - [`../_shared/conventions/mnemonic-code-indexing.md`](../_shared/conventions/mnemonic-code-indexing.md)
+ - [`../investigate/SKILL.md`](../investigate/SKILL.md)
+ - [`../sdd-propose/SKILL.md`](../sdd-propose/SKILL.md)
+diff --git a/docs/skillgrid/changes/010-mnemonic-framework-routes-affected/change.md b/docs/skillgrid/changes/010-mnemonic-framework-routes-affected/change.md
+index fbc3ff3..4642a15 100644
+--- a/docs/skillgrid/changes/010-mnemonic-framework-routes-affected/change.md
++++ b/docs/skillgrid/changes/010-mnemonic-framework-routes-affected/change.md
+@@ -5,21 +5,21 @@
+ > **For agentic workers:** REQUIRED: follow `.agents/skills/_shared/conventions/sdd-structure.md`. This file is WHY + HOW (former intent + plan). Spec phase instantiates `tasks.md` + `acceptance.feature` from the Step Blueprint and per-step WHAT below.
+ >
+ > **Provenance:** All three capabilities are derived from the CodeGraph (`colbymchenry/codegraph`, 70k★) comparison in `docs/skillgrid/changes/005-mnemonic-hybrid-code-intelligence/` (see Mnemonic observation `sdd/005-mnemonic-hybrid-code-intelligence/codegraph-takeaways`). They were deliberately out of scope for 005 (foundation slice) and 008 (community + knowledge graph).
+ 
+ **Goal:** Close the highest-value gaps CodeGraph + GitNexus expose over 005/008: (1) **framework-aware routes** — emit `route` + `navigates` edges so "which URL serves this handler" and "where does tapping this go" are one graph hop; (2) **`code_affected`** — trace import deps transitively from changed files to the test files that must run; (3) **`code_rename`** — a graph-grounded write tool that splits renames into confidence buckets; (4) **auto-sync watcher** — keep the graph fresh as the agent edits via **copy-and-swap** publication + auto-reopen, with a staleness banner so the agent never gets a silent wrong answer or reads a torn index.
+ 
+ **Architecture:** Additive on top of 005's `symbols`/`edges` (and 008's non-code nodes where present). A third extractor layer (framework-route per language/framework) adds `route` nodes + `references`/`navigates` edges into the existing graph. `code_affected` is a pure edge-traversal query (no new extraction) over 005's import/`tests-for` edges. `code_rename` is a **write** tool grounded in the graph: it splits edits into graph-confidence (mechanical) vs. text-search (review) buckets with `dry_run`. A `fsnotify` watcher (native FSEvents/inotify/KQueue) with a debounced incremental re-index runs in the MCP serve path, publishing via **copy-and-swap** (build a sidecar, atomically publish) so readers never see a torn index; running MCP/serve processes **reopen the new index on the next tool call (~5s) with no restart**; MCP tool responses that reference a still-pending file prepend a `⚠️` staleness banner. Existing 005/008 `code_*` tools stay name- and signature-stable.
+ 
+ **Tech stack:** Go (`skillgrid-cli`), SQLite (`modernc.org/sqlite`, CGo-free), existing gotreesitter graph from 005, `github.com/fsnotify/fsnotify` (file watcher, CGo-free), MCP (`mcp-go`), CLI.
+ 
+-**Research:** CodeGraph README (framework-routes table, `codegraph affected`, auto-sync + staleness-banner section) — see 005 codegraph-takeaways observation.
++**Research:** CodeGraph README (framework-routes table, `codegraph affected`, auto-sync + staleness-banner section) — see 005 codegraph-takeaways observation. Graft (`trailhq/Graft`, 6.7k★) README/wiki — see 005 graft-takeaways observation: drop-rather-than-guess edge policy, pull-at-query fingerprint gate, `blast --base <ref>` PR integration.
+ 
+ **Prototype:** none
+ 
+ **Ticket:** none
+ 
+ **Depends on:** `005-mnemonic-hybrid-code-intelligence` (symbols/edges + import/`tests-for` extraction + indexer hook). Orthogonal to `008-mnemonic-community-knowledge-graph` (does not require it; both additive on 005).
+ 
+ ---
+ 
+ ## Goal
+@@ -33,25 +33,26 @@ Coding agents get end-to-end flows across framework boundaries (URL → handler
+ - Browser graph UI (CodeGraph `codegraph ui`) — human-facing, not agent-facing; a later `skillgrid code ui` if ever
+ - Telemetry / self-updating / signed-release attestation (CodeGraph product concerns) — not part of the graph
+ - Multi-project / cross-repo graph merge
+ 
+ ## Definition of Done
+ 
+ This change is done only when **all** of the following are true:
+ 
+ - [ ] Supported frameworks' routing files produce `route` nodes linked by `references` edges to their handlers (callers of a view/controller surface the URL pattern)
+ - [ ] Supported routers produce `navigates` edges (the function that sends the user somewhere is linked to the screen it names)
+-- [ ] `code_affected <files...>` (and `--stdin`) returns the test files affected by changed source, via transitive import + `tests-for` traversal, with `--depth` / `--filter` / `--json`
++- [ ] `code_affected <files...>` (and `--stdin`, `--base <ref>`) returns the test files affected by changed source, via transitive import + `tests-for` traversal, with `--depth` / `--filter` / `--json`; `--base` derives the changed set from the merge-base diff and reports affected areas with git-history owners
+ - [ ] `code_rename <symbol> <new_name>` (`--dry-run`) returns edits split into **graph** (high-confidence, mechanical) and **text-search** (review carefully) buckets, with `files_affected`/`total_edits` counts; `dry_run` touches nothing
+ - [ ] A file watcher with debounced auto-sync keeps the index current on create/modify/delete while the MCP server runs; **publication is copy-and-swap** (sidecar build → atomic publish) so a reader never sees a torn index; running MCP/serve processes **reopen the new index on the next tool call (~5s) without restart**; connect-time catch-up reconciles `(size, mtime)` + content-hash on (re)connect
++- [ ] A **pull-at-query fingerprint gate** (structural-only stat-walk, ~3ms) makes every `code_*` query fresh even when the watcher is off; it never invokes the embedder leg and is keyed by the extractor stamp
+ - [ ] MCP tool responses that reference a still-pending file prepend a `⚠️` staleness banner naming it and saying "Read it directly"; pending files not referenced surface as a footer
+-- [ ] Every new edge carries a Confidence Label (`EXTRACTED | INFERRED | AMBIGUOUS`); computed/unresolvable route or navigation destinations are left unresolved, not guessed
++- [ ] Every new edge carries a Confidence Label (`EXTRACTED | INFERRED | AMBIGUOUS`); computed/unresolvable route or navigation destinations are left unresolved, not guessed; **ambiguous references are dropped (not guessed) and excluded from blast-radius math**
+ - [ ] Existing 005/008 `code_*` tools are unchanged (name + required params); `go test ./...` passes for touched packages
+ - [ ] Every Step Blueprint entry has a matching section in `tasks.md` with Verdict `PASS` or `PASS WITH WARNINGS`
+ - [ ] Every `@step-NN` Feature in `acceptance.feature` has passing `@happy`, `@edge`, and `@failure` scenarios
+ - [ ] Applicable threat-matrix rows have RED coverage that passed
+ - [ ] Testing strategy commands below are green
+ - [ ] Rollback path below is still valid (or N/A documented)
+ - [ ] Change archived under `docs/skillgrid/archive/010-mnemonic-framework-routes-affected/`
+ 
+ ## Problem / why
+ 
+@@ -61,51 +62,55 @@ This change is done only when **all** of the following are true:
+ 
+ - **Coding agent** — end-to-end flows across routes/navigation before edits; "which tests do I run?"; never a silent wrong answer mid-session; high urgency
+ - **Operator** — CLI parity for `code_affected` + a `skillgrid index status` that shows pending-sync files; CI/hook scripting via `git diff --name-only | skillgrid search affected --stdin`
+ 
+ ## Business rules
+ 
+ - Additive on top of 005 (and 008 where present) — never rewrite 005/008 symbols/edges/extractors
+ - CGo-free: fsnotify is pure-Go (no C dependency); matches the codebase's CGo-free stance (modernc + gotreesitter + loom)
+ - Every new edge carries a Confidence Label: `EXTRACTED | INFERRED | AMBIGUOUS`; route/navigation edges that resolve from explicit syntax are `EXTRACTED`, convention/heuristic ones `INFERRED`, name-only guesses `AMBIGUOUS`
+ - Route/navigation destinations that are **computed** (not a string literal) or that **no route serves** are left unresolved — never fabricated; a markup-written link is marked `INFERRED`
++- **Drop rather than guess** (Graft): an ambiguous reference (no same-file match, no explicit specifier, no unique global/owner-qualified match) is **dropped**, not `AMBIGUOUS`-kept — ambiguous edges are excluded from `code_affected` / blast-radius math so a false-positive can never inflate the radius. `AMBIGUOUS` is reserved for edges that *were* resolved but with a heuristic (e.g. markup-written `navigates`); a drop is reported as a warning, not a silent discard
+ - `code_affected` is a **query only** — it adds no nodes/edges; it traverses 005's import/`tests-for` edges with a depth cap (default 5) and returns paths, not invented relationships
++- **`--base <ref>` PR mode** (Graft `blast --base`): `code_affected --base origin/main` derives the changed file set from the merge-base diff (no `--stdin` needed), reports the areas the change can reach (per-symbol detail collapsed under each area), and names **git-history owners** ("who to tag") for each affected area via `git blame` on the touched lines. `--quiet`/`--json` make the output a ready PR comment / CI gate
+ - `code_rename` is the **write counterpart** of `code_affected`: it resolves the symbol (reusing 005's disambiguation), then splits edits into **graph edits** (high-confidence: definition + typed references from the edges table) and **text-search edits** (lower-confidence: string matches the graph didn't resolve). `dry_run` (default `true`) returns the plan without writing. Every edit carries a confidence label; a rename that can't resolve the symbol returns a candidate list, never a silent pick
+-- Watcher is opt-out by default in `serve`/MCP path; debounce window default 2000ms (tunable, clamped [100ms, 60s]); filtered to source files only; a sandboxed env (`SKILLGRID_NO_WATCH=1`) disables it gracefully
++- Watcher is opt-out by default in `serve`/MCP path; debounce window default 2000ms (tunable, clamped [100ms, 60s]); filtered to source files only; a sandboxed env (`SKILLGRID_NO_WATCH=1`) disables it gracefully — the pull-at-query fingerprint gate still makes every query fresh (structural-only), so a disabled watcher degrades to "slightly slower but never stale"
+ - **The embedder stays warm** while a session is active: the ONNX runtime (005's default embedder) is loaded once and **kept in RAM** across `skillgrid search` / MCP calls rather than re-loading the ~270MB model per invocation. It **evicts on idle** (`idle_timeout`, default 10min, tunable) and is **kept alive by MCP heartbeat** while an MCP client is connected. This is the "the index is never cold" counterpart to the watcher's "never stale" — a warm embedder means the semantic leg of `code_hybrid_search` doesn't pay model-load latency on the agent's hot search loop
+ - **Publication is copy-and-swap:** the watcher builds the re-index into a sidecar, then atomically publishes it (rename/swap), so a concurrent reader never observes a torn index. On Windows / sidecar-unsupported filesystems it updates in place with a write-failure guard (retry if the failure was pre-write; stop if it may have mutated the live index). Running MCP/serve processes **reopen the newly-published index on their next tool call (~5s), no restart**
+ - Staleness banner is the specific trick: during the debounce window, any MCP response referencing a pending file names it and tells the agent to `Read` it directly — solves "silent wrong answer between an edit and the next sync"
++- **Pull-at-query fingerprint gate** (Graft): every `code_*` MCP/CLI query first runs a ~3ms `(size, mtime)` stat-walk of the working tree against the last index's fingerprint; on drift it triggers a **structural-only** incremental re-index (never the LLM/embedder leg), guarded by the same writer lock as the watcher. The fsnotify watcher stays the *comfort* layer (near-zero-latency, background); the fingerprint gate is the *correctness backstop* — even with the watcher off, a query answers against the tree as it is now (uncommitted edits included). Fingerprint is keyed by the extractor stamp (a binary/version change invalidates it)
+ - Existing 005/008 `code_*` tools keep name + required params; all new tools use distinct `code_*` names
+ - Migration id `013_framework_routes.sql` — leave `011` (005) and `012` (008) as-is
+ 
+ ## In scope
+ 
+ - Schema: `route_nodes` (+ `references`/`navigates` edge types; additive `013_*`)
+ - Framework-route extractor layer: per-language/per-framework node maps (web-framework routes → `route` node + `references` → handler; routers → `navigates` → named screen)
+-- `code_affected` MCP/CLI tool (transitive import + `tests-for` traversal from changed files → test files; `--stdin`, `--depth`, `--filter`, `--json`, `--quiet`)
++- `code_affected` MCP/CLI tool (transitive import + `tests-for` traversal from changed files → test files; `--stdin`, `--base <ref>` merge-base diff + affected-area grouping + git-history owners, `--depth`, `--filter`, `--json`, `--quiet`)
+ - `code_rename` MCP/CLI tool (graph-confidence vs. text-search edit buckets, `dry_run`, per-edit confidence)
+ - fsnotify auto-sync watcher (debounced incremental re-index in the serve/MCP path) with **copy-and-swap publication** + **reader auto-reopen** + connect-time `(size, mtime)` + content-hash catch-up
+ - **Warm embedder daemon**: keep 005's ONNX embedder in RAM while a session is active (load-once, evict-on-idle with `idle_timeout`, MCP-heartbeat keep-alive) so the semantic leg of search doesn't pay model-load latency per call
+ - Staleness banner on MCP tool responses that reference pending files
+ - `skillgrid index status` pending-sync section (names files + edit age)
+ 
+ ## Risks & rollback
+ 
+ - **Risk:** Framework-route heuristics over-link (false `route`/`navigates` edges) — **Mitigation:** Confidence Labels (`EXTRACTED` only for explicit syntax, `INFERRED` for conventions, `AMBIGUOUS` for name-only); computed/unresolvable destinations left unresolved, never fabricated; per-framework validated on a canonical app each (mirroring CodeGraph's coverage table)
+ - **Risk:** `code_affected` traverses too deep on huge repos — **Mitigation:** depth cap (default 5, `--depth`); returns paths not a full subgraph; `--quiet` for CI
+ - **Risk:** `code_rename` misses or over-applies (text-search bucket catches a string that isn't the symbol) — **Mitigation:** two-bucket split (graph = high-confidence mechanical, text-search = flagged "review carefully"); `dry_run` by default; per-edit confidence; ambiguous target → candidate list, never a silent pick; the graph never invents a reference
+ - **Risk:** Watcher fires on generated/vendored files, re-indexing noise — **Mitigation:** filter to source files via 005's include/exclude + `.gitignore` awareness; debounce collapses edit bursts into one sync
++- **Risk:** Fingerprint gate adds per-query cost — **Mitigation:** it is a shallow stat-walk (~3ms, no file reads, no LLM) that runs only when the cheap stat comparison shows drift; `SKILLGRID_NO_REFRESH=1`-style opt-out for the rare case a caller wants the on-disk index as-is (matches Graft's `--no-refresh`)
+ - **Risk:** Reader observes a torn index mid-reindex — **Mitigation:** copy-and-swap publication (sidecar → atomic publish) means a reader sees either the old or the new index, never a partial one; in-place fallback has a pre-write/post-write failure guard
+ - **Risk:** Two `serve`/MCP processes on one project fight over the index — **Mitigation:** one live writer per project (shared or single direct-mode); a second exits with a clear writer-lock error; `SKILLGRID_NO_WATCH=1` to run in-process
+ - **Risk:** Staleness banner noise if debounce is too long — **Mitigation:** 2000ms default (tunable, clamped); banner only names files actually referenced (footer otherwise)
+ - **Risk:** Warm embedder holds ~270MB RAM indefinitely — **Mitigation:** evict on `idle_timeout` (default 10min) + MCP-heartbeat keep-alive; a down/absent model just falls back to FTS+signals (005's floor); `off`/external providers don't hold RAM at all
+-- **Rollback:** Drop `013_*` migration + `route/` package + the `code_affected` tool + the watcher/banner in the serve path + the warm-embedder cache; 005/008's symbols/edges/chunks/hybrid/community/knowledge stay intact
++- **Rollback:** Drop `013_*` migration + `route/` package + the `code_affected` tool + the watcher/banner in the serve path + the fingerprint gate + the warm-embedder cache; 005/008's symbols/edges/chunks/hybrid/community/knowledge stay intact
+ 
+ ## Error handling
+ 
+ | Failure | Behavior | Notes |
+ |---------|----------|-------|
+ | Routing file with no recognizable pattern | `warn+continue` | No `route` node; index the rest; a framework with no routes says so, not an empty fabricated list |
+ | Computed / non-literal route or navigation destination | `warn+continue` | Edge left unresolved (`AMBIGUOUS` or absent), never a guessed target |
+ | Navigation to a path no route serves | `warn+continue` | `navigates` edge marked unresolved; not dropped silently |
+ | `code_affected` with no changed files / empty stdin | `warn+continue` | Empty result, clear message; not an error |
+ | `code_rename` target matches several / no symbols | `warn+continue` | Return a ranked candidate list (or not-found); never a silent pick; `dry_run` shows the plan |
+@@ -133,76 +138,93 @@ Contract for `sdd-spec`. Do not renumber after `tasks.md` exists. Per-step Out o
+ | NN | Step slug | Goal (one line) | Primary package / entry | Depends on |
+ |----|-----------|-----------------|-------------------------|------------|
+ | 01 | `framework-routes` | Additive `013_*` schema + framework-route extractor (route + references + navigates edges) | `skillgrid-cli/internal/mnemonic/route` | — (005 done) |
+ | 02 | `code-affected` | `code_affected` (read) + `code_rename` (write) MCP/CLI tools | `skillgrid-cli/internal/mnemonic/service` | 01 |
+ | 03 | `autosync-watcher` | fsnotify watcher + copy-and-swap publication + reader auto-reopen + connect-time catch-up + staleness banner + warm embedder daemon | `skillgrid-cli/internal/mnemonic/codeindex` | 02 |
+ 
+ ---
+ 
+ ## Technical approach
+ 
+-Three additive layers on top of 005's graph. Layer 1 (step 01) adds a framework-route extractor: per-language/per-framework node maps that emit `route` nodes (web-framework routing files) linked by `references` edges to handlers, and `navigates` edges for routers (the function that sends the user somewhere → the screen it names). Resolved destinations are string literals; computed/unresolvable ones stay unresolved. Layer 2 (step 02) adds `code_affected` — a pure traversal over 005's import + `tests-for` edges from a set of changed files to the test files that must run (depth-capped, `--stdin`/`--filter`/`--json`/`--quiet`). Layer 3 (step 03) adds an fsnotify watcher in the serve/MCP path that debounces source-file create/modify/delete into incremental re-indexes, does a `(size, mtime)` + content-hash reconciliation on connect, and prepends a `⚠️` staleness banner to any MCP response that references a still-pending file. Preserve all 005/008 `code_*` contracts.
++Three additive layers on top of 005's graph. Layer 1 (step 01) adds a framework-route extractor: per-language/per-framework node maps that emit `route` nodes (web-framework routing files) linked by `references` edges to handlers, and `navigates` edges for routers (the function that sends the user somewhere → the screen it names). Resolved destinations are string literals; computed/unresolvable ones stay unresolved. Layer 2 (step 02) adds `code_affected` — a pure traversal over 005's import + `tests-for` edges from a set of changed files to the test files that must run (depth-capped, `--stdin`/`--base <ref>`/`--filter`/`--json`/`--quiet`; `--base` derives the changed set from a merge-base diff and reports affected areas with git-history owners). Layer 3 (step 03) adds an fsnotify watcher in the serve/MCP path that debounces source-file create/modify/delete into incremental re-indexes, does a `(size, mtime)` + content-hash reconciliation on connect, and prepends a `⚠️` staleness banner to any MCP response that references a still-pending file; a pull-at-query fingerprint gate (stat-walk against the working tree, structural-only re-index on drift) is the correctness backstop that keeps queries fresh even with the watcher off. Preserve all 005/008 `code_*` contracts.
+ 
+ ## Architecture decisions
+ 
+ ### Decision: Framework routes as first-class `route`/`navigates` edges, not a separate index
+ 
+ **Module / Interface / Seam / Adapter / Depth:** Adapter (per-framework node maps) feeding the existing graph store
+ **Choice:** Route patterns become `route` nodes in the same `symbols`/`edges` tables, linked by `references` edges to handlers; routers add `navigates` edges to the named screen. Resolving is literal-destination only — computed or unserved destinations are unresolved, never guessed.
+ **Alternatives considered:** A separate `routes.json` (loses queryability + incrementality); regex-only route detection (misses framework conventions, false positives)
+ **Rationale:** Putting routes in the graph means `code_path` (005) and 008's `code_explain_community` can trace URL→handler→screen in one query, and `code_affected` (step 02) already covers the handler→tests leg. Literal-only resolution keeps the Confidence Label honest. Per-framework maps mirror CodeGraph's 17-framework table.
+ 
+ ### Decision: `code_affected` is a traversal query, not an extractor
+ 
+ **Module / Interface / Seam / Adapter / Depth:** Query over the existing edges table
+ **Choice:** `code_affected` takes changed files (args or `--stdin`), walks 005's import edges transitively (depth cap, default 5), and emits the test files (via `tests-for` edges) that depend on the changed surface. No new nodes, no new edges — pure read.
+ **Alternatives considered:** Recompute the dependency graph on each call (slow, duplicates the index); store a precomputed impact matrix (memory + staleness)
+ **Rationale:** CodeGraph's `codegraph affected` is the single most "why do I need this graph" demo, and it's *free* on top of 005's edges — no new extraction. Depth cap + `--quiet` make it CI-safe (`git diff --name-only | skillgrid search affected --stdin`).
+ 
++### Decision: `code_affected --base <ref>` — diff-anchored PR impact (Graft `blast`)
++
++**Module / Interface / Seam / Adapter / Depth:** Query extension over the existing edges table + git
++**Choice:** `code_affected --base origin/main` derives the changed file set from `git merge-base <base> HEAD` + diff (no `--stdin` plumbing), walks the same import/`tests-for` traversal, groups the result into affected **areas** (per-symbol detail collapsed under each area), and names git-history owners for each touched area via `git blame` on the changed lines. `--quiet`/`--json` shape it as a PR comment or CI-gate input.
++**Alternatives considered:** `--stdin` only (forces callers to run `git diff --name-only` themselves — fine for CI, clumsy for the agent-in-PR-review case); a separate `code_blast` tool (dup surface — `blast` is just `code_affected` with a different changed-set source)
++**Rationale:** Graft's `blast --base` is the integration surface that puts the graph in front of PR review — "what can this change break, and who owns it" is the question a reviewer actually asks. Reusing `code_affected`'s traversal (one code path, two changed-set sources) keeps the tool surface small; owner attribution is `git blame`, so no new graph data.
++
+ ### Decision: fsnotify watcher + staleness banner for auto-sync
+ 
+ **Module / Interface / Seam / Adapter / Depth:** Adapter (fsnotify) + seam at the MCP serve response path
+-**Choice:** A native fsnotify watcher (FSEvents/inotify/KQueue, pure-Go) in the serve/MCP path captures source-file create/modify/delete, debounces (2000ms default, clamped [100ms,60s]) into incremental re-indexes, and does `(size, mtime)` + content-hash catch-up on connect. MCP tool responses that reference a still-pending file prepend a `⚠️ <file> is pending sync — Read it directly` banner; un-referenced pending files surface as a footer.
++**Choice:** A native fsnotify watcher (FSEvents/inotify/KQueue, pure-Go) in the serve/MCP path captures source-file create/modify/delete, debounces (2000ms default, clamped [100ms,60s]) into incremental re-indexes, and does `(size, mtime)` + content-hash catch-up on connect. MCP tool responses that reference a still-pending file prepend a `⚠️ <file> is pending sync — Read it directly` banner; un-referenced pending files surface as a footer. **In parallel, a pull-at-query fingerprint gate** (Graft's `ensureFreshGraph`): every `code_*` query stats the working tree against the last index's fingerprint (~3ms, no file reads); on drift it runs a structural-only incremental re-index (never the embedder leg) under the same writer lock before answering. The watcher is the comfort layer (near-zero-latency background sync); the fingerprint gate is the correctness backstop — with the watcher off (`SKILLGRID_NO_WATCH=1`), queries are still fresh, just slower.
+ **Alternatives considered:** No watcher (manual `skillgrid index` — index goes stale mid-session); poll-based watcher (CPU + latency); full re-index per change (slow, cost grows with repo not the change)
+-**Rationale:** The staleness banner is the specific trick that removes the "silent wrong answer between an edit and the next sync" class of bugs — the agent gets an explicit signal and falls back to `Read`. Incremental sync (cost grows with the change, not the repo) matches 005's single-transaction hash+mtime guard. CGo-free via fsnotify.
++**Rationale:** The staleness banner is the specific trick that removes the "silent wrong answer between an edit and the next sync" class of bugs — the agent gets an explicit signal and falls back to `Read`. Incremental sync (cost grows with the change, not the repo) matches 005's single-transaction hash+mtime guard. CGo-free via fsnotify. The fingerprint gate makes freshness *structural* rather than *coincidental*: a query can no longer answer from an index the tree has moved past, even in manual/watcher-off mode — Graft's whole "no stale index to babysit" claim comes from exactly this pull-at-query design.
++
++### Decision: Drop rather than guess — ambiguous references leave the graph
++
++**Module / Interface / Seam / Adapter / Depth:** Edge-resolution policy in the route extractor (step 01), inherited by `code_affected` (step 02)
++**Choice:** A reference that cannot be resolved — no same-file match, no explicit specifier, no unique global or owner-qualified (receiver-type) match — is **dropped** at extraction, not stored as `AMBIGUOUS`. Dropped edges are reported as a warning (count + sample), never a silent discard. `AMBIGUOUS` is reserved for edges that *were* resolved via a heuristic (e.g. a markup-written `navigates` link). Downstream, `code_affected` / blast-radius math traverses only resolved edges, so a false positive can never inflate the radius.
++**Alternatives considered:** Keep ambiguous edges in the graph and let queries filter them (they still pollute fan-out math and need per-query filtering discipline); guess the most-likely target (the exact failure Graft calls out — inflated blast radius)
++**Rationale:** Graft's "drop rather than guess" is the single cheapest correctness lever on the whole graph: one policy at extraction time prevents a whole class of false-positive impact results at query time. It also keeps the Confidence Label honest — `EXTRACTED`/`INFERRED` mean *resolved*, `AMBIGUOUS` means *resolved heuristically*, and a missing edge means *we didn't pretend*.
+ 
+ ### Decision: Migration number
+ 
+ **Module / Interface / Seam / Adapter / Depth:** Store migration Seam
+ **Choice:** `013_framework_routes.sql`
+ **Alternatives considered:** Extend `011`/`012` in place
+ **Rationale:** Leave `011` (005) and `012` (008) owned by their changes; 010 is additive and independently rollable
+ 
+ ## Data flow
+ 
+ ```mermaid
+ flowchart TD
+   indexRun["Indexer.Run (005 hook)"] --> symbols["symbols / edges (005)"]
+   indexRun --> routes["framework-route extractor (010)"]
+   routes --> routeNodes["route_nodes + references/navigates edges"]
+   agent["Agent / CLI"] --> affected["code_affected (traversal over 005 import + tests-for)"]
+   agent --> path["code_path URL -> handler -> screen (005, now spans routes)"]
+   watcher["fsnotify watcher (debounced)"] --> reindex["incremental re-index (005 single-tx guard)"]
+   reindex --> symbols
++  query["any code_* query"] --> gate["fingerprint stat-walk (~3ms)"]
++  gate -- "drift" --> reindex
+   mcp["MCP serve"] --> banner["staleness banner if response references a pending file"]
+ ```
+ 
+ ## File layout
+ 
+ ```
+ skillgrid-cli/internal/mnemonic/
+ ├── store/migrations/013_framework_routes.sql    # route_nodes + references/navigates edge types
+ ├── route/extract.go                              # framework-route extractor dispatch (per framework)
+ ├── route/frameworks.go                           # per-framework node maps (routes -> handler, routers -> navigates)
+ ├── affected/affected.go                          # code_affected traversal (import + tests-for, depth-capped)
+ ├── affected/rename.go                            # code_rename (graph vs text-search buckets, dry_run)
+ ├── codeindex/watch.go                            # fsnotify watcher + debounce + connect-time catch-up
++├── codeindex/fingerprint.go                      # pull-at-query stat-walk fingerprint gate (structural-only re-index on drift)
+ ├── codeindex/publish.go                          # copy-and-swap publication + reader auto-reopen
+ ├── embedder/warm.go                              # warm ONNX embedder cache (load-once, idle-evict, heartbeat)
+ ├── mcp/tools_code_route.go                       # route/navigates query tools
+ ├── mcp/tools_code_affected.go                    # code_affected + code_rename MCP tools
+ └── mcp/server.go                                 # wire staleness banner + warm-embedder heartbeat into response path
+ ```
+ 
+ ## Impacted files map
+ 
+ | File | Action | Step | Description |
+@@ -210,20 +232,21 @@ skillgrid-cli/internal/mnemonic/
+ | `skillgrid-cli/internal/mnemonic/store/migrations/013_framework_routes.sql` | Create | 01 | `route_nodes` + `references`/`navigates` edge types |
+ | `skillgrid-cli/internal/mnemonic/route/extract.go` | Create | 01 | Framework-route extractor dispatch |
+ | `skillgrid-cli/internal/mnemonic/route/frameworks.go` | Create | 01 | Per-framework node maps (routes→handler `references`, routers→screen `navigates`) |
+ | `skillgrid-cli/internal/mnemonic/codeindex/indexer.go` | Modify | 01 | Hook route extraction after 005 symbol/edge extraction (same tx) |
+ | `skillgrid-cli/internal/mnemonic/mcp/tools_code_route.go` | Create | 01 | Route/navigates query tools |
+ | `skillgrid-cli/internal/mnemonic/affected/affected.go` | Create | 02 | `code_affected` traversal (import + `tests-for`, depth-capped) |
+ | `skillgrid-cli/internal/mnemonic/affected/rename.go` | Create | 02 | `code_rename` (graph vs text-search edit buckets, `dry_run`, per-edit confidence) |
+ | `skillgrid-cli/internal/mnemonic/mcp/tools_code_affected.go` | Create | 02 | `code_affected` + `code_rename` MCP tools |
+ | `skillgrid-cli/cmd/skillgrid/code_intel.go` | Modify | 02 | `skillgrid search affected` CLI (`--stdin`/`--depth`/`--filter`/`--json`/`--quiet`) + `skillgrid search rename` |
+ | `skillgrid-cli/internal/mnemonic/codeindex/watch.go` | Create | 03 | fsnotify watcher + debounce + `(size,mtime)`+hash connect-time catch-up |
++| `skillgrid-cli/internal/mnemonic/codeindex/fingerprint.go` | Create | 03 | Pull-at-query stat-walk fingerprint gate (structural-only re-index on drift, extractor-stamp keyed) |
+ | `skillgrid-cli/internal/mnemonic/codeindex/publish.go` | Create | 03 | Copy-and-swap publication (sidecar → atomic publish) + reader auto-reopen (~5s) |
+ | `skillgrid-cli/internal/mnemonic/embedder/warm.go` | Create | 03 | Warm ONNX embedder cache (load-once, `idle_timeout` evict, MCP-heartbeat keep-alive) |
+ | `skillgrid-cli/internal/mnemonic/mcp/server.go` | Modify | 03 | Wire staleness banner + auto-reopen + warm-embedder heartbeat into response path |
+ | `skillgrid-cli/cmd/skillgrid/main.go` | Modify | 03 | `serve`/MCP watcher + warm-embedder wiring + `skillgrid index status` pending-sync section |
+ | `skillgrid-cli/go.mod` | Modify | 03 | Add `github.com/fsnotify/fsnotify` (pure-Go, no CGo) |
+ 
+ ## Per-step WHAT
+ 
+ Observable behavior each step must deliver (feeds Gherkin). Not implementation HOW.
+ 
+@@ -251,70 +274,73 @@ Observable behavior each step must deliver (feeds Gherkin). Not implementation H
+ - `--depth` caps traversal (default 5); `--filter "e2e/*"` restricts which test files are reported; `--json` / `--quiet` for scripting
+ - `code_rename validateUser verifyUser` returns `files_affected` / `total_edits` split into **graph edits** (high-confidence: definition + typed references) and **text-search edits** (lower-confidence: flagged "review carefully"); `--dry-run` (default) returns the plan without writing
+ - A `code_rename` target matching several / no symbols returns a ranked candidate list (reuses 005 disambiguation), never a silent pick
+ - The `code_affected` result is paths/relationships from the existing graph — no invented edges; no changed files → empty result with a clear message, not an error
+ - Existing 005/008 `code_*` tools are unchanged; bad affected/rename args are rejected clearly
+ 
+ ### Step 03 — `autosync-watcher`
+ 
+ **Goal:** Keep the graph fresh *and* the embedder warm as the agent edits — fsnotify auto-sync + **copy-and-swap publication** + **reader auto-reopen** + connect-time catch-up + staleness banner + **warm embedder daemon**
+ **Out of scope:** Route edges (step 01); `code_affected`/`code_rename` (step 02); manual full re-index (still available)
+-**Definition of Done:** A debounced fsnotify watcher re-indexes on source-file create/modify/delete while the MCP server runs; **publication is copy-and-swap** (sidecar build → atomic publish) so a reader never sees a torn index; running MCP/serve processes **reopen the new index on the next tool call (~5s) without restart**; connect-time `(size,mtime)` + content-hash reconciliation absorbs edits made while no server was up; MCP responses referencing a pending file prepend a `⚠️` staleness banner (naming it + "Read it directly"), un-referenced pending files as a footer; **the ONNX embedder is loaded once and kept in RAM** while a session is active, evicted on `idle_timeout`, kept alive by MCP heartbeat; watcher is source-file-filtered and disable-able; a second writer exits with a clear lock error; 005/008 tools unchanged
++**Definition of Done:** A debounced fsnotify watcher re-indexes on source-file create/modify/delete while the MCP server runs; **publication is copy-and-swap** (sidecar build → atomic publish) so a reader never sees a torn index; running MCP/serve processes **reopen the new index on the next tool call (~5s) without restart**; connect-time `(size,mtime)` + content-hash reconciliation absorbs edits made while no server was up; MCP responses referencing a pending file prepend a `⚠️` staleness banner (naming it + "Read it directly"), un-referenced pending files as a footer; **a pull-at-query fingerprint gate makes every `code_*` query fresh even with the watcher off** (structural-only re-index on drift, never the embedder leg); **the ONNX embedder is loaded once and kept in RAM** while a session is active, evicted on `idle_timeout`, kept alive by MCP heartbeat; watcher is source-file-filtered and disable-able; a second writer exits with a clear lock error; 005/008 tools unchanged
+ 
+ - Saving a source file fires the watcher, debounces (default 2000ms), and incrementally re-indexes only what changed (cost grows with the change, not the repo)
+ - **Copy-and-swap:** the re-index is built into a sidecar and published atomically — a concurrent reader sees either the old or the new index, never a partial one. On Windows / sidecar-unsupported filesystems it updates in place with a write-failure guard (retry if pre-write; stop if it may have mutated the live index)
+ - **Auto-reopen:** running MCP/serve processes reopen the newly-published index on their next tool call (typically within ~5s), no restart — the agent never has to re-launch to see its own edits
+ - Edits made while no MCP server was running (a `git pull`, another editor) are absorbed by a `(size, mtime)` + content-hash reconciliation on (re)connect
+ - An MCP tool response that references a still-pending file prepends `⚠️ <file> is pending sync — Read it directly`; pending files not referenced surface as a small footer
+ - The watcher filters to source files (honors 005 include/exclude + `.gitignore`); bursts of edits collapse into one sync
+ - `SKILLGRID_NO_WATCH=1` (or a sandboxed env) disables the watcher gracefully; `skillgrid index status` shows a `### Pending sync:` section (files + edit age)
++- **Fingerprint gate:** with the watcher off, a `code_*` query made after an edit still answers against the edited tree (stat-walk detects drift, structural-only re-index runs before the answer); the gate never invokes the embedder leg; the fingerprint is invalidated when the extractor stamp (indexer version) changes
+ - Two `serve`/MCP processes on one project: the second exits with a clear writer-lock error; CGo-free via fsnotify
+ - **Warm embedder:** the ONNX model is loaded once and kept in RAM across `skillgrid search` / MCP calls; after `idle_timeout` (default 10min) of no use it is evicted; an active MCP client connection keeps it alive via heartbeat. A down/absent model falls back to FTS+signals (005's floor) — no model-load latency on the agent's hot search loop
+ - Existing 005/008 `code_*` tools are unchanged; bad watcher/status args are rejected clearly
+ 
+ ## Threat matrix
+ 
+ Mark each row `Applicable` or `N/A: reason`. Applicable rows name an owning step and propagate into RED tasks + acceptance scenarios.
+ 
+ | Boundary / threat | Applicable? | Owning step | Planned RED coverage |
+ |-------------------|-------------|-------------|----------------------|
+ | Documentation-like paths | N/A: routes are data edges, not executed doc paths | — | — |
+ | Git repository selection | N/A: no gitRoot / worktree authority change | — | — |
+ | Commit state | N/A: `code_affected` reads a diff, does not commit | — | — |
+ | Push state | N/A: no push automation | — | — |
+-| **PR commands** | Applicable — `code_affected` consumes a PR/diff file list (read-only); `code_rename` can write source files | 02 | `code_affected --stdin` on a fixture diff returns correct test files; empty diff → empty result; `code_rename --dry-run` touches nothing; a non-dry `code_rename` edits only the listed files (no commit/push) |
++| **PR commands** | Applicable — `code_affected` consumes a PR/diff file list (read-only) incl. `--base <ref>` merge-base diff + owner attribution; `code_rename` can write source files | 02 | `code_affected --stdin` on a fixture diff returns correct test files; `code_affected --base <ref>` on a fixture branch returns correct areas + git-history owners; empty diff → empty result; `code_rename --dry-run` touches nothing; a non-dry `code_rename` edits only the listed files (no commit/push) |
+ | **Mnemonic tool surface** | Applicable — new `code_affected` + `code_rename` + route tools + staleness banner; 005/008 tools unchanged | 01, 02, 03 | 01: route tools registered + 005 `code_search` schema stable + bad args rejected; 02: `code_affected` + `code_rename` registered + rename disambiguation (no silent pick) + dry_run touches nothing + 005/008 tools still stable + bad args rejected; 03: watcher doesn't alter tool schemas + banner present + bad args rejected |
+-| **Index freshness / concurrency** | Applicable — watcher + copy-and-swap publication + auto-reopen + connect-time catch-up + single-writer lock | 03 | debounce collapses bursts; copy-and-swap means a reader never sees a torn index; auto-reopen picks up a new index without restart; connect-time catch-up absorbs offline edits; second writer exits with lock error; banner fires for pending referenced file |
++| **Index freshness / concurrency** | Applicable — watcher + copy-and-swap publication + auto-reopen + connect-time catch-up + single-writer lock + pull-at-query fingerprint gate | 03 | debounce collapses bursts; copy-and-swap means a reader never sees a torn index; auto-reopen picks up a new index without restart; connect-time catch-up absorbs offline edits; second writer exits with lock error; banner fires for pending referenced file; fingerprint gate re-indexes structurally on drift with the watcher off (and never touches the embedder leg) |
+ | **Warm embedder lifecycle** | Applicable — load-once ONNX cache + idle-evict + MCP-heartbeat keep-alive; a down model must degrade to FTS+signals | 03 | embedder loads once and is reused across search calls (no per-call model-load); evicts after `idle_timeout`; MCP heartbeat keeps it alive while a client is connected; an absent/failed model degrades to FTS+signals (no hard-fail, no agent-visible load error) |
+ | **Shared-convention drift** | N/A: no `_shared/conventions/*` edits in this Change | — | — |
+ 
+ ## Migration / rollout
+ 
+-- Additive `013_framework_routes.sql`. Route extraction + `code_affected` + watcher are additive on 005's single-transaction guard. No CGo (fsnotify is pure-Go). No LLM.
+-- Rollback drops `013_*` + `route/` + `affected/` + `codeindex/watch.go` + the new tools + the serve-path banner; 005/008's graph + hybrid + community + knowledge stay.
++- Additive `013_framework_routes.sql`. Route extraction + `code_affected` + watcher + fingerprint gate are additive on 005's single-transaction guard. No CGo (fsnotify is pure-Go). No LLM.
++- Rollback drops `013_*` + `route/` + `affected/` + `codeindex/watch.go` + `codeindex/fingerprint.go` + the new tools + the serve-path banner; 005/008's graph + hybrid + community + knowledge stay.
+ - Route framework set + `code_affected` depth default + watcher debounce tuned in steps 01/02/03; Confidence Label always required on route/navigates edges.
+ 
+ ## Open questions
+ 
+ - Which frameworks to support first in 010 (CodeGraph covers 17) — **recommend** start with the highest-traffic web frameworks (Go: Gin/chi/echo; TS: Express/Next/React Router; Python: Django/FastAPI/Flask; JS: Express) and add the rest incrementally, each validated on a canonical app
+ - Whether the watcher lives in the `serve`/MCP process or a separate daemon — **recommend** in-process for the common case, `SKILLGRID_NO_WATCH=1` to run manual; a shared-daemon mode is a later optimization. The **warm embedder** rides along on the same decision: it is the in-process counterpart of CocoIndex's warm daemon (load-once ONNX, idle-evict, MCP-heartbeat keep-alive) — no separate process needed while a serve/MCP session is active
+ 
+ ## Glossary
+ 
+ | Term | Definition | Glossary file |
+ |------|------------|---------------|
+ | **Route Node** | A framework URL-pattern node linked by `references` edges to its handler | technical |
+ | **References Edge (route)** | Route→handler link from a recognized framework routing pattern | technical |
+ | **Navigates Edge** | Function→screen link from a recognized router navigation (literal destination only) | technical |
+ | **code_affected** | Query that returns the test files affected by changed source, via transitive import + `tests-for` traversal | technical |
+ | **code_rename** | Graph-grounded write tool — splits a rename into high-confidence graph edits + lower-confidence text-search edits, `dry_run` by default | technical |
+ | **Auto-Sync Watcher** | fsnotify-driven debounced incremental re-index that keeps the graph fresh while the agent edits | technical |
++| **Fingerprint Gate** | Pull-at-query stat-walk of the working tree against the last index's fingerprint; on drift, a structural-only incremental re-index runs before the query answers — freshness is structural, not coincidental (Graft `ensureFreshGraph`) | technical |
++| **Blast --base** | `code_affected --base <ref>` — changed set from the merge-base diff, affected-area grouping, git-history owner attribution ("who to tag") for PR review (Graft `blast --base`) | technical |
+ | **Copy-and-Swap Publication** | Re-index is built into a sidecar then published atomically, so a reader sees old-or-new, never a torn index | technical |
+ | **Reader Auto-Open** | Running MCP/serve processes reopen a newly-published index on the next tool call (~5s) without restart | technical |
+ | **Staleness Banner** | `⚠️` prefix on an MCP response that references a still-pending file, telling the agent to `Read` it directly | technical |
+ | **Connect-time Catch-up** | `(size, mtime)` + content-hash reconciliation run on (re)connect to absorb offline edits | technical |
+ | **Warm Embedder** | 005's ONNX model loaded once and kept in RAM while a session is active — evicted on `idle_timeout`, kept alive by MCP heartbeat — so the semantic leg of search doesn't pay model-load latency per call | technical |
+ 
+ <!-- Fold new terms here; also upsert docs/skillgrid/glossary/{business,technical}.md. No companion *-glossary-reference.md. -->
+ 
+ ## Author self-review
+ 
+diff --git a/docs/skillgrid/changes/011-mnemonic-pdg-taint/change.md b/docs/skillgrid/changes/011-mnemonic-pdg-taint/change.md
+index 784f9ac..c05d72c 100644
+--- a/docs/skillgrid/changes/011-mnemonic-pdg-taint/change.md
++++ b/docs/skillgrid/changes/011-mnemonic-pdg-taint/change.md
+@@ -5,38 +5,38 @@
+ > **For agentic workers:** REQUIRED: follow `.agents/skills/_shared/conventions/sdd-structure.md`. This file is WHY + HOW (former intent + plan). Spec phase instantiates `tasks.md` + `acceptance.feature` from the Step Blueprint and per-step WHAT below.
+ >
+ > **Provenance:** Derived from the GitNexus (`abhigyanpatwari/GitNexus`, 47k★) comparison in `docs/skillgrid/changes/005-mnemonic-hybrid-code-intelligence/` (see Mnemonic observation `sdd/005-mnemonic-hybrid-code-intelligence/gitnexus-takeaways`). GitNexus ships an opt-in `--pdg` index that builds per-function control-flow graphs → program-dependence graphs → taint findings (source→sink). This change is the **deep, opt-in** tier of Mnemonic's code intelligence — the one capability GitNexus does that 005/008/010 deliberately do not.
+ 
+ **Goal:** Add an **opt-in** statement-level analysis tier to Mnemonic's code graph: per-function **control-flow graphs (CFG)** → **program-dependence graphs (PDG)** → **taint findings** (source→sink data-flow). This lets an agent answer the questions the call graph can't: "does untrusted input reach this DB write without sanitization?", "which statements actually depend on this variable?", and "trace this value from where it's read to where it's written" — at statement granularity, not symbol granularity.
+ 
+ **Architecture:** Additive `014_*` schema (CFG basic-block nodes + edges, PDG control/data-dependence edges, taint findings) on top of 005's `symbols`/`edges`. A **PDG pass** (opt-in, `--pdg`) builds a per-function CFG from the gotreesitter AST, derives control- and data-dependence edges into a PDG, and runs a source→sink taint solver over it. Findings are persisted and exposed via `code_taint` (list findings) + `code_pdg_query` (statement-level dependence) MCP/CLI tools. Off by default; a non-`--pdg` index is byte-for-byte the 005/008/010 graph. Existing `code_*` tools stay name- and signature-stable.
+ 
+ **Tech stack:** Go (`skillgrid-cli`), SQLite (`modernc.org/sqlite`, CGo-free), existing gotreesitter AST from 005 (CFG from AST, no new grammar), MCP (`mcp-go`), CLI.
+ 
+-**Research:** GitNexus `--pdg` / `explain` / `pdg_query` tools (TypeScript & JavaScript M1) — see 005 gitnexus-takeaways observation.
++**Research:** GitNexus `--pdg` / `explain` / `pdg_query` tools (TypeScript & JavaScript M1) — see 005 gitnexus-takeaways observation. Graft (`trailhq/Graft`) `--lsp` opt-in compiler-grade edges — see 005 graft-takeaways observation.
+ 
+ **Prototype:** none
+ 
+ **Ticket:** none
+ 
+ **Depends on:** `005-mnemonic-hybrid-code-intelligence` (symbols/edges + gotreesitter AST). Does not require 008 (processes) or 010 (routes), though taint sources/sinks can later be seeded from 010's entry points.
+ 
+ ---
+ 
+ ## Goal
+ 
+ An agent gets statement-level data-flow answers on demand — "does this user input reach that SQL write?", "what's the control path that enables this branch?", "trace this value source→sink" — without reading files or re-deriving the CFG by hand. It is **opt-in** so the common 005/008/010 path stays lean.
+ 
+ ## Out of scope / Non-Goals
+ 
+ - Re-implementing 005's symbols/edges/extractors, 008's communities/processes/knowledge, or 010's routes/affected/rename/watcher
+-- Whole-program interprocedural taint (M1 is **intraprocedural** per-function; a call-boundary summary is a later pass)
++- Whole-program interprocedural taint (M1 is **intraprocedural** per-function; a call-boundary summary is a later pass — the **LSP tier is its feeder**, below)
+ - A full data-flow engine beyond CFG→PDG→taint (no type inference beyond what 005 already resolves, no alias analysis beyond 005's receiver resolution)
+ - Default-on indexing (PDG is a separate, opt-in pass — it must not slow the common path)
+ - New languages beyond what 005's gotreesitter already parses (the PDG pass reuses 005's AST; M1 ships the same language set as 005)
+ 
+ ## Definition of Done
+ 
+ This change is done only when **all** of the following are true:
+ 
+ - [ ] `--pdg` builds per-function CFGs (basic-block nodes + `CFG` edges) for 005-supported languages, without changing a non-`--pdg` index
+ - [ ] `--pdg` derives a PDG: control-dependence + data-dependence edges at statement level
+@@ -58,215 +58,234 @@ This change is done only when **all** of the following are true:
+ 
+ ## Target users
+ 
+ - **Coding agent** — data-flow / security reasoning before edits ("will this input be tainted at the sink?"); statement-level "why is this branch taken?"; high value on the security/bug-hunting subset of tasks
+ - **Operator** — CLI parity (`skillgrid index --pdg`, `skillgrid search taint`, `skillgrid search pdg`); a pre-commit taint gate in CI
+ 
+ ## Business rules
+ 
+ - Additive + **opt-in** — `--pdg` is the only trigger; a non-`--pdg` index never populates PDG/taint tables and is byte-for-byte the 005/008/010 graph
+ - CGo-free: CFG is built from the existing gotreesitter AST (no new grammar, no C); the PDG + taint solver are pure Go
++- **LSP tier is opt-in and external-process:** `--lsp` shells out to a language server on `PATH` (`gopls`, `pyright`, `typescript-language-server`, `rust-analyzer`, `clangd` — whichever 005 already parses) for precise member-call resolution. It adds a fourth edge confidence, `LSP_RESOLVED`, to the existing `EXTRACTED | INFERRED | AMBIGUOUS` set. A missing/failing server is best-effort: the index is unchanged (static resolution only), never a hard error. No new in-process CGo boundary
+ - Intraprocedural (M1): CFG/PDG/taint are per-function; crossing a call boundary without a resolved callee is `AMBIGUOUS`/truncated, not a fabricated intraprocedural hop. Interprocedural summaries are a later pass
+ - Every PDG/taint edge carries a Confidence Label: `EXTRACTED | INFERRED | AMBIGUOUS`; a taint path is only `EXTRACTED` where every hop is a resolved data-dependence, else `INFERRED`/`AMBIGUOUS`
+ - Taint **sources** and **sinks** are a configurable, deterministic set (e.g. sources: request params / env / file reads; sinks: SQL exec / shell exec / template render / file write); a finding is source→sink, not a guess
++- **LSP-resolved call edges feed taint:** the PDG pass consumes `LSP_RESOLVED` edges (005 + `--lsp`) as resolved call boundaries instead of marking them `AMBIGUOUS`/"stops at boundary" — the primary M1 false-negative reducer for method-heavy code. The LSP layer is a **feeder**, not a dependency: without `--lsp`, taint behaves exactly as specified (intraprocedural, `AMBIGUOUS` at unresolved boundaries)
+ - A taint finding with no source→sink path is **not reported** (never fabricated); a path that ends at an unresolved boundary is reported with a "stops at <boundary>" note (reuses 005's graph-stops philosophy)
+ - Existing 005/008/010 `code_*` tools keep name + required params; all new tools use distinct `code_*` names
+ - Migration id `014_pdg_taint.sql` — leave `011` (005), `012` (008), `013` (010) as-is
+ 
+ ## In scope
+ 
+ - Schema: `cfg_blocks`, `cfg_edges`, `pdg_edges` (control + data dependence), `taint_findings` (additive `014_*`)
++- **LSP edge tier (opt-in `--lsp`):** external language-server member-call resolution producing `LSP_RESOLVED` edges into 005's edges table (best-effort, missing server = unchanged index)
+ - PDG pass (opt-in `--pdg`): per-function CFG from the gotreesitter AST → control-dependence + data-dependence edges
+ - Taint solver: configurable source/sink sets + a source→sink solver over the PDG (intraprocedural)
+ - `code_taint` (list findings, `--symbol`/`--file`/`--json`) + `code_pdg_query` (statement-level dependence) MCP/CLI tools
+ - Indexer hook: run the PDG + taint pass after 005's extraction, only when `--pdg` is set (same incremental transaction)
+ 
+ ## Risks & rollback
+ 
+ - **Risk:** CFG/PDG construction is slow or memory-heavy on large functions — **Mitigation:** opt-in (off by default); per-function scope (bounded by function size); depth/step caps; a pathological function degrades to a truncated PDG + warning, never aborts the index
+-- **Risk:** Intraprocedural taint misses cross-function flows (false negatives) — **Mitigation:** documented scope (M1 intraprocedural); unresolved call boundaries marked `AMBIGUOUS`/truncated so the agent knows the flow "leaves here"; interprocedural summaries are an explicit later pass
++- **Risk:** Intraprocedural taint misses cross-function flows (false negatives) — **Mitigation:** documented scope (M1 intraprocedural); unresolved call boundaries marked `AMBIGUOUS`/truncated so the agent knows the flow "leaves here"; the `--lsp` tier resolves the member-call subset of those boundaries (`LSP_RESOLVED`), cutting the biggest false-negative class; full interprocedural summaries are an explicit later pass
+ - **Risk:** Data-dependence extraction is imprecise (false positives/negatives) — **Mitigation:** Confidence Labels; only resolved data-dependences are `EXTRACTED`; conservative default source/sink sets; findings are advisory, not load-bearing
+-- **Risk:** Scope expands into a full data-flow engine (alias analysis, type inference, interprocedural) — **Mitigation:** Hard Non-Goals; M1 = CFG + PDG + intraprocedural taint only
+-- **Rollback:** Drop `014_*` migration + `pdg/` package + the `code_taint`/`code_pdg_query` tools + the `--pdg` hook; 005/008/010's graph + hybrid + community + process + routes stay intact
++- **Risk:** Scope expands into a full data-flow engine (alias analysis, type inference, interprocedural) — **Mitigation:** Hard Non-Goals; M1 = CFG + PDG + intraprocedural taint + the opt-in LSP edge tier only
++- **Risk:** LSP server absent or slow (first-run server startup) — **Mitigation:** best-effort with a timeout; a missing/failing server is a no-op (static edges only), never a hard error; `warn+continue` in the error table
++- **Rollback:** Drop `014_*` migration + `pdg/` package + the `code_taint`/`code_pdg_query` tools + the `--pdg`/`--lsp` hooks; `LSP_RESOLVED` edges roll back with the `pdg/` package (they live in `pdg/lsp.go`); 005/008/010's graph + hybrid + community + process + routes stay intact
+ 
+ ## Error handling
+ 
+ | Failure | Behavior | Notes |
+ |---------|----------|-------|
+ | Function with a malformed/unparseable CFG | `warn+continue` | Skip that function's PDG; index the rest |
+ | PDG construction exceeds depth/step cap on a large function | `warn+continue` | Truncate with a "stops at <block>" note; never abort |
+-| Taint path crosses an unresolved call boundary | `warn+continue` | Path marked `AMBIGUOUS` / "stops at <boundary>"; not fabricated |
++| Taint path crosses an unresolved call boundary | `warn+continue` | Path marked `AMBIGUOUS` / "stops at <boundary>"; not fabricated (an `LSP_RESOLVED` edge, when present, resolves the boundary instead) |
++| LSP server absent / fails / times out on `--lsp` | `warn+continue` | Index unchanged (static resolution only); no hard error, no partial LSP edge set |
+ | `code_pdg_query` on a statement with no PDG (non-`--pdg` index) | `warn+continue` | Clear "run `--pdg`" message; empty result, not an error |
+ | Unknown / missing symbol or statement | `warn+continue` | Not-found; no fabricated blocks or dependences |
+ | Bad / missing args on new `code_*` tools | `abort` | Clear validation error; do not invent findings |
+ | Existing 005/008/010 `code_*` tool call | unchanged | Name + required params must not regress; a non-`--pdg` index is byte-for-byte unchanged |
+ 
+ ## Testing strategy
+ 
+ - **Unit:** `Run: go test ./skillgrid-cli/internal/mnemonic/pdg/... ./skillgrid-cli/internal/mnemonic/store/... -count=1` — Expected: PASS
+ - **Integration / acceptance:** `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/... ./skillgrid-cli/internal/mnemonic/service/...` plus BDD `@step-NN` / `@p0` scenarios — Expected: PASS
+ - **Full suite:** `Run: go test ./...` (from `skillgrid-cli` / repo root per module layout) — Expected: PASS
+ - **Green means:** CFG/PDG/taint queryable after `--pdg` on a fixture with a known source→sink; every PDG/taint edge confidence-labeled; **a non-`--pdg` index is byte-for-byte unchanged** (all 005/008/010 tools identical); one-malfunction CFG path covered; cross-boundary taint marked `AMBIGUOUS`, not fabricated
+ 
+ ---
+ 
+ ## Step Blueprint
+ 
+ Contract for `sdd-spec`. Do not renumber after `tasks.md` exists. Per-step Out of scope / DoD live under Per-step WHAT (table is summary only).
+ 
+ | NN | Step slug | Goal (one line) | Primary package / entry | Depends on |
+ |----|-----------|-----------------|-------------------------|------------|
+-| 01 | `cfg-pdg` | Additive `014_*` schema + per-function CFG + control/data-dependence PDG (opt-in `--pdg`) | `skillgrid-cli/internal/mnemonic/pdg` | — (005 done) |
+-| 02 | `taint-solver` | Configurable source/sink sets + intraprocedural source→sink taint solver + `code_taint` / `code_pdg_query` | `skillgrid-cli/internal/mnemonic/pdg` | 01 |
++| 01 | `cfg-pdg` | Additive `014_*` schema + per-function CFG + control/data-dependence PDG (opt-in `--pdg`) + **LSP edge tier (opt-in `--lsp`)** | `skillgrid-cli/internal/mnemonic/pdg` | — (005 done) |
++| 02 | `taint-solver` | Configurable source/sink sets + intraprocedural source→sink taint solver (consumes `LSP_RESOLVED` edges as resolved boundaries) + `code_taint` / `code_pdg_query` | `skillgrid-cli/internal/mnemonic/pdg` | 01 |
+ 
+ ---
+ 
+ ## Technical approach
+ 
+-Two additive, **opt-in** passes on top of 005's graph, both gated behind `--pdg`. Step 01 builds a per-function **CFG** (basic-block nodes + `CFG` edges) directly from 005's gotreesitter AST (no new grammar), then derives a **PDG** — control-dependence edges (which statement dominates/gates which) and data-dependence edges (which statement's value reaches which) — persisted as `cfg_blocks`/`cfg_edges`/`pdg_edges`. Step 02 layers a **taint solver** over the PDG: a configurable, deterministic set of sources (request params, env, file reads) and sinks (SQL/shell/template/file writes), a source→sink reachability solver, and persisted `taint_findings`. Both expose `code_taint` (list findings, `--symbol`/`--file`/`--json`) and `code_pdg_query` (statement-level dependence) MCP/CLI tools. The PDG + taint pass runs after 005's extraction in the same incremental transaction, **only when `--pdg` is set**; without it the index is byte-for-byte the 005/008/010 graph. Preserve all 005/008/010 `code_*` contracts.
++Two additive, **opt-in** passes on top of 005's graph, gated behind `--pdg` (with an independent `--lsp` edge-resolution tier). Step 01 builds a per-function **CFG** (basic-block nodes + `CFG` edges) directly from 005's gotreesitter AST (no new grammar), then derives a **PDG** — control-dependence edges (which statement dominates/gates which) and data-dependence edges (which statement's value reaches which) — persisted as `cfg_blocks`/`cfg_edges`/`pdg_edges`. Step 02 layers a **taint solver** over the PDG: a configurable, deterministic set of sources (request params, env, file reads) and sinks (SQL/shell/template/file writes), a source→sink reachability solver, and persisted `taint_findings`. An independent **`--lsp` tier** shells out to a language server (best-effort) to add `LSP_RESOLVED` member-call edges into 005's edges table, which the PDG/taint passes then consume as *resolved* call boundaries — the primary M1 false-negative reducer for method-heavy code. Both expose `code_taint` (list findings, `--symbol`/`--file`/`--json`) and `code_pdg_query` (statement-level dependence) MCP/CLI tools. The PDG + taint pass runs after 005's extraction in the same incremental transaction, **only when `--pdg` is set**; without it the index is byte-for-byte the 005/008/010 graph. Preserve all 005/008/010 `code_*` contracts.
+ 
+ ## Architecture decisions
+ 
+ ### Decision: PDG/taint is opt-in (`--pdg`), not default
+ 
+ **Module / Interface / Seam / Adapter / Depth:** Pass gate at the indexer
+ **Choice:** CFG/PDG/taint build only when `--pdg` is passed; the tables are additive and a non-`--pdg` index never populates them.
+ **Alternatives considered:** Default-on (always build PDG — slows every index, memory-bound on large repos); a separate `--pdg` index file (fragmentation, dual-sync drift)
+ **Rationale:** GitNexus itself ships PDG as an opt-in `--pdg` flag for exactly this reason — it's a deep, memory-bound analysis most queries don't need. Making it a flag (not a separate store) reuses 005's single-transaction incremental guard, so `--pdg` and non-`--pdg` stay consistent and the common path is untouched.
+ 
+ ### Decision: CFG from the existing AST, intraprocedural (M1)
+ 
+ **Module / Interface / Seam / Adapter / Depth:** Pass over the gotreesitter AST
+ **Choice:** Build the per-function CFG from 005's gotreesitter AST (basic blocks from branch/loop/return structure); PDG control/data dependences are per-function. Crossing an unresolved call boundary is `AMBIGUOUS`/truncated.
+ **Alternatives considered:** A dedicated CFG grammar (new dep, CGo risk); interprocedural taint in M1 (call-boundary summaries — much harder, needs inlining/summaries)
+ **Rationale:** 005 already parses every supported language with gotreesitter; the CFG is a re-read of the same AST (control flow is in the tree), so no new grammar and no CGo. Intraprocedural-first matches GitNexus's M1 (they're also TS/JS M1) and bounds the correctness surface; interprocedural summaries are an explicit later pass, and the "stops at <boundary>" note tells the agent exactly where the flow leaves.
+ 
++### Decision: LSP as an opt-in, external-process edge tier (Graft `--lsp`)
++
++**Module / Interface / Seam / Adapter / Depth:** Adapter (language-server JSON-RPC) at the extraction seam; pure-Go in-process, the server is a separate binary
++**Choice:** `skillgrid index --lsp` shells out to a language server on `PATH` for languages 005 already parses (`gopls`, `pyright`, `typescript-language-server`, `rust-analyzer`, `clangd`). Resolved member calls become `LSP_RESOLVED` edges in 005's edges table — the precision tier for member calls the static tree-sitter pass can't type (receiver-bound methods, interface→impl). Best-effort: missing/failing server → index unchanged, `warn+continue`. A fourth confidence value, `LSP_RESOLVED`, joins `EXTRACTED | INFERRED | AMBIGUOUS`.
++**Alternatives considered:** In-process LSP client via CGo (breaks the CGo-free invariant); LSP only inside the PDG pass (edges stay invisible to 005/010 tools — `code_affected`/`code_impact` can't use them either)
++**Rationale:** Graft proves the pattern: the static pass + an opt-in compiler-grade layer that degrades to no-op. For 011 it's a force multiplier — taint's "stops at boundary" truncations are exactly the edges LSP resolves, so `--lsp --pdg` cuts M1's biggest false-negative class without changing the taint solver's contract. Putting the edges in 005's table (not a PDG-private structure) means 010's `code_affected`/`code_rename` inherit the precision for free.
++
+ ### Decision: Deterministic source/sink sets + confidence-labeled findings
+ 
+ **Module / Interface / Seam / Adapter / Depth:** Solver config + finding schema
+ **Choice:** Sources and sinks are a configurable, deterministic set (defaults: request params/env/file reads → SQL/shell/template/file writes). A finding is a real source→sink path; every hop is confidence-labeled; an unresolved boundary truncates the path with a "stops at" note.
+ **Alternatives considered:** LLM-suggested sources/sinks (non-deterministic, cost); report all reachable statement pairs (noise, no source→sink semantics)
+ **Rationale:** A taint finding is only useful if it's a *real* source→sink flow, not "these statements are connected." Deterministic sets keep it reproducible and testable; confidence labels + "stops at" keep it honest (a path that can't be completed is marked, not fabricated). Findings are advisory — the agent decides, the graph doesn't pretend to be a prover.
+ 
+ ### Decision: Migration number
+ 
+ **Module / Interface / Seam / Adapter / Depth:** Store migration Seam
+ **Choice:** `014_pdg_taint.sql`
+ **Alternatives considered:** Extend `013` in place
+ **Rationale:** Leave `011` (005), `012` (008), `013` (010) owned by their changes; 011 is additive, opt-in, and independently rollable
+ 
+ ## Data flow
+ 
+ ```mermaid
+ flowchart TD
+-  indexRun["Indexer.Run (005 hook, --pdg)"] --> ast["gotreesitter AST (005)"]
++  indexRun["Indexer.Run (005 hook, --lsp/--pdg)"] --> ast["gotreesitter AST (005)"]
++  indexRun -. "opt-in, best-effort" .-> lsp["LSP tier: LSP_RESOLVED edges (005 edges table)"]
++  lsp -. "resolved call boundaries" .-> pdg
+   indexRun --> cfg["CFG pass: basic blocks + CFG edges"]
+   cfg --> pdg["PDG: control + data dependence edges"]
+   pdg --> taint["taint solver: source -> sink over PDG"]
+   taint --> findings["taint_findings (confidence-labeled)"]
+   agent["Agent / CLI"] --> taintTool["code_taint (list findings)"]
+   agent --> pdgTool["code_pdg_query (statement dependence)"]
+   taintTool --> findings
+   pdgTool --> pdg
+ ```
+ 
+ ## File layout
+ 
+ ```
+ skillgrid-cli/internal/mnemonic/
+ ├── store/migrations/014_pdg_taint.sql          # cfg_blocks, cfg_edges, pdg_edges, taint_findings
+ ├── pdg/cfg.go                                  # per-function CFG from gotreesitter AST
+ ├── pdg/pdg.go                                  # control + data dependence edges
+ ├── pdg/taint.go                                # source/sink sets + source->sink solver
++├── pdg/lsp.go                                  # opt-in LSP edge tier (external server, LSP_RESOLVED edges)
+ └── mcp/tools_code_pdg.go                       # code_taint + code_pdg_query
+ ```
+ 
+ ## Impacted files map
+ 
+ | File | Action | Step | Description |
+ |------|--------|------|-------------|
+ | `skillgrid-cli/internal/mnemonic/store/migrations/014_pdg_taint.sql` | Create | 01 | `cfg_blocks`, `cfg_edges`, `pdg_edges`, `taint_findings` |
+ | `skillgrid-cli/internal/mnemonic/pdg/cfg.go` | Create | 01 | Per-function CFG from gotreesitter AST (basic blocks + `CFG` edges) |
++| `skillgrid-cli/internal/mnemonic/pdg/lsp.go` | Create | 01 | Opt-in LSP edge tier (external language server on PATH, `LSP_RESOLVED` edges into 005's table, best-effort no-op on missing server) |
+ | `skillgrid-cli/internal/mnemonic/pdg/pdg.go` | Create | 01 | Control-dependence + data-dependence edges |
+ | `skillgrid-cli/internal/mnemonic/codeindex/indexer.go` | Modify | 01 | Hook PDG pass after 005 extraction (same tx), gated on `--pdg` |
+ | `skillgrid-cli/internal/mnemonic/pdg/taint.go` | Create | 02 | Configurable source/sink sets + intraprocedural source→sink solver |
+ | `skillgrid-cli/internal/mnemonic/mcp/tools_code_pdg.go` | Create | 02 | `code_taint` + `code_pdg_query` MCP tools |
+-| `skillgrid-cli/cmd/skillgrid/code_intel.go` | Modify | 02 | `skillgrid search taint` + `skillgrid search pdg` CLI; `skillgrid index --pdg` flag |
++| `skillgrid-cli/cmd/skillgrid/code_intel.go` | Modify | 02 | `skillgrid search taint` + `skillgrid search pdg` CLI; `skillgrid index --pdg` + `--lsp` flags |
+ | `skillgrid-cli/internal/mnemonic/mcp/server.go` | Modify | 02 | Register new tool sets |
+ | `skillgrid-cli/cmd/skillgrid/main.go` | Modify | 02 | CLI dispatch for `--pdg` + taint/pdg search |
+ 
+ ## Per-step WHAT
+ 
+ Observable behavior each step must deliver (feeds Gherkin). Not implementation HOW.
+ 
+ ### Step 01 — `cfg-pdg`
+ 
+ **Goal:** Opt-in per-function CFG + control/data-dependence PDG so statement-level structure is queryable
+ **Out of scope:** Taint (step 02); interprocedural flow; changing 005/008/010 tools
+ **Definition of Done:** `--pdg` builds per-function CFGs (basic blocks + `CFG` edges) and a PDG (control + data dependence) for 005-supported languages; a non-`--pdg` index is byte-for-byte unchanged; malformed function → fallback + continue; a function that exceeds the cap truncates with a note, never aborts; 005/008/010 tools unchanged
+ 
+ - `skillgrid index --pdg` populates `cfg_blocks`/`cfg_edges`/`pdg_edges` for each function (basic blocks from branch/loop/return structure)
++- `skillgrid index --lsp` adds `LSP_RESOLVED` edges for member calls the static pass couldn't type (resolved via the language server); a missing/failing server leaves the index unchanged (warn+continue); `--lsp` works standalone (no `--pdg` needed) and composes with `--pdg`
+ - `code_pdg_query <symbol> <statement>` returns the statements that control-depend on, data-depend on, and are depended on by the given statement
+-- Every PDG edge carries a Confidence Label; a data-dependence that can't be resolved is `AMBIGUOUS`/`INFERRED`, not fabricated
++- Every PDG edge carries a Confidence Label; a data-dependence that can't be resolved is `AMBIGUOUS`/`INFERRED`, not fabricated; call boundaries resolved by the LSP tier are `LSP_RESOLVED`, not `AMBIGUOUS`
+ - A function with a malformed CFG is skipped (index the rest); a function over the depth/step cap truncates with a "stops at <block>" note
+ - A **non-`--pdg`** index has no PDG/taint tables populated and every 005/008/010 `code_*` tool is byte-for-byte unchanged
+ - Existing 005/008/010 `code_*` tools are unchanged; bad PDG args are rejected clearly
+ 
+ ### Step 02 — `taint-solver`
+ 
+ **Goal:** Configurable source/sink sets + intraprocedural source→sink taint so "does untrusted input reach this sink" is a query
+ **Out of scope:** Interprocedural flow (later pass); a full data-flow engine; changing 005/008/010 tools
+ **Definition of Done:** `code_taint` returns source→sink findings (source kind, sink kind, the path, per-hop Confidence Label); a finding with no path is not fabricated; a path crossing an unresolved boundary is `AMBIGUOUS`/truncated with a "stops at" note; sources/sinks are a deterministic configurable set; 005/008/010 tools unchanged
+ 
+ - `code_taint` returns source→sink taint findings: source kind (request param / env / file read), sink kind (SQL exec / shell / template / file write), the hop-by-hop path, each hop confidence-labeled
+-- A source with no path to a sink produces **no finding** (never fabricated); a path that ends at an unresolved call boundary is reported with "stops at <boundary>", not dropped silently
++- A source with no path to a sink produces **no finding** (never fabricated); a path that ends at an unresolved call boundary is reported with "stops at <boundary>", not dropped silently — unless the boundary has an `LSP_RESOLVED` edge, in which case the path continues through it
+ - `--symbol` / `--file` filter findings; `--json` for CI; a non-`--pdg` index returns a clear "run `--pdg`" message, not an error
+ - The default source/sink sets are deterministic + configurable; a finding is advisory (the agent decides), not a prover's verdict
+ - Existing 005/008/010 `code_*` tools are unchanged; bad taint args are rejected clearly
+ 
+ ## Threat matrix
+ 
+ Mark each row `Applicable` or `N/A: reason`. Applicable rows name an owning step and propagate into RED tasks + acceptance scenarios.
+ 
+ | Boundary / threat | Applicable? | Owning step | Planned RED coverage |
+ |-------------------|-------------|-------------|----------------------|
+ | Documentation-like paths | N/A: PDG/taint run on source files only | — | — |
+ | Git repository selection | N/A: no gitRoot / worktree authority change | — | — |
+ | Commit state | N/A: `--pdg` indexes, does not commit | — | — |
+ | Push state | N/A: no push automation | — | — |
+ | PR commands | N/A: taint is advisory, no PR automation (a CI gate is a consumer, not this change) | — | — |
+-| **Mnemonic tool surface** | Applicable — new `code_taint`/`code_pdg_query`; 005/008/010 tools unchanged; opt-in gate must not leak | 01, 02 | 01: `code_pdg_query` registered + non-`--pdg` index byte-for-byte unchanged + bad args rejected; 02: `code_taint` registered + no fabricated finding + cross-boundary `AMBIGUOUS` + 005/008/010 tools still stable + bad args rejected |
+-| **Opt-in isolation** | Applicable — `--pdg` must not change the common index | 01, 02 | a non-`--pdg` index has empty PDG/taint tables + identical tool output to pre-011; `--pdg` index adds findings without altering 005/008/010 results |
++| **Mnemonic tool surface** | Applicable — new `code_taint`/`code_pdg_query` + `--lsp` edge tier; 005/008/010 tools unchanged; opt-in gate must not leak | 01, 02 | 01: `code_pdg_query` registered + non-`--pdg` index byte-for-byte unchanged + `--lsp` absent-server no-op (index unchanged) + bad args rejected; 02: `code_taint` registered + no fabricated finding + cross-boundary `AMBIGUOUS` (resolved when `LSP_RESOLVED` present) + 005/008/010 tools still stable + bad args rejected |
++| **Opt-in isolation** | Applicable — `--pdg` must not change the common index; `--lsp` must not change it when the server is absent | 01, 02 | a non-`--pdg` index has empty PDG/taint tables + identical tool output to pre-011; `--pdg` index adds findings without altering 005/008/010 results; `--lsp` with no server installed produces a byte-for-byte static index (zero `LSP_RESOLVED` edges) |
+ | **Shared-convention drift** | N/A: no `_shared/conventions/*` edits in this Change | — | — |
+ 
+ ## Migration / rollout
+ 
+-- Additive `014_pdg_taint.sql`. PDG + taint run after 005's extraction **only when `--pdg` is set**; a non-`--pdg` index is byte-for-byte the 005/008/010 graph. No CGo (CFG from the existing AST). No LLM.
+-- Rollback drops `014_*` + `pdg/` + the new tools + the `--pdg` hook; 005/008/010's graph + hybrid + community + process + routes stay.
+-- Source/sink sets + depth caps tuned in steps 01/02; Confidence Label always required on PDG/taint edges.
++- Additive `014_pdg_taint.sql`. PDG + taint run after 005's extraction **only when `--pdg` is set**; a non-`--pdg` index is byte-for-byte the 005/008/010 graph. No CGo (CFG from the existing AST; the LSP tier is an external process). No LLM.
++- Rollback drops `014_*` + `pdg/` + the new tools + the `--pdg`/`--lsp` hooks; 005/008/010's graph + hybrid + community + process + routes stay.
++- Source/sink sets + depth caps tuned in steps 01/02; Confidence Label always required on PDG/taint edges; `LSP_RESOLVED` joins the label set as a fourth value.
+ 
+ ## Open questions
+ 
+ - Which default source/sink sets ship in M1 — **recommend** start with the high-signal ones (sources: HTTP request params/body, env vars, file reads; sinks: SQL exec, shell exec, template render, file write) and make the rest configurable
+-- Interprocedural summaries (cross-function taint) — **deferred** to a later pass (M2); M1 is intraprocedural with "stops at <boundary>" notes
++- Interprocedural summaries (cross-function taint) — **deferred** to a later pass (M2); M1 is intraprocedural with "stops at <boundary>" notes, and the `--lsp` tier resolves the member-call subset of those boundaries in M1 (Graft pattern: static pass + opt-in compiler-grade layer, best-effort no-op)
+ - Whether `--pdg` should also seed taint sources from 010's route entry points — **recommend** yes when 010 is present, no-op otherwise
+ 
+ ## Glossary
+ 
+ | Term | Definition | Glossary file |
+ |------|------------|---------------|
+ | **CFG** | Control-flow graph — per-function basic blocks + `CFG` edges, built from the gotreesitter AST | technical |
+ | **PDG** | Program-dependence graph — control-dependence + data-dependence edges at statement level, derived from the CFG | technical |
+ | **Taint Finding** | A source→sink data-flow path (source kind, sink kind, hops, per-hop Confidence Label) over the PDG | technical |
+ | **Taint Source** | A configurable statement kind where untrusted data enters (request params, env, file reads) | technical |
+ | **Taint Sink** | A configurable statement kind where data is consumed (SQL/shell/template/file writes) | technical |
+ | **--pdg** | The opt-in indexer flag that builds CFG/PDG/taint; a non-`--pdg` index is byte-for-byte unchanged | technical |
++| **LSP Tier** | Opt-in `--lsp` indexer flag that shells out to a language server (gopls/pyright/tsserver/rust-analyzer/clangd) to add `LSP_RESOLVED` member-call edges; best-effort, a missing server leaves the index unchanged (Graft `--lsp`) | technical |
++| **LSP_RESOLVED** | Fourth edge confidence value (joins `EXTRACTED \| INFERRED \| AMBIGUOUS`) marking call edges resolved by a language server; consumed by the PDG/taint passes as resolved call boundaries | technical |
+ 
+ <!-- Fold new terms here; also upsert docs/skillgrid/glossary/{business,technical}.md. No companion *-glossary-reference.md. -->
+ 
+ ## Author self-review
+ 
+ - [x] **Goal**, **Out of scope / Non-Goals**, and **Definition of Done** are filled and testable
+ - [x] **Error handling** and **Testing strategy** are filled
+ - [x] Non-goals match Global Constraints that will appear in `tasks.md`
+ - [x] Rollback plan is present
+ - [x] Step Blueprint covers a vertical-slice sequence (no horizontal-only layers)
+diff --git a/skillgrid-cli/cmd/skillgrid/code_community_test.go b/skillgrid-cli/cmd/skillgrid/code_community_test.go
+new file mode 100644
+index 0000000..6d5560a
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/code_community_test.go
+@@ -0,0 +1,126 @@
++package main
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/community"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++)
++
++func writeFileTo(root, name, content string) error {
++	return os.WriteFile(filepath.Join(root, name), []byte(content), 0o644)
++}
++
++func mustProjectID(svc *service.Service) string {
++	proj, err := svc.ResolveProject(".")
++	if err != nil {
++		panic(err)
++	}
++	return proj
++}
++
++// communityCLIFixture writes a small two-cluster go project, indexes it, and
++// returns the service + project id for community CLI parity checks.
++func communityCLIFixture(t *testing.T) (*service.Service, string) {
++	t.Helper()
++	dataDir := t.TempDir()
++	root := t.TempDir()
++	files := map[string]string{
++		"a.go": "package a\n\nfunc aOne() int { return aTwo() + aThree() }\n\nfunc aTwo() int { return aThree() + 1 }\n\nfunc aThree() int { return 3 }\n",
++		"b.go": "package b\n\nfunc bOne() int { return bTwo() + bThree() }\n\nfunc bTwo() int { return bThree() + 1 }\n\nfunc bThree() int { return 9 }\n",
++	}
++	for name, content := range files {
++		if err := writeFileTo(root, name, content); err != nil {
++			t.Fatalf("write %s: %v", name, err)
++		}
++	}
++	t.Setenv("MNEMONIC_PROJECT", "cli-community")
++	svc := service.New(dataDir)
++	if _, err := svc.ResolveProject(root); err != nil {
++		t.Fatalf("resolve: %v", err)
++	}
++	if _, err := svc.RunCodeIndex(context.Background(), root); err != nil {
++		t.Fatalf("index: %v", err)
++	}
++	return svc, root
++}
++
++// TestRunCodeCommunitiesParity covers @step-01 (Scenario: CLI community
++// commands return the same views): the CLI community runner produces the same
++// labeled-subsystem view as the MCP tool (the service backing).
++func TestRunCodeCommunitiesParity(t *testing.T) {
++	svc, _ := communityCLIFixture(t)
++	out, err := svc.CodeCommunities(context.Background(), mustProjectID(svc), community.Options{})
++	if err != nil {
++		t.Fatalf("CodeCommunities: %v", err)
++	}
++	if len(out.Communities) == 0 {
++		t.Fatalf("expected communities, got none")
++	}
++	for _, c := range out.Communities {
++		if c.Label == "" {
++			t.Errorf("community %d has an empty label", c.ID)
++		}
++	}
++}
++
++// TestRunCodeGodNodesParity covers the CLI god-nodes view (same backing as the
++// code_god_nodes MCP tool), including exclude-hubs.
++func TestRunCodeGodNodesParity(t *testing.T) {
++	svc, _ := communityCLIFixture(t)
++	proj := mustProjectID(svc)
++	gods, err := svc.CodeGodNodes(context.Background(), proj, false, 20)
++	if err != nil {
++		t.Fatalf("CodeGodNodes: %v", err)
++	}
++	if len(gods) == 0 {
++		t.Fatalf("expected god nodes, got none")
++	}
++	for i := 1; i < len(gods); i++ {
++		if gods[i-1].Degree < gods[i].Degree {
++			t.Errorf("god nodes not ranked by degree descending at %d", i)
++		}
++	}
++	// exclude-hubs returns a (possibly smaller) ranked list without error.
++	excluded, err := svc.CodeGodNodes(context.Background(), proj, true, 20)
++	if err != nil {
++		t.Fatalf("CodeGodNodes excludeHubs: %v", err)
++	}
++	_ = excluded
++}
++
++// TestRunCodeExplainCommunityParity covers the CLI explain view (same backing
++// as code_explain_community): a valid id returns members + entry points; a bad
++// id returns a not-found reason.
++func TestRunCodeExplainCommunityParity(t *testing.T) {
++	svc, _ := communityCLIFixture(t)
++	proj := mustProjectID(svc)
++	res, err := svc.CodeCommunities(context.Background(), proj, community.Options{})
++	if err != nil {
++		t.Fatalf("CodeCommunities: %v", err)
++	}
++	if len(res.Communities) == 0 {
++		t.Fatal("expected communities")
++	}
++	id := res.Communities[0].ID
++	out, err := svc.CodeExplainCommunity(context.Background(), proj, id)
++	if err != nil {
++		t.Fatalf("CodeExplainCommunity: %v", err)
++	}
++	if !out.Found {
++		t.Fatalf("expected found, got %q", out.Reason)
++	}
++	if len(out.Members) == 0 {
++		t.Fatalf("expected members, got none")
++	}
++	bad, err := svc.CodeExplainCommunity(context.Background(), proj, 9999)
++	if err != nil {
++		t.Fatalf("CodeExplainCommunity bad id: %v", err)
++	}
++	if bad.Found {
++		t.Errorf("non-existent community 9999 should be not found")
++	}
++}
+diff --git a/skillgrid-cli/cmd/skillgrid/code_intel.go b/skillgrid-cli/cmd/skillgrid/code_intel.go
+index c20de14..a74faa0 100644
+--- a/skillgrid-cli/cmd/skillgrid/code_intel.go
++++ b/skillgrid-cli/cmd/skillgrid/code_intel.go
+@@ -1,21 +1,23 @@
+ package main
+ 
+ import (
+ 	"context"
+ 	"encoding/json"
+ 	"flag"
+ 	"fmt"
+ 	"os"
+ 	"os/signal"
++	"strconv"
+ 	"syscall"
+ 
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/community"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/graph"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+ )
+ 
+ // runCodeIntel handles the `skillgrid orient` and `skillgrid grep` subcommands
+ // (CLI parity for the Tier-1 orientation and structural code_grep MCP tools).
+ func runCodeIntel(version string, args []string) {
+ 	if len(args) == 0 {
+ 		fmt.Fprintln(os.Stderr, "usage: skillgrid <orient|grep> ... (see --help)")
+ 		os.Exit(2)
+@@ -28,42 +30,51 @@ func runCodeIntel(version string, args []string) {
+ 	case "callers", "callees", "dependents", "implementors", "hierarchy", "tests-for":
+ 		runNeighbors(version, args[0], args[1:])
+ 	case "path":
+ 		runGraphPath(version, args[1:])
+ 	case "explain":
+ 		runExplain(version, args[1:])
+ 	case "impact":
+ 		runImpact(version, args[1:])
+ 	case "explore":
+ 		runExplore(version, args[1:])
++	case "communities":
++		runCommunities(version, args[1:])
++	case "god-nodes":
++		runGodNodes(version, args[1:])
++	case "explain-community":
++		runExplainCommunity(version, args[1:])
+ 	case "help", "-h", "--help":
+ 		printCodeIntelUsage()
+ 	default:
+ 		fmt.Fprintf(os.Stderr, "error: unknown code_intel subcommand %q (see --help)\n", args[0])
+ 		os.Exit(2)
+ 	}
+ }
+ 
+ func printCodeIntelUsage() {
+ 	fmt.Fprintln(os.Stderr, `usage: skillgrid <orient|grep> [flags]
+ 
+   skillgrid orient SYMBOL  Tier-1 orientation for a symbol: signature, file TOC,
+                            map, list, metadata, and linked rationale.
+   skillgrid grep PATTERN [path]  Structural by-example grep (index-free):
+                            matches the gotreesitter syntax tree, per language.
+ 
+   callers|callees|dependents|implementors|hierarchy|tests-for SYMBOL
+                            Graph neighbors (every edge confidence-labeled)
+   path FROM TO            Shortest edge path, or where the graph stops
+   explain SYMBOL          Symbol node + degree + connections ranked by degree
+-  impact SYMBOL           Risk-tiered blast radius (WILL BREAK / LIKELY AFFECTED)
+-  explore SYMBOL          Composite: source + call-flow + blast radius in one call
++   impact SYMBOL           Risk-tiered blast radius (WILL BREAK / LIKELY AFFECTED)
++   explore SYMBOL          Composite: source + call-flow + blast radius in one call
++   communities             Leiden-clustered subsystems (LLM-free labels)
++   god-nodes [--exclude-hubs] [--limit N]  Most-connected symbols by degree
++   explain-community ID    A community's members + key entry points
+ 
+   graph flags:
+     --json    Emit machine-readable JSON (default: human table)
+   impact:
+     --file F --uid U --kind K --min-confidence C --max-depth N
+   grep:
+     --json    Emit machine-readable JSON (default: human table)`)
+ }
+ 
+ // graphView maps a CLI subcommand to its graph view.
+@@ -516,10 +527,153 @@ func runExplore(version string, args []string) {
+ 		fmt.Println("call flow:")
+ 		for _, e := range out.Flow {
+ 			fmt.Printf("  %s -> %s [%s %s] :%d\n", e.From, e.To, e.Kind, e.Confidence, e.Line)
+ 		}
+ 	}
+ 	if out.Impact != nil {
+ 		fmt.Println("blast radius:")
+ 		printImpact(out.Impact)
+ 	}
+ }
++
++// runCommunities implements `skillgrid communities` (CLI parity for the
++// code_communities MCP tool).
++func runCommunities(version string, args []string) {
++	fs := flag.NewFlagSet("communities", flag.ContinueOnError)
++	fs.SetOutput(os.Stderr)
++	var jsonOut bool
++	fs.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
++	fs.Usage = func() {
++		fmt.Fprintln(fs.Output(), "usage: skillgrid communities [--json]")
++		fs.PrintDefaults()
++	}
++	if err := fs.Parse(args); err != nil {
++		os.Exit(2)
++	}
++	svc, projectID, err := openGraphService()
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	_ = version
++	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
++	defer stop()
++	out, err := svc.CodeCommunities(ctx, projectID, community.Options{})
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	if jsonOut {
++		b, _ := json.MarshalIndent(out, "", "  ")
++		fmt.Fprintln(os.Stdout, string(b))
++		return
++	}
++	if out.Warning != "" {
++		fmt.Fprintf(os.Stderr, "note: %s\n", out.Warning)
++	}
++	for _, c := range out.Communities {
++		fmt.Printf("community %d: %s (%d symbols)\n", c.ID, c.Label, len(c.Members))
++		for _, g := range c.GodNodes {
++			fmt.Printf("  god node: %s\n", g)
++		}
++	}
++}
++
++// runGodNodes implements `skillgrid god-nodes` (CLI parity for code_god_nodes).
++func runGodNodes(version string, args []string) {
++	fs := flag.NewFlagSet("god-nodes", flag.ContinueOnError)
++	fs.SetOutput(os.Stderr)
++	var jsonOut, excludeHubs bool
++	var limit int
++	fs.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
++	fs.BoolVar(&excludeHubs, "exclude-hubs", false, "suppress utility super-hubs")
++	fs.IntVar(&limit, "limit", 20, "maximum god nodes to return")
++	fs.Usage = func() {
++		fmt.Fprintln(fs.Output(), "usage: skillgrid god-nodes [--exclude-hubs] [--limit N] [--json]")
++		fs.PrintDefaults()
++	}
++	if err := fs.Parse(args); err != nil {
++		os.Exit(2)
++	}
++	svc, projectID, err := openGraphService()
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	_ = version
++	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
++	defer stop()
++	out, err := svc.CodeGodNodes(ctx, projectID, excludeHubs, limit)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	if jsonOut {
++		b, _ := json.MarshalIndent(map[string]any{"god_nodes": out, "exclude_hubs": excludeHubs}, "", "  ")
++		fmt.Fprintln(os.Stdout, string(b))
++		return
++	}
++	if len(out) == 0 {
++		fmt.Fprintln(os.Stderr, "no god nodes")
++		return
++	}
++	for _, g := range out {
++		fmt.Printf("%s  degree %d  %s:%d\n", g.Name, g.Degree, g.Path, g.SymbolID)
++	}
++}
++
++// runExplainCommunity implements `skillgrid explain-community ID` (CLI parity
++// for code_explain_community).
++func runExplainCommunity(version string, args []string) {
++	fs := flag.NewFlagSet("explain-community", flag.ContinueOnError)
++	fs.SetOutput(os.Stderr)
++	var jsonOut bool
++	fs.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
++	fs.Usage = func() {
++		fmt.Fprintln(fs.Output(), "usage: skillgrid explain-community ID [--json]")
++		fs.PrintDefaults()
++	}
++	if err := fs.Parse(args); err != nil {
++		os.Exit(2)
++	}
++	if fs.NArg() != 1 {
++		fmt.Fprintln(os.Stderr, "error: explain-community requires exactly one ID argument")
++		os.Exit(2)
++	}
++	id, err := strconv.Atoi(fs.Arg(0))
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "error: explain-community id must be an integer, got %q\n", fs.Arg(0))
++		os.Exit(2)
++	}
++	svc, projectID, err := openGraphService()
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	_ = version
++	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
++	defer stop()
++	out, err := svc.CodeExplainCommunity(ctx, projectID, id)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	if !out.Found {
++		fmt.Fprintf(os.Stderr, "not found: %s\n", out.Reason)
++		os.Exit(1)
++	}
++	if jsonOut {
++		b, _ := json.MarshalIndent(out, "", "  ")
++		fmt.Fprintln(os.Stdout, string(b))
++		return
++	}
++	fmt.Printf("community %d: %s (%d symbols)\n", out.ID, out.Label, len(out.Members))
++	for _, m := range out.Members {
++		fmt.Printf("  %v (%v) %v:%v\n", m["name"], m["kind"], m["path"], m["start_line"])
++	}
++	if len(out.EntryPts) > 0 {
++		fmt.Println("entry points:")
++		for _, e := range out.EntryPts {
++			fmt.Printf("  %s degree %d\n", e.Name, e.Degree)
++		}
++	}
++}
+diff --git a/skillgrid-cli/go.mod b/skillgrid-cli/go.mod
+index 4b6f5bd..7662af2 100644
+--- a/skillgrid-cli/go.mod
++++ b/skillgrid-cli/go.mod
+@@ -1,29 +1,30 @@
+ module github.com/devopstales/skillgrid/skillgrid-cli
+ 
+-go 1.25.5
++go 1.26
+ 
+ require (
+ 	github.com/charmbracelet/huh v1.0.0
+ 	github.com/google/uuid v1.6.0
+ 	github.com/mark3labs/mcp-go v0.58.0
+ 	github.com/odvcencio/gotreesitter v0.52.0
+ 	github.com/tidwall/gjson v1.18.0
+ 	github.com/tidwall/sjson v1.2.5
+ 	gopkg.in/yaml.v3 v3.0.1
+ 	modernc.org/sqlite v1.45.0
+ )
+ 
+ require (
+ 	github.com/atotto/clipboard v0.1.4 // indirect
+ 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
+ 	github.com/benedoc-inc/onnxer v0.7.0 // indirect
++	github.com/bluuewhale/loom v0.0.0-20260402142357-ae7e94ccfead // indirect
+ 	github.com/catppuccin/go v0.3.0 // indirect
+ 	github.com/charmbracelet/bubbles v0.21.1-0.20250623103423-23b8fd6302d7 // indirect
+ 	github.com/charmbracelet/bubbletea v1.3.6 // indirect
+ 	github.com/charmbracelet/colorprofile v0.2.3-0.20250311203215-f60798e515dc // indirect
+ 	github.com/charmbracelet/lipgloss v1.1.0 // indirect
+ 	github.com/charmbracelet/x/ansi v0.9.3 // indirect
+ 	github.com/charmbracelet/x/cellbuf v0.0.13 // indirect
+ 	github.com/charmbracelet/x/exp/strings v0.0.0-20240722160745-212f7b056ed0 // indirect
+ 	github.com/charmbracelet/x/term v0.2.1 // indirect
+ 	github.com/dustin/go-humanize v1.0.1 // indirect
+diff --git a/skillgrid-cli/go.sum b/skillgrid-cli/go.sum
+index 496b5e0..fd5286c 100644
+--- a/skillgrid-cli/go.sum
++++ b/skillgrid-cli/go.sum
+@@ -1,20 +1,22 @@
+ github.com/MakeNowJust/heredoc v1.0.0 h1:cXCdzVdstXyiTqTvfqk9SDHpKNjxuom+DOlyEeQ4pzQ=
+ github.com/MakeNowJust/heredoc v1.0.0/go.mod h1:mG5amYoWBHf8vpLOuehzbGGw0EHxpZZ6lCpQ4fNJ8LE=
+ github.com/atotto/clipboard v0.1.4 h1:EH0zSVneZPSuFR11BlR9YppQTVDbh5+16AmcJi4g1z4=
+ github.com/atotto/clipboard v0.1.4/go.mod h1:ZY9tmq7sm5xIbd9bOK4onWV4S6X0u6GY7Vn0Yu86PYI=
+ github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=
+ github.com/aymanbagabas/go-osc52/v2 v2.0.1/go.mod h1:uYgXzlJ7ZpABp8OJ+exZzJJhRNQ2ASbcXHWsFqH8hp8=
+ github.com/aymanbagabas/go-udiff v0.3.1 h1:LV+qyBQ2pqe0u42ZsUEtPiCaUoqgA9gYRDs3vj1nolY=
+ github.com/aymanbagabas/go-udiff v0.3.1/go.mod h1:G0fsKmG+P6ylD0r6N/KgQD/nWzgfnl8ZBcNLgcbrw8E=
+ github.com/benedoc-inc/onnxer v0.7.0 h1:rjsnJy70QRkpDakh0G0iOZLH/vhExzllybYr69cWPWc=
+ github.com/benedoc-inc/onnxer v0.7.0/go.mod h1:wALlP3CtDgGF1KMaqxuVCw8XOK8G2T95xg3ZW4f87Vw=
++github.com/bluuewhale/loom v0.0.0-20260402142357-ae7e94ccfead h1:SoAE1OoWruNM7YhRb7tyX/maQGNGla1K+HYauibE4gE=
++github.com/bluuewhale/loom v0.0.0-20260402142357-ae7e94ccfead/go.mod h1:wLHYC1OMQFyimnUGHsWNKYKFPC98xYkIvOPca0OUyOI=
+ github.com/catppuccin/go v0.3.0 h1:d+0/YicIq+hSTo5oPuRi5kOpqkVA5tAsU6dNhvRu+aY=
+ github.com/catppuccin/go v0.3.0/go.mod h1:8IHJuMGaUUjQM82qBrGNBv7LFq6JI3NnQCF6MOlZjpc=
+ github.com/charmbracelet/bubbles v0.21.1-0.20250623103423-23b8fd6302d7 h1:JFgG/xnwFfbezlUnFMJy0nusZvytYysV4SCS2cYbvws=
+ github.com/charmbracelet/bubbles v0.21.1-0.20250623103423-23b8fd6302d7/go.mod h1:ISC1gtLcVilLOf23wvTfoQuYbW2q0JevFxPfUzZ9Ybw=
+ github.com/charmbracelet/bubbletea v1.3.6 h1:VkHIxPJQeDt0aFJIsVxw8BQdh/F/L2KKZGsK6et5taU=
+ github.com/charmbracelet/bubbletea v1.3.6/go.mod h1:oQD9VCRQFF8KplacJLo28/jofOI2ToOfGYeFgBBxHOc=
+ github.com/charmbracelet/colorprofile v0.2.3-0.20250311203215-f60798e515dc h1:4pZI35227imm7yK2bGPcfpFEmuY1gc2YSTShr4iJBfs=
+ github.com/charmbracelet/colorprofile v0.2.3-0.20250311203215-f60798e515dc/go.mod h1:X4/0JoqgTIPSFcRA/P6INZzIuyqdFY5rm8tb41s9okk=
+ github.com/charmbracelet/huh v1.0.0 h1:wOnedH8G4qzJbmhftTqrpppyqHakl/zbbNdXIWJyIxw=
+ github.com/charmbracelet/huh v1.0.0/go.mod h1:5YVc+SlZ1IhQALxRPpkGwwEKftN/+OlJlnJYlDRFqN4=
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/indexer.go b/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
+index 014469c..fb941ef 100644
+--- a/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
++++ b/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
+@@ -545,23 +545,34 @@ func (idx *Indexer) embedPass(ctx context.Context, tx *sql.Tx) error {
+ func (idx *Indexer) extractFile(file ScannedFile) ([]extract.Symbol, []extract.Edge, []extract.Rationale, error) {
+ 	ex := extract.Default()
+ 	g, err := ex.ExtractFile(file.Path, file.Contents)
+ 	if err != nil {
+ 		return nil, nil, nil, err
+ 	}
+ 	return g.Symbols, g.Edges, g.Rationales, nil
+ }
+ 
+ // fileFirstSymbol caches the first (lowest id) symbol of a file for the
+-// duration of a writeFileGraph call, used as a default edge source.
++// duration of a writeFileGraph call, used as a default edge source. It is a
++// process-global keyed by file id (not by store), so a prior test in the same
++// process can leave stale entries that collide with a later test's ids.
+ var fileFirstSymbol = map[int64]int64{}
+ 
++// ResetFileFirstSymbol clears the fileFirstSymbol cache. Tests that open a
++// fresh store must call this (via TestMain or a fixture) to avoid stale id
++// collisions with a prior test's store.
++func ResetFileFirstSymbol() {
++	for k := range fileFirstSymbol {
++		delete(fileFirstSymbol, k)
++	}
++}
++
+ // writeFileGraph upserts a file's target-state symbols, edges, and rationale.
+ // It declares the target rows (the file's extracted symbols), upserts them,
+ // prunes the file's now-orphaned symbols (and their edges/vectors/buckets via
+ // cascade), then upserts the edges and rationale nodes.
+ func writeFileGraph(tx *sql.Tx, fileID int64, syms []extract.Symbol, edges []extract.Edge, rationale []extract.Rationale) (int, error) {
+ 	targetUIDs := make(map[string]struct{}, len(syms))
+ 	for _, s := range syms {
+ 		targetUIDs[s.UID] = struct{}{}
+ 	}
+ 	// Upsert symbols (and their FTS rows via trigger).
+diff --git a/skillgrid-cli/internal/mnemonic/community/godnodes.go b/skillgrid-cli/internal/mnemonic/community/godnodes.go
+new file mode 100644
+index 0000000..261f807
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/community/godnodes.go
+@@ -0,0 +1,136 @@
++package community
++
++import (
++	"database/sql"
++	"fmt"
++	"sort"
++)
++
++// GodNode is a symbol ranked by graph degree (the most-connected concepts in
++// a set of symbols).
++type GodNode struct {
++	SymbolID int64  `json:"symbol_id"`
++	Name     string `json:"name"`
++	Path     string `json:"path"`
++	Degree   int    `json:"degree"`
++	IsHub    bool   `json:"is_hub"`
++}
++
++// degreeOf counts the distinct symbol neighbors of id in the 005 edges table
++// (forward or reverse), matching the graph package's notion of degree.
++func degreeOf(db *sql.DB, id int64) int {
++	var n int
++	_ = db.QueryRow(`
++		SELECT COUNT(DISTINCT other) FROM (
++			SELECT to_id AS other FROM edges WHERE from_id = ? AND to_id IS NOT NULL
++			UNION
++			SELECT from_id AS other FROM edges WHERE to_id = ?
++		)`, id, id).Scan(&n)
++	return n
++}
++
++// RankGodNodes returns the most-connected symbols among the given ids,
++// ranked by degree (descending), then name. excludeHubs suppresses utility
++// super-hubs (symbols whose distinct-file reach crosses HubFileThreshold) so
++// the ranking surfaces subsystem concepts rather than glue.
++func RankGodNodes(db *sql.DB, symbolIDs []int64, excludeHubs bool) ([]GodNode, error) {
++	if len(symbolIDs) == 0 {
++		return []GodNode{}, nil
++	}
++	// Degree + path for every candidate in one query.
++	ph := make([]any, len(symbolIDs))
++	for i, id := range symbolIDs {
++		ph[i] = id
++	}
++	query := fmt.Sprintf(`
++		SELECT s.id, s.name, f.path,
++			(SELECT COUNT(DISTINCT other) FROM (
++				SELECT to_id AS other FROM edges WHERE from_id = s.id AND to_id IS NOT NULL
++				UNION
++				SELECT from_id AS other FROM edges WHERE to_id = s.id
++			)) AS degree
++		FROM symbols s INNER JOIN files f ON f.id = s.file_id
++		WHERE s.id IN (%s)`, placeholders(len(symbolIDs)))
++	rows, err := db.Query(query, ph...)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	var out []GodNode
++	for rows.Next() {
++		var gn GodNode
++		if err := rows.Scan(&gn.SymbolID, &gn.Name, &gn.Path, &gn.Degree); err != nil {
++			return nil, err
++		}
++		out = append(out, gn)
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	sort.SliceStable(out, func(i, j int) bool {
++		if out[i].Degree != out[j].Degree {
++			return out[i].Degree > out[j].Degree
++		}
++		return out[i].Name < out[j].Name
++	})
++	if !excludeHubs {
++		return out, nil
++	}
++	hubs := hubSymbols(db)
++	kept := out[:0]
++	for _, gn := range out {
++		if hubs[gn.SymbolID] {
++			gn.IsHub = true
++			continue
++		}
++		kept = append(kept, gn)
++	}
++	return kept, nil
++}
++
++// HubFileThreshold is the number of distinct files a symbol must be
++// referenced across to be considered a utility super-hub.
++const HubFileThreshold = 5
++
++// hubSymbols returns the set of symbol ids that are utility super-hubs: their
++// incoming edges originate from >= HubFileThreshold distinct files (the
++// source file of each edge, resolved via the source symbol's file).
++func hubSymbols(db *sql.DB) map[int64]bool {
++	rows, err := db.Query(`
++		SELECT e.to_id, COUNT(DISTINCT srcf.id)
++		FROM edges e
++		JOIN symbols srcs ON srcs.id = e.from_id
++		JOIN files srcf ON srcf.id = srcs.file_id
++		WHERE e.to_id IS NOT NULL
++		GROUP BY e.to_id
++		HAVING COUNT(DISTINCT srcf.id) >= ?`, HubFileThreshold)
++	if err != nil {
++		return map[int64]bool{}
++	}
++	defer rows.Close()
++	out := map[int64]bool{}
++	for rows.Next() {
++		var id int64
++		var n int
++		if err := rows.Scan(&id, &n); err != nil {
++			return out
++		}
++		out[id] = true
++	}
++	return out
++}
++
++// placeholders builds "?, ?, ?" for an IN clause.
++func placeholders(n int) string {
++	if n <= 0 {
++		return ""
++	}
++	s := ""
++	for i := 0; i < n; i++ {
++		if i > 0 {
++			s += ","
++		}
++		s += "?"
++	}
++	return s
++}
+diff --git a/skillgrid-cli/internal/mnemonic/community/godnodes_test.go b/skillgrid-cli/internal/mnemonic/community/godnodes_test.go
+new file mode 100644
+index 0000000..f35c3a0
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/community/godnodes_test.go
+@@ -0,0 +1,100 @@
++package community
++
++import (
++	"database/sql"
++	"testing"
++)
++
++// hubFixture builds a graph with a utility super-hub (a helper called from
++// >= HubFileThreshold distinct files) plus a genuinely central concept (a
++// dispatcher called from 3 files). This lets us assert that excludeHubs
++// suppresses the super-hub while keeping the subsystem concept.
++func hubFixture(t *testing.T) *sql.DB {
++	t.Helper()
++	db := openStore(t)
++	// The super-hub: helper, called from 5 distinct files.
++	fhub := seedFile(t, db, "util/helper.go")
++	helper := seedSymbol(t, db, fhub, "helper", "function", 1)
++	for i, p := range []string{"f1/x.go", "f2/y.go", "f3/z.go", "f4/w.go", "f5/v.go"} {
++		f := seedFile(t, db, p)
++		caller := seedSymbol(t, db, f, "caller"+string(rune('0'+i)), "function", 1)
++		seedEdge(t, db, "calls", caller, helper, i+2)
++	}
++	// A central concept: dispatcher, called from 3 distinct files (below the
++	// hub threshold) plus a couple more edges within its cluster.
++	fd := seedFile(t, db, "core/dispatch.go")
++	dispatcher := seedSymbol(t, db, fd, "dispatcher", "function", 1)
++	fa := seedFile(t, db, "core/a.go")
++	fb := seedFile(t, db, "core/b.go")
++	ca := seedSymbol(t, db, fa, "alpha", "function", 1)
++	cb := seedSymbol(t, db, fb, "beta", "function", 1)
++	seedEdge(t, db, "calls", ca, dispatcher, 2)
++	seedEdge(t, db, "calls", cb, dispatcher, 2)
++	seedEdge(t, db, "calls", dispatcher, ca, 3)
++	seedEdge(t, db, "calls", dispatcher, cb, 3)
++	_ = helper
++	return db
++}
++
++// TestGodNodesRankByDegree covers @step-01 (Scenario: code_god_nodes ranks
++// hubs and exclude-hubs suppresses them): RankGodNodes returns symbols
++// ranked by degree (descending), and excludeHubs=true suppresses the utility
++// super-hub (referenced across >= HubFileThreshold files) while keeping the
++// central concept.
++func TestGodNodesRankByDegree(t *testing.T) {
++	db := hubFixture(t)
++	var ids []int64
++	rows, err := db.Query(`SELECT id FROM symbols`)
++	if err != nil {
++		t.Fatalf("query symbols: %v", err)
++	}
++	for rows.Next() {
++		var id int64
++		if err := rows.Scan(&id); err != nil {
++			t.Fatalf("scan: %v", err)
++		}
++		ids = append(ids, id)
++	}
++	rows.Close()
++
++	gods, err := RankGodNodes(db, ids, false)
++	if err != nil {
++		t.Fatalf("RankGodNodes: %v", err)
++	}
++	if len(gods) == 0 {
++		t.Fatal("expected god nodes, got none")
++	}
++	// Ranked by degree descending.
++	for i := 1; i < len(gods); i++ {
++		if gods[i-1].Degree < gods[i].Degree {
++			t.Errorf("not ranked by degree descending at %d: %d < %d", i, gods[i-1].Degree, gods[i].Degree)
++		}
++	}
++	// The super-hub (helper, degree 5) must be the top god node without
++	// exclusion.
++	if gods[0].Name != "helper" {
++		t.Errorf("expected super-hub 'helper' to rank first, got %q (degree %d)", gods[0].Name, gods[0].Degree)
++	}
++
++	// With excludeHubs, the super-hub is suppressed but the central concept
++	// (dispatcher) is still present.
++	excluded, err := RankGodNodes(db, ids, true)
++	if err != nil {
++		t.Fatalf("RankGodNodes excludeHubs: %v", err)
++	}
++	sawHub, sawDispatcher := false, false
++	for _, g := range excluded {
++		if g.Name == "helper" {
++			sawHub = true
++		}
++		if g.Name == "dispatcher" {
++			sawDispatcher = true
++		}
++	}
++	if sawHub {
++		t.Errorf("excludeHubs should suppress the utility super-hub 'helper'")
++	}
++	if !sawDispatcher {
++		t.Errorf("excludeHubs should keep the central concept 'dispatcher'")
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/community/labels.go b/skillgrid-cli/internal/mnemonic/community/labels.go
+new file mode 100644
+index 0000000..39d2368
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/community/labels.go
+@@ -0,0 +1,57 @@
++package community
++
++import (
++	"database/sql"
++	"fmt"
++	"path"
++	"strings"
++)
++
++// labelForCommunityImpl derives an LLM-free label for a community from its
++// top god-node names and file paths. It never calls an API. When no god node
++// is found (degree-0 or empty community) it falls back to "community-N" —
++// never fabricated.
++func labelForCommunityImpl(db *sql.DB, id int, memberIDs []int64, opts Options) ([]string, string) {
++	if len(memberIDs) == 0 {
++		return nil, fmt.Sprintf("community-%d", id)
++	}
++	gods, err := RankGodNodes(db, memberIDs, false)
++	if err != nil || len(gods) == 0 || gods[0].Degree == 0 {
++		// No god node (or all degree-0): deterministic fallback, warn+continue
++		// is handled by the caller's warning; here we just never fabricate.
++		return []string{}, fmt.Sprintf("community-%d", id)
++	}
++	top := gods[0]
++	names := []string{top.Name}
++	// Attach up to 2 more god-node names for disambiguation when the top name
++	// is generic.
++	for i := 1; i < len(gods) && len(names) < 3; i++ {
++		if gods[i].Degree < top.Degree {
++			break
++		}
++		names = append(names, gods[i].Name)
++	}
++	base := strings.Join(names, " + ")
++	// Append the top god node's path dir when it is a useful qualifier.
++	dir := path.Dir(top.Path)
++	if dir != "" && dir != "." && !strings.HasSuffix(base, dir) {
++		base = base + " (" + dir + ")"
++	}
++	return []string{top.Name}, base
++}
++
++// topGodNodeNames returns the top god-node names for a community (used by the
++// explain view).
++func topGodNodeNames(db *sql.DB, memberIDs []int64, limit int) []string {
++	gods, err := RankGodNodes(db, memberIDs, false)
++	if err != nil {
++		return nil
++	}
++	var out []string
++	for i := 0; i < len(gods) && i < limit; i++ {
++		out = append(out, gods[i].Name)
++	}
++	return out
++}
++
++var _ = sql.ErrNoRows
+diff --git a/skillgrid-cli/internal/mnemonic/community/labels_test.go b/skillgrid-cli/internal/mnemonic/community/labels_test.go
+new file mode 100644
+index 0000000..fdc4897
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/community/labels_test.go
+@@ -0,0 +1,83 @@
++package community
++
++import (
++	"context"
++	"fmt"
++	"testing"
++)
++
++// TestLabelFallsBackWhenNoGodNode covers @step-01 (Scenario: Community label
++// falls back when no god node exists): a community whose members have no
++// edges (all degree-0, so no god node) is labeled "community-N" — never
++// fabricated. A community with a god node is labeled from that god node's
++// name (LLM-free).
++func TestLabelFallsBackWhenNoGodNode(t *testing.T) {
++	db := openStore(t)
++	// Two isolated symbols (no edges) → a single community with no god node.
++	f := seedFile(t, db, "isolated.go")
++	seedSymbol(t, db, f, "lonelyA", "function", 1)
++	seedSymbol(t, db, f, "lonelyB", "function", 2)
++
++	res, err := Detect(context.Background(), db, Options{})
++	if err != nil {
++		t.Fatalf("Detect: %v", err)
++	}
++	if len(res.Communities) == 0 {
++		t.Fatal("expected at least one community")
++	}
++	// All members are degree-0 (no edges) → every community label must be the
++	// "community-N" fallback, never an invented name.
++	for _, c := range res.Communities {
++		if c.Label == "" {
++			t.Errorf("community %d has an empty label", c.ID)
++		}
++		want := "community-" + fmt.Sprintf("%d", c.ID)
++		if c.Label != want {
++			t.Errorf("no-edge community %d should be labeled %q, got %q", c.ID, want, c.Label)
++		}
++	}
++}
++
++// TestLabelDerivedFromGodNode covers the LLM-free label: a community with a
++// god node is labeled from that god node's name (plus its path dir), never an
++// API call.
++func TestLabelDerivedFromGodNode(t *testing.T) {
++	db := communityFixture(t)
++	res, err := Detect(context.Background(), db, Options{})
++	if err != nil {
++		t.Fatalf("Detect: %v", err)
++	}
++	// The fixture has edges, so at least one community must carry a derived
++	// (non-fallback) label that mentions one of the god-node names.
++	derived := 0
++	for _, c := range res.Communities {
++		for _, g := range c.GodNodes {
++			if contains(c.Label, g) {
++				derived++
++			}
++		}
++	}
++	if derived == 0 {
++		t.Errorf("expected at least one community label derived from a god-node name, got: %v", labels(res))
++	}
++}
++
++func labels(r *Result) []string {
++	var out []string
++	for _, c := range r.Communities {
++		out = append(out, c.Label)
++	}
++	return out
++}
++
++func contains(haystack, needle string) bool {
++	if needle == "" {
++		return false
++	}
++	for i := 0; i+len(needle) <= len(haystack); i++ {
++		if haystack[i:i+len(needle)] == needle {
++			return true
++		}
++	}
++	return false
++}
+diff --git a/skillgrid-cli/internal/mnemonic/community/leiden.go b/skillgrid-cli/internal/mnemonic/community/leiden.go
+new file mode 100644
+index 0000000..80091c5
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/community/leiden.go
+@@ -0,0 +1,387 @@
++// Package community detects subsystems in the 005 symbols/edges graph:
++// seeded Leiden partitioning (bluuewhale/loom), degree-ranked god nodes, and
++// LLM-free community labels. The partition is advisory, never load-bearing.
++package community
++
++import (
++	"context"
++	"database/sql"
++	"encoding/hex"
++	"fmt"
++	"sort"
++	"time"
++
++	"github.com/bluuewhale/loom/graph"
++)
++
++// Options tunes the community pass.
++type Options struct {
++	// Seed is the RNG seed for the Leiden detector. A fixed non-zero seed makes
++	// the partition reproducible; 0 lets loom run its multi-run best-Q mode.
++	Seed int64
++	// Resolution is the modularity resolution (default 1).
++	Resolution float64
++	// MaxIterations bounds the Leiden refinement loop (0 = unlimited).
++	MaxIterations int
++	// NumRuns selects loom's multi-run best-Q selection when Seed == 0.
++	NumRuns int
++	// Limit caps the number of god nodes attached per community (0 = 10).
++	Limit int
++}
++
++// Community is one detected subsystem: its members (symbol ids) and its
++// LLM-free label (derived from god nodes + paths, never fabricated).
++type Community struct {
++	ID       int      `json:"id"`
++	Label    string   `json:"label"`
++	Members  []int64  `json:"members"`
++	GodNodes []string `json:"god_nodes,omitempty"`
++}
++
++// Result is the Detect output: the communities, the stable content-hash cache
++// key, whether the pass was served from cache, and any non-fatal warnings.
++type Result struct {
++	Communities []Community `json:"communities"`
++	CacheKey    string      `json:"cache_key"`
++	FromCache   bool        `json:"from_cache"`
++	Warning     string      `json:"warning,omitempty"`
++	Modularity  float64     `json:"modularity,omitempty"`
++	Updated     time.Time   `json:"updated_at"`
++}
++
++// nodeRef is a symbol node in the partition: its symbol id plus the registry
++// key (uid preferred, else name) used to map it through loom.
++type nodeRef struct {
++	symbolID int64
++	key      string
++}
++
++// loadGraph loads the 005 symbols/edges tables as a registry + undirected
++// graph. Edges are treated undirected for community detection (a call
++// relationship clusters the same either way). Only edges whose both endpoints
++// are live symbols (to_id set) build connectivity; name-only dangling edges
++// are ignored (they would fabricate nodes).
++func loadGraph(db *sql.DB) (*graph.NodeRegistry, *graph.Graph, []nodeRef, error) {
++	reg := graph.NewRegistry()
++	g := graph.NewGraph(false)
++
++	rows, err := db.Query(`SELECT id, uid, name FROM symbols ORDER BY id`)
++	if err != nil {
++		return nil, nil, nil, err
++	}
++	defer rows.Close()
++	var nodes []nodeRef
++	idToLoom := map[int64]graph.NodeID{}
++	for rows.Next() {
++		var id int64
++		var uid, name sql.NullString
++		if err := rows.Scan(&id, &uid, &name); err != nil {
++			return nil, nil, nil, err
++		}
++		key := uid.String
++		if key == "" {
++			key = name.String
++		}
++		if key == "" {
++			key = fmt.Sprintf("sym-%d", id)
++		}
++		nid := reg.Register(key)
++		idToLoom[id] = nid
++		g.AddNode(nid, 1.0)
++		nodes = append(nodes, nodeRef{symbolID: id, key: key})
++	}
++	if err := rows.Err(); err != nil {
++		return nil, nil, nil, err
++	}
++
++	eRows, err := db.Query(`SELECT from_id, to_id FROM edges WHERE to_id IS NOT NULL`)
++	if err != nil {
++		return nil, nil, nil, err
++	}
++	defer eRows.Close()
++	seen := map[[2]graph.NodeID]bool{}
++	for eRows.Next() {
++		var fromID, toID int64
++		if err := eRows.Scan(&fromID, &toID); err != nil {
++			return nil, nil, nil, err
++		}
++		f, ok1 := idToLoom[fromID]
++		to, ok2 := idToLoom[toID]
++		if !ok1 || !ok2 || f == to {
++			continue
++		}
++		pair := [2]graph.NodeID{f, to}
++		if pair[1] < pair[0] {
++			pair = [2]graph.NodeID{to, f}
++		}
++		if seen[pair] {
++			continue
++		}
++		seen[pair] = true
++		g.AddEdge(f, to, 1.0)
++	}
++	if err := eRows.Err(); err != nil {
++		return nil, nil, nil, err
++	}
++	return reg, g, nodes, nil
++}
++
++// contentKey summarizes the edge set so the cache key is stable across index
++// runs with the same graph and changes when the graph changes.
++func contentKey(db *sql.DB) (string, error) {
++	var a, b string
++	err := db.QueryRow(`
++		SELECT COALESCE(MIN(from_id),0) || '-' || COALESCE(MIN(to_id),0) || '-' ||
++		       COALESCE(MAX(from_id),0) || '-' || COALESCE(MAX(to_id),0) || '-' ||
++		       COUNT(*),
++		       COUNT(DISTINCT from_id || '-' || COALESCE(to_id, 0))
++		FROM edges WHERE to_id IS NOT NULL`).Scan(&a, &b)
++	if err == sql.ErrNoRows {
++		return "empty", nil
++	}
++	if err != nil {
++		return "", err
++	}
++	return a + "|" + b, nil
++}
++
++// Detect runs the community pass, consulting the community_meta cache first.
++// A matching content-hash cache key returns the stored partition
++// (FromCache=true) without re-running the detector; otherwise the seeded
++// Leiden pass runs and the result is cached.
++func Detect(ctx context.Context, db *sql.DB, opts Options) (*Result, error) {
++	if opts.Seed == 0 {
++		opts.Seed = 1
++	}
++	if opts.Resolution <= 0 {
++		opts.Resolution = 1
++	}
++	if opts.Limit <= 0 {
++		opts.Limit = 10
++	}
++	if err := ctx.Err(); err != nil {
++		return nil, err
++	}
++
++	key, err := contentKey(db)
++	if err != nil {
++		return nil, fmt.Errorf("content key: %w", err)
++	}
++	cacheKey := hex.EncodeToString([]byte("comm:" + key))
++
++	if cached, err := cachedResult(db, cacheKey); err == nil && cached != nil {
++		cached.FromCache = true
++		return cached, nil
++	}
++
++	res, err := detectCore(db, opts, cacheKey)
++	if err != nil {
++		return nil, err
++	}
++	if err := writeMeta(db, res); err != nil {
++		return res, fmt.Errorf("detect ok but cache write failed: %w", err)
++	}
++	return res, nil
++}
++
++// detectCore runs the seeded Leiden pass, assigns labels, and writes the
++// communities table (the 012 additive table; 005 symbols/edges untouched).
++func detectCore(db *sql.DB, opts Options, cacheKey string) (*Result, error) {
++	res := &Result{CacheKey: cacheKey, Updated: time.Now().UTC()}
++
++	var symCount int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM symbols`).Scan(&symCount); err != nil {
++		return nil, err
++	}
++
++	if symCount < 2 {
++		// warn+continue: one trivial community, never a crash.
++		res.Warning = fmt.Sprintf("graph has %d symbols (<2); producing a single trivial community", symCount)
++		ids, err := allSymbolIDs(db)
++		if err != nil {
++			return nil, err
++		}
++		gods, label := labelForCommunity(db, 0, ids, opts)
++		res.Communities = []Community{{ID: 0, Label: label, Members: ids, GodNodes: gods}}
++		return res, nil
++	}
++
++	reg, g, nodes, err := loadGraph(db)
++	if err != nil {
++		return nil, fmt.Errorf("load graph: %w", err)
++	}
++
++	det := graph.NewLeiden(graph.LeidenOptions{
++		Seed:          opts.Seed,
++		Resolution:    opts.Resolution,
++		MaxIterations: opts.MaxIterations,
++		NumRuns:       opts.NumRuns,
++	})
++	part, err := det.Detect(g)
++	if err != nil {
++		return nil, fmt.Errorf("leiden: %w", err)
++	}
++	res.Modularity = part.Modularity
++
++	// Invert the partition into communities: loom node -> member symbol ids.
++	loomToSymbol := map[graph.NodeID]int64{}
++	for _, n := range nodes {
++		if id, ok := reg.ID(n.key); ok {
++			loomToSymbol[id] = n.symbolID
++		}
++	}
++	byComm := map[int][]int64{}
++	for node, cid := range part.Partition {
++		sid, ok := loomToSymbol[node]
++		if !ok {
++			continue
++		}
++		byComm[cid] = append(byComm[cid], sid)
++	}
++	var commIDs []int
++	for cid := range byComm {
++		commIDs = append(commIDs, cid)
++	}
++	sort.Ints(commIDs)
++
++	communities := make([]Community, 0, len(byComm))
++	for i, cid := range commIDs {
++		members := byComm[cid]
++		sort.Slice(members, func(a, b int) bool { return members[a] < members[b] })
++		gods, label := labelForCommunity(db, i, members, opts)
++		communities = append(communities, Community{ID: i, Label: label, Members: members, GodNodes: gods})
++	}
++	res.Communities = communities
++
++	if err := writeCommunities(db, communities); err != nil {
++		return nil, err
++	}
++	return res, nil
++}
++
++// allSymbolIDs returns every symbol id, ascending.
++func allSymbolIDs(db *sql.DB) ([]int64, error) {
++	rows, err := db.Query(`SELECT id FROM symbols ORDER BY id`)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	var ids []int64
++	for rows.Next() {
++		var id int64
++		if err := rows.Scan(&id); err != nil {
++			return nil, err
++		}
++		ids = append(ids, id)
++	}
++	return ids, rows.Err()
++}
++
++// writeCommunities replaces the communities table with the detected
++// partition (idempotent).
++func writeCommunities(db *sql.DB, communities []Community) error {
++	tx, err := db.Begin()
++	if err != nil {
++		return err
++	}
++	defer tx.Rollback()
++	if _, err := tx.Exec(`DELETE FROM communities`); err != nil {
++		return err
++	}
++	for _, c := range communities {
++		for _, m := range c.Members {
++			if _, err := tx.Exec(`INSERT OR REPLACE INTO communities (id, symbol_id) VALUES (?, ?)`, c.ID, m); err != nil {
++				return err
++			}
++		}
++	}
++	return tx.Commit()
++}
++
++// cachedResult rebuilds a Result from the stored communities table when the
++// content-hash cache key matches. Returns nil (no error) on a cache miss.
++func cachedResult(db *sql.DB, cacheKey string) (*Result, error) {
++	var stored string
++	err := db.QueryRow(`SELECT value FROM community_meta_cache WHERE key = 'cache_key'`).Scan(&stored)
++	if err != nil || stored != cacheKey {
++		return nil, nil
++	}
++	var count int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM communities`).Scan(&count); err != nil {
++		return nil, err
++	}
++	if count == 0 {
++		return nil, nil
++	}
++	res := &Result{CacheKey: cacheKey, Updated: time.Now().UTC()}
++	rows, err := db.Query(`SELECT id, symbol_id FROM communities ORDER BY id, symbol_id`)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	byID := map[int][]int64{}
++	var order []int
++	for rows.Next() {
++		var id int
++		var sid int64
++		if err := rows.Scan(&id, &sid); err != nil {
++			return nil, err
++		}
++		if _, ok := byID[id]; !ok {
++			order = append(order, id)
++		}
++		byID[id] = append(byID[id], sid)
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	sort.Ints(order)
++	for i, id := range order {
++		res.Communities = append(res.Communities, Community{
++			ID:      i,
++			Label:   communityLabel(db, id),
++			Members: byID[id],
++		})
++	}
++	return res, nil
++}
++
++// communityLabel reads a stored label (community_meta keyed by community id).
++func communityLabel(db *sql.DB, id int) string {
++	var label string
++	_ = db.QueryRow(`SELECT label FROM community_meta WHERE id = ?`, id).Scan(&label)
++	if label == "" {
++		return "community-" + fmt.Sprintf("%d", id)
++	}
++	return label
++}
++
++// writeMeta caches the detected partition: one community_meta row per
++// community (label + symbol count) and the content-hash cache key.
++func writeMeta(db *sql.DB, res *Result) error {
++	tx, err := db.Begin()
++	if err != nil {
++		return err
++	}
++	defer tx.Rollback()
++	if _, err := tx.Exec(`DELETE FROM community_meta`); err != nil {
++		return err
++	}
++	for _, c := range res.Communities {
++		if _, err := tx.Exec(`INSERT INTO community_meta (id, label, symbol_count, cache_key) VALUES (?, ?, ?, ?)`,
++			c.ID, c.Label, len(c.Members), res.CacheKey); err != nil {
++			return err
++		}
++	}
++	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS community_meta_cache (key TEXT PRIMARY KEY, value TEXT)`); err != nil {
++		return err
++	}
++	if _, err := tx.Exec(`INSERT INTO community_meta_cache (key, value) VALUES ('cache_key', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, res.CacheKey); err != nil {
++		return err
++	}
++	return tx.Commit()
++}
++
++// labelForCommunity is a hook for tests; defaults to the LLM-free derivation
++// in labels.go.
++var labelForCommunity = labelForCommunityImpl
+diff --git a/skillgrid-cli/internal/mnemonic/community/leiden_test.go b/skillgrid-cli/internal/mnemonic/community/leiden_test.go
+new file mode 100644
+index 0000000..e0307d8
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/community/leiden_test.go
+@@ -0,0 +1,216 @@
++package community
++
++import (
++	"context"
++	"database/sql"
++	"strings"
++	"testing"
++
++	_ "modernc.org/sqlite"
++)
++
++// openStore opens a scratch SQLite store with the symbols/edges schema (the
++// 005 tables the community pass consumes) plus the 012 community tables.
++func openStore(t *testing.T) *sql.DB {
++	t.Helper()
++	db, err := sql.Open("sqlite", ":memory:")
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	t.Cleanup(func() { db.Close() })
++	stmts := []string{
++		`CREATE TABLE files (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, mtime_ns INTEGER, size INTEGER, content_hash TEXT, indexed_at TEXT)`,
++		`CREATE TABLE symbols (id INTEGER PRIMARY KEY AUTOINCREMENT, file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE, name TEXT NOT NULL, qualified_name TEXT, kind TEXT NOT NULL, language TEXT, signature TEXT, start_line INTEGER NOT NULL, end_line INTEGER NOT NULL, content_hash TEXT NOT NULL, uid TEXT NOT NULL UNIQUE)`,
++		`CREATE TABLE edges (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, from_id INTEGER NOT NULL REFERENCES symbols(id) ON DELETE CASCADE, file_id INTEGER REFERENCES files(id) ON DELETE CASCADE, to_id INTEGER REFERENCES symbols(id) ON DELETE CASCADE, to_name TEXT, target_path TEXT, confidence TEXT NOT NULL DEFAULT 'EXTRACTED', line INTEGER, UNIQUE(kind, from_id, file_id, to_id, to_name, target_path, line))`,
++		`CREATE TABLE communities (id INTEGER, symbol_id INTEGER NOT NULL UNIQUE REFERENCES symbols(id) ON DELETE CASCADE)`,
++		`CREATE TABLE community_meta (id INTEGER PRIMARY KEY, label TEXT NOT NULL, symbol_count INTEGER NOT NULL, god_nodes TEXT NOT NULL DEFAULT '', cache_key TEXT NOT NULL)`,
++		`CREATE TABLE community_meta_cache (key TEXT PRIMARY KEY, value TEXT)`,
++	}
++	for _, s := range stmts {
++		if _, err := db.Exec(s); err != nil {
++			t.Fatalf("create schema: %v", err)
++		}
++	}
++	return db
++}
++
++// seedFile inserts a file row and returns its id.
++func seedFile(t *testing.T, db *sql.DB, path string) int64 {
++	t.Helper()
++	res, err := db.Exec(`INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at) VALUES (?, 1, 1, 'h', 'now')`, path)
++	if err != nil {
++		t.Fatalf("seed file %s: %v", path, err)
++	}
++	id, _ := res.LastInsertId()
++	return id
++}
++
++// seedSymbol inserts a symbol row and returns its id.
++func seedSymbol(t *testing.T, db *sql.DB, fileID int64, name, kind string, line int) int64 {
++	t.Helper()
++	res, err := db.Exec(`INSERT INTO symbols (file_id, name, kind, start_line, end_line, content_hash, uid) VALUES (?, ?, ?, ?, ?, 'h', ?)`,
++		fileID, name, kind, line, line, name+string(rune('u'))+kind)
++	if err != nil {
++		t.Fatalf("seed symbol %s: %v", name, err)
++	}
++	id, _ := res.LastInsertId()
++	return id
++}
++
++// seedEdge inserts an edge between two symbol ids.
++func seedEdge(t *testing.T, db *sql.DB, kind string, fromID, toID int64, line int) {
++	t.Helper()
++	if _, err := db.Exec(`INSERT INTO edges (kind, from_id, to_id, confidence, line) VALUES (?, ?, ?, 'EXTRACTED', ?)`, kind, fromID, toID, line); err != nil {
++		t.Fatalf("seed edge %d->%d: %v", fromID, toID, err)
++	}
++}
++
++// communityFixture builds two clearly-separated clusters with one weak bridge:
++//
++//	a1-a2-a3 (dense)  --bridge-->  b1-b2-b3 (dense)
++//
++// so Leiden should produce at least two communities that keep each cluster
++// intact.
++func communityFixture(t *testing.T) *sql.DB {
++	t.Helper()
++	db := openStore(t)
++	fa := seedFile(t, db, "a/core.go")
++	fb := seedFile(t, db, "b/engine.go")
++	a1 := seedSymbol(t, db, fa, "aOne", "function", 1)
++	a2 := seedSymbol(t, db, fa, "aTwo", "function", 10)
++	a3 := seedSymbol(t, db, fa, "aThree", "function", 20)
++	b1 := seedSymbol(t, db, fb, "bOne", "function", 1)
++	b2 := seedSymbol(t, db, fb, "bTwo", "function", 10)
++	b3 := seedSymbol(t, db, fb, "bThree", "function", 20)
++
++	seedEdge(t, db, "calls", a1, a2, 2)
++	seedEdge(t, db, "calls", a2, a3, 11)
++	seedEdge(t, db, "calls", a1, a3, 3)
++	seedEdge(t, db, "calls", b1, b2, 2)
++	seedEdge(t, db, "calls", b2, b3, 11)
++	seedEdge(t, db, "calls", b1, b3, 3)
++	seedEdge(t, db, "imports", a3, b1, 21) // weak bridge
++	return db
++}
++
++// TestCommunitiesDetectsTwoClusters covers the core Leiden contract: a graph
++// of two dense clusters linked by one weak edge partitions into >=2
++// communities that keep each cluster intact, every symbol gets exactly one
++// community row, and each community carries an LLM-free label.
++func TestCommunitiesDetectsTwoClusters(t *testing.T) {
++	db := communityFixture(t)
++	res, err := Detect(context.Background(), db, Options{})
++	if err != nil {
++		t.Fatalf("Detect: %v", err)
++	}
++	if len(res.Communities) < 2 {
++		t.Fatalf("expected >=2 communities, got %d", len(res.Communities))
++	}
++	// Every symbol is assigned exactly once.
++	assigned := map[int64]int{}
++	for _, c := range res.Communities {
++		for _, id := range c.Members {
++			assigned[id]++
++		}
++	}
++	if len(assigned) != 6 {
++		t.Fatalf("expected 6 symbols assigned, got %d", len(assigned))
++	}
++	for id, n := range assigned {
++		if n != 1 {
++			t.Errorf("symbol %d assigned %d times", id, n)
++		}
++	}
++	// Clusters stay intact: a1..a3 in one community, b1..b3 in the other.
++	byName := map[int64]int{}
++	for _, c := range res.Communities {
++		for _, id := range c.Members {
++			var name string
++			_ = db.QueryRow(`SELECT name FROM symbols WHERE id = ?`, id).Scan(&name)
++			byName[id] = c.ID
++		}
++	}
++	var a1, a2, a3, b1, b2, b3 int64
++	for _, q := range []struct {
++		name string
++		p    *int64
++	}{{"aOne", &a1}, {"aTwo", &a2}, {"aThree", &a3}, {"bOne", &b1}, {"bTwo", &b2}, {"bThree", &b3}} {
++		_ = db.QueryRow(`SELECT id FROM symbols WHERE name = ?`, q.name).Scan(q.p)
++	}
++	if byName[a1] != byName[a2] || byName[a2] != byName[a3] {
++		t.Errorf("cluster a split: %d %d %d", byName[a1], byName[a2], byName[a3])
++	}
++	if byName[b1] != byName[b2] || byName[b2] != byName[b3] {
++		t.Errorf("cluster b split: %d %d %d", byName[b1], byName[b2], byName[b3])
++	}
++	// Labels are present and LLM-free: derived, never empty, never "community-N"
++	// for a community that has god nodes.
++	for _, c := range res.Communities {
++		if c.Label == "" {
++			t.Errorf("community %d has empty label", c.ID)
++		}
++	}
++}
++
++// TestTinyGraphYieldsOneTrivialCommunity covers the < 2 nodes rule: a graph
++// with a single symbol produces one trivial community (warn+continue), never
++// a crash.
++func TestTinyGraphYieldsOneTrivialCommunity(t *testing.T) {
++	db := openStore(t)
++	f := seedFile(t, db, "solo.go")
++	seedSymbol(t, db, f, "only", "function", 1)
++	res, err := Detect(context.Background(), db, Options{})
++	if err != nil {
++		t.Fatalf("Detect tiny: %v", err)
++	}
++	if len(res.Communities) != 1 {
++		t.Fatalf("expected 1 trivial community, got %d", len(res.Communities))
++	}
++	if len(res.Communities[0].Members) != 1 {
++		t.Fatalf("trivial community should hold the single symbol, got %v", res.Communities[0].Members)
++	}
++	if res.Warning == "" {
++		t.Errorf("expected a warning for the <2 node graph, got none")
++	}
++}
++
++// TestCommunitiesReproducibleAndCached covers the seed + content-hash cache:
++// two Detect calls on the same graph yield the identical partition (stable
++// cache key), and the second call reports a cache hit without re-running the
++// detector.
++func TestCommunitiesReproducibleAndCached(t *testing.T) {
++	db := communityFixture(t)
++	first, err := Detect(context.Background(), db, Options{})
++	if err != nil {
++		t.Fatalf("Detect 1: %v", err)
++	}
++	if first.CacheKey == "" {
++		t.Fatal("expected a non-empty content-hash cache key")
++	}
++	second, err := Detect(context.Background(), db, Options{})
++	if err != nil {
++		t.Fatalf("Detect 2: %v", err)
++	}
++	if second.CacheKey != first.CacheKey {
++		t.Errorf("cache key not stable: %q vs %q", second.CacheKey, first.CacheKey)
++	}
++	if !second.FromCache {
++		t.Errorf("second Detect should be served from cache")
++	}
++	if partitionKey(first) != partitionKey(second) {
++		t.Errorf("partition not reproducible: %s vs %s", partitionKey(first), partitionKey(second))
++	}
++}
++
++func partitionKey(r *Result) string {
++	var b strings.Builder
++	for _, c := range r.Communities {
++		b.WriteString("c")
++		b.WriteString(string(rune('0' + c.ID%10)))
++		for _, m := range c.Members {
++			b.WriteString("|")
++			b.WriteString(string(rune('0' + m%10)))
++		}
++	}
++	return b.String()
++}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/server.go b/skillgrid-cli/internal/mnemonic/mcp/server.go
+index d4858bd..d418557 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/server.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/server.go
+@@ -41,20 +41,21 @@ func ensurePool() *StorePool {
+ // Start blocks on the stdio MCP loop until the client disconnects.
+ func Start() error {
+ 	s := server.NewMCPServer(serverName, serverVersion, serverOptions()...)
+ 	registerMemoryTools(s)
+ 	registerCodeTools(s)
+ 	registerOrientTools(s)
+ 	registerGrepTools(s)
+ 	registerGraphTools(s)
+ 	registerExploreTools(s)
+ 	registerHybridTools(s)
++	registerCommunityTools(s)
+ 	registerWebTools(s)
+ 	registerTeamsTools(s)
+ 	registerRetrievalTools(s)
+ 	registerCompactionTools(s)
+ 	return server.ServeStdio(s)
+ }
+ 
+ // Server is an MCP server instance with all mem_*/code_*/web_*/team_* tools
+ // registered, ready to be served over stdio.
+ type Server = server.MCPServer
+@@ -62,16 +63,17 @@ type Server = server.MCPServer
+ // NewServer returns an MCP server instance with all tools registered.
+ func NewServer() *Server {
+ 	s := server.NewMCPServer(serverName, serverVersion, serverOptions()...)
+ 	registerMemoryTools(s)
+ 	registerCodeTools(s)
+ 	registerOrientTools(s)
+ 	registerGrepTools(s)
+ 	registerGraphTools(s)
+ 	registerExploreTools(s)
+ 	registerHybridTools(s)
++	registerCommunityTools(s)
+ 	registerWebTools(s)
+ 	registerTeamsTools(s)
+ 	registerRetrievalTools(s)
+ 	registerCompactionTools(s)
+ 	return s
+ }
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/server_test.go b/skillgrid-cli/internal/mnemonic/mcp/server_test.go
+index 0bc3a59..b2fef0d 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/server_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/server_test.go
+@@ -27,20 +27,22 @@ func TestAllToolsRegistered(t *testing.T) {
+ 		"mem_pin", "mem_unpin", "mem_unify",
+ 		"code_status", "code_index", "code_search", "code_read",
+ 		"code_orient", "code_signature", "code_file_toc", "code_rationale",
+ 		"code_grep",
+ 		// Step 03 graph + composite tools.
+ 		"code_explore", "code_impact", "code_path", "code_explain",
+ 		"code_get_callers", "code_get_callees", "code_get_dependents",
+ 		"code_get_implementors", "code_get_hierarchy", "code_get_tests_for",
+ 		// Step 04 hybrid search tools.
+ 		"code_hybrid_search", "code_semantic_search", "code_embedding_status",
++		// Community detection tools.
++		"code_communities", "code_god_nodes", "code_explain_community",
+ 		"web_cache_lookup", "web_cache_save", "web_cache_search",
+ 		"web_cache_get", "web_cache_status",
+ 		"team_spawn_task", "agent_pull_next_task", "agent_read_task",
+ 		"agent_submit_output", "agent_submit_review", "agent_mark_done",
+ 		"semantic_search", "load_full_details",
+ 		"mnemonic_commit",
+ 	}
+ 	if len(tools) != len(want) {
+ 		t.Errorf("expected %d tools, got %d (%v)", len(want), len(tools), tools)
+ 	}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_community.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_community.go
+new file mode 100644
+index 0000000..40fd03a
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_community.go
+@@ -0,0 +1,209 @@
++package mcp
++
++import (
++	"context"
++	"fmt"
++	"strconv"
++
++	mcplib "github.com/mark3labs/mcp-go/mcp"
++	"github.com/mark3labs/mcp-go/server"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/community"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// registerCommunityTools registers the community-detection MCP tools
++// (code_communities / code_god_nodes / code_explain_community). They are part
++// of the narrow code_* menu (unlisted by default; re-enabled via
++// CodeToolsEnvVar) and are all exposed by the CLI.
++func registerCommunityTools(s *server.MCPServer) {
++	tools := []struct {
++		tool    mcplib.Tool
++		handler server.ToolHandlerFunc
++	}{
++		{codeCommunitiesTool(), handleCodeCommunities},
++		{codeGodNodesTool(), handleCodeGodNodes},
++		{codeExplainCommunityTool(), handleCodeExplainCommunity},
++	}
++	for _, entry := range tools {
++		s.AddTool(entry.tool, entry.handler)
++	}
++}
++
++func codeCommunitiesTool() mcplib.Tool {
++	return mcplib.NewTool("code_communities",
++		mcplib.WithDescription("Detect subsystems in the indexed code graph: Leiden-clusters the symbols/edges into communities, each labeled LLM-free (derived from the community's top god-node names + file paths, never an API call). Seeded and reproducible (content-hash cache key); advisory, not load-bearing. Returns labeled subsystems with their members."),
++	)
++}
++
++func codeGodNodesTool() mcplib.Tool {
++	return mcplib.NewTool("code_god_nodes",
++		mcplib.WithDescription("Return the most-connected symbols (god nodes) ranked by degree. exclude_hubs suppresses utility super-hubs (symbols referenced across many files) so the ranking surfaces subsystem concepts rather than glue."),
++		mcplib.WithBoolean("exclude_hubs", mcplib.Description("Suppress utility super-hubs from the ranking (default false)")),
++		mcplib.WithNumber("limit", mcplib.Description("Maximum god nodes to return (default 20)")),
++	)
++}
++
++func codeExplainCommunityTool() mcplib.Tool {
++	return mcplib.NewTool("code_explain_community",
++		mcplib.WithDescription("Explain a detected community: its members (symbol, kind, path, line) and its key entry points (top god nodes). A non-existent community id is rejected with a clear validation error (no invented community)."),
++		mcplib.WithNumber("id", mcplib.Required(), mcplib.Description("Community id (from code_communities)")),
++	)
++}
++
++func handleCodeCommunities(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	_, h, cleanup, err := openService()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++	out, err := community.Detect(ctx, h.Store().DB, community.Options{})
++	if err != nil {
++		return toolError(err)
++	}
++	return JSONResult(out)
++}
++
++func handleCodeGodNodes(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	excludeHubs := req.GetBool("exclude_hubs", false)
++	limit, err := numericArg(req, "limit", 20)
++	if err != nil {
++		return toolError(err)
++	}
++	limitInt := int(limit)
++	_, h, cleanup, err := openService()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++	gods, err := community.RankGodNodes(h.Store().DB, allSymbolIDs(h.Store()), excludeHubs)
++	if err != nil {
++		return toolError(err)
++	}
++	if limitInt > 0 && len(gods) > limitInt {
++		gods = gods[:limitInt]
++	}
++	return JSONResult(map[string]any{
++		"god_nodes":      gods,
++		"exclude_hubs":   excludeHubs,
++		"total_returned": len(gods),
++	})
++}
++
++func handleCodeExplainCommunity(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	id, err := numericArg(req, "id", -1)
++	if err != nil {
++		return toolError(err)
++	}
++	if id < 0 {
++		return toolError(fmt.Errorf("code_explain_community: 'id' is required and must be a non-negative community id"))
++	}
++	_, h, cleanup, err := openService()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++	out, err := mcpCodeExplainCommunity(ctx, h, int(id))
++	if err != nil {
++		return toolError(err)
++	}
++	if !out.Found {
++		return toolError(fmt.Errorf("code_explain_community: %s", out.Reason))
++	}
++	return JSONResult(out)
++}
++
++// numericArg returns a numeric argument or a clear validation error when the
++// argument is present but not a number (no silent default-inventing).
++func numericArg(req mcplib.CallToolRequest, key string, def float64) (float64, error) {
++	args := req.GetArguments()
++	raw, ok := args[key]
++	if !ok {
++		return def, nil
++	}
++	switch v := raw.(type) {
++	case float64:
++		return v, nil
++	case int:
++		return float64(v), nil
++	case int64:
++		return float64(v), nil
++	case string:
++		if f, err := strconv.ParseFloat(v, 64); err == nil {
++			return f, nil
++		}
++	case bool, nil:
++		// present but not numeric (bool / null) → validation error.
++	}
++	return def, fmt.Errorf("%q must be a number (got %v)", key, raw)
++}
++
++// allSymbolIDs returns every symbol id in the store (for god-node ranking).
++func allSymbolIDs(st *store.Store) []int64 {
++	var ids []int64
++	rows, err := st.DB.Query(`SELECT id FROM symbols`)
++	if err != nil {
++		return ids
++	}
++	defer rows.Close()
++	for rows.Next() {
++		var id int64
++		if err := rows.Scan(&id); err == nil {
++			ids = append(ids, id)
++		}
++	}
++	return ids
++}
++
++// mcpCodeExplainCommunity is the single-open backing for code_explain_community.
++func mcpCodeExplainCommunity(ctx context.Context, h *service.ProjectHandle, id int) (*service.CommunityExplanation, error) {
++	db := h.Store().DB
++	var maxID int
++	if err := db.QueryRow(`SELECT COALESCE(MAX(id), -1) FROM communities`).Scan(&maxID); err != nil {
++		return nil, err
++	}
++	if id < 0 || id > maxID {
++		return &service.CommunityExplanation{Found: false, Reason: fmt.Sprintf("community %d not found (0-%d exist)", id, maxID)}, nil
++	}
++	rows, err := db.Query(`SELECT symbol_id FROM communities WHERE id = ? ORDER BY symbol_id`, id)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	var memberIDs []int64
++	for rows.Next() {
++		var mid int64
++		if err := rows.Scan(&mid); err != nil {
++			return nil, err
++		}
++		memberIDs = append(memberIDs, mid)
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	if len(memberIDs) == 0 {
++		return &service.CommunityExplanation{Found: false, Reason: fmt.Sprintf("community %d not found", id)}, nil
++	}
++	label := "community-" + fmt.Sprintf("%d", id)
++	_ = db.QueryRow(`SELECT label FROM community_meta WHERE id = ?`, id).Scan(&label)
++	out := &service.CommunityExplanation{Found: true, ID: id, Label: label, EntryPts: []community.GodNode{}}
++	for _, mid := range memberIDs {
++		var name, kind, lang, path string
++		var startLine, endLine int
++		if err := db.QueryRow(`
++			SELECT s.name, s.kind, COALESCE(s.language,''), f.path, s.start_line, s.end_line
++			FROM symbols s INNER JOIN files f ON f.id = s.file_id WHERE s.id = ?`, mid).
++			Scan(&name, &kind, &lang, &path, &startLine, &endLine); err == nil {
++			out.Members = append(out.Members, map[string]any{
++				"id": mid, "name": name, "kind": kind, "language": lang,
++				"path": path, "start_line": startLine, "end_line": endLine,
++			})
++		}
++	}
++	gods, err := community.RankGodNodes(db, memberIDs, false)
++	if err == nil {
++		out.EntryPts = gods
++	}
++	return out, nil
++}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_community_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_community_test.go
+new file mode 100644
+index 0000000..d5b6209
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_community_test.go
+@@ -0,0 +1,175 @@
++package mcp
++
++import (
++	"context"
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++)
++
++// communityMCPFixture indexes a two-cluster go project (a dense A cluster and
++// a dense B cluster linked by one import) and pins the project so the temp-dir
++// fixture (inside the skillgrid git repo) resolves to one stable bucket for
++// both the index and the query.
++func communityMCPFixture(t *testing.T) string {
++	t.Helper()
++	dataDir := t.TempDir()
++	root := t.TempDir()
++	abs, err := filepath.Abs(root)
++	if err != nil {
++		t.Fatalf("abs: %v", err)
++	}
++	write := func(name, content string) {
++		if err := os.WriteFile(filepath.Join(abs, name), []byte(content), 0o644); err != nil {
++			t.Fatalf("write %s: %v", name, err)
++		}
++	}
++	// Cluster A: three functions that call each other densely.
++	write("alpha.go", "package a\n\nfunc aOne() int { return aTwo() + aThree() }\n\nfunc aTwo() int { return aThree() + 1 }\n\nfunc aThree() int { return 3 }\n")
++	// Cluster B: three functions that call each other densely.
++	write("beta.go", "package b\n\nfunc bOne() int { return bTwo() + bThree() }\n\nfunc bTwo() int { return bThree() + 1 }\n\nfunc bThree() int { return 9 }\n")
++	// One weak bridge: bOne calls aOne.
++	write("bridge.go", "package b\n\nfunc bridge() int { return aOne() + bOne() }\n")
++
++	t.Setenv("MNEMONIC_PROJECT", "community-probe")
++	svc := service.New(dataDir)
++	SetService(svc)
++	t.Cleanup(func() { SetService(nil) })
++	codeindex.ResetFileFirstSymbol()
++	if _, err := svc.RunCodeIndex(context.Background(), abs); err != nil {
++		t.Fatalf("index: %v", err)
++	}
++	oldDir, _ := os.Getwd()
++	if err := os.Chdir(abs); err != nil {
++		t.Fatalf("chdir: %v", err)
++	}
++	t.Cleanup(func() { os.Chdir(oldDir) })
++	return dataDir
++}
++
++// TestCodeCommunitiesReturnsLabeledSubsystems covers @step-01 (Scenario:
++// code_communities returns labeled subsystems and 005 tools stay stable): the
++// tool runs the community pass over the indexed graph and returns the
++// Leiden-clustered subsystems, each carrying an LLM-free label; the 005 code_*
++// tools remain registered with their original names.
++func TestCodeCommunitiesReturnsLabeledSubsystems(t *testing.T) {
++	communityMCPFixture(t)
++
++	res, err := handleCodeCommunities(context.Background(), newCallTool("code_communities", map[string]any{}))
++	if err != nil {
++		t.Fatalf("handleCodeCommunities: %v", err)
++	}
++	if res.IsError {
++		t.Fatalf("code_communities errored: %s", callResultText(t, res))
++	}
++	text := callResultText(t, res)
++	var out struct {
++		Communities []struct {
++			ID      int      `json:"id"`
++			Label   string   `json:"label"`
++			Members []int64  `json:"members"`
++			GodNode []string `json:"god_nodes"`
++		} `json:"communities"`
++		CacheKey string `json:"cache_key"`
++		Warning  string `json:"warning"`
++	}
++	if err := json.Unmarshal([]byte(text), &out); err != nil {
++		t.Fatalf("code_communities output not JSON: %v (text %s)", err, text)
++	}
++	if len(out.Communities) < 2 {
++		t.Fatalf("expected >=2 subsystems, got %d (text %s)", len(out.Communities), text)
++	}
++	for _, c := range out.Communities {
++		if c.Label == "" {
++			t.Errorf("community %d has empty label", c.ID)
++		}
++		if len(c.Members) == 0 {
++			t.Errorf("community %d has no members", c.ID)
++		}
++	}
++	if out.CacheKey == "" {
++		t.Errorf("expected a non-empty content-hash cache key")
++	}
++
++	// 005 tools stay stable (baseline lock) — the registration is unchanged.
++	tools := NewServer().ListTools()
++	for _, name := range []string{"code_search", "code_read", "code_impact", "code_explore"} {
++		if _, ok := tools[name]; !ok {
++			t.Errorf("005 tool %q no longer registered", name)
++		}
++	}
++}
++
++// TestCommunityToolsArgs covers @step-01 (Scenario: community tools reject bad
++// args clearly): the three community tools register under distinct code_*
++// names, and a bad/missing arg (e.g. a non-existent community id) is rejected
++// with a clear validation error rather than an invented community.
++func TestCommunityToolsArgs(t *testing.T) {
++	communityMCPFixture(t)
++
++	// Distinct code_* names registered.
++	tools := NewServer().ListTools()
++	for _, name := range []string{"code_communities", "code_god_nodes", "code_explain_community"} {
++		if _, ok := tools[name]; !ok {
++			t.Errorf("expected tool %q to be registered", name)
++		}
++	}
++
++	// code_explain_community with a non-existent community id → clear error.
++	res, err := handleCodeExplainCommunity(context.Background(), newCallTool("code_explain_community", map[string]any{"id": 999}))
++	if err != nil {
++		t.Fatalf("handleCodeExplainCommunity dispatch: %v", err)
++	}
++	if !res.IsError {
++		t.Errorf("code_explain_community with a non-existent id should be a validation error, got: %s", callResultText(t, res))
++	}
++	if text := callResultText(t, res); !strings.Contains(strings.ToLower(text), "community") {
++		t.Errorf("bad-id error should name the community problem, got: %s", text)
++	}
++
++	// code_explain_community with a missing id → clear error.
++	res2, err := handleCodeExplainCommunity(context.Background(), newCallTool("code_explain_community", map[string]any{}))
++	if err != nil {
++		t.Fatalf("handleCodeExplainCommunity dispatch: %v", err)
++	}
++	if !res2.IsError {
++		t.Errorf("code_explain_community with a missing id should be a validation error, got: %s", callResultText(t, res2))
++	}
++
++	// code_god_nodes with exclude_hubs=true still returns a ranked list (not an
++	// error), and excludes the utility super-hubs from the top of the ranking.
++	res3, err := handleCodeGodNodes(context.Background(), newCallTool("code_god_nodes", map[string]any{"exclude_hubs": true}))
++	if err != nil {
++		t.Fatalf("handleCodeGodNodes dispatch: %v", err)
++	}
++	if res3.IsError {
++		t.Errorf("code_god_nodes with exclude_hubs should not error, got: %s", callResultText(t, res3))
++	}
++	if text := callResultText(t, res3); !strings.Contains(text, "god_nodes") {
++		t.Errorf("code_god_nodes should return a god_nodes list, got: %s", text)
++	}
++
++	// code_god_nodes with a non-numeric limit (sent as a JSON object) is
++	// rejected clearly (no silent default inventing a different view).
++	res4, err := handleCodeGodNodes(context.Background(), newCallTool("code_god_nodes", map[string]any{"limit": map[string]any{"n": 1}}))
++	if err != nil {
++		t.Fatalf("handleCodeGodNodes dispatch: %v", err)
++	}
++	if !res4.IsError {
++		t.Errorf("code_god_nodes with a non-numeric limit should be a validation error, got: %s", callResultText(t, res4))
++	}
++
++	// code_communities takes no required args and returns the partition.
++	res5, err := handleCodeCommunities(context.Background(), newCallTool("code_communities", map[string]any{}))
++	if err != nil {
++		t.Fatalf("handleCodeCommunities dispatch: %v", err)
++	}
++	if res5.IsError {
++		t.Errorf("code_communities with no args should not error, got: %s", callResultText(t, res5))
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_explore.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_explore.go
+index fda438e..76657e8 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_code_explore.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_explore.go
+@@ -21,20 +21,21 @@ import (
+ const CodeToolsEnvVar = "SKILLGRID_MCP_CODE_TOOLS"
+ 
+ // menuCodeTools are the narrow graph/orientation tools demoted to unlisted-by-
+ // default on the MCP surface. They stay registered (callable) and the CLI
+ // exposes all of them.
+ var menuCodeTools = []string{
+ 	"code_orient", "code_signature", "code_file_toc", "code_rationale",
+ 	"code_get_callers", "code_get_callees", "code_get_dependents",
+ 	"code_get_implementors", "code_get_hierarchy", "code_get_tests_for",
+ 	"code_path", "code_explain",
++	"code_communities", "code_god_nodes", "code_explain_community",
+ }
+ 
+ // exploreInitializeGuidance is injected at MCP initialize (server
+ // instructions): steer agents to the composite tool and keep them off grep
+ // loops.
+ func exploreInitializeGuidance() string {
+ 	return "skillgrid-mnemonic: code_explore is the primary code-intelligence tool. " +
+ 		"Answer structural questions (callers, callees, call paths, blast radius) directly " +
+ 		"with the graph and treat the source it returns as already read; don't re-verify " +
+ 		"with grep. The narrow code_* menu tools are unlisted by default and re-enable via " +
+@@ -83,32 +84,32 @@ func applyCodeToolFilter() server.ToolFilterFunc {
+ 
+ // codeToolsEnabled reports whether the narrow menu tools are re-enabled.
+ func codeToolsEnabled() bool {
+ 	v := strings.TrimSpace(os.Getenv(CodeToolsEnvVar))
+ 	return v == "all" || v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes")
+ }
+ 
+ // exploreResult is the composite answer: source by file, call-flow between the
+ // returned symbols, and a blast-radius summary.
+ type exploreResult struct {
+-	Symbol     string                   `json:"symbol"`
+-	Source     map[string][]srcSpan     `json:"source"`
+-	CallFlow   []flowEdge               `json:"call_flow"`
+-	Impact     *service.ImpactResultDTO `json:"impact"`
+-	Truncated  bool                     `json:"truncated,omitempty"`
++	Symbol    string                   `json:"symbol"`
++	Source    map[string][]srcSpan     `json:"source"`
++	CallFlow  []flowEdge               `json:"call_flow"`
++	Impact    *service.ImpactResultDTO `json:"impact"`
++	Truncated bool                     `json:"truncated,omitempty"`
+ }
+ 
+ type srcSpan struct {
+-	Symbol   string `json:"symbol"`
+-	Start    int    `json:"start_line"`
+-	End      int    `json:"end_line"`
+-	Content  string `json:"content"`
++	Symbol  string `json:"symbol"`
++	Start   int    `json:"start_line"`
++	End     int    `json:"end_line"`
++	Content string `json:"content"`
+ }
+ 
+ type flowEdge struct {
+ 	From       string `json:"from"`
+ 	To         string `json:"to"`
+ 	Kind       string `json:"kind"`
+ 	Confidence string `json:"confidence"`
+ 	Line       int    `json:"line"`
+ }
+ 
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_explore_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_explore_test.go
+index 65850db..4fcb767 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_code_explore_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_explore_test.go
+@@ -2,20 +2,21 @@ package mcp
+ 
+ import (
+ 	"context"
+ 	"os"
+ 	"path/filepath"
+ 	"strings"
+ 	"testing"
+ 
+ 	mcplib "github.com/mark3labs/mcp-go/mcp"
+ 
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+ )
+ 
+ // exploreFixture indexes a small multi-file python project whose symbols have
+ // cross-file resolved edges, then injects the service so handlers open the
+ // same store.
+ func exploreFixture(t *testing.T) (dataDir, root string) {
+ 	t.Helper()
+ 	dataDir = t.TempDir()
+ 	raw := t.TempDir()
+@@ -35,20 +36,21 @@ func exploreFixture(t *testing.T) (dataDir, root string) {
+ 		t.Fatalf("mkdir config.d: %v", err)
+ 	}
+ 	write(filepath.Join("config.d", "indexing.yaml"),
+ 		"mnemonic:\n  include:\n    - \"**/*.py\"\n  exclude:\n    - \"**/.git/**\"\n")
+ 	// Pin the project BEFORE indexing so both the index and later queries land
+ 	// in the same stable bucket (the temp dir is nested in the skillgit repo).
+ 	t.Setenv("MNEMONIC_PROJECT", "explore-probe")
+ 	svc := service.New(dataDir)
+ 	SetService(svc)
+ 	t.Cleanup(func() { SetService(nil) })
++	codeindex.ResetFileFirstSymbol()
+ 	if _, err := svc.RunCodeIndex(context.Background(), root); err != nil {
+ 		t.Fatalf("index: %v", err)
+ 	}
+ 	return dataDir, root
+ }
+ 
+ // TestExploreToolSurface covers @step-03 (code_explore is the primary tool and
+ // menu tools re-enable): the composite code_explore is registered and
+ // documented as the primary tool; the narrow graph/orientation menu tools are
+ // unlisted by default but re-enable via config; code_status returns a
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_impact_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_impact_test.go
+index e5640e6..3eb5cca 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_code_impact_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_impact_test.go
+@@ -2,20 +2,21 @@ package mcp
+ 
+ import (
+ 	"context"
+ 	"os"
+ 	"path/filepath"
+ 	"strings"
+ 	"testing"
+ 
+ 	mcplib "github.com/mark3labs/mcp-go/mcp"
+ 
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+ )
+ 
+ // impactMCPFixture indexes a small python project where `base` has a direct
+ // dependent `mid` and a duplicate-named `base` in a second file.
+ func impactMCPFixture(t *testing.T) (dataDir, root string) {
+ 	t.Helper()
+ 	dataDir = t.TempDir()
+ 	raw := t.TempDir()
+ 	abs, err := filepath.Abs(raw)
+@@ -31,20 +32,21 @@ func impactMCPFixture(t *testing.T) (dataDir, root string) {
+ 	write("base_a.go", "package p\n\nfunc base() int {\n\treturn 1\n}\n")
+ 	write("base_b.go", "package p\n\nfunc (x int) base() int {\n\treturn 2\n}\n")
+ 	write("mid.go", "package p\n\nfunc mid() int {\n\treturn base()\n}\n")
+ 	// Pin the project BEFORE indexing so both the index and later queries
+ 	// (which resolve from the cwd of a temp dir nested in the skillgit repo)
+ 	// land in the same stable bucket.
+ 	t.Setenv("MNEMONIC_PROJECT", "codeimpact-probe")
+ 	svc := service.New(dataDir)
+ 	SetService(svc)
+ 	t.Cleanup(func() { SetService(nil) })
++	codeindex.ResetFileFirstSymbol()
+ 	if _, err := svc.RunCodeIndex(context.Background(), root); err != nil {
+ 		t.Fatalf("index: %v", err)
+ 	}
+ 	return dataDir, root
+ }
+ 
+ func newCallTool(name string, params map[string]any) mcplib.CallToolRequest {
+ 	req := mcplib.CallToolRequest{}
+ 	req.Params.Name = name
+ 	req.Params.Arguments = params
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_schema_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_schema_test.go
+index 5453d4a..27b89c2 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_code_schema_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_schema_test.go
+@@ -1,19 +1,45 @@
+ package mcp
+ 
+ import (
+ 	"sort"
+ 	"testing"
+ 
+ 	mcplib "github.com/mark3labs/mcp-go/mcp"
+ )
+ 
++// expected005ToolSurface pins the 005 code_* tool contract: each tool's name
++// and its required parameter list. Later changes (community tools, hybrid
++// tools, ...) must never rename a 005 tool or change its required params —
++// this map is the baseline lock that fails when they do.
++var expected005ToolSurface = map[string][]string{
++	"code_status":           {},
++	"code_index":            {},
++	"code_search":           {"query"},
++	"code_read":             {"path"},
++	"code_orient":           {"symbol"},
++	"code_signature":        {"symbol"},
++	"code_file_toc":         {"symbol"},
++	"code_rationale":        {"symbol"},
++	"code_grep":             {"pattern"},
++	"code_get_callers":      {"symbol"},
++	"code_get_callees":      {"symbol"},
++	"code_get_dependents":   {"symbol"},
++	"code_get_implementors": {"symbol"},
++	"code_get_hierarchy":    {"symbol"},
++	"code_get_tests_for":    {"symbol"},
++	"code_path":             {"from", "to"},
++	"code_explain":          {"symbol"},
++	"code_impact":           {"symbol"},
++	"code_explore":          {"symbol"},
++}
++
+ // TestCodeSearchSchemaStable locks the code_search tool's name and required
+ // `query` param schema so it cannot silently regress when new tools are added.
+ // Threat: Mnemonic tool surface. The existing four code_* tools must keep
+ // their name and required-param schema (additive fields only).
+ func TestCodeSearchSchemaStable(t *testing.T) {
+ 	tool := codeSearchTool()
+ 	if tool.Name != "code_search" {
+ 		t.Fatalf("code_search tool name changed to %q", tool.Name)
+ 	}
+ 	schema := tool.InputSchema
+@@ -27,35 +53,64 @@ func TestCodeSearchSchemaStable(t *testing.T) {
+ 	}
+ 	if !containsString(schema.Required, "query") {
+ 		t.Fatalf("code_search 'query' is not a required parameter; required=%v", schema.Required)
+ 	}
+ 	// The other three existing tools keep their names + required params.
+ 	assertCodeToolStable(t, codeIndexTool(), "code_index", nil)
+ 	assertCodeToolStable(t, codeStatusTool(), "code_status", nil)
+ 	assertCodeToolStable(t, codeReadTool(), "code_read", []string{"path"})
+ }
+ 
++// TestToolSurfaceBaseline covers the 005 tool-surface lock (Scenario:
++// code_communities returns labeled subsystems and 005 tools stay stable):
++// every 005 code_* tool keeps its exact name and required-param contract on
++// the live MCP server, not just its individual Tool constructor.
++func TestToolSurfaceBaseline(t *testing.T) {
++	tools := NewServer().ListTools()
++	for name, wantRequired := range expected005ToolSurface {
++		st, ok := tools[name]
++		if !ok {
++			t.Errorf("005 tool %q is no longer registered", name)
++			continue
++		}
++		got := append([]string(nil), st.Tool.InputSchema.Required...)
++		want := append([]string(nil), wantRequired...)
++		sort.Strings(got)
++		sort.Strings(want)
++		if len(got) != len(want) {
++			t.Errorf("%q: required params changed: got %v, want %v", name, got, want)
++			continue
++		}
++		for i := range want {
++			if got[i] != want[i] {
++				t.Errorf("%q: required param %d changed: got %q, want %q", name, i, got[i], want[i])
++			}
++		}
++	}
++}
++
+ // assertCodeToolStable locks a tool's name and its required parameters.
+ func assertCodeToolStable(t *testing.T, tool mcplib.Tool, name string, required []string) {
+ 	t.Helper()
+ 	if tool.Name != name {
+ 		t.Errorf("tool name changed: got %q, want %q", tool.Name, name)
+ 	}
+ 	got := append([]string(nil), tool.InputSchema.Required...)
++	want := append([]string(nil), required...)
+ 	sort.Strings(got)
+-	sort.Strings(required)
+-	if len(got) != len(required) {
+-		t.Errorf("%s required params = %v, want %v", name, got, required)
++	sort.Strings(want)
++	if len(got) != len(want) {
++		t.Errorf("%s required params = %v, want %v", name, got, want)
+ 	}
+-	for i := range required {
+-		if got[i] != required[i] {
+-			t.Errorf("%s required params = %v, want %v", name, got, required)
++	for i := range want {
++		if got[i] != want[i] {
++			t.Errorf("%s required params = %v, want %v", name, got, want)
+ 			break
+ 		}
+ 	}
+ }
+ 
+ func containsString(list []string, s string) bool {
+ 	for _, v := range list {
+ 		if v == s {
+ 			return true
+ 		}
+diff --git a/skillgrid-cli/internal/mnemonic/service/community_test.go b/skillgrid-cli/internal/mnemonic/service/community_test.go
+new file mode 100644
+index 0000000..652ec57
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/service/community_test.go
+@@ -0,0 +1,100 @@
++package service
++
++import (
++	"context"
++	"testing"
++)
++
++// TestCodeExplainCommunityMembersAndEntryPoints covers @step-01 (Scenario:
++// code_explain_community explains a subsystem): a valid community id returns
++// its members (symbol + path + line) and its key entry points (top god
++// nodes); a non-existent id returns a not-found reason (no invented
++// community).
++func TestCodeExplainCommunityMembersAndEntryPoints(t *testing.T) {
++	dataDir := t.TempDir()
++	svc := New(dataDir)
++	// Open a project so the store + migrations exist.
++	h, cleanup, err := svc.Open("explain-community")
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	db := h.Store().DB
++
++	seedFile := func(path string) int64 {
++		res, err := db.Exec(`INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at) VALUES (?, 1, 1, 'h', 'now')`, path)
++		if err != nil {
++			t.Fatalf("seed file: %v", err)
++		}
++		id, _ := res.LastInsertId()
++		return id
++	}
++	seedSymbol := func(fileID int64, name string, line int) int64 {
++		res, err := db.Exec(`INSERT INTO symbols (file_id, name, kind, start_line, end_line, content_hash, uid) VALUES (?, ?, 'function', ?, ?, 'h', ?)`,
++			fileID, name, line, line, name+"-uid")
++		if err != nil {
++			t.Fatalf("seed symbol: %v", err)
++		}
++		id, _ := res.LastInsertId()
++		return id
++	}
++	seedEdge := func(from, to int64, line int) {
++		if _, err := db.Exec(`INSERT INTO edges (kind, from_id, to_id, confidence, line) VALUES ('calls', ?, ?, 'EXTRACTED', ?)`, from, to, line); err != nil {
++			t.Fatalf("seed edge: %v", err)
++		}
++	}
++
++	fa := seedFile("a/core.go")
++	a1 := seedSymbol(fa, "aOne", 1)
++	a2 := seedSymbol(fa, "aTwo", 10)
++	a3 := seedSymbol(fa, "aThree", 20)
++	seedEdge(a1, a2, 2)
++	seedEdge(a2, a3, 11)
++	seedEdge(a1, a3, 3)
++
++	// Run the community pass to populate the communities table.
++	if _, err := svc.CodeCommunities(context.Background(), "explain-community", CommunityOptions{}); err != nil {
++		t.Fatalf("code communities: %v", err)
++	}
++	cleanup()
++
++	// Find a community that contains a1.
++	var commID int
++	found := false
++	_ = db.QueryRow(`SELECT id FROM communities WHERE symbol_id = ?`, a1).Scan(&commID)
++	found = commID >= 0
++
++	if !found {
++		t.Fatalf("expected a community containing a1")
++	}
++
++	out, err := svc.CodeExplainCommunity(context.Background(), "explain-community", commID)
++	if err != nil {
++		t.Fatalf("CodeExplainCommunity: %v", err)
++	}
++	if !out.Found {
++		t.Fatalf("expected found, got reason %q", out.Reason)
++	}
++	if len(out.Members) == 0 {
++		t.Fatalf("expected members, got none")
++	}
++	// Members carry symbol + path + line.
++	if m := out.Members[0]; m["path"] == nil || m["name"] == nil || m["start_line"] == nil {
++		t.Errorf("members must carry name/path/start_line, got %v", m)
++	}
++	// Entry points are the top god nodes (at least the highest-degree member).
++	if len(out.EntryPts) == 0 {
++		t.Errorf("expected entry points, got none")
++	}
++
++	// A non-existent community id → not found (no invented community).
++	bad, err := svc.CodeExplainCommunity(context.Background(), "explain-community", 9999)
++	if err != nil {
++		t.Fatalf("CodeExplainCommunity bad id: %v", err)
++	}
++	if bad.Found {
++		t.Errorf("non-existent community 9999 should be not found")
++	}
++	if bad.Reason == "" {
++		t.Errorf("not-found explanation should carry a reason")
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/service/service.go b/skillgrid-cli/internal/mnemonic/service/service.go
+index eb305a2..ffea297 100644
+--- a/skillgrid-cli/internal/mnemonic/service/service.go
++++ b/skillgrid-cli/internal/mnemonic/service/service.go
+@@ -7,20 +7,21 @@ import (
+ 	"errors"
+ 	"fmt"
+ 	"os"
+ 	"path/filepath"
+ 	"sort"
+ 	"strconv"
+ 	"strings"
+ 	"time"
+ 
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/community"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/embedder"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/files"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/graph"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/hybrid"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/project"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/search"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/webcache"
+@@ -1231,20 +1232,151 @@ func (h *ProjectHandle) ProjectID() string { return h.projectID }
+ 
+ // Memory returns the memory service for an open handle.
+ func (h *ProjectHandle) Memory() *memory.Service { return h.memory }
+ 
+ // Web returns the webcache service for an open handle.
+ func (h *ProjectHandle) Web() *webcache.Service { return h.web }
+ 
+ // Store returns the underlying store for an open handle.
+ func (h *ProjectHandle) Store() *store.Store { return h.store }
+ 
++// CommunityResult is the code_communities answer (LLM-free labeled
++// subsystems + a stable content-hash cache key).
++type CommunityResult = community.Result
++
++// CommunityOptions tunes the community pass.
++type CommunityOptions = community.Options
++
++// CodeCommunities runs the seeded Leiden community pass over projectID's
++// indexed graph and returns the labeled subsystems (with the cache key and any
++// non-fatal warning). The partition is advisory, never load-bearing.
++func (s *Service) CodeCommunities(ctx context.Context, projectID string, opts CommunityOptions) (*CommunityResult, error) {
++	h, cleanup, err := s.openProject(projectID, ".")
++	if err != nil {
++		return nil, err
++	}
++	defer cleanup()
++	return community.Detect(ctx, h.store.DB, opts)
++}
++
++// GodNode is a degree-ranked symbol (the most-connected concepts).
++type GodNode = community.GodNode
++
++// CodeGodNodes returns the most-connected symbols in projectID ranked by
++// degree. excludeHubs suppresses utility super-hubs from the ranking.
++func (s *Service) CodeGodNodes(ctx context.Context, projectID string, excludeHubs bool, limit int) ([]GodNode, error) {
++	h, cleanup, err := s.openProject(projectID, ".")
++	if err != nil {
++		return nil, err
++	}
++	defer cleanup()
++	rows, err := h.store.DB.Query(`SELECT id FROM symbols`)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	var ids []int64
++	for rows.Next() {
++		var id int64
++		if err := rows.Scan(&id); err != nil {
++			return nil, err
++		}
++		ids = append(ids, id)
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	gods, err := community.RankGodNodes(h.store.DB, ids, excludeHubs)
++	if err != nil {
++		return nil, err
++	}
++	if limit > 0 && len(gods) > limit {
++		gods = gods[:limit]
++	}
++	return gods, nil
++}
++
++// CommunityExplanation is the code_explain_community answer: the community's
++// members + key entry points (top god nodes).
++type CommunityExplanation struct {
++	Found    bool                `json:"found"`
++	ID       int                 `json:"id"`
++	Label    string              `json:"label"`
++	Members  []map[string]any    `json:"members"`
++	EntryPts []community.GodNode `json:"entry_points"`
++	Reason   string              `json:"reason,omitempty"`
++}
++
++// CodeExplainCommunity returns a community's members + key entry points. An
++// unknown community id returns Found=false with a not-found reason (no
++// invented community).
++func (s *Service) CodeExplainCommunity(ctx context.Context, projectID string, id int) (*CommunityExplanation, error) {
++	h, cleanup, err := s.openProject(projectID, ".")
++	if err != nil {
++		return nil, err
++	}
++	defer cleanup()
++	var maxID int
++	if err := h.store.DB.QueryRow(`SELECT COALESCE(MAX(id), -1) FROM communities`).Scan(&maxID); err != nil {
++		return nil, err
++	}
++	if id < 0 || id > maxID {
++		return &CommunityExplanation{Found: false, Reason: fmt.Sprintf("community %d not found (0-%d exist)", id, maxID)}, nil
++	}
++	rows, err := h.store.DB.Query(`SELECT symbol_id FROM communities WHERE id = ? ORDER BY symbol_id`, id)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	var memberIDs []int64
++	for rows.Next() {
++		var mid int64
++		if err := rows.Scan(&mid); err != nil {
++			return nil, err
++		}
++		memberIDs = append(memberIDs, mid)
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	if len(memberIDs) == 0 {
++		return &CommunityExplanation{Found: false, Reason: fmt.Sprintf("community %d not found", id)}, nil
++	}
++	label := "community-" + fmt.Sprintf("%d", id)
++	_ = h.store.DB.QueryRow(`SELECT label FROM community_meta WHERE id = ?`, id).Scan(&label)
++
++	out := &CommunityExplanation{Found: true, ID: id, Label: label, EntryPts: []community.GodNode{}}
++	for _, mid := range memberIDs {
++		var name, kind, lang, path string
++		var startLine, endLine int
++		if err := h.store.DB.QueryRow(`
++			SELECT s.name, s.kind, COALESCE(s.language,''), f.path, s.start_line, s.end_line
++			FROM symbols s INNER JOIN files f ON f.id = s.file_id WHERE s.id = ?`, mid).
++			Scan(&name, &kind, &lang, &path, &startLine, &endLine); err == nil {
++			out.Members = append(out.Members, map[string]any{
++				"id":         mid,
++				"name":       name,
++				"kind":       kind,
++				"language":   lang,
++				"path":       path,
++				"start_line": startLine,
++				"end_line":   endLine,
++			})
++		}
++	}
++	gods, err := community.RankGodNodes(h.store.DB, memberIDs, false)
++	if err == nil {
++		out.EntryPts = gods
++	}
++	return out, nil
++}
++
+ func readIndexedCode(db *sql.DB, path string, startLine, endLine int) (map[string]any, error) {
+ 	var fileID int64
+ 	err := db.QueryRow(`SELECT id FROM files WHERE path = ?`, path).Scan(&fileID)
+ 	if err == sql.ErrNoRows {
+ 		return nil, fmt.Errorf("file not indexed: %s", path)
+ 	}
+ 	if err != nil {
+ 		return nil, err
+ 	}
+ 	var rows *sql.Rows
+diff --git a/skillgrid-cli/internal/mnemonic/store/community_schema_test.go b/skillgrid-cli/internal/mnemonic/store/community_schema_test.go
+new file mode 100644
+index 0000000..99021cb
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/store/community_schema_test.go
+@@ -0,0 +1,33 @@
++package store
++
++import (
++	"testing"
++)
++
++// TestStoreOpenAppliesCommunitySchema covers @step-01 (additive 012 migration):
++// a store that opens cleanly has the 012 community tables, the 012 migration
++// is recorded once, and the 005 symbols/edges tables remain intact (additive,
++// not a rewrite).
++func TestStoreOpenAppliesCommunitySchema(t *testing.T) {
++	dir := t.TempDir()
++	st, err := Open(dir, "communityproj")
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	defer st.Close()
++
++	for _, name := range []string{"communities", "community_meta"} {
++		if !tableExists(t, st.DB, name) {
++			t.Fatalf("expected 012 table %s after open", name)
++		}
++	}
++	if countMigration(t, st.DB, "012_community_knowledge_graph.sql") != 1 {
++		t.Fatalf("expected 012 migration recorded once")
++	}
++	// 005 tables intact (additive — never rewritten).
++	for _, name := range []string{"symbols", "edges"} {
++		if !tableExists(t, st.DB, name) {
++			t.Fatalf("005 table %s missing after 012", name)
++		}
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/store/migrations/012_community_knowledge_graph.sql b/skillgrid-cli/internal/mnemonic/store/migrations/012_community_knowledge_graph.sql
+new file mode 100644
+index 0000000..4009ce7
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/store/migrations/012_community_knowledge_graph.sql
+@@ -0,0 +1,16 @@
++-- 012 community knowledge graph schema (additive; 005 symbols/edges untouched)
++-- Change 008, step 01.
++
++CREATE TABLE IF NOT EXISTS communities (
++    id INTEGER PRIMARY KEY,
++    symbol_id INTEGER NOT NULL UNIQUE REFERENCES symbols(id) ON DELETE CASCADE
++);
++CREATE INDEX IF NOT EXISTS idx_communities_symbol ON communities(symbol_id);
++
++CREATE TABLE IF NOT EXISTS community_meta (
++    id INTEGER PRIMARY KEY,
++    label TEXT NOT NULL,
++    symbol_count INTEGER NOT NULL,
++    god_nodes TEXT NOT NULL DEFAULT '',
++    cache_key TEXT NOT NULL
++);

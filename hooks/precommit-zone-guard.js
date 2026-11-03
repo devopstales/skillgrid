@@ -8,7 +8,7 @@
 // spec-as-contract model, so this guard FAILs it.
 //
 // A commit is "mixed" when it stages at least one spec-zone path
-// (.skillgrid/specs/** or .skillgrid/archive/** — archive is the terminal state
+// (.skillgrid/specs/** or .skillgrid/xarchive/** — xarchive is the terminal state
 // of spec artifacts) AND at least one non-spec path. A commit that is
 // all-specs, or all-code, passes.
 //
@@ -22,7 +22,7 @@ function git(...args) {
 }
 
 const SPEC_PREFIX = '.skillgrid/specs/';
-const SPEC_ARCHIVE_PREFIX = '.skillgrid/archive/';
+const SPEC_ARCHIVE_PREFIX = '.skillgrid/xarchive/';
 // Treat acceptance-test sources (not the extracted output) as spec zone too.
 const SPEC_EXTRAS = 'acceptance-tests/features/';
 

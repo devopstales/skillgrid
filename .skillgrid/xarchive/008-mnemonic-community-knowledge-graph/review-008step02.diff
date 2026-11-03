@@ -1,0 +1,2249 @@
+=== 008 STEP 02 CODE COMMITS ed140a3 + 25e56de ===
+
+25e56de feat(mnemonic): process tools and code_explain process participation
+ed140a3 feat(mnemonic): process flow schema, tracing, labels and dispatch-stop
+
+=== STAT ===
+ skillgrid-cli/internal/mnemonic/mcp/server.go      |   2 +
+ skillgrid-cli/internal/mnemonic/mcp/server_test.go |   2 +
+ .../internal/mnemonic/mcp/tools_code_explore.go    |   1 +
+ .../internal/mnemonic/mcp/tools_code_orient.go     |  10 +
+ .../internal/mnemonic/mcp/tools_code_process.go    | 137 ++++
+ .../mnemonic/mcp/tools_code_process_test.go        | 312 +++++++++
+ skillgrid-cli/internal/mnemonic/process/hash.go    |  20 +
+ skillgrid-cli/internal/mnemonic/process/labels.go  | 124 ++++
+ .../internal/mnemonic/process/labels_test.go       | 150 +++++
+ .../internal/mnemonic/process/stub_test.go         |  37 +
+ skillgrid-cli/internal/mnemonic/process/trace.go   | 747 +++++++++++++++++++++
+ .../internal/mnemonic/process/trace_edge_test.go   | 194 ++++++
+ .../internal/mnemonic/process/trace_test.go        | 193 ++++++
+ skillgrid-cli/internal/mnemonic/service/service.go |  65 ++
+ .../store/migrations/014_process_flows.sql         |  42 ++
+ .../internal/mnemonic/store/process_schema_test.go |  39 ++
+ 16 files changed, 2075 insertions(+)
+
+=== DIFF ===
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/server.go b/skillgrid-cli/internal/mnemonic/mcp/server.go
+index cdbb2dc..76064b9 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/server.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/server.go
+@@ -50,6 +50,7 @@ func Start() error {
+ 	registerHybridTools(s)
+ 	registerCommunityTools(s)
+ 	registerRouteTools(s)
++	registerProcessTools(s)
+ 	registerWebTools(s)
+ 	registerTeamsTools(s)
+ 	registerRetrievalTools(s)
+@@ -73,6 +74,7 @@ func NewServer() *Server {
+ 	registerHybridTools(s)
+ 	registerCommunityTools(s)
+ 	registerRouteTools(s)
++	registerProcessTools(s)
+ 	registerWebTools(s)
+ 	registerTeamsTools(s)
+ 	registerRetrievalTools(s)
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/server_test.go b/skillgrid-cli/internal/mnemonic/mcp/server_test.go
+index 24b4bf8..897f762 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/server_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/server_test.go
+@@ -38,6 +38,8 @@ func TestAllToolsRegistered(t *testing.T) {
+ 		"code_communities", "code_god_nodes", "code_explain_community",
+ 		// Framework route / navigation query tools.
+ 		"code_route", "code_navigates",
++		// Precomputed process-flow tools.
++		"code_processes", "code_process",
+ 		"web_cache_lookup", "web_cache_save", "web_cache_search",
+ 		"web_cache_get", "web_cache_status",
+ 		"team_spawn_task", "agent_pull_next_task", "agent_read_task",
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_explore.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_explore.go
+index 76657e8..683882e 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_code_explore.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_explore.go
+@@ -29,6 +29,7 @@ var menuCodeTools = []string{
+ 	"code_get_implementors", "code_get_hierarchy", "code_get_tests_for",
+ 	"code_path", "code_explain",
+ 	"code_communities", "code_god_nodes", "code_explain_community",
++	"code_processes", "code_process",
+ }
+ 
+ // exploreInitializeGuidance is injected at MCP initialize (server
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_orient.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_orient.go
+index dd9daab..a2c7672 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_code_orient.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_orient.go
+@@ -7,6 +7,7 @@ import (
+ 	mcplib "github.com/mark3labs/mcp-go/mcp"
+ 	"github.com/mark3labs/mcp-go/server"
+ 
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/process"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/search"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+ )
+@@ -71,6 +72,15 @@ func handleCodeOrient(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.
+ 	if err != nil {
+ 		return toolError(err)
+ 	}
++	// Additive (008 step 02): surface which processes the symbol participates
++	// in (step N/M). The 005 fields above are unchanged.
++	if out.Found && out.Symbol != nil {
++		if id, ok := out.Symbol["id"].(int64); ok {
++			if parts, perr := process.Participations(h.Store().DB, id); perr == nil && len(parts) > 0 {
++				out.Processes = parts
++			}
++		}
++	}
+ 	return JSONResult(out)
+ }
+ 
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_process.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_process.go
+new file mode 100644
+index 0000000..30082d4
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_process.go
+@@ -0,0 +1,137 @@
++package mcp
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++	"strings"
++
++	mcplib "github.com/mark3labs/mcp-go/mcp"
++	"github.com/mark3labs/mcp-go/server"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/process"
++)
++
++// registerProcessTools registers the precomputed process-flow MCP tools
++// (code_processes / code_process). They are distinct code_* tools — none
++// clashes with the 005 baseline tools — and are part of the narrow code_*
++// menu (unlisted by default; re-enabled via CodeToolsEnvVar). They are
++// query-only over the precomputed processes/process_steps tables: no
++// per-query traversal.
++func registerProcessTools(s *server.MCPServer) {
++	tools := []struct {
++		tool    mcplib.Tool
++		handler server.ToolHandlerFunc
++	}{
++		{codeProcessesTool(), handleCodeProcesses},
++		{codeProcessTool(), handleCodeProcess},
++	}
++	for _, entry := range tools {
++		s.AddTool(entry.tool, entry.handler)
++	}
++}
++
++func codeProcessesTool() mcplib.Tool {
++	return mcplib.NewTool("code_processes",
++		mcplib.WithDescription("Return the precomputed process flows (execution flows traced from entry points through call chains). One call returns every flow with its named steps, a cross-community flag, and its LLM label (or empty when the LLM is down — never fabricated). No per-query traversal: the flows are precomputed and cached by content-hash."),
++		mcplib.WithNumber("limit", mcplib.Description("Maximum processes to return (default 50)")),
++	)
++}
++
++func codeProcessTool() mcplib.Tool {
++	return mcplib.NewTool("code_process",
++		mcplib.WithDescription("Return the full step-by-step trace of one named process flow: each hop with its confidence label and the 'stops at <symbol> (<reason>)' note when the trace truncated at a dispatch boundary. A non-existent process name is rejected with a clear validation error (no invented process)."),
++		mcplib.WithString("name", mcplib.Required(), mcplib.Description("Process name (from code_processes)")),
++	)
++}
++
++func handleCodeProcesses(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	limit := int(req.GetFloat("limit", 50))
++	if limit <= 0 {
++		limit = 50
++	}
++	_, h, cleanup, err := openService()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++	out, err := mcpCodeProcesses(h.Store().DB, limit)
++	if err != nil {
++		return toolError(err)
++	}
++	return JSONResult(out)
++}
++
++func handleCodeProcess(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	name, err := req.RequireString("name")
++	if err != nil {
++		return toolError(err)
++	}
++	if strings.TrimSpace(name) == "" {
++		return toolError(fmt.Errorf("code_process: 'name' is required and must be non-empty"))
++	}
++	_, h, cleanup, err := openService()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++	p, err := process.Get(h.Store().DB, name)
++	if err != nil {
++		if err == sql.ErrNoRows {
++			return toolError(fmt.Errorf("code_process: no process named %q (see code_processes)", name))
++		}
++		return toolError(err)
++	}
++	return JSONResult(processDTO(p))
++}
++
++// mcpCodeProcesses is the single-open backing for code_processes: return the
++// stored precomputed flows (precomputed — no per-query traversal), with their
++// full step traces.
++func mcpCodeProcesses(db *sql.DB, limit int) (map[string]any, error) {
++	listed, err := process.List(db)
++	if err != nil {
++		return nil, err
++	}
++	if limit > 0 && len(listed) > limit {
++		listed = listed[:limit]
++	}
++	dtos := make([]map[string]any, 0, len(listed))
++	for _, p := range listed {
++		dtos = append(dtos, processDTO(&p))
++	}
++	return map[string]any{"processes": dtos, "total": len(listed)}, nil
++}
++
++// processDTO renders one process with its step-by-step trace (each hop's
++// confidence label + the stop note when present).
++func processDTO(p *process.Process) map[string]any {
++	steps := make([]map[string]any, 0, len(p.Steps))
++	for i, s := range p.Steps {
++		steps = append(steps, map[string]any{
++			"step":       i + 1,
++			"symbol":     s.Name,
++			"symbol_id":  s.SymbolID,
++			"kind":       s.Kind,
++			"confidence": s.Confidence,
++		})
++	}
++	out := map[string]any{
++		"name":            p.Name,
++		"entry_symbol_id": p.EntrySymbolID,
++		"entry_kind":      p.EntryKind,
++		"cross_community": p.CrossCommunity,
++		"content_hash":    p.ContentHash,
++		"label":           p.Label,
++		"label_status":    p.LabelStatus,
++		"steps":           steps,
++	}
++	if p.Stop != nil {
++		out["stop"] = map[string]any{
++			"symbol": p.Stop.Symbol,
++			"reason": p.Stop.Reason,
++			"line":   p.Stop.Line,
++		}
++	}
++	return out
++}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_process_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_process_test.go
+new file mode 100644
+index 0000000..1b63a56
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_process_test.go
+@@ -0,0 +1,312 @@
++package mcp
++
++import (
++	"context"
++	"database/sql"
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/process"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++)
++
++// processMCPFixture indexes a small web app (an Express route serving
++// handleListUsers, which calls loadUsers -> queryDB) and pins the project so
++// the temp-dir fixture resolves to one stable bucket. It returns the data dir.
++func processMCPFixture(t *testing.T) string {
++	t.Helper()
++	dataDir := t.TempDir()
++	raw := t.TempDir()
++	abs, err := filepath.Abs(raw)
++	if err != nil {
++		t.Fatalf("abs: %v", err)
++	}
++	write := func(name, content string) {
++		if err := os.WriteFile(filepath.Join(abs, name), []byte(content), 0o644); err != nil {
++			t.Fatalf("write %s: %v", name, err)
++		}
++	}
++	// An Express route serving handleListUsers, plus the call chain.
++	write("server.js", "function handleListUsers() { return loadUsers(); }\nfunction loadUsers() { return queryDB(); }\nfunction queryDB() { return [1,2,3]; }\n\napp.get('/users', handleListUsers);\n")
++	if err := os.MkdirAll(filepath.Join(abs, "config.d"), 0o755); err != nil {
++		t.Fatalf("mkdir config.d: %v", err)
++	}
++	write("config.d/indexing.yaml", "mnemonic:\n  include:\n    - '**/*.go'\n    - '**/*.js'\n    - '**/*.ts'\n    - '**/*.tsx'\n  exclude:\n    - '**/node_modules/**'\n    - '**/.git/**'\n")
++	t.Setenv("MNEMONIC_PROJECT", "processmcp-probe")
++	svc := service.New(dataDir)
++	SetService(svc)
++	t.Cleanup(func() { SetService(nil) })
++	codeindex.ResetFileFirstSymbol()
++	if _, err := svc.RunCodeIndex(context.Background(), abs); err != nil {
++		t.Fatalf("index: %v", err)
++	}
++	oldDir, _ := os.Getwd()
++	if err := os.Chdir(abs); err != nil {
++		t.Fatalf("chdir: %v", err)
++	}
++	t.Cleanup(func() { os.Chdir(oldDir) })
++	return dataDir
++}
++
++// seedEntries resolves the fixture's entry points (the route's handler, which
++// has a traceable call chain) and returns them as process seeds.
++func seedEntries(t *testing.T, svc *service.Service, projectID string) []process.Entry {
++	t.Helper()
++	h, cleanup, err := svc.Open(projectID)
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	defer cleanup()
++	db := h.Store().DB
++	var out []process.Entry
++	// 010's entry points: kind='route' symbols. For each resolved route, the
++	// seed is the route's handler (the traceable call-chain start).
++	rows, err := db.Query(`SELECT e.to_id FROM edges e JOIN symbols r ON r.id = e.from_id WHERE r.kind = 'route' AND e.kind = 'references' AND e.to_id IS NOT NULL`)
++	if err != nil {
++		return out
++	}
++	defer rows.Close()
++	for rows.Next() {
++		var to int64
++		if err := rows.Scan(&to); err != nil {
++			return out
++		}
++		out = append(out, process.Entry{SymbolID: to, Kind: "handler"})
++	}
++	return out
++}
++
++// runProcessPass seeds entry points and runs the process pass once.
++func runProcessPass(t *testing.T, svc *service.Service, projectID string) {
++	t.Helper()
++	entries := seedEntries(t, svc, projectID)
++	if len(entries) == 0 {
++		t.Fatalf("no entry points found in fixture")
++	}
++	if _, err := svc.CodeProcessTrace(context.Background(), projectID, entries, nil, process.RunOptions{}); err != nil {
++		t.Fatalf("CodeProcessTrace: %v", err)
++	}
++}
++
++// TestExplainSymbolProcess covers 02.1 (Scenario: Symbol explanation surfaces
++// process participation and existing search tools stay stable): after the
++// process pass, code_explain_symbol (code_orient) surfaces which processes the
++// symbol participates in (step N/M); the 005 tool names + required params are
++// unchanged; the process tools register with distinct code_* names.
++func TestExplainSymbolProcess(t *testing.T) {
++	processMCPFixture(t)
++	svc := service.New(t.TempDir())
++	// Re-resolve: the fixture set the global svc; grab it via rootService.
++	_ = svc
++	got, _ := rootService()
++	projectID := "processmcp-probe"
++	runProcessPass(t, got, projectID)
++
++	// code_explain_symbol (code_orient) on loadUsers (a mid-chain symbol that
++	// participates in the traced flow) surfaces its process participation.
++	res, err := handleCodeOrient(context.Background(), newCallTool("code_orient", map[string]any{"symbol": "loadUsers"}))
++	if err != nil {
++		t.Fatalf("handleCodeOrient: %v", err)
++	}
++	if res.IsError {
++		t.Fatalf("code_orient errored: %s", callResultText(t, res))
++	}
++	var out struct {
++		Found     bool `json:"found"`
++		Processes []struct {
++			Process string `json:"process"`
++			Step    int    `json:"step"`
++			Total   int    `json:"total"`
++		} `json:"processes"`
++	}
++	if err := json.Unmarshal([]byte(callResultText(t, res)), &out); err != nil {
++		t.Fatalf("code_orient output not JSON: %v (text %s)", err, callResultText(t, res))
++	}
++	if !out.Found {
++		t.Fatalf("expected loadUsers to be found")
++	}
++	if len(out.Processes) == 0 {
++		t.Fatalf("expected loadUsers to surface at least one process participation, got none (text %s)", callResultText(t, res))
++	}
++	for _, p := range out.Processes {
++		if p.Process == "" {
++			t.Errorf("process participation has no process name")
++		}
++		if p.Step < 1 || p.Total < p.Step {
++			t.Errorf("process participation step position invalid: step=%d total=%d", p.Step, p.Total)
++		}
++	}
++
++	// 005 tool names + required params unchanged (baseline lock).
++	assertCodeToolStable(t, codeSearchTool(), "code_search", []string{"query"})
++	assertCodeToolStable(t, codeOrientTool(), "code_orient", []string{"symbol"})
++
++	// Process tools register with distinct code_* names.
++	tools := NewServer().ListTools()
++	for _, name := range []string{"code_processes", "code_process"} {
++		if _, ok := tools[name]; !ok {
++			t.Errorf("expected process tool %q to be registered", name)
++		}
++	}
++}
++
++// TestProcessDetail covers 02.5 (Scenario: Process detail returns the full
++// step-by-step trace): code_process <name> returns the full trace with each
++// hop's confidence label.
++func TestProcessDetail(t *testing.T) {
++	processMCPFixture(t)
++	got, _ := rootService()
++	projectID := "processmcp-probe"
++	runProcessPass(t, got, projectID)
++
++	// First list processes to get a real name.
++	listRes, err := handleCodeProcesses(context.Background(), newCallTool("code_processes", map[string]any{}))
++	if err != nil {
++		t.Fatalf("handleCodeProcesses: %v", err)
++	}
++	if listRes.IsError {
++		t.Fatalf("code_processes errored: %s", callResultText(t, listRes))
++	}
++	var listOut struct {
++		Processes []struct {
++			Name      string `json:"name"`
++			Cross     bool   `json:"cross_community"`
++			Label     string `json:"label"`
++			LabelStat string `json:"label_status"`
++			Steps     []struct {
++				Step       int    `json:"step"`
++				Symbol     string `json:"symbol"`
++				Confidence string `json:"confidence"`
++			} `json:"steps"`
++		} `json:"processes"`
++	}
++	if err := json.Unmarshal([]byte(callResultText(t, listRes)), &listOut); err != nil {
++		t.Fatalf("code_processes output not JSON: %v (text %s)", err, callResultText(t, listRes))
++	}
++	if len(listOut.Processes) == 0 {
++		t.Fatalf("expected at least one precomputed process, got none (text %s)", callResultText(t, listRes))
++	}
++	name := listOut.Processes[0].Name
++
++	// Now request it by name: the full step-by-step trace, each hop confidence-labeled.
++	res, err := handleCodeProcess(context.Background(), newCallTool("code_process", map[string]any{"name": name}))
++	if err != nil {
++		t.Fatalf("handleCodeProcess: %v", err)
++	}
++	if res.IsError {
++		t.Fatalf("code_process errored: %s", callResultText(t, res))
++	}
++	var detail struct {
++		Name  string `json:"name"`
++		Steps []struct {
++			Step       int    `json:"step"`
++			Symbol     string `json:"symbol"`
++			Confidence string `json:"confidence"`
++		} `json:"steps"`
++	}
++	if err := json.Unmarshal([]byte(callResultText(t, res)), &detail); err != nil {
++		t.Fatalf("code_process output not JSON: %v (text %s)", err, callResultText(t, res))
++	}
++	if detail.Name != name {
++		t.Errorf("code_process returned name %q, want %q", detail.Name, name)
++	}
++	if len(detail.Steps) < 2 {
++		t.Fatalf("expected a full multi-step trace, got %d steps: %+v", len(detail.Steps), detail.Steps)
++	}
++	for i, s := range detail.Steps {
++		if i > 0 && s.Confidence == "" {
++			t.Errorf("hop %d (-> %s) has no confidence label", i, s.Symbol)
++		}
++	}
++}
++
++// TestProcessArgs covers 02.9 (Scenario: Process tools reject bad args
++// clearly): code_process with a missing/empty name and an unknown name are
++// rejected with a clear validation error; no process is invented.
++func TestProcessArgs(t *testing.T) {
++	processMCPFixture(t)
++
++	// code_process with a missing name → clear validation error.
++	res, err := handleCodeProcess(context.Background(), newCallTool("code_process", map[string]any{}))
++	if err != nil {
++		t.Fatalf("handleCodeProcess dispatch: %v", err)
++	}
++	if !res.IsError {
++		t.Errorf("code_process with a missing name should be a validation error, got: %s", callResultText(t, res))
++	}
++
++	// code_process with an unknown name → clear "no process named" error
++	// (not an invented process).
++	res2, err := handleCodeProcess(context.Background(), newCallTool("code_process", map[string]any{"name": "no-such-process"}))
++	if err != nil {
++		t.Fatalf("handleCodeProcess dispatch: %v", err)
++	}
++	if !res2.IsError {
++		t.Errorf("code_process with an unknown name should be an error (no invented process), got: %s", callResultText(t, res2))
++	}
++	if text := callResultText(t, res2); !strings.Contains(text, "no-such-process") {
++		t.Errorf("unknown-name error should name the process, got: %s", text)
++	}
++
++	// The two tools register with distinct code_* names.
++	tools := NewServer().ListTools()
++	if _, ok := tools["code_processes"]; !ok {
++		t.Errorf("code_processes not registered")
++	}
++	if _, ok := tools["code_process"]; !ok {
++		t.Errorf("code_process not registered")
++	}
++}
++
++// TestProcessParticipationsEmptyForUntracedSymbol is the negative control: a
++// symbol that is in no traced process surfaces an empty (not fabricated)
++// participation list.
++func TestProcessParticipationsEmptyForUntracedSymbol(t *testing.T) {
++	db := openProcessStore(t)
++	// A symbol with no process_steps row.
++	f, _ := db.Exec(`INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at) VALUES ('x.go',1,1,'h','now')`)
++	fid, _ := f.LastInsertId()
++	if _, err := db.Exec(`INSERT INTO symbols (file_id, name, kind, start_line, end_line, content_hash, uid) VALUES (?, 'orphan', 'function', 1, 1, 'h', 'orphan')`, fid); err != nil {
++		t.Fatalf("seed: %v", err)
++	}
++	var id int64
++	if err := db.QueryRow(`SELECT id FROM symbols WHERE name='orphan'`).Scan(&id); err != nil {
++		t.Fatalf("lookup: %v", err)
++	}
++	parts, err := process.Participations(db, id)
++	if err != nil {
++		t.Fatalf("Participations: %v", err)
++	}
++	if len(parts) != 0 {
++		t.Errorf("expected no participation for an untraced symbol, got %+v", parts)
++	}
++	_ = sql.ErrNoRows
++}
++
++// openProcessStore opens a scratch store with the process tables for the
++// mcp-package negative-control test.
++func openProcessStore(t *testing.T) *sql.DB {
++	t.Helper()
++	db, err := sql.Open("sqlite", ":memory:")
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	t.Cleanup(func() { db.Close() })
++	for _, s := range []string{
++		`CREATE TABLE files (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, mtime_ns INTEGER, size INTEGER, content_hash TEXT, indexed_at TEXT)`,
++		`CREATE TABLE symbols (id INTEGER PRIMARY KEY AUTOINCREMENT, file_id INTEGER NOT NULL, name TEXT NOT NULL, qualified_name TEXT, kind TEXT NOT NULL, language TEXT, signature TEXT, start_line INTEGER NOT NULL, end_line INTEGER NOT NULL, content_hash TEXT NOT NULL, uid TEXT NOT NULL UNIQUE)`,
++		`CREATE TABLE edges (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, from_id INTEGER NOT NULL, file_id INTEGER, to_id INTEGER, to_name TEXT, target_path TEXT, confidence TEXT NOT NULL DEFAULT 'EXTRACTED', line INTEGER)`,
++		`CREATE TABLE processes (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, entry_symbol_id INTEGER, entry_kind TEXT, cross_community INTEGER NOT NULL DEFAULT 0, content_hash TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', label_status TEXT NOT NULL DEFAULT 'unlabeled', stop_note TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL)`,
++		`CREATE TABLE process_steps (process_id INTEGER NOT NULL, step INTEGER NOT NULL, symbol_id INTEGER, confidence TEXT, kind TEXT, PRIMARY KEY (process_id, step))`,
++		`CREATE TABLE process_meta_cache (key TEXT PRIMARY KEY, value TEXT)`,
++	} {
++		if _, err := db.Exec(s); err != nil {
++			t.Fatalf("create: %v", err)
++		}
++	}
++	return db
++}
+diff --git a/skillgrid-cli/internal/mnemonic/process/hash.go b/skillgrid-cli/internal/mnemonic/process/hash.go
+new file mode 100644
+index 0000000..920fbf5
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/process/hash.go
+@@ -0,0 +1,20 @@
++package process
++
++import (
++	"fmt"
++	"hash"
++	"hash/fnv"
++)
++
++// fnvNew returns a 64-bit FNV-1a hasher (pure Go, CGo-free).
++func fnvNew() hash.Hash64 { return fnv.New64a() }
++
++// fnvHex returns the hex digest of a single FNV-1a hash of s.
++func fnvHex(s string) string {
++	h := fnv.New64a()
++	_, _ = h.Write([]byte(s))
++	return fmt.Sprintf("%x", h.Sum64())
++}
++
++// fnvHexSum returns the hex digest of an in-progress FNV-1a hash.
++func fnvHexSum(h hash.Hash64) string { return fmt.Sprintf("%x", h.Sum64()) }
+diff --git a/skillgrid-cli/internal/mnemonic/process/labels.go b/skillgrid-cli/internal/mnemonic/process/labels.go
+new file mode 100644
+index 0000000..abee39d
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/process/labels.go
+@@ -0,0 +1,124 @@
++package process
++
++import (
++	"context"
++	"database/sql"
++	"strconv"
++	"strings"
++)
++
++// labelFlows assigns LLM labels to the freshly-traced flows, caching by the
++// flow's content-hash. It first reuses any stored label whose content hash
++// matches (so an unchanged re-index does NOT re-call the LLM — the label is
++// restored from processes.label). Only flows with a new content hash are
++// labeled, and only up to limit calls per pass (the rest stay cached
++// unlabeled). A nil LLM or one that errors leaves the flow cached UNLABELED
++// (empty label), never fabricated.
++func labelFlows(ctx context.Context, db *sql.DB, procs []Process, llm LLM, limit int) {
++	if llm == nil {
++		return
++	}
++	stored, err := storedLabels(db)
++	if err != nil {
++		return // best-effort: on a read error, just label fresh (bounded)
++	}
++	calls := 0
++	for i := range procs {
++		p := &procs[i]
++		if calls >= limit {
++			break // over the per-pass budget: keep unlabeled (never fabricate)
++		}
++		if label, ok := stored[p.ContentHash]; ok && label != "" {
++			// Reused from cache — the LLM is NOT called again.
++			p.Label = label
++			p.LabelStatus = "cached"
++			continue
++		}
++		calls++
++		summary, err := flowSummary(db, p)
++		if err != nil {
++			p.LabelStatus = "unlabeled"
++			continue
++		}
++		label, err := llm.Label(ctx, summary)
++		if err != nil || strings.TrimSpace(label) == "" {
++			// LLM down (or returned blank): cache the flow UNLABELED — the
++			// structure is still stored, the label is empty, never invented.
++			p.Label = ""
++			p.LabelStatus = "unlabeled"
++			continue
++		}
++		p.Label = label
++		p.LabelStatus = "labeled"
++	}
++	for i := range procs {
++		if procs[i].LabelStatus == "unlabeled" && procs[i].Label != "" {
++			// keep consistency: a labeled flow is never marked unlabeled
++			procs[i].LabelStatus = "labeled"
++		}
++		if err := saveLabel(db, &procs[i]); err != nil {
++			return
++		}
++	}
++}
++
++// storedLabels returns the current label cache keyed by content hash.
++func storedLabels(db *sql.DB) (map[string]string, error) {
++	rows, err := db.Query(`SELECT content_hash, label FROM processes`)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	out := map[string]string{}
++	for rows.Next() {
++		var hash, label string
++		if err := rows.Scan(&hash, &label); err != nil {
++			return nil, err
++		}
++		out[hash] = label
++	}
++	return out, rows.Err()
++}
++
++// saveLabel persists a flow's label + label status (the structure was already
++// written by persistProcess; here we only set the label columns).
++func saveLabel(db *sql.DB, p *Process) error {
++	if p.LabelStatus == "" {
++		p.LabelStatus = "unlabeled"
++	}
++	_, err := db.Exec(`UPDATE processes SET label = ?, label_status = ? WHERE content_hash = ?`,
++		p.Label, p.LabelStatus, p.ContentHash)
++	return err
++}
++
++// flowSummary renders the flow's structure (entry + ordered step names) as the
++// prompt input to the LLM. It is deterministic for a given flow, so the label
++// is a pure function of the flow content (modulo the LLM).
++func flowSummary(db *sql.DB, p *Process) (string, error) {
++	var b strings.Builder
++	b.WriteString("Entry: ")
++	b.WriteString(p.Name)
++	b.WriteString(" (" + p.EntryKind + ")\nSteps:\n")
++	for i, s := range p.Steps {
++		b.WriteString("  ")
++		b.WriteString(strconv.Itoa(i + 1))
++		b.WriteString(". ")
++		if s.Name != "" {
++			b.WriteString(s.Name)
++		} else {
++			b.WriteString(strconv.FormatInt(s.SymbolID, 10))
++		}
++		if s.Confidence != "" {
++			b.WriteString(" [" + s.Confidence + "]")
++		}
++		b.WriteString("\n")
++	}
++	if p.Stop != nil {
++		b.WriteString("Stops at: ")
++		b.WriteString(p.Stop.Symbol)
++		b.WriteString(" (")
++		b.WriteString(p.Stop.Reason)
++		b.WriteString(")\n")
++	}
++	return b.String(), nil
++}
+diff --git a/skillgrid-cli/internal/mnemonic/process/labels_test.go b/skillgrid-cli/internal/mnemonic/process/labels_test.go
+new file mode 100644
+index 0000000..646b7ee
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/process/labels_test.go
+@@ -0,0 +1,150 @@
++package process
++
++import (
++	"context"
++	"database/sql"
++	"testing"
++)
++
++// labelFixture builds a simple traceable chain (entry -> a). The pass is run
++// with a counting LLM so the label-caching behavior is observable.
++func labelFixture(t *testing.T) *sql.DB {
++	t.Helper()
++	db := openStore(t)
++	f := seedFile(t, db, "app/flow.go")
++	entry := seedSymbol(t, db, f, "run", "function", 1)
++	a := seedSymbol(t, db, f, "step", "function", 10)
++	seedCall(t, db, entry, a, 2)
++	return db
++}
++
++func entryID(t *testing.T, db *sql.DB, name string) int64 {
++	t.Helper()
++	var id int64
++	if err := db.QueryRow(`SELECT id FROM symbols WHERE name = ?`, name).Scan(&id); err != nil {
++		t.Fatalf("lookup %s: %v", name, err)
++	}
++	return id
++}
++
++// TestProcessLabels covers 02.3 (Scenario: Process labels are cached by
++// content-hash and re-labeled only on change): a flow is LLM-labeled once and
++// the label is cached keyed to the process's content-hash; an unchanged
++// re-run does NOT re-call the LLM (label reused); a changed flow (new
++// content-hash) re-labels (a new LLM call for the new hash).
++func TestProcessLabels(t *testing.T) {
++	db := labelFixture(t)
++	id := entryID(t, db, "run")
++	entries := []Entry{{SymbolID: id, Kind: "cli-main"}}
++
++	// Fresh store for the counting LLM (Run consults the cache; the first Run
++	// on this graph has no stored label, so it must call the LLM once).
++	c1 := &callCounter{label: "Run flow"}
++	first, err := Run(context.Background(), db, entries, c1, RunOptions{})
++	if err != nil {
++		t.Fatalf("Run 1: %v", err)
++	}
++	if len(first.Processes) != 1 {
++		t.Fatalf("expected 1 process, got %d", len(first.Processes))
++	}
++	if first.Processes[0].Label != "Run flow" {
++		t.Fatalf("expected label 'Run flow', got %q", first.Processes[0].Label)
++	}
++	if c1.calls != 1 {
++		t.Fatalf("first Run should call the LLM once, got %d", c1.calls)
++	}
++
++	// Unchanged re-run: the cache hit returns the stored label and the LLM is
++	// NOT called again.
++	c2 := &callCounter{label: "SHOULD-NOT-APPEAR"}
++	second, err := Run(context.Background(), db, entries, c2, RunOptions{})
++	if err != nil {
++		t.Fatalf("Run 2: %v", err)
++	}
++	if !second.FromCache {
++		t.Errorf("unchanged re-run should be served from cache")
++	}
++	if c2.calls != 0 {
++		t.Errorf("unchanged re-run must NOT re-call the LLM, got %d calls", c2.calls)
++	}
++	if len(second.Processes) != 1 || second.Processes[0].Label != "Run flow" {
++		t.Fatalf("cached label not reused: %+v", second.Processes)
++	}
++
++	// Changed flow (new content-hash): the LLM is called again for the new
++	// hash and a new label is produced.
++	addChange(t, db)
++	c3 := &callCounter{label: "Run flow v2"}
++	third, err := Run(context.Background(), db, entries, c3, RunOptions{})
++	if err != nil {
++		t.Fatalf("Run 3: %v", err)
++	}
++	if third.FromCache {
++		t.Errorf("changed flow must NOT be served from cache (new content-hash)")
++	}
++	if c3.calls == 0 {
++		t.Errorf("changed flow should re-label (call the LLM for the new content-hash), got 0 calls")
++	}
++	if len(third.Processes) != 1 || third.Processes[0].Label != "Run flow v2" {
++		t.Fatalf("changed flow should carry the new label, got %+v", third.Processes)
++	}
++}
++
++// addChange appends a new callee to the flow, changing its structure (and
++// therefore its content-hash) — the re-label trigger.
++func addChange(t *testing.T, db *sql.DB) {
++	t.Helper()
++	var f int64
++	if err := db.QueryRow(`SELECT file_id FROM symbols WHERE name = 'run'`).Scan(&f); err != nil {
++		t.Fatalf("file: %v", err)
++	}
++	c := seedSymbol(t, db, f, "step2", "function", 20)
++	var a int64
++	if err := db.QueryRow(`SELECT id FROM symbols WHERE name = 'step'`).Scan(&a); err != nil {
++		t.Fatalf("step: %v", err)
++	}
++	seedCall(t, db, a, c, 12)
++}
++
++// TestLLMDownUnlabeled covers 02.6 (Scenario: LLM down caches the flow
++// unlabeled): with the LLM unavailable (it errors), the flow structure is
++// still cached and it is cached without a fabricated label (empty label,
++// label_status=unlabeled).
++func TestLLMDownUnlabeled(t *testing.T) {
++	db := labelFixture(t)
++	id := entryID(t, db, "run")
++	entries := []Entry{{SymbolID: id, Kind: "cli-main"}}
++
++	down := stubLLM{label: "IGNORED", err: errLLMDown}
++	res, err := Run(context.Background(), db, entries, down, RunOptions{})
++	if err != nil {
++		t.Fatalf("Run (LLM down): %v", err)
++	}
++	if len(res.Processes) != 1 {
++		t.Fatalf("expected 1 process (structure cached), got %d", len(res.Processes))
++	}
++	p := res.Processes[0]
++	// Structure is cached: the steps are present.
++	if len(p.Steps) == 0 {
++		t.Fatalf("flow structure not cached (no steps)")
++	}
++	// No fabricated label: empty label, unlabeled status.
++	if p.Label != "" {
++		t.Errorf("LLM-down flow must be cached UNLABELED (empty label), got %q", p.Label)
++	}
++	if p.LabelStatus != "unlabeled" {
++		t.Errorf("LLM-down flow label_status should be 'unlabeled', got %q", p.LabelStatus)
++	}
++
++	// The empty label is persisted (not fabricated on read).
++	listed, err := List(db)
++	if err != nil {
++		t.Fatalf("List: %v", err)
++	}
++	if len(listed) != 1 {
++		t.Fatalf("expected 1 persisted process, got %d", len(listed))
++	}
++	if listed[0].Label != "" {
++		t.Errorf("persisted LLM-down flow must have an empty label, got %q", listed[0].Label)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/process/stub_test.go b/skillgrid-cli/internal/mnemonic/process/stub_test.go
+new file mode 100644
+index 0000000..c25e430
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/process/stub_test.go
+@@ -0,0 +1,37 @@
++package process
++
++import (
++	"context"
++	"errors"
++)
++
++// stubLLM is the injected LLM for tests: it returns a fixed label, so label
++// caching is testable without a live LLM. The error-mode variant makes it
++// return an error (the LLM-down path). Label has a value receiver so the stub
++// is usable both as a value (in the Run call) and as a pointer (when the
++// test needs to read back call counts).
++type stubLLM struct {
++	label string
++	err   error
++}
++
++func (s stubLLM) Label(ctx context.Context, summary string) (string, error) {
++	if s.err != nil {
++		return "", s.err
++	}
++	return s.label, nil
++}
++
++// callCounter is a pointer-receiver LLM that records how many times Label was
++// called, for the caching tests (unchanged flow must not re-call).
++type callCounter struct {
++	label string
++	calls int
++}
++
++func (c *callCounter) Label(ctx context.Context, summary string) (string, error) {
++	c.calls++
++	return c.label, nil
++}
++
++var errLLMDown = errors.New("llm down")
+diff --git a/skillgrid-cli/internal/mnemonic/process/trace.go b/skillgrid-cli/internal/mnemonic/process/trace.go
+new file mode 100644
+index 0000000..58c9e26
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/process/trace.go
+@@ -0,0 +1,747 @@
++// Package process traces precomputed execution flows from 010's entry points
++// (route/handler/CLI-main symbols) through the 005 call edges into named
++// processes/process_steps, with a cross-community flag (from 01's
++// communities) and LLM labels cached by content-hash. The trace is advisory,
++// never load-bearing: it reads the graph but adds no symbols/edges of its own,
++// so 005 search is unchanged. The flow is deterministic (depth-capped BFS,
++// stable ordering); only the LLM label is non-deterministic, so it is cached
++// by the process's content-hash.
++package process
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++	"sort"
++	"strconv"
++	"strings"
++	"time"
++)
++
++// LLM is the pluggable labeler. A nil LLM (or one that errors) leaves the
++// flow cached UNLABELED (empty label, label_status="unlabeled") — never a
++// fabricated label. Tests inject a stub to exercise caching without a live
++// LLM. There is no CGo LLM client in this package.
++type LLM interface {
++	Label(ctx context.Context, summary string) (string, error)
++}
++
++// Entry is one seed for the process pass: a symbol id plus the kind of entry
++// point it represents (route | handler | cli-main).
++type Entry struct {
++	SymbolID int64
++	Kind     string
++}
++
++// Step is one hop in a traced flow: the symbol reached, the edge kind and
++// confidence used to get there (empty on the entry step), and the line.
++type Step struct {
++	SymbolID   int64
++	Name       string
++	Kind       string
++	Confidence string
++	Line       int
++}
++
++// StopNote is a "stops at <symbol> (<reason>)" annotation the trace emits
++// when it reaches a dispatch boundary. It reuses the 005 graph-stops idea:
++// the flow is truncated at the boundary and named, not silently cut.
++type StopNote struct {
++	Symbol string `json:"symbol"`
++	Reason string `json:"reason"`
++	Line   int    `json:"line"`
++}
++
++// Process is one traced flow: its entry, the ordered steps, the cross-
++// community flag, the stop note (when it truncated at a boundary), the
++// content-hash key, and the LLM label + label status.
++type Process struct {
++	Name           string    `json:"name"`
++	EntrySymbolID  int64     `json:"entry_symbol_id"`
++	EntryKind      string    `json:"entry_kind"`
++	CrossCommunity bool      `json:"cross_community"`
++	ContentHash    string    `json:"content_hash"`
++	Steps          []Step    `json:"steps"`
++	Stop           *StopNote `json:"stop,omitempty"`
++	Label          string    `json:"label,omitempty"`
++	LabelStatus    string    `json:"label_status"`
++	updatedAt      time.Time
++}
++
++// RunOptions tunes the process pass.
++type RunOptions struct {
++	// MaxDepth caps the BFS depth from the entry (0 = 5). A cap prevents a
++	// deep call graph from exploding into one giant flow.
++	MaxDepth int
++	// LLMLimit caps the number of LLM label calls in a single pass (0 = 20).
++	// Excess flows stay cached unlabeled (never fabricated).
++	LLMLimit int
++}
++
++// Run traces every entry point into a process and persists processes +
++// process_steps (plus the content-hash cache key). It consults the
++// process_meta_cache first: a matching content-hash returns the stored
++// partition (FromCache=true) without re-tracing or re-calling the LLM.
++func Run(ctx context.Context, db *sql.DB, entries []Entry, llm LLM, opts RunOptions) (*Result, error) {
++	if opts.MaxDepth <= 0 {
++		opts.MaxDepth = 5
++	}
++	if opts.LLMLimit <= 0 {
++		opts.LLMLimit = 20
++	}
++	if err := ctx.Err(); err != nil {
++		return nil, err
++	}
++
++	key, err := contentKey(db)
++	if err != nil {
++		return nil, fmt.Errorf("content key: %w", err)
++	}
++	cacheKey := "proc:" + key
++
++	if cached, err := cachedProcesses(db, cacheKey); err == nil && cached != nil {
++		cached.FromCache = true
++		return cached, nil
++	}
++
++	res, err := runCore(ctx, db, entries, llm, opts, cacheKey)
++	if err != nil {
++		return nil, err
++	}
++	if err := writeMeta(db, cacheKey); err != nil {
++		return res, fmt.Errorf("process pass ok but cache write failed: %w", err)
++	}
++	return res, nil
++}
++
++// Result is the Run output: the traced processes and whether the pass was
++// served from cache.
++type Result struct {
++	Processes []Process `json:"processes"`
++	FromCache bool      `json:"from_cache"`
++	CacheKey  string    `json:"cache_key"`
++	Updated   time.Time `json:"updated_at"`
++}
++
++// runCore traces each entry, computes the cross-community flag, applies the
++// depth/step cap + dispatch-boundary truncation, and persists the flows.
++func runCore(ctx context.Context, db *sql.DB, entries []Entry, llm LLM, opts RunOptions, cacheKey string) (*Result, error) {
++	res := &Result{CacheKey: cacheKey, Updated: time.Now().UTC()}
++	comm, err := communityOf(db)
++	if err != nil {
++		return nil, err
++	}
++
++	for _, e := range entries {
++		if err := ctx.Err(); err != nil {
++			return nil, err
++		}
++		p, err := traceOne(db, e, opts.MaxDepth)
++		if err != nil {
++			return nil, err
++		}
++		// Cross-community flag from 01's communities: the flow touches more
++		// than one community id.
++		p.updatedAt = res.Updated
++		commIDs := map[int]bool{}
++		for _, s := range p.Steps {
++			if c, ok := comm[s.SymbolID]; ok {
++				commIDs[c] = true
++			}
++		}
++		p.CrossCommunity = len(commIDs) > 1
++		// Persist the flow so code_processes serves it without traversal.
++		id, err := persistProcess(ctx, db, p)
++		if err != nil {
++			return nil, err
++		}
++		_ = id
++		res.Processes = append(res.Processes, *p)
++	}
++
++	// LLM-label the flows (best-effort; a nil/error LLM leaves them
++	// unlabeled, never fabricated).
++	if llm != nil {
++		labelFlows(ctx, db, res.Processes, llm, opts.LLMLimit)
++	}
++	return res, nil
++}
++
++// traceOne performs the depth-capped BFS over the 005 call edges from the
++// entry symbol, stopping (with a note) at the first dispatch boundary.
++// Deterministic: neighbors are visited in (symbol id) order, a symbol is
++// visited once, and the depth is capped.
++func traceOne(db *sql.DB, entry Entry, maxDepth int) (*Process, error) {
++	name, err := symbolName(db, entry.SymbolID)
++	if err != nil {
++		return nil, err
++	}
++	p := &Process{
++		EntrySymbolID: entry.SymbolID,
++		EntryKind:     entry.Kind,
++		Name:          processName(entry, name),
++		Steps:         []Step{{SymbolID: entry.SymbolID, Name: name}},
++		LabelStatus:   "unlabeled",
++	}
++
++	queue := []int64{entry.SymbolID}
++	depth := map[int64]int{entry.SymbolID: 0}
++	visited := map[int64]bool{entry.SymbolID: true}
++	for len(queue) > 0 {
++		cur := queue[0]
++		queue = queue[1:]
++		if depth[cur] >= maxDepth {
++			continue
++		}
++		neighbors, err := callNeighbors(db, cur)
++		if err != nil {
++			return nil, err
++		}
++		// Stable ordering by symbol id.
++		sort.Slice(neighbors, func(a, b int) bool { return neighbors[a].symbolID < neighbors[b].symbolID })
++
++		stop := false
++		for _, n := range neighbors {
++			if visited[n.symbolID] {
++				continue
++			}
++			// Dispatch-boundary detection: the target symbol is a dispatch
++			// kind (interface / message-bus / callback) — the static trace
++			// cannot know which implementation runs, so it stops here with a
++			// note (reusing the 005 graph-stops idea), not silently cut. The
++			// boundary symbol IS recorded as the last step (reached) so the
++			// trace is not silently cut.
++			if isDispatchKind(n.kind) {
++				visited[n.symbolID] = true
++				p.Steps = append(p.Steps, Step{
++					SymbolID:   n.symbolID,
++					Name:       n.name,
++					Kind:       n.edgeKind,
++					Confidence: n.confidence,
++					Line:       n.line,
++				})
++				p.Stop = &StopNote{
++					Symbol: n.name,
++					Reason: dispatchReason(n.kind),
++					Line:   n.line,
++				}
++				stop = true
++				break
++			}
++			if n.symbolID == 0 {
++				// Unresolved name-only callee: the graph stops here too.
++				p.Stop = &StopNote{Symbol: n.name, Reason: "unresolved callee", Line: n.line}
++				stop = true
++				break
++			}
++			visited[n.symbolID] = true
++			depth[n.symbolID] = depth[cur] + 1
++			queue = append(queue, n.symbolID)
++			p.Steps = append(p.Steps, Step{
++				SymbolID:   n.symbolID,
++				Name:       n.name,
++				Kind:       n.edgeKind,
++				Confidence: n.confidence,
++				Line:       n.line,
++			})
++		}
++		if stop {
++			break
++		}
++	}
++	ch, err := contentHash(p)
++	if err != nil {
++		return nil, err
++	}
++	p.ContentHash = ch
++	return p, nil
++}
++
++// callNeighbor is one resolved callee of a symbol (or its unresolved name).
++type callNeighbor struct {
++	symbolID   int64
++	name       string
++	kind       string // the callee symbol's kind (for dispatch detection)
++	edgeKind   string // the edge kind (calls/imports/references)
++	confidence string
++	line       int
++}
++
++// callNeighbors returns the resolved callees of symbolID over the call-edge
++// kinds, each with the callee's kind + name (for dispatch-boundary detection).
++// Deterministic by edge id.
++func callNeighbors(db *sql.DB, symbolID int64) ([]callNeighbor, error) {
++	rows, err := db.Query(`
++		SELECT e.to_id, e.kind, e.confidence, e.line, s.name, s.kind
++		FROM edges e
++		LEFT JOIN symbols s ON s.id = e.to_id
++		WHERE e.from_id = ? AND e.kind IN ('calls','imports','references')
++		ORDER BY e.id`, symbolID)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	var out []callNeighbor
++	for rows.Next() {
++		var toID sql.NullInt64
++		var kind, conf, name, symKind string
++		var line int
++		if err := rows.Scan(&toID, &kind, &conf, &line, &name, &symKind); err != nil {
++			return nil, err
++		}
++		if toID.Valid {
++			out = append(out, callNeighbor{
++				symbolID: toID.Int64, name: name, kind: symKind,
++				edgeKind: kind, confidence: conf, line: line,
++			})
++		} else {
++			// Name-only (unresolved) callee — reported by the trace as a stop.
++			var toName string
++			_ = db.QueryRow(`SELECT to_name FROM edges WHERE from_id = ? AND to_id IS NULL AND kind IN ('calls','imports','references') AND line = ? LIMIT 1`, symbolID, line).Scan(&toName)
++			out = append(out, callNeighbor{symbolID: 0, name: toName, edgeKind: kind, confidence: conf, line: line})
++		}
++	}
++	return out, rows.Err()
++}
++
++// dispatchKinds are symbol kinds that mark a dispatch boundary the static
++// trace cannot cross deterministically: an interface (which implementation
++// runs is decided at runtime), a message bus, or a callback.
++var dispatchKinds = map[string]bool{
++	"interface": true,
++	"bus":       true,
++	"callback":  true,
++}
++
++func isDispatchKind(kind string) bool { return dispatchKinds[kind] }
++
++func dispatchReason(kind string) string {
++	switch kind {
++	case "interface":
++		return "interface dispatch (implementation selected at runtime)"
++	case "bus":
++		return "message bus dispatch (handler resolved at runtime)"
++	case "callback":
++		return "callback (invoked dynamically)"
++	default:
++		return "dispatch boundary"
++	}
++}
++
++// processName derives a stable, human-readable process name from the entry
++// (the entry symbol's name, or its route pattern for route entries).
++func processName(entry Entry, symbolName string) string {
++	if entry.Kind == "route" {
++		if pattern := routePattern(symbolName); pattern != "" {
++			return pattern
++		}
++	}
++	return symbolName
++}
++
++// routePattern extracts a readable route pattern from a route symbol name
++// (e.g. "GET /users" -> "/users"). Returns "" when there is no pattern.
++func routePattern(name string) string {
++	fields := strings.Fields(name)
++	for _, f := range fields {
++		if strings.HasPrefix(f, "/") {
++			return f
++		}
++	}
++	return ""
++}
++
++// contentHash is the per-process content key: a deterministic digest over the
++// flow structure (entry kind + the ordered step symbol ids + each step's
++// edge kind/confidence + the stop note). An unchanged re-index produces the
++// same hash; a changed flow produces a new one (so it re-labels).
++func contentHash(p *Process) (string, error) {
++	var b strings.Builder
++	b.WriteString(p.EntryKind)
++	b.WriteByte(':')
++	b.WriteString(strconv.FormatInt(p.EntrySymbolID, 10))
++	b.WriteByte(':')
++	for _, s := range p.Steps {
++		b.WriteString(strconv.FormatInt(s.SymbolID, 10))
++		b.WriteByte('|')
++		b.WriteString(s.Kind)
++		b.WriteByte('|')
++		b.WriteString(s.Confidence)
++		b.WriteByte(';')
++	}
++	if p.Stop != nil {
++		b.WriteString("@")
++		b.WriteString(p.Stop.Symbol)
++		b.WriteByte(':')
++		b.WriteString(p.Stop.Reason)
++	}
++	return fnvHex(b.String()), nil
++}
++
++// contentKey computes the process-pass content hash over the deterministic
++// graph row set (the call/references/imports edge set), mirroring 01's
++// community contentKey so an unchanged re-index is a cache hit. The hash is
++// computed in Go (modernc.org/sqlite has no sha1() SQL function).
++func contentKey(db *sql.DB) (string, error) {
++	h := fnvNew()
++	rows, err := db.Query(`SELECT from_id, to_id, kind, confidence FROM edges WHERE kind IN ('calls','imports','references') AND to_id IS NOT NULL ORDER BY from_id, to_id, kind`)
++	if err != nil {
++		return "", err
++	}
++	for rows.Next() {
++		var from, to int64
++		var kind, conf string
++		if err := rows.Scan(&from, &to, &kind, &conf); err != nil {
++			rows.Close()
++			return "", err
++		}
++		_, _ = h.Write([]byte(strconv.FormatInt(from, 10) + ":" + strconv.FormatInt(to, 10) + ":" + kind + ":" + conf + ";"))
++	}
++	serr := rows.Err()
++	rows.Close()
++	if serr != nil {
++		return "", serr
++	}
++	// NUL separator so a trailing-edge ambiguity can't collide with the symbol set.
++	_, _ = h.Write([]byte{0})
++	symRows, err := db.Query(`SELECT id FROM symbols ORDER BY id`)
++	if err != nil {
++		return "", err
++	}
++	for symRows.Next() {
++		var id int64
++		if err := symRows.Scan(&id); err != nil {
++			symRows.Close()
++			return "", err
++		}
++		_, _ = h.Write([]byte(strconv.FormatInt(id, 10) + ","))
++	}
++	symErr := symRows.Err()
++	symRows.Close()
++	if symErr != nil {
++		return "", symErr
++	}
++	return fnvHexSum(h), nil
++}
++
++// communityOf loads the 01 communities table as a symbol id -> community id
++// map. An empty map (no communities yet) means no cross-community flag — the
++// pass is advisory and still runs.
++func communityOf(db *sql.DB) (map[int64]int, error) {
++	out := map[int64]int{}
++	rows, err := db.Query(`SELECT id, symbol_id FROM communities`)
++	if err != nil {
++		if strings.Contains(err.Error(), "no such table") {
++			return out, nil
++		}
++		return nil, err
++	}
++	defer rows.Close()
++	for rows.Next() {
++		var cid int
++		var sid int64
++		if err := rows.Scan(&cid, &sid); err != nil {
++			return nil, err
++		}
++		out[sid] = cid
++	}
++	return out, rows.Err()
++}
++
++// persistProcess writes one process + its steps (idempotent: replaces any
++// prior row with the same content hash). Returns the process id.
++func persistProcess(ctx context.Context, db *sql.DB, p *Process) (int64, error) {
++	tx, err := db.Begin()
++	if err != nil {
++		return 0, err
++	}
++	defer tx.Rollback()
++	var id int64
++	err = tx.QueryRowContext(ctx, `
++		SELECT id FROM processes WHERE content_hash = ?`, p.ContentHash).Scan(&id)
++	if err == sql.ErrNoRows {
++		var res sql.Result
++		res, err = tx.ExecContext(ctx, `
++			INSERT INTO processes (name, entry_symbol_id, entry_kind, cross_community, content_hash, label, label_status, stop_note, updated_at)
++			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
++			p.Name, p.EntrySymbolID, p.EntryKind, boolTo(p.CrossCommunity), p.ContentHash,
++			p.Label, p.LabelStatus, stopNoteText(p.Stop), p.UpdatedAtOrNow())
++		if err != nil {
++			return 0, err
++		}
++		id, err = res.LastInsertId()
++		if err != nil {
++			return 0, err
++		}
++	} else if err != nil {
++		return 0, err
++	}
++	if _, err := tx.Exec(`DELETE FROM process_steps WHERE process_id = ?`, id); err != nil {
++		return 0, err
++	}
++	for i, s := range p.Steps {
++		if _, err := tx.Exec(`INSERT INTO process_steps (process_id, step, symbol_id, confidence, kind) VALUES (?, ?, ?, ?, ?)`,
++			id, i+1, s.SymbolID, s.Confidence, s.Kind); err != nil {
++			return 0, err
++		}
++	}
++	return id, tx.Commit()
++}
++
++// cachedProcesses rebuilds the stored processes from the tables when the
++// content-hash cache key matches. Returns nil (no error) on a miss.
++func cachedProcesses(db *sql.DB, cacheKey string) (*Result, error) {
++	var stored string
++	err := db.QueryRow(`SELECT value FROM process_meta_cache WHERE key = 'cache_key'`).Scan(&stored)
++	if err != nil || stored != cacheKey {
++		return nil, nil
++	}
++	var count int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM processes`).Scan(&count); err != nil {
++		return nil, err
++	}
++	if count == 0 {
++		return nil, nil
++	}
++	res := &Result{CacheKey: cacheKey, Updated: time.Now().UTC()}
++	rows, err := db.Query(`SELECT id, name, entry_symbol_id, entry_kind, cross_community, content_hash, label, label_status, stop_note FROM processes ORDER BY id`)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	type row struct {
++		id        int64
++		name      string
++		entryID   int64
++		entryKind string
++		cross     int
++		hash      string
++		label     string
++		status    string
++		stop      string
++	}
++	var rs []row
++	for rows.Next() {
++		var r row
++		if err := rows.Scan(&r.id, &r.name, &r.entryID, &r.entryKind, &r.cross, &r.hash, &r.label, &r.status, &r.stop); err != nil {
++			return nil, err
++		}
++		rs = append(rs, r)
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	for _, r := range rs {
++		steps, err := stepsFor(db, r.id)
++		if err != nil {
++			return nil, err
++		}
++		p := Process{
++			Name:           r.name,
++			EntrySymbolID:  r.entryID,
++			EntryKind:      r.entryKind,
++			CrossCommunity: r.cross == 1,
++			ContentHash:    r.hash,
++			Steps:          steps,
++			Label:          r.label,
++			LabelStatus:    r.status,
++		}
++		if sn := parseStopNote(r.stop); sn != nil {
++			p.Stop = sn
++		}
++		res.Processes = append(res.Processes, p)
++	}
++	return res, nil
++}
++
++// stepsFor rebuilds a process's ordered steps (with names) from the table.
++func stepsFor(db *sql.DB, processID int64) ([]Step, error) {
++	rows, err := db.Query(`
++		SELECT ps.step, ps.symbol_id, ps.confidence, ps.kind, COALESCE(s.name,'')
++		FROM process_steps ps LEFT JOIN symbols s ON s.id = ps.symbol_id
++		WHERE ps.process_id = ? ORDER BY ps.step`, processID)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	var out []Step
++	for rows.Next() {
++		var step, symbolID int
++		var conf, kind, name string
++		if err := rows.Scan(&step, &symbolID, &conf, &kind, &name); err != nil {
++			return nil, err
++		}
++		out = append(out, Step{SymbolID: int64(symbolID), Name: name, Kind: kind, Confidence: conf})
++	}
++	return out, rows.Err()
++}
++
++// writeMeta caches the content-hash key so the next unchanged pass is a hit.
++func writeMeta(db *sql.DB, cacheKey string) error {
++	tx, err := db.Begin()
++	if err != nil {
++		return err
++	}
++	defer tx.Rollback()
++	if _, err := tx.Exec(`INSERT INTO process_meta_cache (key, value) VALUES ('cache_key', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, cacheKey); err != nil {
++		return err
++	}
++	return tx.Commit()
++}
++
++// symbolName returns a symbol's name (or "" when unknown — the trace still
++// records the step, never a crash).
++func symbolName(db *sql.DB, id int64) (string, error) {
++	var name string
++	err := db.QueryRow(`SELECT name FROM symbols WHERE id = ?`, id).Scan(&name)
++	if err == sql.ErrNoRows {
++		return "", nil
++	}
++	return name, err
++}
++
++func boolTo(b bool) int {
++	if b {
++		return 1
++	}
++	return 0
++}
++
++// stopNoteText serializes a stop note for storage; "" when absent.
++func stopNoteText(s *StopNote) string {
++	if s == nil {
++		return ""
++	}
++	return s.Symbol + "\x00" + s.Reason + "\x00" + strconv.Itoa(s.Line)
++}
++
++// parseStopNote is the inverse of stopNoteText; nil when empty.
++func parseStopNote(s string) *StopNote {
++	if s == "" {
++		return nil
++	}
++	parts := strings.SplitN(s, "\x00", 3)
++	if len(parts) < 2 {
++		return nil
++	}
++	line := 0
++	if len(parts) == 3 {
++		line, _ = strconv.Atoi(parts[2])
++	}
++	return &StopNote{Symbol: parts[0], Reason: parts[1], Line: line}
++}
++
++// UpdatedAtOrNow is a small helper so the persist row uses a stable time
++// source (the pass's Updated). It is set by the caller via struct field on
++// Process when persisting — see Process.updatedAt.
++func (p *Process) UpdatedAtOrNow() string {
++	if p.updatedAt.IsZero() {
++		return time.Now().UTC().Format(time.RFC3339)
++	}
++	return p.updatedAt.Format(time.RFC3339)
++}
++
++// List returns the stored processes in stable order (by id) — the backing for
++// code_processes (precomputed flows, one call, no per-query traversal).
++func List(db *sql.DB) ([]Process, error) {
++	rows, err := db.Query(`SELECT id, name, entry_symbol_id, entry_kind, cross_community, content_hash, label, label_status, stop_note FROM processes ORDER BY id`)
++	if err != nil {
++		if strings.Contains(err.Error(), "no such table") {
++			return []Process{}, nil
++		}
++		return nil, err
++	}
++	defer rows.Close()
++	var out []Process
++	for rows.Next() {
++		var id int64
++		var name string
++		var entryID int64
++		var entryKind string
++		var cross int
++		var hash, label, status, stop string
++		if err := rows.Scan(&id, &name, &entryID, &entryKind, &cross, &hash, &label, &status, &stop); err != nil {
++			return nil, err
++		}
++		p := Process{
++			Name: name, EntrySymbolID: entryID, EntryKind: entryKind,
++			CrossCommunity: cross == 1, ContentHash: hash,
++			Label: label, LabelStatus: status,
++		}
++		if sn := parseStopNote(stop); sn != nil {
++			p.Stop = sn
++		}
++		out = append(out, p)
++	}
++	return out, rows.Err()
++}
++
++// Get returns one stored process by name with its full step-by-step trace
++// (each hop's confidence + the stop note) — the backing for
++// code_process <name>. A missing name returns sql.ErrNoRows.
++func Get(db *sql.DB, name string) (*Process, error) {
++	var id int64
++	err := db.QueryRow(`SELECT id FROM processes WHERE name = ? ORDER BY id LIMIT 1`, name).Scan(&id)
++	if err != nil {
++		return nil, err
++	}
++	var nameCol, entryKind, hash, label, status, stop string
++	var entryID int64
++	var cross int
++	if err := db.QueryRow(`SELECT name, entry_symbol_id, entry_kind, cross_community, content_hash, label, label_status, stop_note FROM processes WHERE id = ?`, id).
++		Scan(&nameCol, &entryID, &entryKind, &cross, &hash, &label, &status, &stop); err != nil {
++		return nil, err
++	}
++	p := &Process{
++		Name: nameCol, EntrySymbolID: entryID, EntryKind: entryKind,
++		CrossCommunity: cross == 1, ContentHash: hash,
++		Label: label, LabelStatus: status,
++	}
++	if sn := parseStopNote(stop); sn != nil {
++		p.Stop = sn
++	}
++	p.Steps, err = stepsFor(db, id)
++	return p, err
++}
++
++// Participation is a symbol's position in one process (step N/M).
++type Participation struct {
++	ProcessName string `json:"process"`
++	Step        int    `json:"step"`
++	Total       int    `json:"total"`
++}
++
++// Participations returns every process the symbol participates in, with its
++// step position (step N/M) — the additive field surfaced by 005's
++// code_explain_symbol. An empty slice (not an error) when the symbol is in no
++// process.
++func Participations(db *sql.DB, symbolID int64) ([]Participation, error) {
++	if _, err := db.Exec(`SELECT 1 FROM process_steps LIMIT 0`); err != nil {
++		if strings.Contains(err.Error(), "no such table") {
++			return []Participation{}, nil
++		}
++		return nil, err
++	}
++	rows, err := db.Query(`
++		SELECT p.name, ps.step, MAX(ps2.step)
++		FROM process_steps ps
++		JOIN processes p ON p.id = ps.process_id
++		LEFT JOIN process_steps ps2 ON ps2.process_id = ps.process_id
++		WHERE ps.symbol_id = ?
++		GROUP BY p.id, ps.step
++		ORDER BY p.id, ps.step`, symbolID)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	var out []Participation
++	for rows.Next() {
++		var name string
++		var step, total int
++		if err := rows.Scan(&name, &step, &total); err != nil {
++			return nil, err
++		}
++		out = append(out, Participation{ProcessName: name, Step: step, Total: total})
++	}
++	return out, rows.Err()
++}
+diff --git a/skillgrid-cli/internal/mnemonic/process/trace_edge_test.go b/skillgrid-cli/internal/mnemonic/process/trace_edge_test.go
+new file mode 100644
+index 0000000..226f258
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/process/trace_edge_test.go
+@@ -0,0 +1,194 @@
++package process
++
++import (
++	"context"
++	"database/sql"
++	"strings"
++	"testing"
++)
++
++// dispatchFixture builds a chain that reaches a dispatch boundary:
++// entry (function) -> svc (interface). The trace must stop at svc with a
++// "stops at <symbol> (<reason>)" note, not silently cut.
++func dispatchFixture(t *testing.T) *sql.DB {
++	t.Helper()
++	db := openStore(t)
++	f := seedFile(t, db, "app/handler.go")
++	entry := seedSymbol(t, db, f, "processOrder", "function", 1)
++	svc := seedSymbol(t, db, f, "OrderService", "interface", 10)
++	seedCall(t, db, entry, svc, 2)
++	return db
++}
++
++// TestDispatchStop covers 02.4 (Scenario: Trace stops at a dispatch boundary
++// with a note): a call chain that reaches an interface->impl boundary is
++// truncated with a "stops at <symbol> (<reason>)" note (reusing the 005
++// graph-stops idea), not silently cut. code_process <name> (Get) shows the
++// stop note; each hop carries a confidence label.
++func TestDispatchStop(t *testing.T) {
++	db := dispatchFixture(t)
++	var entryID int64
++	if err := db.QueryRow(`SELECT id FROM symbols WHERE name = 'processOrder'`).Scan(&entryID); err != nil {
++		t.Fatalf("lookup: %v", err)
++	}
++	res, err := Run(context.Background(), db, []Entry{{SymbolID: entryID, Kind: "cli-main"}}, nil, RunOptions{})
++	if err != nil {
++		t.Fatalf("Run: %v", err)
++	}
++	if len(res.Processes) != 1 {
++		t.Fatalf("expected 1 process, got %d", len(res.Processes))
++	}
++	p := res.Processes[0]
++	if p.Stop == nil {
++		t.Fatalf("expected a dispatch stop note, got none (trace was not truncated at the boundary)")
++	}
++	if p.Stop.Symbol != "OrderService" {
++		t.Errorf("stop note symbol = %q, want OrderService", p.Stop.Symbol)
++	}
++	if p.Stop.Reason == "" {
++		t.Errorf("stop note has no reason (not a 'stops at <symbol> (<reason>)' note)")
++	}
++	if !strings.Contains(p.Stop.Reason, "interface") {
++		t.Errorf("stop reason should name the interface dispatch, got %q", p.Stop.Reason)
++	}
++	// The trace is NOT silently cut: the interface step is recorded as a step
++	// (it was reached) AND the stop note names it.
++	var sawSvc bool
++	for _, s := range p.Steps {
++		if s.Name == "OrderService" {
++			sawSvc = true
++		}
++	}
++	if !sawSvc {
++		t.Errorf("the boundary symbol OrderService should be recorded in the steps (trace not silently cut)")
++	}
++
++	// code_process <name> (Get) surfaces the stop note + per-hop confidence.
++	got, err := Get(db, p.Name)
++	if err != nil {
++		t.Fatalf("Get: %v", err)
++	}
++	if got.Stop == nil || got.Stop.Symbol != "OrderService" {
++		t.Errorf("Get did not surface the stop note: %+v", got.Stop)
++	}
++	// Every non-entry hop carries a confidence label.
++	for i, s := range got.Steps {
++		if i > 0 && s.Confidence == "" {
++			t.Errorf("hop %d (-> %s) has no confidence label", i, s.Name)
++		}
++	}
++}
++
++// untraceableFixture is an entry point with no outgoing call edges.
++func untraceableFixture(t *testing.T) *sql.DB {
++	t.Helper()
++	db := openStore(t)
++	f := seedFile(t, db, "app/leaf.go")
++	seedSymbol(t, db, f, "lone", "function", 1)
++	return db
++}
++
++// TestUntraceableEntry covers 02.7 (Scenario: Untraceable entry point yields
++// single-step or is skipped): an entry with no traceable call chain yields a
++// single-step process (just the entry) or is skipped — no flow is fabricated.
++func TestUntraceableEntry(t *testing.T) {
++	db := untraceableFixture(t)
++	var entryID int64
++	if err := db.QueryRow(`SELECT id FROM symbols WHERE name = 'lone'`).Scan(&entryID); err != nil {
++		t.Fatalf("lookup: %v", err)
++	}
++	res, err := Run(context.Background(), db, []Entry{{SymbolID: entryID, Kind: "cli-main"}}, nil, RunOptions{})
++	if err != nil {
++		t.Fatalf("Run: %v", err)
++	}
++	if len(res.Processes) != 1 {
++		t.Fatalf("expected a single-step (or skipped) process, got %d", len(res.Processes))
++	}
++	p := res.Processes[0]
++	// Single-step: only the entry symbol, no fabricated callees.
++	if len(p.Steps) != 1 {
++		t.Fatalf("untraceable entry should be single-step, got %d steps: %+v", len(p.Steps), p.Steps)
++	}
++	if p.Steps[0].Name != "lone" {
++		t.Errorf("single step should be the entry symbol, got %q", p.Steps[0].Name)
++	}
++}
++
++// crossFixture builds two communities (01) and a chain that crosses them:
++// entry (comm A) -> other (comm B). The flow must carry a cross-community flag.
++func crossFixture(t *testing.T) *sql.DB {
++	t.Helper()
++	db := openStore(t)
++	f := seedFile(t, db, "app/cross.go")
++	entry := seedSymbol(t, db, f, "startHere", "function", 1)
++	other := seedSymbol(t, db, f, "otherSide", "function", 10)
++	seedCall(t, db, entry, other, 2)
++	// Assign the two symbols to different communities (01's table).
++	if _, err := db.Exec(`INSERT INTO communities (id, symbol_id) VALUES (0, ?), (1, ?)`, entry, other); err != nil {
++		t.Fatalf("seed communities: %v", err)
++	}
++	return db
++}
++
++// TestCrossCommunityFlag covers 02.8 (Scenario: Cross-community process is
++// flagged): a flow that passes through symbols in more than one community
++// carries a cross-community flag.
++func TestCrossCommunityFlag(t *testing.T) {
++	db := crossFixture(t)
++	var entryID int64
++	if err := db.QueryRow(`SELECT id FROM symbols WHERE name = 'startHere'`).Scan(&entryID); err != nil {
++		t.Fatalf("lookup: %v", err)
++	}
++	res, err := Run(context.Background(), db, []Entry{{SymbolID: entryID, Kind: "cli-main"}}, nil, RunOptions{})
++	if err != nil {
++		t.Fatalf("Run: %v", err)
++	}
++	if len(res.Processes) != 1 {
++		t.Fatalf("expected 1 process, got %d", len(res.Processes))
++	}
++	if !res.Processes[0].CrossCommunity {
++		t.Errorf("cross-community flow should be flagged, got CrossCommunity=false")
++	}
++	// And the flag is persisted (code_processes reads it from the table).
++	listed, err := List(db)
++	if err != nil {
++		t.Fatalf("List: %v", err)
++	}
++	if len(listed) != 1 || !listed[0].CrossCommunity {
++		t.Errorf("persisted process should carry the cross-community flag, got %+v", listed)
++	}
++}
++
++// singleCommunityFixture builds a chain entirely within one community.
++func singleCommunityFixture(t *testing.T) *sql.DB {
++	t.Helper()
++	db := openStore(t)
++	f := seedFile(t, db, "app/one.go")
++	entry := seedSymbol(t, db, f, "a", "function", 1)
++	b := seedSymbol(t, db, f, "b", "function", 10)
++	seedCall(t, db, entry, b, 2)
++	if _, err := db.Exec(`INSERT INTO communities (id, symbol_id) VALUES (0, ?), (0, ?)`, entry, b); err != nil {
++		t.Fatalf("seed communities: %v", err)
++	}
++	return db
++}
++
++// TestCrossCommunityNotFlaggedWhenSingleCommunity is the negative control: a
++// flow inside a single community is NOT flagged.
++func TestCrossCommunityNotFlaggedWhenSingleCommunity(t *testing.T) {
++	db := singleCommunityFixture(t)
++	var entryID int64
++	if err := db.QueryRow(`SELECT id FROM symbols WHERE name = 'a'`).Scan(&entryID); err != nil {
++		t.Fatalf("lookup: %v", err)
++	}
++	res, err := Run(context.Background(), db, []Entry{{SymbolID: entryID, Kind: "cli-main"}}, nil, RunOptions{})
++	if err != nil {
++		t.Fatalf("Run: %v", err)
++	}
++	if len(res.Processes) != 1 {
++		t.Fatalf("expected 1 process, got %d", len(res.Processes))
++	}
++	if res.Processes[0].CrossCommunity {
++		t.Errorf("single-community flow should NOT be flagged cross-community")
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/process/trace_test.go b/skillgrid-cli/internal/mnemonic/process/trace_test.go
+new file mode 100644
+index 0000000..b892a3f
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/process/trace_test.go
+@@ -0,0 +1,193 @@
++package process
++
++import (
++	"context"
++	"database/sql"
++	"testing"
++
++	_ "modernc.org/sqlite"
++)
++
++// openStore opens a scratch SQLite store with the 005 symbols/edges tables,
++// the 012 communities table, and the 014 process tables — the full surface the
++// process pass reads from / writes to.
++func openStore(t *testing.T) *sql.DB {
++	t.Helper()
++	db, err := sql.Open("sqlite", ":memory:")
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	t.Cleanup(func() { db.Close() })
++	stmts := []string{
++		`CREATE TABLE files (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, mtime_ns INTEGER, size INTEGER, content_hash TEXT, indexed_at TEXT)`,
++		`CREATE TABLE symbols (id INTEGER PRIMARY KEY AUTOINCREMENT, file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE, name TEXT NOT NULL, qualified_name TEXT, kind TEXT NOT NULL, language TEXT, signature TEXT, start_line INTEGER NOT NULL, end_line INTEGER NOT NULL, content_hash TEXT NOT NULL, uid TEXT NOT NULL UNIQUE)`,
++		`CREATE TABLE edges (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, from_id INTEGER NOT NULL REFERENCES symbols(id) ON DELETE CASCADE, file_id INTEGER REFERENCES files(id) ON DELETE CASCADE, to_id INTEGER REFERENCES symbols(id) ON DELETE CASCADE, to_name TEXT, target_path TEXT, confidence TEXT NOT NULL DEFAULT 'EXTRACTED', line INTEGER, UNIQUE(kind, from_id, file_id, to_id, to_name, target_path, line))`,
++		`CREATE TABLE communities (id INTEGER, symbol_id INTEGER NOT NULL UNIQUE REFERENCES symbols(id) ON DELETE CASCADE)`,
++		`CREATE TABLE processes (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, entry_symbol_id INTEGER REFERENCES symbols(id) ON DELETE CASCADE, entry_kind TEXT, cross_community INTEGER NOT NULL DEFAULT 0, content_hash TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', label_status TEXT NOT NULL DEFAULT 'unlabeled', stop_note TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL)`,
++		`CREATE TABLE process_steps (process_id INTEGER NOT NULL REFERENCES processes(id) ON DELETE CASCADE, step INTEGER NOT NULL, symbol_id INTEGER REFERENCES symbols(id) ON DELETE CASCADE, confidence TEXT, kind TEXT, PRIMARY KEY (process_id, step))`,
++		`CREATE TABLE process_meta_cache (key TEXT PRIMARY KEY, value TEXT)`,
++	}
++	for _, s := range stmts {
++		if _, err := db.Exec(s); err != nil {
++			t.Fatalf("create schema: %v", err)
++		}
++	}
++	return db
++}
++
++func seedFile(t *testing.T, db *sql.DB, path string) int64 {
++	t.Helper()
++	res, err := db.Exec(`INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at) VALUES (?, 1, 1, 'h', 'now')`, path)
++	if err != nil {
++		t.Fatalf("seed file %s: %v", path, err)
++	}
++	id, _ := res.LastInsertId()
++	return id
++}
++
++func seedSymbol(t *testing.T, db *sql.DB, fileID int64, name, kind string, line int) int64 {
++	t.Helper()
++	res, err := db.Exec(`INSERT INTO symbols (file_id, name, kind, start_line, end_line, content_hash, uid) VALUES (?, ?, ?, ?, ?, 'h', ?)`,
++		fileID, name, kind, line, line, name+kind)
++	if err != nil {
++		t.Fatalf("seed symbol %s: %v", name, err)
++	}
++	id, _ := res.LastInsertId()
++	return id
++}
++
++func seedCall(t *testing.T, db *sql.DB, fromID, toID int64, line int) {
++	t.Helper()
++	if _, err := db.Exec(`INSERT INTO edges (kind, from_id, to_id, confidence, line) VALUES ('calls', ?, ?, 'EXTRACTED', ?)`, fromID, toID, line); err != nil {
++		t.Fatalf("seed edge %d->%d: %v", fromID, toID, err)
++	}
++}
++
++// seedReference adds a references edge (route -> handler), the 010 entry
++// link that the process pass follows.
++func seedReference(t *testing.T, db *sql.DB, fromID, toID int64, line int) {
++	t.Helper()
++	if _, err := db.Exec(`INSERT INTO edges (kind, from_id, to_id, confidence, line) VALUES ('references', ?, ?, 'EXTRACTED', ?)`, fromID, toID, line); err != nil {
++		t.Fatalf("seed ref %d->%d: %v", fromID, toID, err)
++	}
++}
++
++// traceFixture builds a chain: entry -> a -> b (all functions). The entry has
++// a traceable call chain, so the pass should produce a multi-step flow.
++func traceFixture(t *testing.T) *sql.DB {
++	t.Helper()
++	db := openStore(t)
++	f := seedFile(t, db, "app/server.go")
++	entry := seedSymbol(t, db, f, "handleListUsers", "function", 1)
++	a := seedSymbol(t, db, f, "loadUsers", "function", 10)
++	b := seedSymbol(t, db, f, "queryDB", "function", 20)
++	seedCall(t, db, entry, a, 2)
++	seedCall(t, db, a, b, 11)
++	_ = entry
++	return db
++}
++
++// TestProcessTrace covers 02.2 (Scenario: Process list returns precomputed
++// flows from entry points): seeded from an entry point, the pass traces
++// through the 005 call edges into processes + process_steps; each flow has
++// named steps and a content hash; and code_processes (List) returns the
++// complete flow in one call without per-query traversal.
++func TestProcessTrace(t *testing.T) {
++	db := traceFixture(t)
++	f := db
++	var entryID int64
++	if err := f.QueryRow(`SELECT id FROM symbols WHERE name = 'handleListUsers'`).Scan(&entryID); err != nil {
++		t.Fatalf("lookup entry: %v", err)
++	}
++	entries := []Entry{{SymbolID: entryID, Kind: "cli-main"}}
++
++	res, err := Run(context.Background(), db, entries, stubLLM{label: "List users flow"}, RunOptions{})
++	if err != nil {
++		t.Fatalf("Run: %v", err)
++	}
++	if len(res.Processes) != 1 {
++		t.Fatalf("expected 1 process, got %d", len(res.Processes))
++	}
++	p := res.Processes[0]
++	// Named steps: the entry plus the two callees (a depth of 2 is within the
++	// default cap).
++	if len(p.Steps) != 3 {
++		t.Fatalf("expected 3 steps (entry + 2 callees), got %d: %+v", len(p.Steps), p.Steps)
++	}
++	for i, s := range p.Steps {
++		if s.Name == "" {
++			t.Errorf("step %d has an empty name (not named): %+v", i, s)
++		}
++	}
++	if p.ContentHash == "" {
++		t.Errorf("process has no content hash")
++	}
++
++	// Persisted: List (the code_processes backing) returns the flow in one
++	// call, with its steps — no per-query traversal.
++	listed, err := List(db)
++	if err != nil {
++		t.Fatalf("List: %v", err)
++	}
++	if len(listed) != 1 {
++		t.Fatalf("List returned %d processes, want 1", len(listed))
++	}
++	// Rebuild the full trace via Get (the code_process <name> backing).
++	got, err := Get(db, listed[0].Name)
++	if err != nil {
++		t.Fatalf("Get: %v", err)
++	}
++	if len(got.Steps) != 3 {
++		t.Fatalf("Get returned %d steps, want 3: %+v", len(got.Steps), got.Steps)
++	}
++	// The persisted row is present in processes + process_steps.
++	var procCount, stepCount int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM processes`).Scan(&procCount); err != nil {
++		t.Fatalf("count processes: %v", err)
++	}
++	if err := db.QueryRow(`SELECT COUNT(*) FROM process_steps`).Scan(&stepCount); err != nil {
++		t.Fatalf("count steps: %v", err)
++	}
++	if procCount != 1 || stepCount != 3 {
++		t.Errorf("persisted processes=%d steps=%d, want 1/3", procCount, stepCount)
++	}
++}
++
++// TestProcessDeterministic covers the determinism constraint: two Runs on the
++// same graph yield identical flow structure (stable ordering, same content
++// hash), and the second is served from cache without re-tracing.
++func TestProcessDeterministic(t *testing.T) {
++	db := traceFixture(t)
++	var entryID int64
++	if err := db.QueryRow(`SELECT id FROM symbols WHERE name = 'handleListUsers'`).Scan(&entryID); err != nil {
++		t.Fatalf("lookup: %v", err)
++	}
++	entries := []Entry{{SymbolID: entryID, Kind: "cli-main"}}
++
++	first, err := Run(context.Background(), db, entries, stubLLM{label: "L"}, RunOptions{})
++	if err != nil {
++		t.Fatalf("Run 1: %v", err)
++	}
++	second, err := Run(context.Background(), db, entries, stubLLM{label: "L2"}, RunOptions{})
++	if err != nil {
++		t.Fatalf("Run 2: %v", err)
++	}
++	if !second.FromCache {
++		t.Errorf("second Run should be served from cache (content-hash hit)")
++	}
++	if len(first.Processes) != 1 || len(second.Processes) != 1 {
++		t.Fatalf("expected 1 process each, got %d/%d", len(first.Processes), len(second.Processes))
++	}
++	a, b := first.Processes[0], second.Processes[0]
++	if a.ContentHash != b.ContentHash {
++		t.Errorf("content hash not stable across runs: %q vs %q", a.ContentHash, b.ContentHash)
++	}
++	if len(a.Steps) != len(b.Steps) {
++		t.Errorf("step count differs: %d vs %d", len(a.Steps), len(b.Steps))
++	}
++	for i := range a.Steps {
++		if a.Steps[i].SymbolID != b.Steps[i].SymbolID || a.Steps[i].Name != b.Steps[i].Name {
++			t.Errorf("step %d differs: %+v vs %+v", i, a.Steps[i], b.Steps[i])
++		}
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/service/service.go b/skillgrid-cli/internal/mnemonic/service/service.go
+index ffea297..7406a24 100644
+--- a/skillgrid-cli/internal/mnemonic/service/service.go
++++ b/skillgrid-cli/internal/mnemonic/service/service.go
+@@ -21,6 +21,7 @@ import (
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/graph"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/hybrid"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/process"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/project"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/search"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+@@ -647,6 +648,11 @@ type OrientResult struct {
+ 	List      []map[string]any `json:"list,omitempty"`
+ 	Rationale []map[string]any `json:"rationale,omitempty"`
+ 	Reason    string           `json:"reason,omitempty"` // not-found note
++	// Processes is the additive process-participation field (008 step 02):
++	// the processes this symbol takes part in, each with its step position
++	// (step N/M). Empty (not an error) when the symbol is in no process. It
++	// never changes the fields above (005's contract is preserved).
++	Processes []process.Participation `json:"processes,omitempty"`
+ }
+ 
+ // OrientSymbol returns Tier-1 orientation for a resolved symbol: signature,
+@@ -1370,6 +1376,65 @@ func (s *Service) CodeExplainCommunity(ctx context.Context, projectID string, id
+ 	return out, nil
+ }
+ 
++// ProcessResult is the code_processes answer (the precomputed flows).
++type ProcessResult = process.Result
++
++// ProcessOptions tunes the process pass.
++type ProcessOptions = process.RunOptions
++
++// ProcessEntry is one seed for the process pass.
++type ProcessEntry = process.Entry
++
++// ProcessLLM is the pluggable labeler for the process pass (nil = no LLM →
++// flows cached unlabeled). Tests inject a stub; there is no CGo LLM client.
++type ProcessLLM = process.LLM
++
++// CodeProcessTrace runs the precomputed process pass over projectID's
++// entries, persisting processes/process_steps (cross-community flag +
++// content-hash cache + LLM labels). The pass is advisory, never
++// load-bearing.
++func (s *Service) CodeProcessTrace(ctx context.Context, projectID string, entries []ProcessEntry, llm ProcessLLM, opts ProcessOptions) (*ProcessResult, error) {
++	h, cleanup, err := s.openProject(projectID, ".")
++	if err != nil {
++		return nil, err
++	}
++	defer cleanup()
++	return process.Run(ctx, h.store.DB, entries, llm, opts)
++}
++
++// CodeProcesses returns the stored precomputed flows for projectID (one call,
++// no per-query traversal) — the backing for code_processes.
++func (s *Service) CodeProcesses(ctx context.Context, projectID string) ([]process.Process, error) {
++	h, cleanup, err := s.openProject(projectID, ".")
++	if err != nil {
++		return nil, err
++	}
++	defer cleanup()
++	return process.List(h.store.DB)
++}
++
++// CodeProcess returns one stored process by name with its full step-by-step
++// trace — the backing for code_process <name>. Unknown name → sql.ErrNoRows.
++func (s *Service) CodeProcess(ctx context.Context, projectID, name string) (*process.Process, error) {
++	h, cleanup, err := s.openProject(projectID, ".")
++	if err != nil {
++		return nil, err
++	}
++	defer cleanup()
++	return process.Get(h.store.DB, name)
++}
++
++// CodeProcessParticipations returns the processes symbolID participates in,
++// each with its step position (step N/M). Empty when the symbol is in none.
++func (s *Service) CodeProcessParticipations(ctx context.Context, projectID string, symbolID int64) ([]process.Participation, error) {
++	h, cleanup, err := s.openProject(projectID, ".")
++	if err != nil {
++		return nil, err
++	}
++	defer cleanup()
++	return process.Participations(h.store.DB, symbolID)
++}
++
+ func readIndexedCode(db *sql.DB, path string, startLine, endLine int) (map[string]any, error) {
+ 	var fileID int64
+ 	err := db.QueryRow(`SELECT id FROM files WHERE path = ?`, path).Scan(&fileID)
+diff --git a/skillgrid-cli/internal/mnemonic/store/migrations/014_process_flows.sql b/skillgrid-cli/internal/mnemonic/store/migrations/014_process_flows.sql
+new file mode 100644
+index 0000000..10e66d2
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/store/migrations/014_process_flows.sql
+@@ -0,0 +1,42 @@
++-- 014 precomputed process flows schema (additive; 005 symbols/edges + 012/013
++-- untouched). Change 008, step 02.
++--
++-- A process is a precomputed execution flow traced from one of 010's entry
++-- points (a kind='route' symbol, a route's resolved handler, or a CLI main)
++-- through the 005 call edges. The flow is advisory, never load-bearing — it
++-- reads the graph but adds no symbols/edges of its own, so 005 search is
++-- unchanged. The trace is deterministic (depth-capped BFS, stable ordering)
++-- and cached by the process's content-hash (process_meta_cache) so an
++-- unchanged re-index does not re-trace or re-label.
++CREATE TABLE IF NOT EXISTS processes (
++    id INTEGER PRIMARY KEY AUTOINCREMENT,
++    name TEXT NOT NULL,
++    entry_symbol_id INTEGER REFERENCES symbols(id) ON DELETE CASCADE,
++    entry_kind TEXT,
++    cross_community INTEGER NOT NULL DEFAULT 0,
++    content_hash TEXT NOT NULL,
++    label TEXT NOT NULL DEFAULT '',
++    label_status TEXT NOT NULL DEFAULT 'unlabeled',
++    stop_note TEXT NOT NULL DEFAULT '',
++    updated_at TEXT NOT NULL
++);
++CREATE INDEX IF NOT EXISTS idx_processes_name ON processes(name);
++CREATE UNIQUE INDEX IF NOT EXISTS idx_processes_content ON processes(content_hash);
++
++CREATE TABLE IF NOT EXISTS process_steps (
++    process_id INTEGER NOT NULL REFERENCES processes(id) ON DELETE CASCADE,
++    step INTEGER NOT NULL,
++    symbol_id INTEGER REFERENCES symbols(id) ON DELETE CASCADE,
++    confidence TEXT,
++    kind TEXT,
++    PRIMARY KEY (process_id, step)
++);
++CREATE INDEX IF NOT EXISTS idx_process_steps_symbol ON process_steps(symbol_id);
++
++-- Content-hash cache for the process pass (mirrors the 012 community
++-- community_meta_cache pattern): the process-pass content key that the current
++-- stored partition corresponds to, so an unchanged re-index is a cache hit.
++CREATE TABLE IF NOT EXISTS process_meta_cache (
++    key TEXT PRIMARY KEY,
++    value TEXT
++);
+diff --git a/skillgrid-cli/internal/mnemonic/store/process_schema_test.go b/skillgrid-cli/internal/mnemonic/store/process_schema_test.go
+new file mode 100644
+index 0000000..f1e5121
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/store/process_schema_test.go
+@@ -0,0 +1,39 @@
++package store
++
++import (
++	"testing"
++)
++
++// TestStoreOpenAppliesProcessSchema covers @step-02 (additive 014 migration):
++// a store that opens cleanly has the 014 process tables, the 014 migration is
++// recorded once, and the 005 symbols/edges tables + the 012 community tables
++// remain intact (additive, not a rewrite).
++func TestStoreOpenAppliesProcessSchema(t *testing.T) {
++	dir := t.TempDir()
++	st, err := Open(dir, "processproj")
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	defer st.Close()
++
++	for _, name := range []string{"processes", "process_steps", "process_meta_cache"} {
++		if !tableExists(t, st.DB, name) {
++			t.Fatalf("expected 014 table %s after open", name)
++		}
++	}
++	if countMigration(t, st.DB, "014_process_flows.sql") != 1 {
++		t.Fatalf("expected 014 migration recorded once")
++	}
++	// 005 tables intact (additive — never rewritten).
++	for _, name := range []string{"symbols", "edges"} {
++		if !tableExists(t, st.DB, name) {
++			t.Fatalf("005 table %s missing after 014", name)
++		}
++	}
++	// 012 community tables intact (additive on top).
++	for _, name := range []string{"communities", "community_meta"} {
++		if !tableExists(t, st.DB, name) {
++			t.Fatalf("012 table %s missing after 014", name)
++		}
++	}
++}

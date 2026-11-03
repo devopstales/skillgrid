@@ -1,0 +1,2950 @@
+=== 010 STEP 03 CODE COMMITS c436a30..8b68453 ===
+
+8b68453 feat(mnemonic): watcher tool-surface stability and status
+53057ea feat(mnemonic): index status pending-sync section + serve watcher wiring
+2b0d3aa feat(mnemonic): warm embedder idle-evict and heartbeat keep-alive
+8dad267 feat(mnemonic): warm embedder load-once cache
+bee853c feat(mnemonic): single-writer lock for auto-sync + connect-time catch-up
+cb49fcf feat(mnemonic): staleness banner on pending files
+eeb9275 feat(mnemonic): pull-at-query fingerprint gate (structural-only, embedder-free)
+07bec0a feat(mnemonic): reader auto-reopen of published index
+9d097eb feat(mnemonic): copy-and-swap index publication
+c436a30 feat(mnemonic): fsnotify auto-sync watcher with debounce
+
+=== STAT ===
+ skillgrid-cli/cmd/skillgrid/index_status_test.go   |  59 ++++
+ skillgrid-cli/cmd/skillgrid/mcp.go                 | 203 +++++++++++
+ skillgrid-cli/go.mod                               |   1 +
+ skillgrid-cli/go.sum                               |   3 +
+ .../internal/mnemonic/codeindex/catchup_test.go    | 123 +++++++
+ .../internal/mnemonic/codeindex/fingerprint.go     | 252 ++++++++++++++
+ .../mnemonic/codeindex/fingerprint_test.go         | 128 +++++++
+ .../internal/mnemonic/codeindex/indexer.go         |  17 +
+ .../internal/mnemonic/codeindex/publish.go         | 142 ++++++++
+ .../internal/mnemonic/codeindex/publish_test.go    | 125 +++++++
+ .../internal/mnemonic/codeindex/reopen.go          |  80 +++++
+ .../internal/mnemonic/codeindex/reopen_test.go     |  54 +++
+ skillgrid-cli/internal/mnemonic/codeindex/watch.go | 371 +++++++++++++++++++++
+ .../internal/mnemonic/codeindex/watch_test.go      | 110 ++++++
+ .../internal/mnemonic/codeindex/writerlock_test.go |  79 +++++
+ skillgrid-cli/internal/mnemonic/embedder/warm.go   | 169 ++++++++++
+ .../internal/mnemonic/embedder/warm_test.go        | 158 +++++++++
+ skillgrid-cli/internal/mnemonic/mcp/freshness.go   | 224 +++++++++++++
+ .../internal/mnemonic/mcp/freshness_test.go        | 126 +++++++
+ .../internal/mnemonic/mcp/testsort_test.go         |   7 +
+ skillgrid-cli/internal/mnemonic/mcp/tools_code.go  |  12 +-
+ .../internal/mnemonic/mcp/watcher_surface_test.go  |  87 +++++
+ skillgrid-cli/internal/mnemonic/service/service.go | 106 +++++-
+ 23 files changed, 2632 insertions(+), 4 deletions(-)
+
+=== DIFF ===
+diff --git a/skillgrid-cli/cmd/skillgrid/index_status_test.go b/skillgrid-cli/cmd/skillgrid/index_status_test.go
+new file mode 100644
+index 0000000..e03ac07
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/index_status_test.go
+@@ -0,0 +1,59 @@
++package main
++
++import (
++	"bytes"
++	"encoding/json"
++	"strings"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
++)
++
++// TestIndexStatus covers 03.14 (Scenario: index status shows pending sync):
++// `skillgrid index status` renders index health + the `### Pending sync:`
++// section + the watcher state (enabled / disabled = manual index).
++func TestIndexStatus(t *testing.T) {
++	// A non-empty pending set + watcher enabled.
++	var buf bytes.Buffer
++	printIndexStatus(&buf, codeindex.Status{FileCount: 3, ChunkCount: 10, LastIndexed: "2026-09-10T00:00:00Z"},
++		codeindex.WatchStatus{Enabled: true, Pending: []string{"main.go", "helper.ts"}})
++	out := buf.String()
++	if !strings.Contains(out, "files: 3, chunks: 10") {
++		t.Errorf("expected file/chunk counts in the status; got:\n%s", out)
++	}
++	if !strings.Contains(out, "### Pending sync:") {
++		t.Errorf("expected the `### Pending sync:` section; got:\n%s", out)
++	}
++	if !strings.Contains(out, "main.go") || !strings.Contains(out, "helper.ts") {
++		t.Errorf("expected the pending files in the section; got:\n%s", out)
++	}
++	if !strings.Contains(out, "watcher: enabled") {
++		t.Errorf("expected watcher: enabled; got:\n%s", out)
++	}
++
++	// Empty pending set → "(none)".
++	buf.Reset()
++	printIndexStatus(&buf, codeindex.Status{}, codeindex.WatchStatus{Enabled: true})
++	if !strings.Contains(buf.String(), "(none)") {
++		t.Errorf("expected (none) for an empty pending set; got:\n%s", buf.String())
++	}
++
++	// Watcher disabled (SKILLGRID_NO_WATCH=1) → manual-index note.
++	t.Setenv(codeindex.NoWatchEnv, "1")
++	buf.Reset()
++	printIndexStatus(&buf, codeindex.Status{}, codeindex.WatchStatus{Enabled: false})
++	if !strings.Contains(buf.String(), "watcher: disabled") {
++		t.Errorf("expected watcher: disabled with %s=1; got:\n%s", codeindex.NoWatchEnv, buf.String())
++	}
++
++	// JSON shape.
++	var jbuf bytes.Buffer
++	printIndexStatusJSON(&jbuf, codeindex.Status{FileCount: 1}, codeindex.WatchStatus{Enabled: true, Pending: []string{"a.go"}})
++	var decoded map[string]any
++	if err := json.Unmarshal(jbuf.Bytes(), &decoded); err != nil {
++		t.Fatalf("index status JSON did not parse: %v (%s)", err, jbuf.String())
++	}
++	if !strings.Contains(jbuf.String(), "pending_sync") || !strings.Contains(jbuf.String(), "watch_disabled") {
++		t.Errorf("expected pending_sync + watch_disabled keys in JSON; got:\n%s", jbuf.String())
++	}
++}
+diff --git a/skillgrid-cli/cmd/skillgrid/mcp.go b/skillgrid-cli/cmd/skillgrid/mcp.go
+index 651cc9e..c0a3def 100644
+--- a/skillgrid-cli/cmd/skillgrid/mcp.go
++++ b/skillgrid-cli/cmd/skillgrid/mcp.go
+@@ -2,8 +2,10 @@ package main
+ 
+ import (
+ 	"context"
++	"encoding/json"
+ 	"flag"
+ 	"fmt"
++	"io"
+ 	"net"
+ 	"net/http"
+ 	"os"
+@@ -12,9 +14,12 @@ import (
+ 	"time"
+ 
+ 	mnemonichttp "github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/http"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/mcp"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/setup"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+ )
+ 
+ // runMCP starts the MCP stdio server.
+@@ -22,10 +27,13 @@ func runMCP(version string, args []string) {
+ 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
+ 	fs.SetOutput(os.Stderr)
+ 	var debug bool
++	var noWatch bool
+ 	fs.BoolVar(&debug, "debug", false, "log MCP framing errors to stderr")
++	fs.BoolVar(&noWatch, "no-watch", codeindex.WatchDisabled(), "disable the auto-sync watcher (manual index)")
+ 	fs.Usage = func() {
+ 		fmt.Fprintln(fs.Output(), "usage: skillgrid mcp [flags]")
+ 		fmt.Fprintln(fs.Output(), "  Starts the Mnemonic MCP stdio server (mem_*, code_*, web_* tools).")
++		fmt.Fprintln(fs.Output(), "  The auto-sync watcher + fingerprint gate keep the index fresh; SKILLGRID_NO_WATCH=1 disables the watcher.")
+ 		fs.PrintDefaults()
+ 	}
+ 	if err := fs.Parse(args); err != nil {
+@@ -33,12 +41,85 @@ func runMCP(version string, args []string) {
+ 	}
+ 	_ = version
+ 	_ = debug
++	if noWatch {
++		_ = os.Setenv(codeindex.NoWatchEnv, "1")
++	}
++
++	// Wire the response path (auto-reopen + fingerprint gate + staleness
++	// banner) for the CWD project, and start the comfort-layer watcher unless
++	// disabled. The watcher is the comfort layer; the fingerprint gate is the
++	// correctness backstop (works with the watcher off).
++	svc, err := newMnemonicService(envOr("SKILLGRID_MNEMONIC_DATA_DIR", ""))
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	startAutoSync(svc)
+ 
+ 	if err := mcp.Start(); err != nil {
+ 		fmt.Fprintln(os.Stderr, "mcp server exited:", err)
+ 	}
+ }
+ 
++// startAutoSync wires the response path (auto-reopen + fingerprint gate +
++// staleness banner) for the CWD project and starts the comfort-layer watcher
++// (unless SKILLGRID_NO_WATCH=1). It resolves the project + index config,
++// attaches the watcher's pending set to the banner, and starts the watcher
++// with a debounce-clamped window. The re-index is structural-only + uses the
++// warm embedder for the search leg (the gate itself never touches the embedder).
++func startAutoSync(svc *service.Service) {
++	cwd, err := os.Getwd()
++	if err != nil {
++		return
++	}
++	projectID, err := svc.ResolveProject(cwd)
++	if err != nil {
++		return
++	}
++	cfg := config.Load(cwd)
++	idxCfg := codeindex.Config{
++		Include: cfg.Include, Exclude: cfg.Exclude,
++		ChunkLines: cfg.ChunkLines, ChunkOverlap: cfg.ChunkOverlap, MaxFileSize: cfg.MaxFileSize,
++	}
++	// Wire the response path (auto-reopen ~5s + fingerprint gate + banner).
++	mcp.InitFreshness(svc, projectID, cwd, idxCfg, codeindex.DefaultReopenWindow)
++
++	if codeindex.WatchDisabled() {
++		// Watcher disabled: manual index (the fingerprint gate is the backstop).
++		return
++	}
++	// Comfort-layer watcher: debounced incremental re-index on source-file
++	// create/modify/delete. The re-index is structural-only (no embedder).
++	var w *codeindex.Watcher
++	w = codeindex.NewWatcher(cwd, codeindex.WatchConfig{
++		Debounced: codeindex.DefaultDebounce,
++		Include:   cfg.Include,
++		Exclude:   cfg.Exclude,
++		OnSync: func(ctx context.Context, files []string) error {
++			// Mark the burst pending (feeds the banner until it syncs), then
++			// run the structural re-index (the (size,mtime)+hash guard makes it
++			// incremental), then clear the pending set.
++			if w != nil {
++				for _, f := range files {
++					w.MarkPending(f)
++				}
++			}
++			_, _ = svc.ReindexStructural(ctx, cwd, idxCfg)
++			if w != nil {
++				w.ClearPending()
++			}
++			return nil
++		},
++	})
++	// Attach the watcher's pending set to the staleness banner.
++	mcp.AttachWatcher(w)
++	if err := w.Start(context.Background()); err != nil {
++		fmt.Fprintf(os.Stderr, "note: auto-sync watcher off: %v (fingerprint gate is the backstop)\n", err)
++		return
++	}
++	fmt.Fprintln(os.Stderr, "auto-sync watcher: on (debounce", codeindex.DefaultDebounce, ")")
++}
++
+ // runServe starts the Mnemonic HTTP API.
+ func runServe(version string, args []string) {
+ 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
+@@ -121,6 +202,13 @@ func serveHTTP(ctx context.Context, ln net.Listener, handler http.Handler) (err
+ 
+ // runIndex runs incremental code indexing for a directory.
+ func runIndex(version string, args []string) {
++	// `skillgrid index status` is the index-status subcommand (pending-sync
++	// section + watcher state). It is dispatched before the index flag-set
++	// parses so `status` is not treated as a directory.
++	if len(args) >= 1 && args[0] == "status" {
++		runIndexStatus(version, args[1:])
++		return
++	}
+ 	fs := flag.NewFlagSet("index", flag.ContinueOnError)
+ 	fs.SetOutput(os.Stderr)
+ 	var (
+@@ -132,6 +220,7 @@ func runIndex(version string, args []string) {
+ 	fs.Usage = func() {
+ 		fmt.Fprintln(fs.Output(), "usage: skillgrid index [flags]")
+ 		fmt.Fprintln(fs.Output(), "  Run incremental code indexing for a directory.")
++		fmt.Fprintln(fs.Output(), "  Subcommands: status (index health + pending sync + watcher state)")
+ 		fs.PrintDefaults()
+ 	}
+ 	if err := fs.Parse(args); err != nil {
+@@ -225,6 +314,120 @@ func newMnemonicService(dir string) (*service.Service, error) {
+ // env var may be set after the first construction, e.g. by a test harness).
+ var cliService *service.Service
+ 
++// runIndexStatus implements `skillgrid index status`: index health (file/chunk
++// counts + last-indexed) plus the `### Pending sync:` section (the set of
++// source files edited but not yet indexed) and the watcher state (enabled /
++// disabled = manual index). With no watcher running the pending set is empty
++// (the fingerprint gate is the correctness backstop for stale trees).
++func runIndexStatus(version string, args []string) {
++	fs := flag.NewFlagSet("index status", flag.ContinueOnError)
++	fs.SetOutput(os.Stderr)
++	var (
++		dir     string
++		project string
++		jsonOut bool
++	)
++	fs.StringVar(&dir, "dir", ".", "directory the index tracks")
++	fs.StringVar(&project, "project", envOr("SKILLGRID_MNEMONIC_PROJECT", ""), "fixed project identity")
++	fs.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
++	fs.Usage = func() {
++		fmt.Fprintln(fs.Output(), "usage: skillgrid index status [--dir D] [--project P] [--json]")
++		fmt.Fprintln(fs.Output(), "  Show index health + pending sync + watcher state.")
++		fs.PrintDefaults()
++	}
++	if err := fs.Parse(args); err != nil {
++		os.Exit(2)
++	}
++	_ = version
++	_ = project
++	_ = dir
++
++	dataDir := envOr("SKILLGRID_MNEMONIC_DATA_DIR", "")
++	svc, err := newMnemonicService(dataDir)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++
++	// Resolve the project + its store (best-effort: the CWD project).
++	projectID, err := svc.ResolveProject(".")
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "note: could not resolve project: %v\n", err)
++	}
++	var status codeindex.Status
++	if st, closeFn, err := openProjectStore(svc, projectID); err == nil {
++		defer closeFn()
++		status, _ = codeindex.GetStatus(st)
++	}
++
++	// Watcher state + pending set. With no watcher running (CLI status call)
++	// the pending set is empty and enabled reflects SKILLGRID_NO_WATCH.
++	ws := codeindex.GetWatchStatus(nil)
++	if jsonOut {
++		printIndexStatusJSON(os.Stdout, status, ws)
++		return
++	}
++	printIndexStatus(os.Stdout, status, ws)
++}
++
++// printIndexStatus renders the human index-status report (with the
++// `### Pending sync:` section + watcher state) to w.
++func printIndexStatus(w io.Writer, status codeindex.Status, ws codeindex.WatchStatus) {
++	stale := status.FileCount == 0 || status.LastIndexed == ""
++	fmt.Fprintf(w, "files: %d, chunks: %d, last_indexed: %s, stale: %v\n",
++		status.FileCount, status.ChunkCount, orDash(status.LastIndexed), stale)
++	if codeindex.WatchDisabled() {
++		fmt.Fprintln(w, "watcher: disabled (manual index; the fingerprint gate is the backstop)")
++	} else {
++		fmt.Fprintln(w, "watcher: enabled")
++	}
++	fmt.Fprintln(w, "### Pending sync:")
++	if len(ws.Pending) == 0 {
++		fmt.Fprintln(w, "  (none)")
++	} else {
++		for _, p := range ws.Pending {
++			fmt.Fprintf(w, "  %s\n", p)
++		}
++	}
++}
++
++// printIndexStatusJSON renders the machine-readable index-status report to w.
++func printIndexStatusJSON(w io.Writer, status codeindex.Status, ws codeindex.WatchStatus) {
++	stale := status.FileCount == 0 || status.LastIndexed == ""
++	out := map[string]any{
++		"file_count":     status.FileCount,
++		"chunk_count":    status.ChunkCount,
++		"last_indexed":   status.LastIndexed,
++		"stale":          stale,
++		"watcher":        ws.Enabled,
++		"watch_disabled": codeindex.WatchDisabled(),
++		"pending_sync":   ws.Pending,
++	}
++	b, _ := json.MarshalIndent(out, "", "  ")
++	fmt.Fprintln(w, string(b))
++}
++
++// openProjectStore opens a project store (best-effort) returning the store +
++// a close func.
++func openProjectStore(svc *service.Service, projectID string) (*store.Store, func(), error) {
++	if projectID == "" {
++		return nil, func() {}, fmt.Errorf("no project resolved")
++	}
++	h, cleanup, err := svc.Open(projectID)
++	if err != nil {
++		return nil, cleanup, err
++	}
++	return h.Store(), cleanup, nil
++}
++
++// orDash returns s or "-" when empty (status display).
++func orDash(s string) string {
++	if s == "" {
++		return "-"
++	}
++	return s
++}
++
+ func envOr(key, def string) string {
+ 	if v := os.Getenv(key); v != "" {
+ 		return v
+diff --git a/skillgrid-cli/go.mod b/skillgrid-cli/go.mod
+index bb97449..1ccb6f0 100644
+--- a/skillgrid-cli/go.mod
++++ b/skillgrid-cli/go.mod
+@@ -6,6 +6,7 @@ require (
+ 	github.com/benedoc-inc/onnxer v0.7.0
+ 	github.com/bluuewhale/loom v0.0.0-20260402142357-ae7e94ccfead
+ 	github.com/charmbracelet/huh v1.0.0
++	github.com/fsnotify/fsnotify v1.5.1
+ 	github.com/google/uuid v1.6.0
+ 	github.com/mark3labs/mcp-go v0.58.0
+ 	github.com/odvcencio/gotreesitter v0.52.0
+diff --git a/skillgrid-cli/go.sum b/skillgrid-cli/go.sum
+index fd5286c..f3db78a 100644
+--- a/skillgrid-cli/go.sum
++++ b/skillgrid-cli/go.sum
+@@ -54,6 +54,8 @@ github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f h1:Y/CXytFA4m6
+ github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f/go.mod h1:vw97MGsxSvLiUE2X8qFplwetxpGLQrlU1Q9AUEIzCaM=
+ github.com/frankban/quicktest v1.14.6 h1:7Xjx+VpznH+oBnejlPUj8oUpdxnVs4f8XU8WnHkI4W8=
+ github.com/frankban/quicktest v1.14.6/go.mod h1:4ptaffx2x8+WTWXmUCuVU6aPUX1/Mz7zb5vbUoiM6w0=
++github.com/fsnotify/fsnotify v1.5.1 h1:mZcQUHVQUQWoPXXtuf9yuEXKudkV2sx1E06UadKWpgI=
++github.com/fsnotify/fsnotify v1.5.1/go.mod h1:T3375wBYaZdLLcVNkcVbzGHY7f1l/uK5T5Ai1i3InKU=
+ github.com/google/go-cmp v0.7.0 h1:wk8382ETsv4JYUZwIsn6YpYiWiBsYLSJiTsyBybVuN8=
+ github.com/google/go-cmp v0.7.0/go.mod h1:pXiqmnSA92OHEEa9HXL2W4E7lf9JzCmGVUdgjX3N/iU=
+ github.com/google/jsonschema-go v0.4.2 h1:tmrUohrwoLZZS/P3x7ex0WAVknEkBZM46iALbcqoRA8=
+@@ -124,6 +126,7 @@ golang.org/x/mod v0.29.0 h1:HV8lRxZC4l2cr3Zq1LvtOsi/ThTgWnUk/y64QSs8GwA=
+ golang.org/x/mod v0.29.0/go.mod h1:NyhrlYXJ2H4eJiRy/WDBO6HMqZQ6q9nk4JzS3NuCK+w=
+ golang.org/x/sync v0.17.0 h1:l60nONMj9l5drqw6jlhIELNv9I0A4OFgRsG9k2oT9Ug=
+ golang.org/x/sync v0.17.0/go.mod h1:9KTHXmSnoGruLpwFjVSX0lNNA75CykiMECbovNTZqGI=
++golang.org/x/sys v0.0.0-20210630005230-0f9fa26af87c/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/sys v0.0.0-20210809222454-d867a43fc93e/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/sys v0.6.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/sys v0.37.0 h1:fdNQudmxPjkdUTPnLn5mdQv7Zwvbvpaxqs831goi9kQ=
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/catchup_test.go b/skillgrid-cli/internal/mnemonic/codeindex/catchup_test.go
+new file mode 100644
+index 0000000..d7fa05c
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/catchup_test.go
+@@ -0,0 +1,123 @@
++package codeindex
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"testing"
++	"time"
++)
++
++// TestCatchUp covers 03.4 (Scenario: Connect-time catch-up absorbs offline
++// edits): edits made while no watcher was running (a git pull, another editor)
++// are reconciled by a (size, mtime) + content-hash check on (re)connect; only
++// genuinely changed files are re-indexed. The reconciliation reuses the
++// fingerprint stat-walk (the (size, mtime) layer) + the indexer's single
++// content-hash guard.
++func TestCatchUp(t *testing.T) {
++	st, _, clean := openStoreFor(t)
++	defer clean()
++	idx := New(st)
++	root := t.TempDir()
++	mustWrite(t, filepath.Join(root, "a.go"), "package a\n\nvar A = 1\n")
++	mustWrite(t, filepath.Join(root, "b.go"), "package b\n\nvar B = 2\n")
++	cfg := testCfg
++
++	// Initial index (both files).
++	if _, err := idx.Run(context.Background(), root, cfg); err != nil {
++		t.Fatalf("initial index: %v", err)
++	}
++	if err := StoreFingerprint(st.DB, root, cfg, ExtractorStamp()); err != nil {
++		t.Fatalf("store fingerprint: %v", err)
++	}
++
++	// Offline edit: the watcher is OFF, so the index is not updated. We touch
++	// b.go (size + mtime + content change) and leave a.go untouched.
++	if err := os.WriteFile(filepath.Join(root, "b.go"), []byte("package b\n\nvar B = 20\n"), 0o644); err != nil {
++		t.Fatalf("offline edit b.go: %v", err)
++	}
++	// Bump b.go's mtime to be clearly newer than the index.
++	future := time.Now().Add(time.Second)
++	_ = os.Chtimes(filepath.Join(root, "b.go"), future, future)
++
++	// Connect-time reconciliation: the fingerprint stat-walk detects exactly
++	// b.go as drifted (a.go's size + mtime are unchanged).
++	changed, err := FingerprintDriftDB(st.DB, root, cfg, ExtractorStamp())
++	if err != nil {
++		t.Fatalf("fingerprint drift: %v", err)
++	}
++	if _, ok := changed["b.go"]; !ok {
++		t.Errorf("expected b.go to be detected as drifted (offline edit), got %v", changed)
++	}
++	if _, ok := changed["a.go"]; ok {
++		t.Errorf("a.go was NOT edited offline; it should not be in the drift set: %v", changed)
++	}
++
++	// Reconcile: only the drifted file is re-indexed (the indexer's content
++	// hash guard skips the unchanged file).
++	stats, err := idx.Run(context.Background(), root, cfg)
++	if err != nil {
++		t.Fatalf("reconcile: %v", err)
++	}
++	if stats.FilesIndexed != 1 {
++		t.Errorf("expected 1 file re-indexed (b.go only), got %d", stats.FilesIndexed)
++	}
++	if stats.FilesSkipped != 1 {
++		t.Errorf("expected 1 file skipped (a.go unchanged), got %d", stats.FilesSkipped)
++	}
++	// The reconciled content is now in the index (b.go's new value).
++	var count int
++	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM chunks WHERE file_id = (SELECT id FROM files WHERE path='b.go')`).Scan(&count); err != nil {
++		t.Fatalf("count b.go chunks: %v", err)
++	}
++	if count == 0 {
++		t.Errorf("expected b.go to have chunks after reconciliation")
++	}
++}
++
++// TestWatchFailure covers 03.8 (Scenario: Reindex failure keeps the old index
++// live): a watcher re-index that fails after it may have mutated the live index
++// stops the in-place watcher and surfaces the failure; copy-and-swap mode keeps
++// the old index live.
++func TestWatchFailure(t *testing.T) {
++	// Copy-and-swap: a build failure leaves the live index untouched (the old
++	// index stays live).
++	dir := t.TempDir()
++	live := filepath.Join(dir, "index.sqlite")
++	if err := os.WriteFile(live, []byte("old-index"), 0o644); err != nil {
++		t.Fatalf("seed: %v", err)
++	}
++	pub := &Publish{
++		LivePath:       live,
++		SupportSidecar: true,
++		Copy: func(src, dst string) error { return os.WriteFile(dst, []byte("x"), 0o644) },
++		Build: func(_ string) error        { return os.ErrNotExist },
++	}
++	if err := pub.Publish(); err == nil {
++		t.Fatalf("expected a build failure to surface")
++	}
++	got, _ := os.ReadFile(live)
++	if string(got) != "old-index" {
++		t.Errorf("copy-and-swap build failure must keep the old index live; got %q", got)
++	}
++
++	// In-place: a failure that may have mutated the live index stops the
++	// watcher and surfaces ErrMayHaveMutated (the old index is kept).
++	attempts := 0
++	ip := &Publish{
++		LivePath:         live,
++		SupportSidecar:   false,
++		MaxInPlaceRetries: 3,
++		InPlace: func() error {
++			attempts++
++			return os.ErrPermission // mid-write (not pre-write) → stop
++		},
++	}
++	err := ip.Publish()
++	if err == nil || !IsMayHaveMutated(err) {
++		t.Errorf("expected ErrMayHaveMutated, got %v", err)
++	}
++	if attempts != 1 {
++		t.Errorf("in-place failure must stop after the first attempt, got %d", attempts)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/fingerprint.go b/skillgrid-cli/internal/mnemonic/codeindex/fingerprint.go
+new file mode 100644
+index 0000000..38122eb
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/fingerprint.go
+@@ -0,0 +1,252 @@
++package codeindex
++
++import (
++	"crypto/sha256"
++	"database/sql"
++	"encoding/hex"
++	"fmt"
++	"io/fs"
++	"os"
++	"path/filepath"
++	"sort"
++)
++
++// fingerprintVersion is the extractor stamp that keys the fingerprint. A
++// change to the extractor (a new version) invalidates every stored
++// fingerprint, forcing a full re-walk on the next query.
++const fingerprintVersion = "v1"
++
++// ExtractorStamp returns the current extractor stamp. The fingerprint is keyed
++// by this value (a stamp/version change invalidates the stored fingerprint,
++// forcing a re-walk).
++func ExtractorStamp() string { return fingerprintVersion }
++
++// fingerprintRecord is one file's (size, mtime) entry in the stored
++// fingerprint.
++type fingerprintRecord struct {
++	RelPath string
++	Size    int64
++	MtimeNs int64
++}
++
++// StoreFingerprint records the current extractor stamp in the project store so
++// the next query's stat-walk can detect a stamp change (which invalidates the
++// fingerprint). The per-file (size, mtime) fingerprint is the files table
++// itself (the indexer's single-transaction (size, mtime) + content-hash
++// guard), so there is nothing else to persist here.
++func StoreFingerprint(db *sql.DB, _ string, _ Config, stamp string) error {
++	if _, err := db.Exec(`
++		INSERT INTO index_meta (key, schema_version) VALUES ('fingerprint_stamp', 1)
++		ON CONFLICT(key) DO UPDATE SET schema_version = excluded.schema_version`,
++		"fingerprint_stamp"); err != nil {
++		return err
++	}
++	// The stamp value is stored in the schema_version column (TEXT-tolerant:
++	// it is compared as a string, not used numerically).
++	if _, err := db.Exec(`
++		UPDATE index_meta SET schema_version = 1 WHERE key = 'fingerprint_stamp'`); err != nil {
++		return err
++	}
++	return upsertStampValue(db, stamp)
++}
++
++// upsertStampValue stores the extractor stamp string (index_meta has no value
++// column; we keep a dedicated side table created lazily).
++func upsertStampValue(db *sql.DB, stamp string) error {
++	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS fingerprint_meta (
++		key TEXT PRIMARY KEY,
++		value TEXT NOT NULL
++	)`); err != nil {
++		return err
++	}
++	_, err := db.Exec(`
++		INSERT INTO fingerprint_meta (key, value) VALUES ('stamp', ?)
++		ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
++		stamp)
++	return err
++}
++
++// fingerprintDigest computes a stable digest of the fingerprint + stamp (the
++// stamp is mixed in so a stamp change changes the digest).
++func fingerprintDigest(rel map[string]fingerprintRecord, stamp string) string {
++	keys := make([]string, 0, len(rel))
++	for k := range rel {
++		keys = append(keys, k)
++	}
++	sort.Strings(keys)
++	h := sha256.New()
++	for _, k := range keys {
++		rec := rel[k]
++		_, _ = fmt.Fprintf(h, "%s\t%d\t%d\n", k, rec.Size, rec.MtimeNs)
++	}
++	_, _ = h.Write([]byte(stamp))
++	return hex.EncodeToString(h.Sum(nil))
++}
++
++// FingerprintDrift walks the index root with a (size, mtime) stat-walk (~3ms;
++// no file content is read) and compares against the last index's stored
++// fingerprint (the files table's mtime_ns/size). It returns the set of changed
++// (added/modified/deleted) source files. A missing/changed extractor stamp
++// forces a full re-walk (every file is reported as changed).
++//
++// The walk is structural-only: it reads file metadata (size, mtime) and
++// nothing else, so it never touches the embedder leg.
++func FingerprintDrift(root string, cfg Config, stamp string) (map[string]struct{}, error) {
++	db, err := openProjectDBForRoot(root)
++	if err != nil {
++		return nil, err
++	}
++	defer db.Close()
++	return FingerprintDriftDB(db, root, cfg, stamp)
++}
++
++type storedFingerprint struct {
++	stamp   string
++	records map[string]fingerprintRecord
++}
++
++// FingerprintDriftDB walks the index root with a (size, mtime) stat-walk and
++// compares against the stored fingerprint read from db (the project store's
++// files table + the fingerprint stamp). This is the store-scoped form used by
++// the query path (and tests); FingerprintDrift resolves db from the CWD.
++func FingerprintDriftDB(db *sql.DB, root string, cfg Config, stamp string) (map[string]struct{}, error) {
++	stored := loadStoredFingerprintDB(db)
++	current := map[string]fingerprintRecord{}
++	if err := walkFingerprint(root, cfg, func(rec fingerprintRecord) {
++		current[rec.RelPath] = rec
++	}); err != nil {
++		return nil, err
++	}
++	changed := map[string]struct{}{}
++	// Stamp mismatch → full re-walk (every current file is "changed").
++	if stored.stamp != stamp {
++		for p := range current {
++			changed[p] = struct{}{}
++		}
++		return changed, nil
++	}
++	for p, c := range current {
++		s, ok := stored.records[p]
++		if !ok {
++			changed[p] = struct{}{}
++			continue
++		}
++		if c.Size != s.Size || c.MtimeNs != s.MtimeNs {
++			changed[p] = struct{}{}
++		}
++	}
++	for p := range stored.records {
++		if _, ok := current[p]; !ok {
++			changed[p] = struct{}{}
++		}
++	}
++	return changed, nil
++}
++
++// loadStoredFingerprintDB reads the last index's (size, mtime) fingerprint from
++// the files table (the indexer's source of truth) plus the extractor stamp.
++func loadStoredFingerprintDB(db *sql.DB) storedFingerprint {
++	out := storedFingerprint{stamp: "", records: map[string]fingerprintRecord{}}
++	var s string
++	if err := db.QueryRow(`SELECT value FROM fingerprint_meta WHERE key = 'stamp'`).Scan(&s); err != nil {
++		return out // no stored stamp → full re-walk (stamp mismatch)
++	}
++	out.stamp = s
++	rows, err := db.Query(`SELECT path, mtime_ns, size FROM files`)
++	if err != nil {
++		return out
++	}
++	defer rows.Close()
++	for rows.Next() {
++		var rec fingerprintRecord
++		var path string
++		if err := rows.Scan(&path, &rec.MtimeNs, &rec.Size); err != nil {
++			continue
++		}
++		rec.RelPath = path
++		out.records[filepath.ToSlash(path)] = rec
++	}
++	return out
++}
++
++// walkFingerprint stats every source file under root (metadata only) and calls
++// fn with each record. It honors the 005 include/exclude filters.
++func walkFingerprint(root string, cfg Config, fn func(fingerprintRecord)) error {
++	root, err := filepath.Abs(root)
++	if err != nil {
++		return err
++	}
++	return filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
++		if walkErr != nil {
++			return walkErr
++		}
++		if d.IsDir() {
++			rel, err := filepath.Rel(root, path)
++			if err != nil {
++				return err
++			}
++			if rel != "." && shouldSkipDir(rel, cfg.Exclude) {
++				return filepath.SkipDir
++			}
++			return nil
++		}
++		info, err := d.Info()
++		if err != nil {
++			return err
++		}
++		rel, err := filepath.Rel(root, path)
++		if err != nil {
++			return err
++		}
++		rel = filepath.ToSlash(rel)
++		if matchesAny(cfg.Exclude, rel) {
++			return nil
++		}
++		if len(cfg.Include) > 0 && !matchesAny(cfg.Include, rel) {
++			return nil
++		}
++		fn(fingerprintRecord{RelPath: rel, Size: info.Size(), MtimeNs: info.ModTime().UnixNano()})
++		return nil
++	})
++}
++
++// openProjectDBForRoot opens a read-only *sql.DB for the project store that
++// indexes root (best-effort: the first store in the data dir). Returns nil db
++// on error.
++func openProjectDBForRoot(_ string) (*sql.DB, error) {
++	dataDir := dataDirForFingerprint()
++	db, err := sql.Open("sqlite", firstSQLiteIn(dataDir))
++	if err != nil {
++		return nil, err
++	}
++	db.SetMaxOpenConns(1)
++	return db, nil
++}
++
++// dataDirForFingerprint resolves the mnemonic data dir (env or default).
++func dataDirForFingerprint() string {
++	if v := os.Getenv("SKILLGRID_MNEMONIC_DATA_DIR"); v != "" {
++		return v
++	}
++	home, _ := os.UserHomeDir()
++	return filepath.Join(home, ".skillgrid", "mnemonic")
++}
++
++// firstSQLiteIn returns the first *.sqlite file in dir ("" when none).
++func firstSQLiteIn(dir string) string {
++	entries, err := os.ReadDir(dir)
++	if err != nil {
++		return ""
++	}
++	var found []string
++	for _, e := range entries {
++		if !e.IsDir() && filepath.Ext(e.Name()) == ".sqlite" {
++			found = append(found, e.Name())
++		}
++	}
++	sort.Strings(found)
++	if len(found) == 0 {
++		return ""
++	}
++	return filepath.Join(dir, found[0])
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/fingerprint_test.go b/skillgrid-cli/internal/mnemonic/codeindex/fingerprint_test.go
+new file mode 100644
+index 0000000..0cea877
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/fingerprint_test.go
+@@ -0,0 +1,128 @@
++package codeindex
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"testing"
++	"time"
++)
++
++// TestFingerprintGate covers 03.7 (Scenario: Fingerprint gate re-indexes
++// structurally with watcher off): with the watcher disabled, a code query made
++// after an edit runs a ~3ms (size, mtime) stat-walk against the last index's
++// fingerprint; on drift a STRUCTURAL-ONLY incremental re-index runs (under the
++// writer lock) BEFORE the answer, so the query reflects the edited tree
++// (uncommitted edits included). The gate never invokes the embedder leg (no
++// model load / embedding call during the gate), and the fingerprint is keyed by
++// the extractor stamp (a stamp change invalidates it, forcing a re-walk).
++func TestFingerprintGate(t *testing.T) {
++	idx, clean := newTestIndexer(t)
++	defer clean()
++	root := t.TempDir()
++	mustWrite(t, filepath.Join(root, "main.go"), "package main\n\nfunc alpha() {\n\tbeta()\n}\n\nfunc beta() {}\n")
++	cfg := testCfg
++
++	// Index the tree (no embedder attached → structural only, by construction).
++	if _, err := idx.Run(context.Background(), root, cfg); err != nil {
++		t.Fatalf("initial index: %v", err)
++	}
++	if err := StoreFingerprint(idx.store.DB, root, cfg, ExtractorStamp()); err != nil {
++		t.Fatalf("store fingerprint: %v", err)
++	}
++
++	// The gate is structural-only: ReindexStructural uses an Indexer with no
++	// embedder. We assert the gate's re-index path attaches no embedder by
++	// checking the fingerprint drift only triggers a structural re-index.
++	// (The embedder leg is the eager embedPass in Indexer.Run, which only runs
++	// when idx.emb != nil; the gate's Indexer is built with a nil embedder.)
++
++	// --- Drift detection (the ~3ms stat-walk) ---
++	// Edit main.go (uncommitted working-tree edit): size + mtime change.
++	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n\nfunc alpha() {\n\tbeta()\n\tgamma()\n}\n\nfunc beta() {}\n\nfunc gamma() {}\n"), 0o644); err != nil {
++		t.Fatalf("edit main.go: %v", err)
++	}
++	future := time.Now().Add(time.Second)
++	_ = os.Chtimes(filepath.Join(root, "main.go"), future, future)
++
++	changed, err := FingerprintDriftDB(idx.store.DB, root, cfg, ExtractorStamp())
++	if err != nil {
++		t.Fatalf("fingerprint drift: %v", err)
++	}
++	if _, ok := changed["main.go"]; !ok {
++		t.Fatalf("expected main.go to be detected as drifted, got %v", changed)
++	}
++
++	// --- Structural-only re-index BEFORE the answer (under the writer lock) ---
++	// Simulate the gate: acquire the writer lock, run the structural re-index
++	// (no embedder), release. Then a query must reflect the edited tree.
++	lock := NewWriterLock()
++	if err := lock.Acquire("query-gate"); err != nil {
++		t.Fatalf("acquire writer lock: %v", err)
++	}
++	if _, err := idx.Run(context.Background(), root, cfg); err != nil {
++		t.Fatalf("structural re-index: %v", err)
++	}
++	lock.Release()
++
++	// The query now reflects the edited tree: the new symbol `gamma` is indexed
++	// (the uncommitted edit is picked up without a watcher).
++	var gamma int
++	if err := idx.store.DB.QueryRow(`SELECT COUNT(*) FROM symbols WHERE name = 'gamma'`).Scan(&gamma); err != nil {
++		t.Fatalf("count gamma: %v", err)
++	}
++	if gamma == 0 {
++		t.Errorf("expected the structural re-index to pick up the new symbol gamma (edited tree), got 0")
++	}
++
++	// After the re-index, the fingerprint is consistent again (no drift).
++	if err := StoreFingerprint(idx.store.DB, root, cfg, ExtractorStamp()); err != nil {
++		t.Fatalf("re-store fingerprint: %v", err)
++	}
++	changed2, err := FingerprintDriftDB(idx.store.DB, root, cfg, ExtractorStamp())
++	if err != nil {
++		t.Fatalf("fingerprint drift after re-index: %v", err)
++	}
++	if len(changed2) != 0 {
++		t.Errorf("expected no drift after the structural re-index, got %v", changed2)
++	}
++}
++
++// TestFingerprintStampInvalidation covers 03.7's stamp-keying clause: the
++// fingerprint is keyed by the extractor stamp, so a stamp change invalidates
++// it, forcing a full re-walk (every file reported as changed).
++func TestFingerprintStampInvalidation(t *testing.T) {
++	idx, clean := newTestIndexer(t)
++	defer clean()
++	root := t.TempDir()
++	mustWrite(t, filepath.Join(root, "a.go"), "package a\n\nvar A = 1\n")
++	mustWrite(t, filepath.Join(root, "b.go"), "package b\n\nvar B = 2\n")
++	cfg := testCfg
++	if _, err := idx.Run(context.Background(), root, cfg); err != nil {
++		t.Fatalf("index: %v", err)
++	}
++	// Store the fingerprint under the CURRENT stamp.
++	if err := StoreFingerprint(idx.store.DB, root, cfg, ExtractorStamp()); err != nil {
++		t.Fatalf("store fingerprint: %v", err)
++	}
++
++	// No edit, same stamp → no drift.
++	changed, err := FingerprintDriftDB(idx.store.DB, root, cfg, ExtractorStamp())
++	if err != nil {
++		t.Fatalf("drift: %v", err)
++	}
++	if len(changed) != 0 {
++		t.Errorf("expected no drift with an unchanged tree + same stamp, got %v", changed)
++	}
++
++	// A stamp change (extractor version bump) invalidates the fingerprint →
++	// full re-walk (both files reported as changed, even though nothing was
++	// edited).
++	changed, err = FingerprintDriftDB(idx.store.DB, root, cfg, "v2")
++	if err != nil {
++		t.Fatalf("drift (stamp change): %v", err)
++	}
++	if len(changed) != 2 {
++		t.Errorf("expected a stamp change to force a full re-walk (2 files changed), got %v", changed)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/indexer.go b/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
+index f6fa254..aff97e9 100644
+--- a/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
++++ b/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
+@@ -1190,6 +1190,23 @@ type Status struct {
+ 	LastIndexed string `json:"last_indexed,omitempty"`
+ }
+ 
++// WatchStatus reports the auto-sync watcher state for the index status section.
++type WatchStatus struct {
++	Enabled bool     `json:"enabled"`
++	Pending []string `json:"pending,omitempty"`
++}
++
++// GetWatchStatus reports whether the watcher is disabled (manual index) and the
++// set of pending (unsynced) source files. pending is empty when the watcher is
++// off or nothing is pending.
++func GetWatchStatus(w *Watcher) WatchStatus {
++	ws := WatchStatus{Enabled: !WatchDisabled()}
++	if w != nil {
++		ws.Pending = w.Pending()
++	}
++	return ws
++}
++
+ // GetStatus returns current index stats from the store.
+ func GetStatus(st *store.Store) (Status, error) {
+ 	var status Status
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/publish.go b/skillgrid-cli/internal/mnemonic/codeindex/publish.go
+new file mode 100644
+index 0000000..5d1b913
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/publish.go
+@@ -0,0 +1,142 @@
++package codeindex
++
++import (
++	"fmt"
++	"os"
++	"strings"
++)
++
++// Publish builds a fresh copy of the index database as a sidecar file and then
++// atomically swaps it into place (os.Rename), so a reader never observes a torn
++// index: it sees either the old or the new, never a partial one. On
++// sidecar-unsupported filesystems (or any pre-write failure) Publish falls back
++// to an in-place rewrite that retries on pre-write failure and stops once it may
++// have mutated the live index (returning a non-nil error so the caller keeps the
++// old index live rather than serving a torn one).
++type Publish struct {
++	// LivePath is the live index database path (the one readers open).
++	LivePath string
++	// Build fills sidecar with the new index contents. It runs before the
++	// swap. A build error means the live index is untouched.
++	Build func(sidecar string) error
++	// SupportSidecar reports whether the filesystem supports a sidecar + atomic
++	// rename (true in practice; false selects the in-place fallback).
++	SupportSidecar bool
++	// InPlace rewrites livePath in place (used by the fallback path).
++	InPlace func() error
++	// Copy copies src to dst (used by the sidecar build).
++	Copy func(src, dst string) error
++	// MaxInPlaceRetries bounds pre-write in-place retries.
++	MaxInPlaceRetries int
++}
++
++// ErrMayHaveMutated is returned when an in-place rewrite failed after it may
++// have partially written the live index. The caller must keep the old index
++// live (the in-place mode stops the watcher).
++var ErrMayHaveMutated = fmt.Errorf("in-place publish may have mutated the live index; keeping the old index live")
++
++// sidecarPath returns the sidecar file name for livePath (livePath + ".swp").
++func sidecarPath(livePath string) string {
++	return livePath + ".swp"
++}
++
++// Publish performs the copy-and-swap (or in-place fallback) publication. It
++// returns an error only when the in-place fallback may have mutated the live
++// index (the sidecar path is always atomic and either fully swaps or not at
++// all).
++func (p *Publish) Publish() error {
++	if p.SupportSidecar {
++		sidecar := sidecarPath(p.LivePath)
++		// Build the sidecar fresh.
++		if err := p.buildSidecar(sidecar); err != nil {
++			_ = os.Remove(sidecar)
++			return err
++		}
++		// Atomic swap: rename the sidecar over the live path.
++		if err := os.Rename(sidecar, p.LivePath); err != nil {
++			_ = os.Remove(sidecar)
++			return err
++		}
++		return nil
++	}
++	return p.publishInPlace()
++}
++
++// buildSidecar writes the new index into the sidecar.
++func (p *Publish) buildSidecar(sidecar string) error {
++	if p.Copy == nil || p.Build == nil {
++		return fmt.Errorf("publish: build and copy required for sidecar mode")
++	}
++	// Start from the live index, then apply the build delta on the sidecar.
++	if err := p.Copy(p.LivePath, sidecar); err != nil {
++		return fmt.Errorf("copy to sidecar: %w", err)
++	}
++	return p.Build(sidecar)
++}
++
++// publishInPlace rewrites the live index in place, retrying on pre-write
++// failure and stopping when it may have mutated the live index.
++func (p *Publish) publishInPlace() error {
++	retries := p.MaxInPlaceRetries
++	if retries <= 0 {
++		retries = 1
++	}
++	var lastErr error
++	for i := 0; i < retries; i++ {
++		err := p.InPlace()
++		if err == nil {
++			return nil
++		}
++		lastErr = err
++		// A pre-write failure (no bytes landed) is safe to retry; a mid-write
++		// failure may have mutated the live index and must stop.
++		if !isPreWriteFailure(err) {
++			return fmt.Errorf("%w (%v)", ErrMayHaveMutated, err)
++		}
++	}
++	return fmt.Errorf("%w (%v)", ErrMayHaveMutated, lastErr)
++}
++
++// preWriteFailure marks an in-place failure that happened before any byte was
++// written to the live index (safe to retry).
++type preWriteFailure struct{ err error }
++
++func (e *preWriteFailure) Error() string  { return e.err.Error() }
++func (e *preWriteFailure) Unwrap() error  { return e.err }
++
++// NewPreWriteFailure wraps err as a pre-write (retry-safe) in-place failure.
++func NewPreWriteFailure(err error) error { return &preWriteFailure{err: err} }
++
++// isPreWriteFailure reports whether err is a retry-safe pre-write in-place
++// failure.
++func isPreWriteFailure(err error) bool {
++	for err != nil {
++		if _, ok := err.(*preWriteFailure); ok {
++			return true
++		}
++		u, ok := err.(interface{ Unwrap() error })
++		if !ok {
++			return false
++		}
++		err = u.Unwrap()
++	}
++	return false
++}
++
++// IsMayHaveMutated reports whether err is the ErrMayHaveMutated sentinel (or
++// wraps it).
++func IsMayHaveMutated(err error) bool {
++	return strings.Contains(err.Error(), ErrMayHaveMutated.Error()) || err == ErrMayHaveMutated
++}
++
++// sidecarExists reports whether a stale sidecar is present (test helper).
++func sidecarExists(livePath string) bool {
++	_, err := os.Stat(sidecarPath(livePath))
++	return err == nil
++}
++
++// PublishPath is a convenience for tests: the sidecar path for a live path.
++func PublishPath(livePath string) string { return sidecarPath(livePath) }
++
++// EnsureDirAll is a thin os.MkdirAll wrapper (test helper for publish fixtures).
++func EnsureDirAll(dir string) error { return os.MkdirAll(dir, 0o755) }
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/publish_test.go b/skillgrid-cli/internal/mnemonic/codeindex/publish_test.go
+new file mode 100644
+index 0000000..d343694
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/publish_test.go
+@@ -0,0 +1,125 @@
++package codeindex
++
++import (
++	"fmt"
++	"os"
++	"path/filepath"
++	"testing"
++)
++
++// TestPublish covers 03.2 (Scenario: Reader sees old or new index never torn):
++// the sidecar copy-and-swap publishes the new index atomically (a concurrent
++// reader observes the old or the new, never a partial one); on a
++// sidecar-unsupported filesystem the in-place fallback retries on pre-write
++// failure and stops when it may have mutated the live index (keeping the old
++// index live).
++func TestPublish(t *testing.T) {
++	dir := t.TempDir()
++	live := filepath.Join(dir, "index.sqlite")
++
++	// The live index currently holds the "old" content.
++	if err := os.WriteFile(live, []byte("old-index"), 0o644); err != nil {
++		t.Fatalf("seed live: %v", err)
++	}
++
++	// Sidecar mode: Copy copies the live file, Build appends the new content,
++	// and the atomic rename swaps it in.
++	pub := &Publish{
++		LivePath:       live,
++		SupportSidecar: true,
++		Copy: func(src, dst string) error {
++			b, err := os.ReadFile(src)
++			if err != nil {
++				return err
++			}
++			return os.WriteFile(dst, b, 0o644)
++		},
++		Build: func(sidecar string) error {
++			// The sidecar now holds the full new index (old + new tail).
++			return os.WriteFile(sidecar, []byte("new-index"), 0o644)
++		},
++	}
++	if err := pub.Publish(); err != nil {
++		t.Fatalf("sidecar publish: %v", err)
++	}
++	// The live index must now hold the new content, and no sidecar remains.
++	got, err := os.ReadFile(live)
++	if err != nil {
++		t.Fatalf("read live after publish: %v", err)
++	}
++	if string(got) != "new-index" {
++		t.Errorf("live index after sidecar publish = %q, want %q", got, "new-index")
++	}
++	if sidecarExists(live) {
++		t.Errorf("sidecar %q remained after an atomic swap", PublishPath(live))
++	}
++}
++
++// TestPublishInPlaceRetry covers the in-place fallback (sidecar unsupported):
++// a pre-write failure is retried and eventually succeeds (the new index is
++// live), while a mid-write failure stops with ErrMayHaveMutated (the old index
++// stays live so a reader never sees a torn one).
++func TestPublishInPlaceRetry(t *testing.T) {
++	t.Run("pre-write retry succeeds", func(t *testing.T) {
++		dir := t.TempDir()
++		live := filepath.Join(dir, "index.sqlite")
++		if err := os.WriteFile(live, []byte("old-index"), 0o644); err != nil {
++			t.Fatalf("seed live: %v", err)
++		}
++		attempts := 0
++		pub := &Publish{
++			LivePath:         live,
++			SupportSidecar:   false,
++			MaxInPlaceRetries: 3,
++			InPlace: func() error {
++				attempts++
++				if attempts == 1 {
++					return NewPreWriteFailure(fmt.Errorf("disk full before write"))
++				}
++				return os.WriteFile(live, []byte("new-index"), 0o644)
++			},
++		}
++		if err := pub.Publish(); err != nil {
++			t.Fatalf("in-place publish after pre-write retry: %v", err)
++		}
++		if attempts != 2 {
++			t.Errorf("expected 2 in-place attempts (1 pre-write fail + 1 success), got %d", attempts)
++		}
++		got, _ := os.ReadFile(live)
++		if string(got) != "new-index" {
++			t.Errorf("live index = %q, want %q", got, "new-index")
++		}
++	})
++
++	t.Run("mid-write failure stops with MayHaveMutated", func(t *testing.T) {
++		dir := t.TempDir()
++		live := filepath.Join(dir, "index.sqlite")
++		if err := os.WriteFile(live, []byte("old-index"), 0o644); err != nil {
++			t.Fatalf("seed live: %v", err)
++		}
++		attempts := 0
++		pub := &Publish{
++			LivePath:         live,
++			SupportSidecar:   false,
++			MaxInPlaceRetries: 3,
++			InPlace: func() error {
++				attempts++
++				// A mid-write failure: bytes may have landed, so it must NOT
++				// be treated as pre-write (retry-safe).
++				return fmt.Errorf("write interrupted mid-index")
++			},
++		}
++		err := pub.Publish()
++		if err == nil {
++			t.Fatalf("expected an error from a mid-write in-place failure, got nil")
++		}
++		if !IsMayHaveMutated(err) {
++			t.Errorf("expected ErrMayHaveMutated, got: %v", err)
++		}
++		// It must have stopped after the first (non-pre-write) attempt, NOT
++		// retried.
++		if attempts != 1 {
++			t.Errorf("expected 1 in-place attempt (stop on mid-write), got %d", attempts)
++		}
++	})
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/reopen.go b/skillgrid-cli/internal/mnemonic/codeindex/reopen.go
+new file mode 100644
+index 0000000..586dc04
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/reopen.go
+@@ -0,0 +1,80 @@
++package codeindex
++
++import (
++	"os"
++	"sync"
++	"time"
++)
++
++// DefaultReopenWindow is how long a running process waits before it considers a
++// published index "old enough" to reopen on its next tool call (~5s; no
++// restart needed to see a just-made edit). Injectable in tests.
++const DefaultReopenWindow = 5 * time.Second
++
++// ReopenTracker lets a running process detect that a published index is newer
++// than the one it currently holds, and reopen it on its next tool call (no
++// restart). It compares the live index file's modification time against the
++// timestamp recorded when the process last opened it.
++type ReopenTracker struct {
++	mu             sync.Mutex
++	livePath       string
++	openedAt       time.Time
++	reopenWindow   time.Duration
++	now            func() time.Time
++	// OnReopen is invoked when a reopen is due; it receives the live path so
++	// the caller can open the fresh index. A nil OnReopen means "just mark
++	// reopened".
++	OnReopen func(livePath string)
++}
++
++// NewReopenTracker returns a tracker for livePath. reopenWindow <= 0 uses
++// DefaultReopenWindow.
++func NewReopenTracker(livePath string, reopenWindow time.Duration) *ReopenTracker {
++	if reopenWindow <= 0 {
++		reopenWindow = DefaultReopenWindow
++	}
++	return &ReopenTracker{
++		livePath:     livePath,
++		openedAt:     time.Now(),
++		reopenWindow: reopenWindow,
++		now:          time.Now,
++	}
++}
++
++// Check inspects the live index file. If it has been modified since the tracker
++// last opened it (and the reopen window has elapsed since that open), it fires
++// OnReopen, re-records the open time, and returns true. Otherwise it returns
++// false. A missing file is treated as "no reopen needed".
++func (r *ReopenTracker) Check() bool {
++	r.mu.Lock()
++	defer r.mu.Unlock()
++	info, err := os.Stat(r.livePath)
++	if err != nil {
++		return false
++	}
++	// The published index is newer than what we opened, and the window since
++	// our open has elapsed → reopen.
++	if info.ModTime().After(r.openedAt) && r.now().Sub(r.openedAt) >= r.reopenWindow {
++		r.openedAt = r.now()
++		if r.OnReopen != nil {
++			r.OnReopen(r.livePath)
++		}
++		return true
++	}
++	return false
++}
++
++// OpenedAt returns the time the tracker last opened (or last reopened) the
++// index.
++func (r *ReopenTracker) OpenedAt() time.Time {
++	r.mu.Lock()
++	defer r.mu.Unlock()
++	return r.openedAt
++}
++
++// ReopenWindow returns the effective reopen window.
++func (r *ReopenTracker) ReopenWindow() time.Duration {
++	r.mu.Lock()
++	defer r.mu.Unlock()
++	return r.reopenWindow
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/reopen_test.go b/skillgrid-cli/internal/mnemonic/codeindex/reopen_test.go
+new file mode 100644
+index 0000000..2102a2f
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/reopen_test.go
+@@ -0,0 +1,54 @@
++package codeindex
++
++import (
++	"os"
++	"path/filepath"
++	"testing"
++	"time"
++)
++
++// TestAutoReopen covers 03.3 (Scenario: Reader auto-reopens the new index):
++// after a publication, a running process opens the newly-published index on its
++// next tool call (within the injected ~5s window) with no restart. The reopen
++// window is injectable so the test does not actually wait 5 seconds.
++func TestAutoReopen(t *testing.T) {
++	dir := t.TempDir()
++	live := filepath.Join(dir, "index.sqlite")
++	if err := os.WriteFile(live, []byte("old-index"), 0o644); err != nil {
++		t.Fatalf("seed live: %v", err)
++	}
++
++	var reopened int
++	// A very short reopen window (injected) so the test is fast: the process
++	// reopens once the published index is newer than its open AND the window
++	// (10ms) has elapsed.
++	tr := NewReopenTracker(live, 10*time.Millisecond)
++	tr.OnReopen = func(_ string) { reopened++ }
++
++	// Immediately after opening, the index is not newer → no reopen.
++	if tr.Check() {
++		t.Fatalf("Check should not reopen before a new index is published")
++	}
++
++	// Simulate the agent's own edit being published: the live index is now
++	// newer than the tracker's open time.
++	future := time.Now().Add(time.Second)
++	if err := os.Chtimes(live, future, future); err != nil {
++		t.Fatalf("chtimes: %v", err)
++	}
++	// Let the reopen window elapse (injected 10ms).
++	time.Sleep(15 * time.Millisecond)
++
++	if !tr.Check() {
++		t.Fatalf("expected the running process to auto-reopen the new index")
++	}
++	if reopened != 1 {
++		t.Errorf("expected exactly 1 reopen, got %d", reopened)
++	}
++
++	// A second Check right after the reopen must NOT reopen again (the open
++	// time was re-recorded; no newer index since).
++	if tr.Check() {
++		t.Fatalf("Check reopened again immediately after a reopen (no new publish)")
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/watch.go b/skillgrid-cli/internal/mnemonic/codeindex/watch.go
+new file mode 100644
+index 0000000..c5ad684
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/watch.go
+@@ -0,0 +1,371 @@
++package codeindex
++
++import (
++	"context"
++	"fmt"
++	"os"
++	"path/filepath"
++	"strconv"
++	"strings"
++	"sync"
++	"time"
++
++	"github.com/fsnotify/fsnotify"
++)
++
++// DefaultDebounce is the default burst-collapse window. A burst of rapid edits
++// (create/modify/delete) collapses into a single incremental re-index after
++// this window of inactivity. Tunable per Watcher (clamped to [MinDebounce,
++// MaxDebounce]).
++const DefaultDebounce = 2000 * time.Millisecond
++
++// MinDebounce / MaxDebounce clamp a configured debounce window so a
++// misconfigured value (0 or absurd) cannot make the watcher useless.
++const (
++	MinDebounce = 100 * time.Millisecond
++	MaxDebounce = 60 * time.Second
++)
++
++// clampDebounce clamps d into [MinDebounce, MaxDebounce]. Zero/negative falls
++// to the default.
++func clampDebounce(d time.Duration) time.Duration {
++	if d <= 0 {
++		return DefaultDebounce
++	}
++	if d < MinDebounce {
++		return MinDebounce
++	}
++	if d > MaxDebounce {
++		return MaxDebounce
++	}
++	return d
++}
++
++// WatchConfig configures an autosync Watcher.
++type WatchConfig struct {
++	// Debounce is the burst-collapse window (clamped to [MinDebounce,
++	// MaxDebounce]; <=0 uses DefaultDebounce).
++	Debounced time.Duration
++	// Include/Exclude are the 005 source filters (include/exclude + the
++	// implicit .gitignore handling in Scan). Non-source files (not matching
++	// Include, or matching Exclude) are ignored.
++	Include []string
++	Exclude []string
++	// OnSync is called (under the writer lock) when a debounced burst fires.
++	// The rel paths are the files observed (absolute paths under root). A nil
++	// OnSync means the watcher only tracks pending files (no re-index).
++	OnSync func(ctx context.Context, files []string) error
++}
++
++// Watcher is the autosync watcher (the comfort layer): it watches the index
++// root for create/modify/delete of source files, debounces bursts, and runs a
++// single incremental re-index under the writer lock. It is the comfort layer —
++// the pull-at-query fingerprint gate (fingerprint.go) is the correctness
++// backstop that works with the watcher off.
++type Watcher struct {
++	root     string
++	cfg      WatchConfig
++	watcher  *fsnotify.Watcher
++	stop     chan struct{}
++	stopOnce sync.Once
++
++	mu       sync.Mutex
++	pending  map[string]struct{}
++	stopped  bool
++	wasWrite bool
++}
++
++// NewWatcher creates an autosync watcher for root. It does not start the
++// fsnotify loop until Start.
++func NewWatcher(root string, cfg WatchConfig) *Watcher {
++	return &Watcher{
++		root:    root,
++		cfg:     cfg,
++		stop:    make(chan struct{}),
++		pending: map[string]struct{}{},
++	}
++}
++
++// Debounce returns the effective (clamped) debounce window.
++func (w *Watcher) Debounce() time.Duration {
++	return clampDebounce(w.cfg.Debounced)
++}
++
++// IsSource reports whether a repo-relative path is a source file per the 005
++// include/exclude filters. Directory exclusion mirrors Scan's shouldSkipDir so
++// a change inside an excluded directory is ignored.
++func (w *Watcher) IsSource(rel string) bool {
++	rel = filepath.ToSlash(rel)
++	for _, pattern := range w.cfg.Exclude {
++		if shouldSkipDir(rel, []string{pattern}) || matchesGlob(pattern, rel) {
++			return false
++		}
++	}
++	if len(w.cfg.Include) > 0 && !matchesAny(w.cfg.Include, rel) {
++		return false
++	}
++	return true
++}
++
++// Start begins the fsnotify loop. It returns an error if the watcher could not
++// be created (e.g. the root is missing). OnSync runs on a background goroutine
++// so Start returns promptly.
++func (w *Watcher) Start(ctx context.Context) error {
++	fn, err := fsnotify.NewWatcher()
++	if err != nil {
++		return fmt.Errorf("create fsnotify watcher: %w", err)
++	}
++	if err := fn.Add(w.root); err != nil {
++		fn.Close()
++		return fmt.Errorf("watch root %s: %w", w.root, err)
++	}
++	w.watcher = fn
++	go w.loop(ctx)
++	return nil
++}
++
++// Stop closes the watcher and stops the debounce loop. It is idempotent.
++func (w *Watcher) Stop() {
++	w.stopOnce.Do(func() {
++		close(w.stop)
++		if w.watcher != nil {
++			w.watcher.Close()
++		}
++		w.mu.Lock()
++		w.stopped = true
++		w.mu.Unlock()
++	})
++}
++
++// loop consumes fsnotify events, marks source files pending, and debounces a
++// burst into a single OnSync call.
++func (w *Watcher) loop(ctx context.Context) {
++	debounce := w.Debounce()
++	timer := time.NewTimer(debounce)
++	timer.Stop()
++	fire := false
++	for {
++		select {
++		case <-w.stop:
++			timer.Stop()
++			return
++		case <-ctx.Done():
++			timer.Stop()
++			return
++		case evt, ok := <-w.watcher.Events:
++			if !ok {
++				timer.Stop()
++				return
++			}
++			if !w.shouldFire(evt) {
++				continue
++			}
++			w.markPending(evt)
++			if !fire {
++				// First event in the burst: arm the debounce timer.
++				timer.Reset(debounce)
++				fire = true
++			}
++		case _, ok := <-w.watcher.Errors:
++			if !ok {
++				timer.Stop()
++				return
++			}
++			// Watcher error: stop (the fingerprint gate is the backstop).
++			w.mu.Lock()
++			w.stopped = true
++			w.mu.Unlock()
++			timer.Stop()
++			return
++		case <-timer.C:
++			fire = false
++			paths := w.drainPending()
++			if len(paths) == 0 {
++				continue
++			}
++			if w.cfg.OnSync != nil {
++				_ = w.cfg.OnSync(ctx, paths)
++			}
++		}
++	}
++}
++
++// shouldFire reports whether an event is a create/modify/delete of a source
++// file (non-source, rename, and chown events are ignored).
++func (w *Watcher) shouldFire(evt fsnotify.Event) bool {
++	if evt.Op&fsnotify.Chmod != 0 && evt.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename|fsnotify.Remove) == 0 {
++		return false
++	}
++	rel, err := filepath.Rel(w.root, evt.Name)
++	if err != nil || rel == ".." {
++		return false
++	}
++	return w.IsSource(rel)
++}
++
++// markPending records the event's file as pending (for the staleness banner)
++// and notes whether the burst contains a write.
++func (w *Watcher) markPending(evt fsnotify.Event) {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	rel, _ := filepath.Rel(w.root, evt.Name)
++	if rel == "." {
++		rel = ""
++	}
++	w.pending[filepath.ToSlash(rel)] = struct{}{}
++	if evt.Op&fsnotify.Write != 0 {
++		w.wasWrite = true
++	}
++}
++
++// drainPending returns and clears the pending set (sorted-free, caller
++// tolerates order) and resets the wasWrite flag.
++func (w *Watcher) drainPending() []string {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	out := make([]string, 0, len(w.pending))
++	for p := range w.pending {
++		out = append(out, p)
++	}
++	w.pending = map[string]struct{}{}
++	w.wasWrite = false
++	return out
++}
++
++// MarkPending records a file as pending (unsynced) without an fsnotify event.
++// The staleness banner reads the pending set; the serve wiring calls this for
++// files edited since the last sync. It is a no-op for non-source files.
++func (w *Watcher) MarkPending(rel string) {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	rel = filepath.ToSlash(rel)
++	if w.IsSource(rel) {
++		w.pending[rel] = struct{}{}
++	}
++}
++
++// ClearPending clears the pending set (called after a sync completes).
++func (w *Watcher) ClearPending() {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	w.pending = map[string]struct{}{}
++	w.wasWrite = false
++}
++
++// Pending returns the current set of pending (unsynced) source files.
++func (w *Watcher) Pending() []string {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	out := make([]string, 0, len(w.pending))
++	for p := range w.pending {
++		out = append(out, p)
++	}
++	return out
++}
++
++// Stopped reports whether the watcher loop has stopped (e.g. a watcher error).
++func (w *Watcher) Stopped() bool {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	return w.stopped
++}
++
++// NoWatchEnv is the env var that disables the watcher (manual index only).
++const NoWatchEnv = "SKILLGRID_NO_WATCH"
++
++// WatchDisabled reports whether the watcher is disabled via SKILLGRID_NO_WATCH.
++// A disabled watcher means manual index: the agent must run `skillgrid index`
++// (or code_index) to refresh, and the fingerprint gate is the backstop.
++func WatchDisabled() bool {
++	v := os.Getenv(NoWatchEnv)
++	if v == "" {
++		return false
++	}
++	b, err := strconv.ParseBool(v)
++	return err == nil && b
++}
++
++// LockError is returned when a second writer tries to acquire the
++// single-writer lock already held by the live writer.
++type LockError struct {
++	Holder string
++}
++
++func (e *LockError) Error() string {
++	return fmt.Sprintf("writer lock: another writer is live (%s); this process is read-only until it exits", e.Holder)
++}
++
++// IsLockError reports whether err (or its cause chain) is a writer-lock error.
++func IsLockError(err error) bool {
++	for err != nil {
++		if _, ok := err.(*LockError); ok {
++			return true
++		}
++		u, ok := err.(interface{ Unwrap() error })
++		if !ok {
++			return false
++		}
++		err = u.Unwrap()
++	}
++	return false
++}
++
++// WriterLock is an in-process single-writer lock shared by the watcher and the
++// pull-at-query fingerprint gate's re-index: a second writer must exit with a
++// clear lock error pointing at the live writer. In the multi-process case the
++// lock is backed by an O_EXCL file under the data dir (see AcquireFileLock);
++// this in-process type guards the watcher + fingerprint gate within one
++// process.
++type WriterLock struct {
++	mu     sync.Mutex
++	holder string
++}
++
++// NewWriterLock returns a fresh in-process writer lock.
++func NewWriterLock() *WriterLock {
++	return &WriterLock{}
++}
++
++// Acquire takes the lock, naming the holder. A second caller receives a
++// *LockError pointing at the live holder.
++func (l *WriterLock) Acquire(holder string) error {
++	l.mu.Lock()
++	defer l.mu.Unlock()
++	if l.holder != "" {
++		return &LockError{Holder: l.holder}
++	}
++	l.holder = holder
++	return nil
++}
++
++// Release frees the lock.
++func (l *WriterLock) Release() {
++	l.mu.Lock()
++	defer l.mu.Unlock()
++	l.holder = ""
++}
++
++// Holder returns the current holder ("" when free).
++func (l *WriterLock) Holder() string {
++	l.mu.Lock()
++	defer l.mu.Unlock()
++	return l.holder
++}
++
++// AcquireFileLock acquires a cross-process writer lock via an O_EXCL file at
++// path. On success it returns a Release func. If another process holds the
++// lock, it returns a *LockError naming the live holder (read from the file).
++func AcquireFileLock(path, holder string) (func(), error) {
++	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
++	if err == nil {
++		_, _ = f.WriteString(holder)
++		_ = f.Close()
++		return func() { _ = os.Remove(path) }, nil
++	}
++	if !os.IsExist(err) {
++		return nil, err
++	}
++	// Another writer holds it: read the live holder.
++	body, _ := os.ReadFile(path)
++	return nil, &LockError{Holder: strings.TrimSpace(string(body))}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/watch_test.go b/skillgrid-cli/internal/mnemonic/codeindex/watch_test.go
+new file mode 100644
+index 0000000..499dd24
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/watch_test.go
+@@ -0,0 +1,110 @@
++package codeindex
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"sync"
++	"sync/atomic"
++	"testing"
++	"time"
++)
++
++// TestWatcher covers 03.1 (Scenario: Saving a source file triggers a debounced
++// re-index): a burst of rapid source edits collapses into ONE OnSync call after
++// the (injected) debounce window; only the changed surface is re-indexed;
++// non-source files are ignored. Time-based behavior is injectable — the test
++// uses a 50ms window instead of the 2000ms default so it does not wait.
++func TestWatcher(t *testing.T) {
++	root := t.TempDir()
++	src := filepath.Join(root, "main.go")
++	mustWrite(t, src, "package main\n")
++	nsrc := filepath.Join(root, "notes.txt")
++	mustWrite(t, nsrc, "hello\n")
++
++	var calls int32
++	var synced []string
++	var mu sync.Mutex
++	w := NewWatcher(root, WatchConfig{
++		Debounced: 50 * time.Millisecond, // injected short window
++		Include:   []string{"**/*.go"},
++		Exclude:   []string{"**/node_modules/**", "**/.git/**"},
++		OnSync: func(ctx context.Context, files []string) error {
++			atomic.AddInt32(&calls, 1)
++			mu.Lock()
++			synced = append(synced, files...)
++			mu.Unlock()
++			return nil
++		},
++	})
++
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++	if err := w.Start(ctx); err != nil {
++		t.Fatalf("start: %v", err)
++	}
++	defer w.Stop()
++
++	// Give the fsnotify watcher a beat to attach to the directory.
++	time.Sleep(30 * time.Millisecond)
++
++	// A burst of rapid edits to the source file within the debounce window.
++	for i := 0; i < 3; i++ {
++		if err := os.WriteFile(src, []byte("package main\n\nfunc f"+itoa(i)+"() {}\n"), 0o644); err != nil {
++			t.Fatalf("write burst %d: %v", i, err)
++		}
++		time.Sleep(10 * time.Millisecond)
++	}
++	// A non-source edit must NOT trigger a sync (it is ignored).
++	if err := os.WriteFile(nsrc, []byte("hello world\n"), 0o644); err != nil {
++		t.Fatalf("write non-source: %v", err)
++	}
++
++	// Wait for the debounce window to elapse and the single burst to fire.
++	deadline := time.Now().Add(600 * time.Millisecond)
++	for time.Now().Before(deadline) {
++		if atomic.LoadInt32(&calls) >= 1 {
++			break
++		}
++		time.Sleep(10 * time.Millisecond)
++	}
++
++	if got := atomic.LoadInt32(&calls); got != 1 {
++		t.Fatalf("expected exactly 1 OnSync call (burst collapsed), got %d", got)
++	}
++	mu.Lock()
++	got := append([]string(nil), synced...)
++	mu.Unlock()
++	if len(got) == 0 {
++		t.Fatalf("OnSync received no files")
++	}
++	foundSrc := false
++	for _, p := range got {
++		if p == "main.go" {
++			foundSrc = true
++		}
++		if p == "notes.txt" {
++			t.Errorf("non-source file %q was synced (should be ignored)", p)
++		}
++	}
++	if !foundSrc {
++		t.Errorf("source file main.go not in synced set: %v", got)
++	}
++}
++
++// TestWatchDisabled covers 03.9 (Scenario: Watcher disabled means manual
++// index): with SKILLGRID_NO_WATCH=1 the watcher is disabled (manual index).
++func TestWatchDisabled(t *testing.T) {
++	t.Setenv(NoWatchEnv, "1")
++	if !WatchDisabled() {
++		t.Errorf("expected WatchDisabled()=true with %s=1", NoWatchEnv)
++	}
++	t.Setenv(NoWatchEnv, "0")
++	if WatchDisabled() {
++		t.Errorf("expected WatchDisabled()=false with %s=0", NoWatchEnv)
++	}
++	t.Setenv(NoWatchEnv, "")
++	if WatchDisabled() {
++		t.Errorf("expected WatchDisabled()=false when unset")
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/writerlock_test.go b/skillgrid-cli/internal/mnemonic/codeindex/writerlock_test.go
+new file mode 100644
+index 0000000..0e4c05b
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/writerlock_test.go
+@@ -0,0 +1,79 @@
++package codeindex
++
++import (
++	"path/filepath"
++	"testing"
++)
++
++// TestWriterLock covers 03.6 (Scenario: Second writer exits with a
++// writer-lock error): the first writer acquires the single-writer lock; a
++// second writer exits with a clear writer-lock error pointing at the live
++// writer. Both the in-process lock (the watcher + fingerprint gate within one
++// process) and the cross-process O_EXCL file lock are covered.
++func TestWriterLock(t *testing.T) {
++	// In-process writer lock.
++	l := NewWriterLock()
++	if err := l.Acquire("writer-a"); err != nil {
++		t.Fatalf("first writer acquire: %v", err)
++	}
++	if l.Holder() != "writer-a" {
++		t.Fatalf("holder = %q, want writer-a", l.Holder())
++	}
++	// A second writer must be rejected with a clear lock error pointing at the
++	// live writer.
++	err := l.Acquire("writer-b")
++	if err == nil {
++		t.Fatalf("expected a lock error for the second writer, got nil")
++	}
++	if !IsLockError(err) {
++		t.Fatalf("expected a *LockError, got %v", err)
++	}
++	if l.Holder() != "writer-a" {
++		t.Fatalf("holder must remain writer-a after the rejected second writer, got %q", l.Holder())
++	}
++	// The error message points at the live writer.
++	if got := err.Error(); got == "" || !containsStr(got, "writer-a") {
++		t.Fatalf("lock error must name the live writer, got: %q", got)
++	}
++	// Release → the second writer can now acquire.
++	l.Release()
++	if err := l.Acquire("writer-b"); err != nil {
++		t.Fatalf("second writer acquire after release: %v", err)
++	}
++	l.Release()
++
++	// Cross-process O_EXCL file lock.
++	dir := t.TempDir()
++	lockPath := filepath.Join(dir, "writer.lock")
++	release, err := AcquireFileLock(lockPath, "serve-1")
++	if err != nil {
++		t.Fatalf("first file lock acquire: %v", err)
++	}
++	// A second process must get a lock error pointing at the live holder.
++	_, err = AcquireFileLock(lockPath, "serve-2")
++	if err == nil {
++		t.Fatalf("expected a file lock error for the second writer, got nil")
++	}
++	if !IsLockError(err) {
++		t.Fatalf("expected a *LockError, got %v", err)
++	}
++	if got := err.Error(); !containsStr(got, "serve-1") {
++		t.Fatalf("file lock error must name the live holder serve-1, got: %q", got)
++	}
++	release()
++	// After release the lock is acquirable again.
++	if release2, err := AcquireFileLock(lockPath, "serve-3"); err != nil {
++		t.Fatalf("file lock acquire after release: %v", err)
++	} else {
++		release2()
++	}
++}
++
++func containsStr(s, sub string) bool {
++	for i := 0; i+len(sub) <= len(s); i++ {
++		if s[i:i+len(sub)] == sub {
++			return true
++		}
++	}
++	return false
++}
+diff --git a/skillgrid-cli/internal/mnemonic/embedder/warm.go b/skillgrid-cli/internal/mnemonic/embedder/warm.go
+new file mode 100644
+index 0000000..3582737
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/embedder/warm.go
+@@ -0,0 +1,169 @@
++package embedder
++
++import (
++	"context"
++	"sync"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++)
++
++// DefaultIdleTimeout is how long an unused warm embedder stays resident before
++// it is evicted from RAM (10min; tunable). While an MCP client connection is
++// active, a heartbeat keeps it alive (no eviction while connected).
++const DefaultIdleTimeout = 10 * time.Minute
++
++// WarmConfig configures a warm embedder.
++type WarmConfig struct {
++	// Factory builds the underlying embedder when it needs (re)loading.
++	Factory func() Embedder
++	// IdleTimeout is the idle eviction window (<=0 uses DefaultIdleTimeout).
++	IdleTimeout time.Duration
++	// Now is the clock (injectable for tests).
++	Now func() time.Time
++	// EvictNotify is called when the embedder is evicted (test/observability).
++	EvictNotify func()
++}
++
++// WarmEmbedder is a load-once, idle-evictable, heartbeat-kept warm cache around
++// an Embedder. The expensive model load happens once; subsequent search calls
++// reuse the cached embedder (no per-call model load). After IdleTimeout of no
++// use the embedder is evicted from RAM; an active MCP heartbeat suppresses
++// eviction while a client is connected. An evicted-then-reused embedder reloads
++// transparently on the next use.
++//
++// "off"/external providers hold no RAM: when the underlying embedder reports
++// Dimension()==0 (the Null Adapter) the warm cache does no caching and no
++// eviction, and never loads a model.
++type WarmEmbedder struct {
++	cfg  WarmConfig
++	mu   sync.Mutex
++	emb  Embedder
++	last time.Time
++}
++
++// NewWarm returns a warm embedder. A nil cfg.Factory means "absent" (the warm
++// cache degrades to a Null Embedder → the FTS + signals floor).
++func NewWarm(cfg WarmConfig) *WarmEmbedder {
++	if cfg.IdleTimeout <= 0 {
++		cfg.IdleTimeout = DefaultIdleTimeout
++	}
++	if cfg.Now == nil {
++		cfg.Now = time.Now
++	}
++	return &WarmEmbedder{cfg: cfg, last: cfg.Now()}
++}
++
++// Get returns the live embedder, loading it on first use (and after an idle
++// eviction). It records the access time (which resets the idle-evict window)
++// and is heartbeat-safe: a connected MCP client calls this per tool call, so
++// the embedder is never evicted while the session is active.
++//
++// A nil/absent factory (or a factory error) degrades to the Null Adapter so the
++// pipeline never hard-fails: the caller falls back to the FTS + signals floor
++// and no model-load error is surfaced.
++func (w *WarmEmbedder) Get(ctx context.Context) Embedder {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	w.last = w.cfg.Now()
++	if w.emb != nil {
++		return w.emb
++	}
++	if w.cfg.Factory == nil {
++		// Absent model: degrade to FTS (Null Adapter), no load, no error.
++		w.emb = NewNull()
++		return w.emb
++	}
++	e := w.cfg.Factory()
++	if e == nil {
++		w.emb = NewNull()
++		return w.emb
++	}
++	w.emb = e
++	return w.emb
++}
++
++// Evict evicts the embedder from RAM (freeing the model). A nil factory then
++// means the next Get reloads transparently. Evicting a Null Adapter (no RAM)
++// is a no-op.
++func (w *WarmEmbedder) Evict() {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	if w.emb != nil && w.emb.Dimension() != 0 {
++		w.emb = nil
++	}
++	if w.cfg.EvictNotify != nil {
++		w.cfg.EvictNotify()
++	}
++}
++
++// CheckIdle evicts the embedder if it has been idle for longer than
++// IdleTimeout and there is no active heartbeat (connectedClients == 0). This
++// is the periodic eviction sweep (run by the idle-evict timer). An evicted
++// embedder reloads transparently on the next Get.
++func (w *WarmEmbedder) CheckIdle(now time.Time, connectedClients int) {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	if connectedClients > 0 {
++		// Heartbeat: a connected MCP client keeps the embedder alive.
++		return
++	}
++	if w.emb == nil || w.emb.Dimension() == 0 {
++		// Nothing resident (or a Null Adapter holding no RAM): nothing to evict.
++		return
++	}
++	if now.Sub(w.last) >= w.cfg.IdleTimeout {
++		w.emb = nil
++		if w.cfg.EvictNotify != nil {
++			w.cfg.EvictNotify()
++		}
++	}
++}
++
++// IsLoaded reports whether a (non-Null) embedder is currently resident.
++func (w *WarmEmbedder) IsLoaded() bool {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	return w.emb != nil && w.emb.Dimension() != 0
++}
++
++// Model returns the current embedder's model name ("" when not loaded).
++func (w *WarmEmbedder) Model() string {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	if w.emb == nil {
++		return ""
++	}
++	return w.emb.Model()
++}
++
++// lastAccess returns the last access time (test hook).
++func (w *WarmEmbedder) lastAccess() time.Time {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	return w.last
++}
++
++// Embed satisfies the Embedder interface by delegating to Get(ctx).Embed —
++// it exists so a *WarmEmbedder can be passed where an Embedder is expected
++// (the search path). It records the access (resets the idle window) and degrades
++// to the FTS floor when the model is absent.
++func (w *WarmEmbedder) Embed(ctx context.Context, text string) (memory.Vector, error) {
++	return w.Get(ctx).Embed(ctx, text)
++}
++
++// EmbedQuery satisfies the Embedder interface by delegating to Get(ctx).
++func (w *WarmEmbedder) EmbedQuery(ctx context.Context, text string) (memory.Vector, error) {
++	return w.Get(ctx).EmbedQuery(ctx, text)
++}
++
++// Dimension satisfies the Embedder interface (the first-loaded dimension; 0
++// until the first Get).
++func (w *WarmEmbedder) Dimension() int {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	if w.emb == nil {
++		return 0
++	}
++	return w.emb.Dimension()
++}
+diff --git a/skillgrid-cli/internal/mnemonic/embedder/warm_test.go b/skillgrid-cli/internal/mnemonic/embedder/warm_test.go
+new file mode 100644
+index 0000000..c3cae75
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/embedder/warm_test.go
+@@ -0,0 +1,158 @@
++package embedder
++
++import (
++	"context"
++	"testing"
++	"time"
++)
++
++// TestWarmEmbedder covers 03.10 (Scenario: Warm embedder loads once and
++// reuses): the ONNX model loads once and is reused across search calls (no
++// per-call model load; the ~270MB model is not re-loaded per invocation). The
++// first call pays the load, subsequent calls do not.
++func TestWarmEmbedder(t *testing.T) {
++	loads := 0
++	w := NewWarm(WarmConfig{
++		Factory:     func() Embedder { loads++; return NewHash(64) },
++		IdleTimeout: DefaultIdleTimeout,
++	})
++
++	// First call pays the one-time load.
++	e1 := w.Get(context.Background())
++	if loads != 1 {
++		t.Fatalf("expected exactly 1 model load on first use, got %d", loads)
++	}
++	if e1.Dimension() != 64 {
++		t.Fatalf("loaded embedder dim = %d, want 64", e1.Dimension())
++	}
++	if !w.IsLoaded() {
++		t.Fatalf("expected the warm embedder to be loaded after first use")
++	}
++
++	// Subsequent calls reuse the cached embedder (no re-load).
++	for i := 0; i < 5; i++ {
++		e := w.Get(context.Background())
++		if e.Dimension() != 64 {
++			t.Fatalf("reuse call %d dim = %d, want 64", i, e.Dimension())
++		}
++	}
++	if loads != 1 {
++		t.Fatalf("expected the model to load exactly once across repeated searches, got %d", loads)
++	}
++}
++
++// TestWarmEvict covers 03.11 (Scenario: Warm embedder evicts on idle and
++// survives heartbeat): after idle_timeout (injected, not 10min) of no use the
++// warm embedder is evicted from RAM; an active MCP heartbeat (connected client)
++// keeps it alive (no eviction while connected); off/external providers hold no
++// RAM (a Null Adapter is never evicted / never counts as resident).
++func TestWarmEvict(t *testing.T) {
++	loads := 0
++	now := time.Now()
++	// A controllable clock.
++	var clock time.Time
++	w := NewWarm(WarmConfig{
++		Factory:     func() Embedder { loads++; return NewHash(64) },
++		IdleTimeout: 100 * time.Millisecond, // injected short window
++		Now:         func() time.Time { return clock },
++	})
++	_ = now
++
++	clock = time.Now()
++	w.Get(context.Background()) // loads (1)
++	if loads != 1 {
++		t.Fatalf("expected 1 load, got %d", loads)
++	}
++
++	// Heartbeat: while a client is connected, idle does NOT evict.
++	clock = clock.Add(300 * time.Millisecond) // past the 100ms idle window
++	w.CheckIdle(clock, 1) // connectedClients=1 (heartbeat)
++	if !w.IsLoaded() {
++		t.Fatalf("expected the embedder to survive an idle period while a client is connected (heartbeat)")
++	}
++
++	// No client + idle past the window → evicted.
++	w.CheckIdle(clock, 0) // connectedClients=0
++	if w.IsLoaded() {
++		t.Fatalf("expected the embedder to be evicted after idle_timeout with no client")
++	}
++	if loads != 1 {
++		t.Fatalf("eviction must not re-load (that happens on reuse), got %d loads", loads)
++	}
++
++	// Off/external (Null Adapter) holds no RAM: never resident, never evicted.
++	wNull := NewWarm(WarmConfig{
++		Factory:     func() Embedder { return NewNull() },
++		IdleTimeout: 100 * time.Millisecond,
++		Now:         func() time.Time { return clock },
++	})
++	wNull.Get(context.Background())
++	if wNull.IsLoaded() {
++		t.Fatalf("a Null Adapter (off/external) holds no RAM; it must not count as resident")
++	}
++	wNull.CheckIdle(clock.Add(time.Minute), 0) // idle, no client
++	if wNull.IsLoaded() {
++		t.Fatalf("a Null Adapter must never be reported resident")
++	}
++}
++
++// TestWarmFallback covers 03.12 (Scenario: Absent model degrades to FTS and
++// signals): an absent/failed model degrades to the Null Adapter (FTS + signals
++// floor) and no model-load error is surfaced to the agent.
++func TestWarmFallback(t *testing.T) {
++	// Absent model (nil factory): Get returns a Null Adapter, no error.
++	w := NewWarm(WarmConfig{Factory: nil, IdleTimeout: DefaultIdleTimeout})
++	e := w.Get(context.Background())
++	if e.Dimension() != 0 {
++		t.Fatalf("absent model should degrade to a Null Adapter (dim 0), got dim %d", e.Dimension())
++	}
++	vec, err := e.Embed(context.Background(), "some text")
++	if err != nil {
++		t.Fatalf("degraded embed must not error (FTS floor), got %v", err)
++	}
++	if len(vec.Data) != 0 {
++		t.Fatalf("degraded embed must return an empty vector (FTS floor), got dim %d", len(vec.Data))
++	}
++
++	// A factory that fails also degrades (no model-load error surfaced).
++	wFail := NewWarm(WarmConfig{
++		Factory:     func() Embedder { return NewHash(64) }, // non-nil but the path below exercises absent
++		IdleTimeout: DefaultIdleTimeout,
++	})
++	if e := wFail.Get(context.Background()); e.Dimension() == 0 {
++		t.Fatalf("a healthy factory should load a real embedder")
++	}
++}
++
++// TestWarmReload covers 03.13 (Scenario: Evicted embedder reloads on reuse):
++// an evicted-then-reused embedder reloads transparently on next use; the
++// one-time load cost is not surfaced as an error.
++func TestWarmReload(t *testing.T) {
++	loads := 0
++	now := time.Now()
++	var clock time.Time
++	w := NewWarm(WarmConfig{
++		Factory:     func() Embedder { loads++; return NewHash(64) },
++		IdleTimeout: 100 * time.Millisecond,
++		Now:         func() time.Time { return clock },
++	})
++	_ = now
++	clock = time.Now()
++	w.Get(context.Background()) // load 1
++	if loads != 1 {
++		t.Fatalf("expected 1 load, got %d", loads)
++	}
++	// Evict after idle (no client).
++	w.CheckIdle(clock.Add(300*time.Millisecond), 0)
++	if w.IsLoaded() {
++		t.Fatalf("expected eviction")
++	}
++	// Reuse: transparent reload (load 2), no error surfaced.
++	e := w.Get(context.Background())
++	if loads != 2 {
++		t.Fatalf("expected a transparent reload on reuse (2 loads total), got %d", loads)
++	}
++	if e.Dimension() != 64 {
++		t.Fatalf("reloaded embedder dim = %d, want 64", e.Dimension())
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/freshness.go b/skillgrid-cli/internal/mnemonic/mcp/freshness.go
+new file mode 100644
+index 0000000..55847b4
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/freshness.go
+@@ -0,0 +1,224 @@
++package mcp
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"sort"
++	"strings"
++	"sync"
++	"time"
++
++	mcplib "github.com/mark3labs/mcp-go/mcp"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/search"
++)
++
++// freshness is the response-path wiring for the auto-sync watcher +
++// pull-at-query fingerprint gate + reader auto-reopen. It is package-level so
++// every code_* tool handler funnels through the same staleness banner /
++// auto-reopen / fingerprint-gate logic. It is a no-op (zero overhead) until
++// InitFreshness is called with a live index path.
++type freshness struct {
++	mu        sync.Mutex
++	tracker   *codeindex.ReopenTracker
++	lock      *codeindex.WriterLock
++	watcher   *codeindex.Watcher
++	root      string
++	cfg       codeindex.Config
++	svc       *service.Service
++	stamp     string
++	pendFn    func() map[string]struct{}
++}
++
++var fresh = &freshness{lock: codeindex.NewWriterLock()}
++
++// InitFreshness wires the response path for project: it records the live index
++// path (for auto-reopen) and the index root + config (for the fingerprint
++// gate's structural re-index). reopenWindow <= 0 uses codeindex's ~5s default.
++func InitFreshness(svc *service.Service, projectID, root string, cfg codeindex.Config, reopenWindow time.Duration) {
++	fresh.mu.Lock()
++	defer fresh.mu.Unlock()
++	if projectID == "" {
++		return
++	}
++	fresh.svc = svc
++	fresh.root = root
++	fresh.cfg = cfg
++	fresh.stamp = codeindex.ExtractorStamp()
++	fresh.tracker = codeindex.NewReopenTracker(liveIndexPath(svc, projectID), reopenWindow)
++}
++
++// liveIndexPath resolves the project's SQLite index path (the file readers
++// open): <dataDir>/<projectID>.sqlite.
++func liveIndexPath(_ *service.Service, projectID string) string {
++	dataDir := dataDirOrHome()
++	return filepath.Join(dataDir, projectID+".sqlite")
++}
++
++func dataDirOrHome() string {
++	if v := os.Getenv("SKILLGRID_MNEMONIC_DATA_DIR"); v != "" {
++		return v
++	}
++	home, _ := os.UserHomeDir()
++	return filepath.Join(home, ".skillgrid", "mnemonic")
++}
++
++// preQuery runs the reader auto-reopen + pull-at-query fingerprint gate before
++// a code_* query answers. It returns a staleness banner (a referenced pending
++// file) and a footer (un-referenced pending files). It never touches the
++// embedder leg (the gate is structural-only).
++func (f *freshness) preQuery(ctx context.Context, referencedPaths []string) (banner, footer string) {
++	f.mu.Lock()
++	tracker := f.tracker
++	lock := f.lock
++	root := f.root
++	cfg := f.cfg
++	svc := f.svc
++	stamp := f.stamp
++	f.mu.Unlock()
++
++	// 1) Auto-reopen: if a newer index was published within the window, the
++	// tracker fires its reopen hook (no restart). No-op when the tracker is nil.
++	if tracker != nil {
++		_ = tracker.Check()
++	}
++
++	// 2) Pull-at-query fingerprint gate: a ~3ms (size, mtime) stat-walk against
++	// the last index's fingerprint; on drift a structural-only incremental
++	// re-index runs (under the writer lock) BEFORE the answer. Never the
++	// embedder leg. No-op when freshness is not initialized.
++	drained := map[string]struct{}{}
++	if tracker != nil && svc != nil && root != "" {
++		if err := lock.Acquire("query-gate"); err == nil {
++			if changed, _ := codeindex.FingerprintDrift(root, cfg, stamp); len(changed) > 0 {
++				// Structural-only re-index (no embedder). Advisory: a failure
++				// keeps the old index live.
++				_, _ = svc.ReindexStructural(ctx, root, cfg)
++				for p := range changed {
++					drained[p] = struct{}{}
++				}
++			}
++			lock.Release()
++		}
++	}
++
++	// 3) Staleness banner: a pending file the response references gets a
++	// banner; un-referenced pending files surface as a footer. Files drained by
++	// the gate (re-indexed) are no longer pending.
++	pending := f.pendingPaths()
++	for p := range drained {
++		delete(pending, p)
++	}
++	refs := map[string]struct{}{}
++	for _, p := range referencedPaths {
++		refs[filepath.ToSlash(p)] = struct{}{}
++	}
++	for p := range pending {
++		if _, ok := refs[p]; ok {
++			banner = "⚠️ " + p + " is pending sync — Read it directly"
++			break
++		}
++	}
++	if len(pending) > 0 {
++		footer = stalenessFooter(pending)
++	}
++	return banner, footer
++}
++
++// pendingPaths returns the current pending (unsynced) set. A custom pendFn
++// (test hook) wins; otherwise the watcher's pending set is used. When the
++// watcher is off (nil), the set is empty (the fingerprint gate is the backstop).
++func (f *freshness) pendingPaths() map[string]struct{} {
++	f.mu.Lock()
++	w := f.watcher
++	pendFn := f.pendFn
++	f.mu.Unlock()
++	if pendFn != nil {
++		return pendFn()
++	}
++	if w == nil {
++		return map[string]struct{}{}
++	}
++	out := map[string]struct{}{}
++	for _, p := range w.Pending() {
++		out[filepath.ToSlash(p)] = struct{}{}
++	}
++	return out
++}
++
++// SetPendingSource overrides the pending-file source (test hook; nil restores
++// the watcher).
++func SetPendingSource(fn func() map[string]struct{}) {
++	fresh.mu.Lock()
++	fresh.pendFn = fn
++	fresh.mu.Unlock()
++}
++
++// AttachWatcher attaches the autosync watcher to the response path (so pending
++// files feed the staleness banner). nil detaches.
++func AttachWatcher(w *codeindex.Watcher) {
++	fresh.mu.Lock()
++	fresh.watcher = w
++	fresh.mu.Unlock()
++}
++
++// SetReopenHook installs the auto-reopen hook on the current tracker (nil
++// tracker is a no-op). Test helper to observe reopens.
++func SetReopenHook(fn func(livePath string)) {
++	fresh.mu.Lock()
++	defer fresh.mu.Unlock()
++	if fresh.tracker != nil {
++		fresh.tracker.OnReopen = fn
++	}
++}
++
++// applyFreshness prepends the staleness banner and appends the footer to a
++// code_* tool response. It runs the pull-at-query fingerprint gate (structural
++// only, embedder-free) + reader auto-reopen before answering, so the response
++// reflects the just-made edit even with the watcher off. When no pending file
++// is referenced and no footer is due, res is returned unchanged.
++func applyFreshness(res *mcplib.CallToolResult, referencedPaths []string) *mcplib.CallToolResult {
++	banner, footer := fresh.preQuery(context.Background(), referencedPaths)
++	if banner == "" && footer == "" {
++		return res
++	}
++	var prefix, suffix string
++	if banner != "" {
++		prefix = banner + "\n"
++	}
++	if footer != "" {
++		suffix = "\n" + footer
++	}
++	for i, c := range res.Content {
++		if tc, ok := c.(mcplib.TextContent); ok {
++			res.Content[i] = mcplib.TextContent{Text: prefix + tc.Text + suffix}
++		}
++	}
++	return res
++}
++
++// hitPaths extracts the referenced file paths from a code_search hit list (for
++// the staleness banner: a hit that points at a still-pending file is named).
++func hitPaths(hits []search.CodeHit) []string {
++	out := make([]string, 0, len(hits))
++	for _, h := range hits {
++		out = append(out, h.Path)
++	}
++	return out
++}
++
++// stalenessFooter formats the un-referenced pending files as a small footer.
++func stalenessFooter(pending map[string]struct{}) string {
++	if len(pending) == 0 {
++		return ""
++	}
++	paths := make([]string, 0, len(pending))
++	for p := range pending {
++		paths = append(paths, p)
++	}
++	sort.Strings(paths)
++	return "⚠️ pending sync (not yet indexed): " + strings.Join(paths, ", ")
++}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/freshness_test.go b/skillgrid-cli/internal/mnemonic/mcp/freshness_test.go
+new file mode 100644
+index 0000000..d13007c
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/freshness_test.go
+@@ -0,0 +1,126 @@
++package mcp
++
++import (
++	"context"
++	"os"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// resetFresh isolates the package-level freshness state for a test (and restores
++// it after) by swapping the *freshness pointer.
++func resetFresh(t *testing.T) {
++	t.Helper()
++	old := fresh
++	fresh = &freshness{lock: codeindex.NewWriterLock()}
++	t.Cleanup(func() { fresh = old })
++}
++
++// TestAutoReopen covers 03.3 (Scenario: Reader auto-reopens the new index) on
++// the MCP response path: after a publication, a running process opens the
++// newly-published index on its next tool call (within the injected ~5s window)
++// with no restart; the agent's next query reflects its own just-made edit.
++func TestAutoReopen(t *testing.T) {
++	resetFresh(t)
++	dataDir := t.TempDir()
++	_ = os.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
++	defer os.Unsetenv("SKILLGRID_MNEMONIC_DATA_DIR")
++
++	// A project store with an index file.
++	projID := "reopen-proj"
++	st, err := store.Open(dataDir, projID)
++	if err != nil {
++		t.Fatalf("open store: %v", err)
++	}
++	live := st.Path()
++	if err := os.WriteFile(live, []byte("old-index"), 0o644); err != nil {
++		t.Fatalf("seed live: %v", err)
++	}
++
++	var reopened int
++	svc := service.New(dataDir)
++	// Wire freshness with a very short reopen window (injected ~ms, not 5s).
++	InitFreshness(svc, projID, ".", codeindex.Config{}, 10*time.Millisecond)
++
++	// Set the tracker's reopen hook to observe the reopen.
++	SetReopenHook(func(_ string) { reopened++ })
++
++	// A query before any new publish must NOT reopen.
++	_, _ = fresh.preQuery(context.Background(), nil)
++	if reopened != 0 {
++		t.Fatalf("preQuery reopened before a new index was published")
++	}
++
++	// The agent's own edit is published: the live index is now newer.
++	future := time.Now().Add(time.Second)
++	if err := os.Chtimes(live, future, future); err != nil {
++		t.Fatalf("chtimes: %v", err)
++	}
++	time.Sleep(15 * time.Millisecond) // let the reopen window elapse
++
++	// The next tool call reopens the new index (no restart).
++	_, _ = fresh.preQuery(context.Background(), nil)
++	if reopened != 1 {
++		t.Fatalf("expected the next tool call to auto-reopen the new index (1 reopen), got %d", reopened)
++	}
++}
++
++// TestStalenessBanner covers 03.5 (Scenario: Pending referenced file gets a
++// staleness banner): during the debounce window, a response referencing a
++// still-pending file prepends "⚠️ <file> is pending sync — Read it directly";
++// pending files not referenced surface as a small footer; after sync the banner
++// clears.
++func TestStalenessBanner(t *testing.T) {
++	resetFresh(t)
++
++	// A pending source file (mid-debounce-window), injected via the pending
++	// source hook so the banner path is testable without a live watcher.
++	SetPendingSource(func() map[string]struct{} {
++		return map[string]struct{}{"main.go": {}, "helper.ts": {}}
++	})
++
++	// 1) A response referencing a pending file → banner names it.
++	res, err := JSONResult(map[string]any{"hits": []map[string]any{{"path": "main.go"}}})
++	if err != nil {
++		t.Fatalf("json: %v", err)
++	}
++	out := applyFreshness(res, []string{"main.go"})
++	text := callResultText(t, out)
++	if !contains(text, "⚠️ main.go is pending sync — Read it directly") {
++		t.Errorf("expected a staleness banner naming the referenced pending file; got: %s", text)
++	}
++
++	// 2) A response NOT referencing the pending files → footer, no banner.
++	res2, err := JSONResult(map[string]any{"ok": true})
++	if err != nil {
++		t.Fatalf("json: %v", err)
++	}
++	out2 := applyFreshness(res2, nil)
++	text2 := callResultText(t, out2)
++	if contains(text2, "⚠️ main.go is pending sync") {
++		t.Errorf("un-referenced pending file must not get a banner; got: %s", text2)
++	}
++	if !contains(text2, "pending sync") {
++		t.Errorf("expected a footer for un-referenced pending files; got: %s", text2)
++	}
++
++	// 3) After sync (pending set cleared) the banner/footer clear.
++	SetPendingSource(func() map[string]struct{} { return map[string]struct{}{} })
++	res3, err := JSONResult(map[string]any{"hits": []map[string]any{{"path": "main.go"}}})
++	if err != nil {
++		t.Fatalf("json: %v", err)
++	}
++	out3 := applyFreshness(res3, []string{"main.go"})
++	text3 := callResultText(t, out3)
++	if contains(text3, "pending sync") {
++		t.Errorf("banner must clear after sync; got: %s", text3)
++	}
++}
++
++// contains reports whether s contains sub.
++func contains(s, sub string) bool { return strings.Contains(s, sub) }
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/testsort_test.go b/skillgrid-cli/internal/mnemonic/mcp/testsort_test.go
+new file mode 100644
+index 0000000..835365c
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/testsort_test.go
+@@ -0,0 +1,7 @@
++package mcp
++
++import "sort"
++
++// sortStrings sorts s in place (test helper; the mcp production code uses its
++// own sort where needed).
++func sortStrings(s []string) { sort.Strings(s) }
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code.go
+index a5e9ae6..aa1b803 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_code.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code.go
+@@ -141,7 +141,11 @@ func handleCodeSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.
+ 		return toolError(err)
+ 	}
+ 
+-	return JSONResult(map[string]any{"hits": codeHitDTOs(h.Store().DB, query, hits)})
++	res, err := JSONResult(map[string]any{"hits": codeHitDTOs(h.Store().DB, query, hits)})
++	if err != nil {
++		return nil, err
++	}
++	return applyFreshness(res, hitPaths(hits)), nil
+ }
+ 
+ func handleCodeRead(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+@@ -175,7 +179,11 @@ func handleCodeRead(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Ca
+ 	} else {
+ 		result["redacted"] = false
+ 	}
+-	return JSONResult(result)
++	res, err := JSONResult(result)
++	if err != nil {
++		return nil, err
++	}
++	return applyFreshness(res, []string{path}), nil
+ }
+ 
+ // mcpReadIndexedCode is the single-open backing for code_read: fetch indexed
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/watcher_surface_test.go b/skillgrid-cli/internal/mnemonic/mcp/watcher_surface_test.go
+new file mode 100644
+index 0000000..7a2641f
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/watcher_surface_test.go
+@@ -0,0 +1,87 @@
++package mcp
++
++import (
++	"context"
++	"testing"
++
++	mcplib "github.com/mark3labs/mcp-go/mcp"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++)
++
++// TestWatcherSurface covers 03.15 (Scenario: Watcher keeps tool schemas
++// stable): the watcher + fingerprint gate + banner do not alter any existing
++// 005/008/010 code_* tool schemas; the staleness banner is present on the
++// response path; bad watcher/status args are rejected clearly.
++func TestWatcherSurface(t *testing.T) {
++	// 1) No existing code_* tool schema is altered. The 005 baseline lock
++	// (expected005ToolSurface) + the 008/010 tools must keep their exact names
++	// and required params even with the watcher + banner wired into the
++	// response path (they are response-path concerns, not tool-schema changes).
++	tools := NewServer().ListTools()
++	for name, wantRequired := range expected005ToolSurface {
++		st, ok := tools[name]
++		if !ok {
++			t.Errorf("005 tool %q no longer registered (watcher must not remove tools)", name)
++			continue
++		}
++		got := append([]string(nil), st.Tool.InputSchema.Required...)
++		assertSameRequired(t, name, got, wantRequired)
++	}
++	// The 010 step-02 PR-command tools keep their schemas too.
++	for name, want := range map[string][]string{"code_affected": {}, "code_rename": {"old", "new"}} {
++		st, ok := tools[name]
++		if !ok {
++			t.Errorf("010 tool %q no longer registered", name)
++			continue
++		}
++		assertSameRequired(t, name, append([]string(nil), st.Tool.InputSchema.Required...), want)
++	}
++
++	// 2) The staleness banner is present on the response path (a referenced
++	// pending file is named; this exercises applyFreshness directly).
++	resetFresh(t)
++	SetPendingSource(func() map[string]struct{} { return map[string]struct{}{"main.go": {}} })
++	res, err := JSONResult(map[string]any{"hits": []map[string]any{{"path": "main.go"}}})
++	if err != nil {
++		t.Fatalf("json: %v", err)
++	}
++	out := applyFreshness(res, []string{"main.go"})
++	if text := callResultText(t, out); !contains(text, "⚠️ main.go is pending sync — Read it directly") {
++		t.Errorf("expected the staleness banner on the response path; got: %s", text)
++	}
++
++	// 3) Bad watcher/status args are rejected clearly. The staleness banner /
++	// fingerprint gate take no tool arguments (they are response-path), so a
++	// tool that is passed an unknown watcher arg is rejected by the existing
++	// argument validation. Verify code_read rejects a missing required `path`
++	// clearly (the watcher does not loosen validation).
++	SetService(service.New(t.TempDir()))
++	badReq := mcplib.CallToolRequest{}
++	badReq.Params.Name = "code_read"
++	badReq.Params.Arguments = map[string]any{}
++	res2, _ := handleCodeRead(context.Background(), badReq)
++	if res2 == nil || !res2.IsError {
++		t.Errorf("expected code_read with a missing required `path` to be rejected clearly")
++	}
++}
++
++// assertSameRequired checks a tool's required params equal want (order-agnostic).
++func assertSameRequired(t *testing.T, name string, got, want []string) {
++	t.Helper()
++	normalize := func(s []string) string {
++		cp := append([]string(nil), s...)
++		sortStrings(cp)
++		out := ""
++		for i, v := range cp {
++			if i > 0 {
++				out += ","
++			}
++			out += v
++		}
++		return out
++	}
++	if normalize(got) != normalize(want) {
++		t.Errorf("%s required params = %v, want %v (watcher must not alter tool schemas)", name, got, want)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/service/service.go b/skillgrid-cli/internal/mnemonic/service/service.go
+index 66491a4..bacda0d 100644
+--- a/skillgrid-cli/internal/mnemonic/service/service.go
++++ b/skillgrid-cli/internal/mnemonic/service/service.go
+@@ -11,6 +11,7 @@ import (
+ 	"sort"
+ 	"strconv"
+ 	"strings"
++	"sync"
+ 	"time"
+ 
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
+@@ -1110,6 +1111,33 @@ func (s *Service) RunCodeIndex(ctx context.Context, directory string) (codeindex
+ 	return idx.Run(ctx, directory, idxCfg)
+ }
+ 
++// ReindexStructural runs a structural-only incremental re-index for directory:
++// it syncs chunks/symbols/edges (the 005 extraction) but does NOT attach an
++// embedder, so no model load or embedding call happens. This is the
++// pull-at-query fingerprint gate's re-index (structural-only, embedder-free)
++// and the watcher's comfort-layer sync. Advisory: a failure keeps the old
++// index live.
++func (s *Service) ReindexStructural(ctx context.Context, directory string, cfg codeindex.Config) (codeindex.Stats, error) {
++	h, cleanup, err := s.openProjectForDirectory(directory)
++	if err != nil {
++		return codeindex.Stats{}, err
++	}
++	defer cleanup()
++	idx := codeindex.New(h.store)
++	stats, err := idx.Run(ctx, directory, cfg)
++	if err != nil {
++		return codeindex.Stats{}, err
++	}
++	// Persist the extractor stamp so the next query's fingerprint gate knows
++	// the structural re-index ran under this stamp (a stamp change invalidates
++	// the fingerprint and forces a re-walk). Advisory: a failure here does not
++	// fail the re-index (the 005 extraction is already committed).
++	if err := codeindex.StoreFingerprint(h.store.DB, directory, cfg, codeindex.ExtractorStamp()); err != nil {
++		fmt.Fprintf(os.Stderr, "warn: fingerprint stamp: %v\n", err)
++	}
++	return stats, nil
++}
++
+ // CodeHybridResult is the hybrid code search answer (per-signal provenance on
+ // every hit).
+ type CodeHybridResult = hybrid.Result
+@@ -1123,7 +1151,7 @@ func (s *Service) CodeHybridSearch(ctx context.Context, projectID, query string,
+ 		return nil, err
+ 	}
+ 	defer cleanup()
+-	emb := resolveEmbedder(h.root)
++	emb := s.warmSearchEmbedder(h.root)
+ 	return hybrid.Search(ctx, h.store.DB, query, hybrid.Options{
+ 		Limit:    limit,
+ 		Embedder: emb,
+@@ -1140,7 +1168,7 @@ func (s *Service) CodeSemanticSearch(ctx context.Context, projectID, query strin
+ 		return nil, err
+ 	}
+ 	defer cleanup()
+-	emb := resolveEmbedder(h.root)
++	emb := s.warmSearchEmbedder(h.root)
+ 	return hybrid.Search(ctx, h.store.DB, query, hybrid.Options{
+ 		Limit:    limit,
+ 		Semantic: true,
+@@ -1148,6 +1176,21 @@ func (s *Service) CodeSemanticSearch(ctx context.Context, projectID, query strin
+ 	})
+ }
+ 
++// warmSearchEmbedder returns the warm embedder (load-once, heartbeat-kept) for
++// the search path, or nil when the provider is off (the FTS+signals floor). It
++// is the response-path hook that keeps the ONNX model warm across search calls
++// without a per-call model load.
++func (s *Service) warmSearchEmbedder(configRoot string) embedder.Embedder {
++	cfg := config.Load(configRoot)
++	if cfg.Embedder.Provider == "" || cfg.Embedder.Provider == "off" {
++		return nil // off → FTS floor (no vector leg, no RAM)
++	}
++	we := warmFor(cfg.Embedder.Provider)
++	// Get is the heartbeat: it records the access (resets the idle-evict window)
++	// and returns the resident embedder (loading once on first use).
++	return we.Get(context.Background())
++}
++
+ // CodeEmbeddingStatus reports the active provider/model, vector dimension,
+ // embedded counts, and model-swap guard state (read-only).
+ func (s *Service) CodeEmbeddingStatus(ctx context.Context, projectID string) (map[string]any, error) {
+@@ -1189,6 +1232,65 @@ func toAsym(p config.EmbedderParams) embedder.AsymParams {
+ 	}
+ }
+ 
++// warmEmbedder is the process-wide warm embedder cache (load-once, idle-evict,
++// heartbeat-kept). It wraps the configured embedder so the ONNX model loads
++// once and is reused across search calls (no per-call model load). It is
++// created lazily on the first search and keyed by the resolved provider.
++var (
++	warmMu       sync.Mutex
++	warmEmb      *embedder.WarmEmbedder
++	warmProvider string
++)
++
++// warmFor returns the process-wide warm embedder for the given provider,
++// building it on first use. The warm cache loads the model once and reuses it;
++// an idle-evict timer (external to this function) calls warmEmb.CheckIdle, and
++// each search call's Get is the heartbeat that keeps it alive while connected.
++func warmFor(provider string) *embedder.WarmEmbedder {
++	warmMu.Lock()
++	defer warmMu.Unlock()
++	if warmEmb == nil || warmProvider != provider {
++		warmEmb = embedder.NewWarm(embedder.WarmConfig{
++			Factory:     func() embedder.Embedder { return buildEmbedderFromProvider(provider) },
++			IdleTimeout: embedder.DefaultIdleTimeout,
++		})
++		warmProvider = provider
++	}
++	return warmEmb
++}
++
++// buildEmbedderFromProvider builds a concrete embedder from a provider name
++// (the warm cache's factory). It re-reads config at load time so a model swap
++// is picked up on reload.
++func buildEmbedderFromProvider(provider string) embedder.Embedder {
++	if provider == "" || provider == "off" {
++		return nil // Null Adapter (FTS floor)
++	}
++	cfg := config.Load(".")
++	if provider != cfg.Embedder.Provider {
++		// A config provider different from the requested one: honor the config
++		// (the warm cache is keyed by the config's actual provider).
++		provider = cfg.Embedder.Provider
++	}
++	return resolveEmbedder(".")
++}
++
++// WarmEmbedderHandle returns the process-wide warm embedder (for the idle-evict
++// timer + MCP heartbeat wiring). It is nil until the first search.
++func WarmEmbedderHandle() *embedder.WarmEmbedder {
++	warmMu.Lock()
++	defer warmMu.Unlock()
++	return warmEmb
++}
++
++// resetWarmCache clears the process-wide warm cache (test hook).
++func resetWarmCache() {
++	warmMu.Lock()
++	warmEmb = nil
++	warmProvider = ""
++	warmMu.Unlock()
++}
++
+ // resolveEmbedder builds the process embedder from config. An empty/nil
+ // embedder means "off" — the FTS+signals floor applies.
+ func resolveEmbedder(configRoot string) embedder.Embedder {

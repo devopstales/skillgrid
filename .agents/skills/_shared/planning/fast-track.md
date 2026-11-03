@@ -44,7 +44,7 @@ Carry the same block (or `Waiver: trivial/small — see briefing.md`) into `task
 - `execution`: proceeds normally; TDD is still mandatory.
 - `review`: proceeds normally.
 - `ship`: light variant — the merge/PR menu still appears, but no PR-body generation. The
-  mechanical move to `archive/` is **not** waived. No release mechanics, no docs check.
+  mechanical move to `xarchive/` is **not** waived. No release mechanics, no docs check.
 - `reflect`: light variant — `mem_save` a single compact observation + a one-line acceptance verdict in
   the return text; **no full `report.md` document**. Session close
   (`mem_session_summary` + `mem_session_end`) is **never** waived.

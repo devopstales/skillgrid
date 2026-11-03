@@ -21,11 +21,11 @@ This is the **real source of truth for the operational rules** a change must res
 
 ## Engineering Standards
 
-No engineering standards yet — see `.skillgrid/ASSUMPTIONS.md`.
+No engineering standards yet — see `.skillgrid/knowledge/ASSUMPTIONS.md`.
 
 ## Security & Escalation Boundaries
 
-No security boundaries yet — see `.skillgrid/ASSUMPTIONS.md`.
+No security boundaries yet — see `.skillgrid/knowledge/ASSUMPTIONS.md`.
 
 ## Dependency Policies
 
@@ -33,7 +33,7 @@ No dependency policies yet — see `the manifest`.
 
 ## Architecture Constraints
 
-No architecture constraints yet — see `.skillgrid/ASSUMPTIONS.md`.
+No architecture constraints yet — see `.skillgrid/knowledge/ASSUMPTIONS.md`.
 
 ## Definition of Done
 
@@ -62,9 +62,9 @@ reference `~/.agents/skills/_shared/rules/sdd-structure.md`
 
 <!-- skillgrid:start -->` … `<!-- skillgrid:end -->` block below into this file.
 
-**What belongs here:** operational rules (toolchain floor, commit format, dependency policy, spec/code zone order, enforcement hooks). **What does NOT belong here:** design *decisions* — those are ADRs, indexed in `.skillgrid/ASSUMPTIONS.md` § `LOCKED` with their bodies in `.skillgrid/artifacts/04-adr-NNNN-slug.md`. If a rule is really "we decided X over Y because Z," it is an ADR, not an operational rule.
+**What belongs here:** operational rules (toolchain floor, commit format, dependency policy, spec/code zone order, enforcement hooks). **What does NOT belong here:** design *decisions* — those are ADRs, indexed in `.skillgrid/knowledge/ASSUMPTIONS.md` § `LOCKED` with their bodies in `.skillgrid/knowledge/decisions/04-adr-NNNN-slug.md`. If a rule is really "we decided X over Y because Z," it is an ADR, not an operational rule.
 
-**What this is:** skillgrid — a local-first engine for agent memory + code intelligence. Single Go binary, three transports (CLI, MCP stdio, HTTP/REST + embedded SPA). Decisions, observations, and code context persist outside the chat so AI coding agents keep working across sessions. See `.skillgrid/ASSUMPTIONS.md` § VERIFIED for the full product + stack description.
+**What this is:** skillgrid — a local-first engine for agent memory + code intelligence. Single Go binary, three transports (CLI, MCP stdio, HTTP/REST + embedded SPA). Decisions, observations, and code context persist outside the chat so AI coding agents keep working across sessions. See `.skillgrid/knowledge/ASSUMPTIONS.md` § VERIFIED for the full product + stack description.
 
 <!-- skillgrid:start -->
 ## Skillgrid
@@ -78,12 +78,12 @@ State: `.skillgrid/state.yaml` (dynamic) — where the project is right now (pha
 
 | Artifact | Path |
 |----------|------|
-| Project knowledge (PRD, architecture, terms, ADRs, research) | `.skillgrid/artifacts/` |
+| Project knowledge (PRD, architecture, terms, ADRs, research) | `.skillgrid/` (OKF bundle: `decisions/` `invariants/` `glossary/` `reference/` `workflows/`) |
 | Project state (phase, current change, progress) | `.skillgrid/state.yaml` |
 | Specs (briefing, blueprint, tasks) | `.skillgrid/specs/` |
 | Execution ledger | `.skillgrid/sdd/` (gitignored) |
 
-**Domain model:** read the vocabulary + ADRs under `.skillgrid/artifacts/` (index: `README.md`) before designing or implementing. The ADR index is `.skillgrid/ASSUMPTIONS.md` § `LOCKED`; open the linked file for the full Context / Decision / Consequences.
+**Domain model:** read the vocabulary + ADRs under `.skillgrid/` (`glossary/` + `decisions/`, index: `index.md`) before designing or implementing. The ADR index is `.skillgrid/knowledge/ASSUMPTIONS.md` § `LOCKED`; open the linked file for the full Context / Decision / Consequences.
 
 **Rules & standards:** the operational rules live under `### Rules` below. Shared standards are referenced, never inlined — each loads via the skills that apply it.
 
@@ -95,12 +95,13 @@ State: `.skillgrid/state.yaml` (dynamic) — where the project is right now (pha
 
 ### Rules
 
-*Operational rules only — the real source of truth is this section (edit here). Design decisions do not live here; they are ADRs in `.skillgrid/ASSUMPTIONS.md` § `LOCKED` → `.skillgrid/artifacts/04-adr-NNNN-slug.md`.*
+*Operational rules only — the real source of truth is this section (edit here). Design decisions do not live here; they are ADRs in `.skillgrid/knowledge/ASSUMPTIONS.md` § `LOCKED` → `.skillgrid/knowledge/decisions/04-adr-NNNN-slug.md`.*
 
 - **Go 1.22+ minimum to build** (ADR-0031). A `go.mod` below 1.22 is a drift signal; raising the floor is a new superseding ADR.
-- **No new dependencies without an ADR.** Adding a third-party dependency is a decision; record it in `.skillgrid/ASSUMPTIONS.md` § `LOCKED` before it lands (ADR-0008 is the `yaml`-package precedent).
+- **No new dependencies without an ADR.** Adding a third-party dependency is a decision; record it in `.skillgrid/knowledge/ASSUMPTIONS.md` § `LOCKED` before it lands (ADR-0008 is the `yaml`-package precedent).
 - **Trivy is advisory-only** — findings are reported, never blocking the QA gate.
 - **Serial development:** one change at a time, no parallel branches.
+- **Parallel subagents use isolated worktrees:** parallel tickets in the same wave MUST use separate `git worktree add` checkouts, never a shared checkout. Shared checkouts cause index-lock conflicts and cherry-pick overhead.
 - **Conventional commits only;** no AI-attribution trailers (commit-msg hook enforces).
 - **Spec-zone changes commit before code-zone changes** (pre-commit zone guard enforces).
 - **The repo is the source of truth** (ADR-0013): when an external tracker, session memory, or dashboard disagrees with a committed artifact, the committed artifact wins. A commit that closes a Backlog task names that task ID in the `[skillgrid-context]` block so the `task → commit → diff` chain is recoverable from git alone.
@@ -119,3 +120,5 @@ Mnemonic (local SQLite + FTS5): `mem_*`, `code_*`, `web_*` over MCP and HTTP.
 
 Run `skillgrid:onboarding` to update config after stack changes.
 <!-- skillgrid:end -->
+
+

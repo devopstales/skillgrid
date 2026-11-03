@@ -1,0 +1,3023 @@
+# Review package: 13e38bc..HEAD
+
+## Commits
+89cd2ca refactor(mnemonic): collapse double-open Service wrappers
+3bb5801 refactor(skills): fold dispatch, code-index, onboard helpers into parents
+
+## Files changed
+ .agents/AGENTS.md                                  |   2 +-
+ .agents/skills/_shared/SKILL.md                    |   2 +-
+ .../_shared/conventions/mnemonic-code-indexing.md  |   4 +-
+ .../skills/_shared/conventions/sdd-structure.md    |  10 +-
+ .../skills/dispatching-parallel-agents/SKILL.md    | 149 +-----
+ .agents/skills/glossary/SKILL.md                   |   2 +-
+ .agents/skills/mnemonic-code-index/SKILL.md        |  80 +--
+ .agents/skills/mnemonic/SKILL.md                   |   3 +-
+ .agents/skills/sdd-agent-context/SKILL.md          |  71 +--
+ .agents/skills/sdd-apply/SKILL.md                  |   4 +-
+ .agents/skills/sdd-constraints/SKILL.md            |  84 +---
+ .agents/skills/sdd-domain/SKILL.md                 |  74 +--
+ .agents/skills/sdd-explore/SKILL.md                |   2 +-
+ .agents/skills/sdd-map-codebase/SKILL.md           |  73 +--
+ .agents/skills/sdd-onboard/SKILL.md                |  18 +-
+ .../skills/sdd-onboard/references/agent-context.md |  62 +++
+ .../skills/sdd-onboard/references/constraints.md   |  75 +++
+ .agents/skills/sdd-onboard/references/domain.md    |  65 +++
+ .../skills/sdd-onboard/references/map-codebase.md  |  64 +++
+ .agents/skills/subagent-execution/SKILL.md         |  20 +-
+ docs/skillgrid/agents/skill-registry.md            |  15 +-
+ docs/user-manual/02-workflow-usage.md              |  35 +-
+ docs/user-manual/03-skills.md                      |   9 +-
+ docs/user-manual/06-multi-agent-work.md            |   2 +-
+ docs/user-manual/07-memory-and-indexing.md         |   2 +-
+ .../internal/mnemonic/integration/seed_test.go     |  77 ++-
+ .../internal/mnemonic/mcp/single_open_test.go      |  34 +-
+ .../internal/mnemonic/service/compaction_test.go   |  29 +-
+ .../internal/mnemonic/service/double_open_test.go  |  82 +++
+ .../internal/mnemonic/service/orient_test.go       |   9 +-
+ skillgrid-cli/internal/mnemonic/service/service.go | 557 ---------------------
+ 31 files changed, 582 insertions(+), 1133 deletions(-)
+
+## Diff
+diff --git a/.agents/AGENTS.md b/.agents/AGENTS.md
+index ad28712..46bcbf6 100644
+--- a/.agents/AGENTS.md
++++ b/.agents/AGENTS.md
+@@ -87,21 +87,21 @@ Verify work before claiming it is done — evidence before assertions:
+ ## Mnemonic Persistent Memory
+ 
+ The full protocol — save triggers, search ladder, topic-key upserts, session close, compaction recovery — lives in the `mnemonic` skill (`.agents/skills/mnemonic/SKILL.md`) and is injected automatically at session start. Do not duplicate it here.
+ 
+ <!-- /skillgrid:mnemonic-memory -->
+ 
+ <!-- skillgrid:mnemonic-code-index -->
+ 
+ ## Mnemonic Code Index
+ 
+-Per-project code search over the same SQLite store as memory (`~/.skillgrid/mnemonic/<project>.sqlite`). The full protocol lives in the `mnemonic-code-index` skill (`.agents/skills/mnemonic-code-index/SKILL.md`) and `.agents/skills/_shared/conventions/mnemonic-code-indexing.md` — do not duplicate it here.
++Per-project code search over the same SQLite store as memory (`~/.skillgrid/mnemonic/<project>.sqlite`). The full protocol lives in the `mnemonic` skill (`.agents/skills/mnemonic/SKILL.md`, Step 5) and `.agents/skills/_shared/conventions/mnemonic-code-indexing.md` — do not duplicate it here.
+ 
+ Orientation ladder (canonical order):
+ 
+ ```
+ 1. code_status   → health + freshness (fresh|lag|empty|unknown); if not fresh → code_index
+ 2. code_map      → structural overview, not a prose dump
+ 3. symbols / outline → narrow the unit
+ 4. code_related  → neighbors via edges
+ 5. code_read     → exact slice for an already-narrowed path + range
+ ```
+diff --git a/.agents/skills/_shared/SKILL.md b/.agents/skills/_shared/SKILL.md
+index 84cc778..01a7e67 100644
+--- a/.agents/skills/_shared/SKILL.md
++++ b/.agents/skills/_shared/SKILL.md
+@@ -23,18 +23,18 @@ This directory stores shared reference documents consumed by real SDD skills. Do
+   - [issue-tracker/gitlab-formatting.md](issue-tracker/gitlab-formatting.md) — GitLab epic / issue templates, labels, `blocked_by` links
+   - [issue-tracker/jira.md](issue-tracker/jira.md) — Jira (jira-cli)
+   - [issue-tracker/jira-formatting.md](issue-tracker/jira-formatting.md) — Jira epic + task templates, title conventions, priority, split-by-component
+ - `agent-config/` — agent config block family written to `AGENTS.md` / `CLAUDE.md` / `GEMINI.md` by `sdd-init`:
+   - [agent-config/README.md](agent-config/README.md) — target decision matrix + multi-platform rules (which file gets the full block)
+   - [agent-config/block.md](agent-config/block.md) — the canonical `## Agent skills` payload + idempotent upsert sentinels (single source of truth)
+   - [agent-config/agents.md](agent-config/agents.md) / [agent-config/claude.md](agent-config/claude.md) / [agent-config/gemini.md](agent-config/gemini.md) — per-target placement rules
+ - `conventions/` — shared contract documents every SDD skill must honor:
+    - [conventions/sdd-structure.md](conventions/sdd-structure.md) — the `docs/skillgrid/` directory layout (changes/archive, NNN-slug, per-step files), artifact paths, phase order, and `config.yaml` reference.
+    - [conventions/mnemonic-memory.md](conventions/mnemonic-memory.md) — naming, write, recovery, and session-close rules for all Mnemonic memory saves (the common memory config for every sdd-* skill).
+-  - [conventions/mnemonic-code-indexing.md](conventions/mnemonic-code-indexing.md) — Orientation Ladder (`code_status` → `code_map` → symbols/outline → related → `code_read`), Index Freshness, Search Intent Router, config, and gotchas (full detail in the `mnemonic-code-index` skill).
++  - [conventions/mnemonic-code-indexing.md](conventions/mnemonic-code-indexing.md) — Orientation Ladder (`code_status` → `code_map` → symbols/outline → related → `code_read`), Index Freshness, Search Intent Router, config, and gotchas (entry point: the `mnemonic` skill).
+   - [conventions/commits.md](conventions/commits.md) — commit message contract (conventional commits, no AI trailers, issue-tracker close token, multi-commit batches) shared by `sdd-apply`, `sdd-verify`, and any skill that commits.
+ - `triage-labels.md` — the five canonical triage roles shared across trackers.
+ - `templates/` — canonical blanks for SDD v3 change artifacts (instantiate; do not freestyle):
+   - [templates/README.md](templates/README.md) — naming, destinations, usage rules
+   - [templates/template-change.md](templates/template-change.md) — → `change.md` (`sdd-propose`)
+   - [templates/template-tasks.md](templates/template-tasks.md) — → `tasks.md` (`sdd-spec`)
+   - [templates/template-acceptance.feature](templates/template-acceptance.feature) — → `acceptance.feature` (`sdd-spec`)
+diff --git a/.agents/skills/_shared/conventions/mnemonic-code-indexing.md b/.agents/skills/_shared/conventions/mnemonic-code-indexing.md
+index d39d931..58b63f3 100644
+--- a/.agents/skills/_shared/conventions/mnemonic-code-indexing.md
++++ b/.agents/skills/_shared/conventions/mnemonic-code-indexing.md
+@@ -1,13 +1,13 @@
+ # Mnemonic Code-Indexing Convention (shared)
+ 
+-NOTE: This is the shared convention for the Mnemonic **code index** and retrieval surface (`code_*` MCP tools, `skillgrid search` / `export` / `serve`). It is supplementary — the full reference lives in the **`mnemonic-code-index` skill** (`.agents/skills/mnemonic-code-index/SKILL.md`). Sub-agents do NOT need to read that whole file to follow the Orientation Ladder; read it when a tool returns an unexpected shape or you need CLI/operator detail.
++NOTE: This is the shared convention for the Mnemonic **code index** and retrieval surface (`code_*` MCP tools, `skillgrid search` / `export` / `serve`). It is supplementary — the entry point is the **`mnemonic` skill** (`.agents/skills/mnemonic/SKILL.md`, Step 5; former `mnemonic-code-index` skill now folded there). Sub-agents do NOT need to read the whole convention to follow the Orientation Ladder; read it when a tool returns an unexpected shape or you need CLI/operator detail.
+ 
+ Applies to every Skillgrid SDD skill that explores, reads, or changes source code. The code index lives in the same per-project SQLite store as the memory layer and web cache (`~/.skillgrid/mnemonic/<project>.sqlite`) — same project scope, same session lifecycle as `mem_*`.
+ 
+ ## Orientation Ladder (canonical order)
+ 
+ Primary repo navigation. Prefer this over listing whole directory trees into chat.
+ 
+ ```
+ 1. code_status      → health + Index Freshness (fresh|lag|empty|unknown)
+ 2. code_map         → structural overview from the index (not a prose dump)
+@@ -120,11 +120,11 @@ skillgrid serve                          # dashboard: Memory Visualization + Cod
+ - Semantic path without embedder → **explicit** `degraded` metadata, never silent.
+ - `stale=true` ≠ lag; use `freshness`.
+ - Codebase Map prose under `docs/skillgrid/codebase/` does **not** replace the Orientation Ladder.
+ - The index is **per-project** (one SQLite file). No cross-project search.
+ 
+ ## Why This Convention
+ 
+ - Orientation Ladder first → agents stop tree-dumping as primary nav.
+ - Search Intent Router → daily path vs advanced corpora, not flat six-peer-only UX.
+ - Honest freshness + explicit semantic degrade → agents reindex and trust labels.
+-- Pointers, not copies → heavy schemas stay in the `mnemonic-code-index` skill.
++- Pointers, not copies → heavy schemas stay in the `mnemonic` skill + this convention.
+diff --git a/.agents/skills/_shared/conventions/sdd-structure.md b/.agents/skills/_shared/conventions/sdd-structure.md
+index b35f4ad..3437000 100644
+--- a/.agents/skills/_shared/conventions/sdd-structure.md
++++ b/.agents/skills/_shared/conventions/sdd-structure.md
+@@ -21,21 +21,21 @@ Optional before locking `change.md`:
+ | `use-skillgrid` | Orchestrator — detect, classify, route, resume, user gate |
+ | `sdd-onboard` | Bootstrap orchestrator (greenfield/brownfield) |
+ | `sdd-init` | Detect facts; write `config.yaml` + skeleton + AGENTS block |
+ | `sdd-explore` | **Helper** — optional change-scoped `research.md` (rots) |
+ | `sdd-propose` | Reserve NNN; write `change.md` (WHY+HOW) |
+ | `sdd-spec` | Own NN; write `tasks.md` (blocking DAG) + `acceptance.feature` |
+ | `sdd-apply` | Execute unblocked tasks; mark `[x]` + State |
+ | `sdd-verify` | Verdicts + trace + human QA plan; findings → apply |
+ | `sdd-archive` | Pure move `changes/` → `archive/` |
+ 
+-Onboard helpers (not top-level stages): `sdd-map-codebase`, `sdd-agent-context`, `sdd-constraints`, `sdd-domain`.
++Onboard helpers (references under `sdd-onboard/references/`, not top-level stages): `map-codebase`, `agent-context`, `constraints`, `domain`.
+ 
+ Retired: `sdd-design`, `sdd-tasks` (absorbed). Registry file is **optional** — not an init gate.
+ 
+ ## Numbering
+ 
+ - **Change**: 3-digit `NNN` (e.g. `001-oauth-login`). Reserved by `sdd-propose`. Never reused.
+ - **Step**: 2-digit `NN` (e.g. `01-db-migration`). Allocated by `sdd-spec`. Never renumbered after creation.
+ 
+ ## Directory Structure
+ 
+@@ -64,24 +64,24 @@ docs/skillgrid/
+ 
+ No `steps/` tree. No companion `*-glossary-reference.md`. No required root `CONSTRAINTS.md` / `CONTEXT.md`. ADRs under `docs/adr/` only on **promote** (see plan).
+ 
+ Scratch (git-ignored, never committed): `.skillgrid/sdd/<NNN-slug>/` — `subagent-execution` briefs, implementer reports, review diffs, `progress.md` ledger. Resolved by `scripts/sdd-workspace <tasks.md>`; deleted at finish. A `handoff` brief is different: OS temp (`/tmp`), never under `.skillgrid/`.
+ 
+ ## Artifact File Paths
+ 
+ | Skill | Creates / updates | Path |
+ |---|---|---|
+ | sdd-init / sdd-onboard | skeleton | `config.yaml`, `agents/` stubs, `glossary/` stubs, `changes/`, `archive/`, AGENTS block |
+-| sdd-map-codebase | optional map | `docs/skillgrid/codebase/` |
+-| sdd-agent-context | harness pointer | `AGENTS.md` (+ one-line pointers elsewhere) |
+-| sdd-constraints | quality bar | `config.yaml` `rules.*` |
+-| sdd-domain | vocabulary | `docs/skillgrid/glossary/{business,technical}.md` |
++| sdd-onboard → references/map-codebase.md | optional map | `docs/skillgrid/codebase/` |
++| sdd-onboard → references/agent-context.md | harness pointer | `AGENTS.md` (+ one-line pointers elsewhere) |
++| sdd-onboard → references/constraints.md | quality bar | `config.yaml` `rules.*` |
++| sdd-onboard → references/domain.md | vocabulary | `docs/skillgrid/glossary/{business,technical}.md` |
+ | sdd-explore | research | `changes/<NNN-slug>/research.md` |
+ | sdd-propose | change | `changes/<NNN-slug>/change.md` |
+ | sdd-spec | tasks + acceptance | `tasks.md`, `acceptance.feature` |
+ | sdd-apply | progress | `tasks.md` checkboxes + `## State` |
+ | sdd-verify | verdicts + QA | `tasks.md` `### Verification`; `qa-plan.md` or `## QA plan` |
+ | sdd-archive | move | `changes/<NNN-slug>/` → `archive/<NNN-slug>/` |
+ 
+ ## Reading Artifacts
+ 
+ ```
+diff --git a/.agents/skills/dispatching-parallel-agents/SKILL.md b/.agents/skills/dispatching-parallel-agents/SKILL.md
+index 57cb149..83eade5 100644
+--- a/.agents/skills/dispatching-parallel-agents/SKILL.md
++++ b/.agents/skills/dispatching-parallel-agents/SKILL.md
+@@ -1,151 +1,14 @@
+ ---
+ name: dispatching-parallel-agents
+-description: Use when an SDD phase or debugging task has 2+ independent work items that can be executed without shared state or sequential dependencies. Provides the decision protocol for fanning out work to parallel sub-agents and the per-agent prompt structure.
++description: "Retired — redirect to subagent-execution. The parallel-investigation dispatch protocol now lives in subagent-execution/SKILL.md (Parallel investigation section)."
+ license: MIT
+ metadata:
+   author: skillgrid
+-  version: "1.0"
+-  source: derived from superpowers dispatching-parallel-agents, adapted for skillgrid's Mnemonic + orchestrator model
++  version: "2.0"
++  status: retired
++  redirect: ../subagent-execution/SKILL.md
+ ---
+ 
+-# Dispatching Parallel Agents
++# Dispatching Parallel Agents (retired)
+ 
+-You delegate tasks to specialized sub-agents with **isolated context**. By precisely crafting their instructions and context, you ensure they stay focused and succeed at their task. They never inherit your session's context or history — you construct exactly what they need. This also preserves your own context for coordination work.
+-
+-When you have multiple unrelated failures (different test files, different subsystems, different bugs), investigating them sequentially wastes time. Each investigation is independent and can happen in parallel.
+-
+-**Core principle:** dispatch one sub-agent per independent problem domain. Let them work concurrently.
+-
+-## When to Use
+-
+-```
+-Multiple unrelated work items?
+-├── no  → single agent handles all
+-└── yes → Are they independent (root-cause level)?
+-         ├── no  (related; fixing one may fix others) → single agent investigates together
+-         └── yes → Can they run truly in parallel (no shared state, no shared files)?
+-                  ├── no  (shared files, shared resource, single Mnemonic topic_key) → sequential
+-                  └── yes → PARALLEL DISPATCH
+-```
+-
+-**Use when:**
+-- 3+ test files failing with different root causes
+-- Multiple subsystems broken independently
+-- Each problem can be understood without context from others
+-- No shared state between investigations (no shared files, no shared resources, no shared `mem_save` `topic_key`)
+-
+-**Don't use when:**
+-- Failures are related (fixing one might fix others)
+-- Need to understand full system state to triage
+-- Agents would edit the same files
+-- Agents would write to the same Mnemonic `topic_key` (memory clobber risk)
+-- Exploratory debugging — you don't know what's broken yet
+-
+-## The Pattern
+-
+-### 1. Identify Independent Domains
+-
+-Group work by what's broken / what needs doing:
+-- File A tests: Tool approval flow
+-- File B tests: Batch completion behavior
+-- File C tests: Abort functionality
+-
+-Each domain is independent — fixing tool approval doesn't affect abort tests.
+-
+-### 2. Create Focused Agent Tasks
+-
+-Each agent gets:
+-- **Specific scope:** one file, one subsystem, one step, or one test area
+-- **Clear goal:** the observable outcome (tests pass, RED test written, file created, etc.)
+-- **Constraints:** what they must NOT change ("do not edit other files", "do not touch the other adapter")
+-- **Expected output:** structured return — summary of root cause / changes / blockers
+-- **Mnemonic isolation:** if the agent writes to Mnemonic, give it a unique `topic_key` per agent (e.g. `sdd/<NNN-slug>/parallel/<domain>`). Never have two parallel agents write the same `topic_key` — the second upsert silently overwrites the first.
+-
+-### 3. Dispatch in Parallel
+-
+-**Mechanical rule:** issue all parallel dispatches in a single response. Multiple `task` calls in one response = parallel execution. One `task` per response = sequential.
+-
+-```text
+-task(description: "Fix agent-tool-abort tests", subagent_type: "general", prompt: "...")
+-task(description: "Fix batch-completion tests", subagent_type: "general", prompt: "...")
+-task(description: "Fix tool-approval race tests", subagent_type: "general", prompt: "...")
+-# All three run concurrently.
+-```
+-
+-### 4. Review and Integrate
+-
+-When agents return:
+-1. **Read each summary** — what they changed, what they found
+-2. **Check for conflicts** — same-file edits, contract drift, vocabulary drift
+-3. **Run full suite** — agents can make systematic errors that cancel in isolation
+-4. **Spot-check** — at least one acceptance scenario per agent
+-
+-## Agent Prompt Structure
+-
+-Good prompts are:
+-1. **Focused** — one clear problem domain
+-2. **Self-contained** — all context the sub-agent needs (never your session history)
+-3. **Specific about output** — what should the agent return?
+-
+-```markdown
+-Fix the 3 failing tests in src/agents/agent-tool-abort.test.ts:
+-
+-1. "should abort tool with partial output capture" — expects 'interrupted at' in message
+-2. "should handle mixed completed and aborted tools" — fast tool aborted instead of completed
+-3. "should properly track pendingToolCount" — expects 3 results but gets 0
+-
+-These are timing/race condition issues. Your task:
+-
+-1. Read the test file and understand what each test verifies
+-2. Identify root cause — timing issues or actual bugs?
+-3. Fix by:
+-   - Replacing arbitrary timeouts with event-based waiting
+-   - Fixing bugs in abort implementation if found
+-   - Adjusting test expectations if testing changed behavior
+-
+-Do NOT just increase timeouts — find the real issue.
+-
+-## Project standards (auto-resolved)
+-
+-[compact rules injected by orchestrator — see _shared conventions]
+-
+-## Mnemonic isolation
+-
+-If you write memory, use topic_key: `sdd/<NNN-slug>/parallel/abort-domain` (this is YOUR slot; other parallel agents have their own).
+-
+-## Return format
+-
+-Summary of what you found and what you fixed. Cite file:line for every change.
+-```
+-
+-## Common Mistakes
+-
+-| Mistake | Fix |
+-|---|---|
+-| "Fix all the tests" (too broad) | One test file or subsystem per agent |
+-| "Fix the race condition" (no context) | Paste the error messages and test names |
+-| No constraints (agent refactors everything) | "Do NOT change production code" or "Fix tests only" |
+-| "Fix it" (vague output) | "Return summary of root cause and changes" |
+-| Same `topic_key` for two parallel agents (silent clobber) | Unique `topic_key` per agent (e.g. `…/parallel/<domain>`) |
+-| Edits to the same file (merge conflict) | Pre-allocate files per agent in the prompt |
+-
+-## When NOT to Use
+-
+-- **Related failures:** fixing one might fix others — investigate together first
+-- **Need full context:** understanding requires seeing the entire system
+-- **Exploratory debugging:** you don't know what's broken yet
+-- **Shared state:** agents would interfere (editing same files, using same resources, same Mnemonic key)
+-
+-## Integration with skillgrid
+-
+-This skill is the **decision protocol** the orchestrator uses to decide whether to fan out:
+-
+-- **`sdd-apply`** already has a similar split (`simple-execution` vs `subagent-execution`). Use the rule above to pick: 2+ independent work items with no shared state → fan out for investigation. For implementation, `subagent-execution` still dispatches implementers sequentially (never parallel implementers) — one slot per domain, in order. Otherwise → single inline route.
+-- **`sdd-explore`** can use this for parallel investigation of multiple subsystems in a large codebase.
+-- **Debugging parallel failures** (e.g. flaky tests across N files): dispatch one agent per file with a shared "no cross-file edits" constraint.
+-
+-## References
+-
+-- [../subagent-execution/SKILL.md](../subagent-execution/SKILL.md) — the dispatch loop that owns fan-out for a full SDD step.
+-- [../simple-execution/SKILL.md](../simple-execution/SKILL.md) — the inline per-task loop (no fan-out).
+-- [../_shared/conventions/mnemonic-memory.md](../_shared/conventions/mnemonic-memory.md) — `topic_key` isolation rules; the orchestrator injects these into every sub-agent prompt.
++**Retired.** Use [`../subagent-execution/SKILL.md`](../subagent-execution/SKILL.md) — `## Parallel investigation` section. Same decision tree, same `topic_key` isolation rules, same mechanical single-response dispatch rule. This stub exists so old references resolve; do not extend it.
+diff --git a/.agents/skills/glossary/SKILL.md b/.agents/skills/glossary/SKILL.md
+index bdc8685..cc0e870 100644
+--- a/.agents/skills/glossary/SKILL.md
++++ b/.agents/skills/glossary/SKILL.md
+@@ -62,12 +62,12 @@ Bold glossary terms in prose when they appear in the artifact's `## Glossary` fo
+ 
+ SDD forbids `*-glossary-reference.md` companions. Terms live in:
+ 
+ 1. `docs/skillgrid/glossary/{business,technical}.md`
+ 2. Inline / `## Glossary` in `change.md` (see `template-change.md`)
+ 
+ ## Use in skillgrid
+ 
+ - `sdd-propose` — close-term check when writing `change.md`; fill `## Glossary` footer.
+ - `sdd-spec` — reuse terms from `change.md`; do not invent companions.
+-- `sdd-domain` / onboard — bootstrap vocabulary under `docs/skillgrid/glossary/`.
++- `sdd-onboard` (`references/domain.md`) — bootstrap vocabulary under `docs/skillgrid/glossary/`.
+ - `sdd-apply` — update `docs/skillgrid/glossary/technical.md` if a new technical term lands (`mem_save`, topic_key `sdd/<project>/glossary/technical`).
+diff --git a/.agents/skills/mnemonic-code-index/SKILL.md b/.agents/skills/mnemonic-code-index/SKILL.md
+index 7719076..2fd3a58 100644
+--- a/.agents/skills/mnemonic-code-index/SKILL.md
++++ b/.agents/skills/mnemonic-code-index/SKILL.md
+@@ -1,82 +1,14 @@
+ ---
+ name: mnemonic-code-index
+-description: "Mnemonic code index and retrieval — Orientation Ladder, Index Freshness, Search Intent Router, extractors, dialect v2, code_impact, export, and serve Memory Visualization. Use when exploring code, searching, or checking index health."
++description: "Retired — redirect to mnemonic. Code index + search router now live in mnemonic/SKILL.md Step 5 and _shared/conventions/mnemonic-code-indexing.md."
+ license: MIT
+ metadata:
+   author: devopstales
+-  version: "2.0"
+-  part-of: skillgrid
+-  notes: "Documents the Mnemonic code_* MCP tools and skillgrid search/export/serve surfaces (010)."
++  version: "3.0"
++  status: retired
++  redirect: ../mnemonic/SKILL.md
+ ---
+ 
+-# Mnemonic Code Index — Protocol
++# Mnemonic Code Index (retired)
+ 
+-Local-first code intelligence in the same SQLite store as `mem_*` / `web_*`
+-(`~/.skillgrid/mnemonic/<project>.sqlite`). Shared contract:
+-[`.agents/skills/_shared/conventions/mnemonic-code-indexing.md`](../_shared/conventions/mnemonic-code-indexing.md).
+-
+-## Orientation Ladder (primary nav)
+-
+-Prefer this over dumping whole directory trees into chat:
+-
+-```
+-code_status → code_map → symbols / code_outline → code_related → code_read
+-```
+-
+-1. **`code_status`** — Index Freshness: `fresh` | `lag` | `empty` | `unknown`. Compat `stale=true` means **empty only**, not lag.
+-2. If not `fresh` → **`code_index`**, then continue.
+-3. **`code_map`** — indexed structural overview.
+-4. **symbols / `code_outline`** — narrow units (`code_search_symbols` / outline).
+-5. **`code_related`** — Edge neighbors.
+-6. **`code_read`** — exact narrowed slice only.
+-
+-Narrative Codebase Map (`docs/skillgrid/codebase/`) is **secondary** orientation; do not replace this ladder with a tree dump.
+-
+-## Search Intent Router
+-
+-`skillgrid search <query>` uses the **Search Intent Router** (daily path). This is **not** “six equal corpora” as the only model.
+-
+-| Daily path | When |
+-|---|---|
+-| `symbols` | Identifier-shaped query |
+-| `grep` | Structural / Matcher dialect (`func $NAME…`) |
+-| `mem` | Decision / remember / past-work language |
+-| `code` | Unclassified (`route=default`) |
+-
+-Advanced escape hatch: `--corpus code|grep|mem|symbols|hybrid|semantic`. Keep provenance when multi-corpus; never silently fuse mem+code.
+-
+-### Explicit semantic degrade
+-
+-Semantic search sets `degraded=true` (+ reason + fallback) when the Local Code Embedder is unavailable. **Never silent** FTS-as-semantic.
+-
+-## Extractors / dialect / impact
+-
+-- Python tree-sitter Extractor: build with **`-tags treesitter`** (CGo only inside Extractor Adapters).
+-- Matcher **dialect v2** adds: `struct $NAME`, `method $NAME($ARGS)`, `const $NAME`, `enum $NAME` (plus v1 patterns). Invalid pattern → abort.
+-- **`code_impact`** — additive blast-radius Impact Analysis; does not replace `code_get_*`.
+-
+-## Export and Memory Visualization
+-
+-```bash
+-skillgrid export --project ID --out DIR [--allowed-root DIR]
+-skillgrid serve   # dashboard: Memory Visualization + Code Graph (read-only)
+-```
+-
+-Export writes Obsidian Markdown + viz JSON under an allowed root. Serve dashboard viz is read-only — no mutate/delete via the viz client.
+-
+-**Code Graph** (CodeGraph-shaped): dashboard tab with 3-pane callers | source | callees, blast-radius summary, symbol search, entry-points screen, and flow/path between two symbols — over Mnemonic Edges (`/graph/*`). Mutating graph viz APIs return 405.
+-
+-## Foundation tools (stable)
+-
+-Do not rename/remove: `code_status`, `code_index`, `code_search`, `code_read`, `code_get_*`. Lexical baseline remains `chunks` / `chunks_fts`.
+-
+-## CLI cheat sheet
+-
+-```bash
+-skillgrid index --dir .
+-skillgrid search "AuthService"
+-skillgrid search --corpus grep 'func $NAME($ARGS)'
+-skillgrid search --corpus semantic "how does indexing work"   # watch degraded
+-skillgrid export --project myproj --out ~/vault/mnemonic-export
+-skillgrid serve
+-```
++**Retired.** Use [`../mnemonic/SKILL.md`](../mnemonic/SKILL.md) — Step 5 (Orientation Ladder + Search Router + folded code-index details) and [../_shared/conventions/mnemonic-code-indexing.md](../_shared/conventions/mnemonic-code-indexing.md) for the full convention. This stub exists so old references resolve; do not extend it.
+diff --git a/.agents/skills/mnemonic/SKILL.md b/.agents/skills/mnemonic/SKILL.md
+index 56f6c00..eb4e783 100644
+--- a/.agents/skills/mnemonic/SKILL.md
++++ b/.agents/skills/mnemonic/SKILL.md
+@@ -126,20 +126,21 @@ skillgrid code map [--path-prefix DIR]
+ skillgrid code get-symbol --name Name
+ skillgrid code impact --name Name                          # blast-radius (additive; does not replace code_get_*)
+ skillgrid code get-callers|get-callees|get-dependents|get-implementors|get-tests-for|get-type-hierarchy --name Name
+ skillgrid code index-status
+ ```
+ 
+ - **Freshness**: `fresh` | `lag` | `empty` | `unknown`. Compat `stale=true` means empty-only, not lag. Reindex when not `fresh`.
+ - **Router**: omit `--corpus` for the daily path (identifier→symbols, `func $NAME`→grep, decision/remember→mem, else code). `--corpus` is the advanced escape hatch, not six equal peers.
+ - **Provenance**: mem and code are never silently fused — mem results carry `observations`, code-family results never mix mem observations unlabeled.
+ - **Semantic** sets `degraded=true` explicitly when the Local Code Embedder is unavailable (never silent).
++- **Details (folded from mnemonic-code-index):** extractors (Python tree-sitter needs `-tags treesitter`, CGo stays in Extractor Adapters), Matcher dialect v2 (`struct`/`method`/`const`/`enum` + v1; invalid pattern → abort), `code_impact` is additive blast-radius (never replaces `code_get_*`), stable tools (`code_status`, `code_index`, `code_search`, `code_read`, `code_get_*`; lexical baseline `chunks`/`chunks_fts`), export/serve (`skillgrid export --project ID --out DIR` under allowed root; `skillgrid serve` dashboard viz read-only, graph mutate → 405). Full ladder/router/conventions: `.agents/skills/_shared/conventions/mnemonic-code-indexing.md`.
+ 
+ ### Step 6 — Web research cache (before/after every remote lookup)
+ 
+ ```
+ web_cache_lookup(source: context7|exa|deepwiki|fetch|manual, ...)  # BEFORE the remote call
+ → miss: call Context7 / Exa / DeepWiki / WebFetch
+ → web_cache_save(source, content, ...) within the same turn        # cap 256 KB — summarize first
+ "what did we find about X?" → web_cache_search(query) → web_cache_get(id)
+ ```
+ 
+@@ -183,11 +184,11 @@ After compaction / "FIRST ACTION REQUIRED": FIRST call `mem_session_summary` wit
+ | `skillgrid mcp [--debug]` | stdio MCP server (`mem_*`, `code_*`, `web_*`, `team_*`) |
+ | `skillgrid serve [--port 7438] [--bind 127.0.0.1] [--dir DIR]` | HTTP API + dashboard (Memory Visualization and Code Graph are read-only; mutate via viz is rejected) |
+ | `skillgrid index [--dir .] [--watch] [--embeddings]` | incremental code index; `--watch` opts into debounced live indexer |
+ | `skillgrid search [--corpus …] [--limit 20] [--dir .] <query>` | centralized retrieval with intent routing; JSON with `route` + `provenance` |
+ | `skillgrid code <get-symbol\|get-signature\|symbols-in-file\|map\|list-projects\|index-status\|impact\|get-callers\|…>` | orient/graph (search lives under `skillgrid search`) |
+ | `skillgrid setup <opencode\|kilocode\|cursor> [--dry-run]` | install `skillgrid-mnemonic` MCP + agent plugins |
+ | `skillgrid migrate [--tier]` | backfill tier sidecars |
+ | `skillgrid trail <recent\|show>` | inspect retrieval trails |
+ | `skillgrid export --project ID --out DIR` | Obsidian Markdown + viz JSON (allowed-root enforced) |
+ 
+-Full protocol refs: `.agents/skills/_shared/conventions/mnemonic-memory.md` (SDD artifact naming, two-step recovery, upserts), `.agents/skills/mnemonic-code-index/SKILL.md` (code index + search router), `.agents/skills/_shared/conventions/mnemonic-code-indexing.md`.
++Full protocol refs: `.agents/skills/_shared/conventions/mnemonic-memory.md` (SDD artifact naming, two-step recovery, upserts), `.agents/skills/_shared/conventions/mnemonic-code-indexing.md` (code index + search router — former `mnemonic-code-index` skill, now folded here).
+diff --git a/.agents/skills/sdd-agent-context/SKILL.md b/.agents/skills/sdd-agent-context/SKILL.md
+index c374727..60b35c5 100644
+--- a/.agents/skills/sdd-agent-context/SKILL.md
++++ b/.agents/skills/sdd-agent-context/SKILL.md
+@@ -1,73 +1,14 @@
+ ---
+ name: sdd-agent-context
+-description: "Write or refresh the Skillgrid sentinel block in AGENTS.md and one-line pointers in other harness files. Use when onboarding, refreshing agent context, or fixing duplicated project facts across harness configs."
++description: "Retired — redirect to sdd-onboard. The AGENTS.md sentinel procedure now lives in sdd-onboard/references/agent-context.md."
+ license: MIT
+ metadata:
+   author: devopstales
+-  version: "1.0"
+-  part-of: skillgrid
+-  family: sdd
++  version: "2.0"
++  status: retired
++  redirect: ../sdd-onboard/references/agent-context.md
+ ---
+ 
+-# SDD Agent Context
++# SDD Agent Context (retired)
+ 
+-Keep one cross-agent SoT: **full** Skillgrid block in `AGENTS.md`. Cursor / OpenCode / Kilo / VS Code (and CLAUDE.md / GEMINI.md secondaries) get a **one-line pointer** only. Never duplicate project facts (stack, tracker, rules) into harness files.
+-
+-Payload: [`../_shared/agent-config/block.md`](../_shared/agent-config/block.md).  
+-Target matrix: [`../_shared/agent-config/README.md`](../_shared/agent-config/README.md).  
+-Layout: [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md).
+-
+-## Hard Rules
+-
+-- Full block → `AGENTS.md` (create if missing and user agrees; default suggestion AGENTS.md).
+-- Other harness files → one-line pointer inside secondary sentinels only.
+-- Idempotent upsert via `<!-- skillgrid-sdd:start -->` … `<!-- skillgrid-sdd:end -->`.
+-- Workflow line must be: `` `onboard → propose → spec → apply ⇄ verify → archive` ``.
+-- Registry line is **optional** — omit or mark optional; never invent a registry gate.
+-- Do not copy `config.yaml` facts into the block beyond the pointers in `block.md`.
+-
+-## Workflow
+-
+-```
+-[ ] 1. Resolve primary (AGENTS.md) and secondaries present
+-[ ] 2. Fill placeholders from config / tracker
+-[ ] 3. Upsert full block into AGENTS.md
+-[ ] 4. Upsert one-line pointers into other harness files
+-[ ] 5. Confirm no duplicate full blocks
+-```
+-
+-### 1. Resolve targets
+-
+-- Primary: `AGENTS.md` (preferred). If absent, ask before creating.
+-- Secondaries (if present): `.cursor/rules` pointers only if the project already uses root harness files — prefer root `CLAUDE.md`, `GEMINI.md`, and any documented Cursor/OpenCode/Kilo/VS Code agent entry files the repo already has. Do not spray new harness files.
+-
+-### 2. Render payload
+-
+-Copy `block.md` exactly. Fill `{tracker-line}` (and `{registry}` only if the registry file exists — else drop or mark optional). Ensure workflow + entry lines match v4 (`use-skillgrid`, onboard path).
+-
+-### 3. Upsert AGENTS.md
+-
+-1. Find `<!-- skillgrid-sdd:start -->`
+-2. Found → replace through `<!-- skillgrid-sdd:end -->`
+-3. Missing → append at end
+-4. Never append a second full block
+-
+-### 4. Secondaries — one line only
+-
+-```markdown
+-<!-- skillgrid-sdd:start (secondary) -->
+-SDD config lives here: `AGENTS.md` → `## Agent skills`. Do not duplicate that block.
+-<!-- skillgrid-sdd:end (secondary) -->
+-```
+-
+-If a secondary still holds a full old block, replace it with this pointer.
+-
+-### 5. Verify
+-
+-Grep for `skillgrid-sdd:start` — exactly one full block (in AGENTS.md); others secondary-only.
+-
+-## Gotchas
+-
+-- Two full blocks = two SoTs that drift — always demote extras to pointers.
+-- Do not put stack/testing/rules prose in harness files; point at `docs/skillgrid/config.yaml`.
+-- Init may have written an older workflow string — this skill refreshes to the v4 line.
++**Retired.** Use [`../sdd-onboard/references/agent-context.md`](../sdd-onboard/references/agent-context.md) via `sdd-onboard` (or for a standalone refresh). This stub exists so old references resolve; do not extend it.
+diff --git a/.agents/skills/sdd-apply/SKILL.md b/.agents/skills/sdd-apply/SKILL.md
+index c06284c..a5d9209 100644
+--- a/.agents/skills/sdd-apply/SKILL.md
++++ b/.agents/skills/sdd-apply/SKILL.md
+@@ -63,21 +63,21 @@ Read: `change.md`, `tasks.md` (`## NN-<name>`), `acceptance.feature` (`@step-NN`
+ - **`isolated-workspace`** is required for `auto-chain` / `chained-PR` / dirty shared branch / risky change; optional for small `single-pr` in-place work.
+ - Commits: **`work-unit-commits`** / [`../_shared/conventions/commits.md`](../_shared/conventions/commits.md) — checkpoint when green. **Per step always**, even under `single-pr` (one PR ≠ one commit). Skipping step commits requires an explicit user override recorded in apply-progress.
+ - **Ticket (when `change.md` `Ticket:` is not `none`):** follow the tracker’s **Ticket lifecycle** in [`../_shared/issue-tracker/`](../_shared/issue-tracker/) — set in-progress at apply start; every step commit footer references the id (`Refs:` / `Refs #…`). Creating the ticket is propose/spec’s job (`force_ticket_creation`); apply **owns progress updates**, not creation.
+ 
+ ### 3. Route execution (do not freestyle inline)
+ 
+ For each unblocked assigned step:
+ 
+ | Route | When | Skill |
+ |---|---|---|
+-| Subagent | tasks mostly independent (2+ steps, no shared files/state) / auto-chain / large context | **`subagent-execution`** (sequential implementers; `dispatching-parallel-agents` only for parallel-safe investigation domains, never parallel implementers) |
++| Subagent | tasks mostly independent (2+ steps, no shared files/state) / auto-chain / large context | **`subagent-execution`** (sequential implementers; its Parallel investigation section only for parallel-safe investigation domains, never parallel implementers) |
+ | Inline | small / tightly coupled / single-pr under budget | **`simple-execution`** |
+ | TDD | `rules.apply.tdd` / testing-capabilities say so | **`tdd`** (+ strict-tdd module when active) |
+ | Bug mid-apply | unexpected failure | **`debugging`** before patching |
+ 
+ Pass Strict TDD flag and `Run:`/`Expected:` lines into the chosen route. Match existing code patterns; note deviations.
+ 
+ ### 4. Mark [x] + commit + State + evidence
+ 
+ Under assigned `## NN-<name>` → `### Tasks`, flip checkboxes as completed. Then **commit the step before starting the next one** (per `work-unit-commits`: message from the step's `### Commit` hint, ticket footer when `Ticket:` is set, `tasks.md` marks included). A step with no commit is not done — report it as partial. If the step truly changed nothing, record N/A+reason in the evidence instead of an empty commit. Bump `## State`. Record Step Evidence (focused test, `@step-NN` coverage, runtime harness or N/A+reason, rollback boundary). If Strict TDD active, also TDD Cycle Evidence (RED→GREEN→TRIANGULATE→REFACTOR). Do not invent Verification PASS.
+ 
+@@ -105,14 +105,14 @@ Under assigned `## NN-<name>` → `### Tasks`, flip checkboxes as completed. The
+ - A step marked `[x]` with no commit is partial, not success — verify caps it at PASS WITH WARNINGS.
+ - Upserting `apply-progress` without reading prior progress drops earlier batches.
+ - `mem_search` previews are not acceptance criteria — `mem_get_observation(id)`.
+ - Prototype path is a learning aid, not a license to ship spike code unmarked.
+ - Do not write Verification verdicts here.
+ 
+ ## References
+ 
+ - [`../simple-execution/SKILL.md`](../simple-execution/SKILL.md) · [`../subagent-execution/SKILL.md`](../subagent-execution/SKILL.md)
+ - [`../tdd/SKILL.md`](../tdd/SKILL.md) · [`../debugging/SKILL.md`](../debugging/SKILL.md)
+-- [`../isolated-workspace/SKILL.md`](../isolated-workspace/SKILL.md) · [`../dispatching-parallel-agents/SKILL.md`](../dispatching-parallel-agents/SKILL.md)
++- [`../isolated-workspace/SKILL.md`](../isolated-workspace/SKILL.md) · [`../subagent-execution/SKILL.md`](../subagent-execution/SKILL.md) (`## Parallel investigation`)
+ - [`../_shared/templates/template-tasks.md`](../_shared/templates/template-tasks.md)
+ - [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md) · [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md)
+ - [`../_shared/conventions/commits.md`](../_shared/conventions/commits.md) · [`../sdd-verify/SKILL.md`](../sdd-verify/SKILL.md)
+diff --git a/.agents/skills/sdd-constraints/SKILL.md b/.agents/skills/sdd-constraints/SKILL.md
+index 66da656..2357b94 100644
+--- a/.agents/skills/sdd-constraints/SKILL.md
++++ b/.agents/skills/sdd-constraints/SKILL.md
+@@ -1,86 +1,14 @@
+ ---
+ name: sdd-constraints
+-description: "Interview and write the quality bar in config under docs/skillgrid/config.yaml rules.* only. Use when onboarding, setting TDD/coverage/verify gates, or refreshing SDD quality rules."
++description: "Retired — redirect to sdd-onboard. The quality-bar procedure now lives in sdd-onboard/references/constraints.md."
+ license: MIT
+ metadata:
+   author: devopstales
+-  version: "1.0"
+-  part-of: skillgrid
+-  family: sdd
++  version: "2.0"
++  status: retired
++  redirect: ../sdd-onboard/references/constraints.md
+ ---
+ 
+-# SDD Constraints
++# SDD Constraints (retired)
+ 
+-Capture the project's **quality bar in config** — `docs/skillgrid/config.yaml` → `rules.*` only. No root `CONSTRAINTS.md` by default (optional human export only; never a second SoT).
+-
+-Layout: [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md).  
+-Interview style: load `questioning` when answers branch or conflict.
+-
+-## Hard Rules
+-
+-- Write **only** `rules.*` (and related testing fields the user confirms). Do not invent parallel constraint docs.
+-- Detect existing `rules:` before asking — propose diffs, don't blind overwrite.
+-- Keep `context:` short (<10 lines); quality gates live under `rules`, not `context`.
+-- Default + confirm — do not present a long equal menu of philosophies.
+-
+-## Workflow
+-
+-```
+-[ ] 1. Read docs/skillgrid/config.yaml (create via sdd-init if missing)
+-[ ] 2. Interview the quality bar
+-[ ] 3. Patch rules.* only
+-[ ] 4. Confirm with user; summarize
+-```
+-
+-### 1. Read config
+-
+-If `config.yaml` missing → stop and run/ask for `sdd-init` first.
+-
+-### 2. Interview (short confirmations)
+-
+-Ask one cluster at a time:
+-
+-1. **Propose gates** — rollback, success criteria, ADR-style rationale, threat rows?
+-2. **Spec gates** — NN ownership, task sizing, acceptance coverage (happy + edge + failure)?
+-3. **Apply** — TDD on/off, `test_command`, "follow existing patterns", mark `[x]` as you go?
+-4. **Verify** — `test_command`, `build_command`, `coverage_threshold`?
+-5. **Archive** — require PASS / PASS WITH WARNINGS on every step?
+-
+-Reuse detected testing commands from config/`sdd-init` as defaults.
+-
+-### 3. Write `rules.*`
+-
+-Shape (match existing project schema; example keys):
+-
+-```yaml
+-rules:
+-  explore: []
+-  propose:
+-    - Include success criteria (measurable)
+-  spec:
+-    - Own NN allocation; one ## section per Step Blueprint entry
+-  apply:
+-    guidelines:
+-      - Follow existing code patterns
+-      - Mark tasks [x] as you go (in tasks.md)
+-    tdd: false
+-    test_command: ""
+-  verify:
+-    test_command: ""
+-    build_command: ""
+-    coverage_threshold: 0
+-  archive:
+-    - Require every step in tasks.md to have PASS or PASS WITH WARNINGS before move
+-```
+-
+-Only change keys the user confirmed. Leave unrelated YAML untouched.
+-
+-### 4. Summary
+-
+-List `rules` keys updated. State explicitly: SoT is `config.yaml` — not root CONSTRAINTS.md.
+-
+-## Gotchas
+-
+-- Root `CONSTRAINTS.md` duplicates and drifts — do not create unless the user explicitly wants an export that *cites* `rules.*`.
+-- Empty `test_command` is fine until the user supplies one — do not invent fake CI commands.
+-- `tdd: true` without a real `test_command` is a footgun — confirm both together.
++**Retired.** Use [`../sdd-onboard/references/constraints.md`](../sdd-onboard/references/constraints.md) via `sdd-onboard` (or for a standalone `rules.*` refresh). This stub exists so old references resolve; do not extend it.
+diff --git a/.agents/skills/sdd-domain/SKILL.md b/.agents/skills/sdd-domain/SKILL.md
+index 270fd62..ab2dd6b 100644
+--- a/.agents/skills/sdd-domain/SKILL.md
++++ b/.agents/skills/sdd-domain/SKILL.md
+@@ -1,76 +1,14 @@
+ ---
+ name: sdd-domain
+-description: "Bootstrap docs/skillgrid/glossary/{business,technical}.md (sibling of agents/). Use when onboarding, seeding domain vocabulary, or refreshing the Skillgrid glossary stubs."
++description: "Retired — redirect to sdd-onboard. The glossary-bootstrap procedure now lives in sdd-onboard/references/domain.md."
+ license: MIT
+ metadata:
+   author: devopstales
+-  version: "1.0"
+-  part-of: skillgrid
+-  family: sdd
++  version: "2.0"
++  status: retired
++  redirect: ../sdd-onboard/references/domain.md
+ ---
+ 
+-# SDD Domain
++# SDD Domain (retired)
+ 
+-Bootstrap shared vocabulary under `docs/skillgrid/glossary/` — **sibling of** `agents/`, not `agents/glossary/`. No root `CONTEXT.md` by default (cite glossary + `config.yaml` `context:` instead).
+-
+-Layout: [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md).  
+-Ongoing term discipline: load `glossary` when authoring specs later.
+-
+-## Hard Rules
+-
+-- Paths are `docs/skillgrid/glossary/business.md` and `technical.md` — never nest under `agents/`.
+-- Stub tables are enough at onboard; do not invent a large fake glossary.
+-- Prefer existing project terms (README, domain docs, code names) over new jargon.
+-- No companion `*-glossary-reference.md` files.
+-
+-## Workflow
+-
+-```
+-[ ] 1. Ensure docs/skillgrid/ exists (else sdd-init first)
+-[ ] 2. Create glossary/ stubs if missing
+-[ ] 3. Seed known terms (optional short interview)
+-[ ] 4. Optional Mnemonic upsert
+-[ ] 5. Summarize paths
+-```
+-
+-### 1. Preconditions
+-
+-Need `docs/skillgrid/config.yaml` (or skeleton). If uninitialized → hand off to `sdd-init` / `sdd-onboard`.
+-
+-### 2. Stub files
+-
+-Create directory + files if absent:
+-
+-`docs/skillgrid/glossary/business.md` — domain, product, workflow terms.  
+-`docs/skillgrid/glossary/technical.md` — architecture, platform, protocol terms.
+-
+-Minimum table:
+-
+-```markdown
+-# Business glossary
+-
+-| Term | Definition | Use When | Avoid |
+-| --- | --- | --- | --- |
+-```
+-
+-(Same header pattern for technical.)
+-
+-If files exist with the **old** path `docs/skillgrid/agents/glossary/`, migrate content into the sibling `glossary/` and leave a one-line pointer in the old location (or delete only if empty and user agrees).
+-
+-### 3. Seed (light)
+-
+-Optional 2–5 terms from README / user interview. Skip generic dictionary words. For close matches later, `glossary` owns the close-term question.
+-
+-### 4. Mnemonic (optional)
+-
+-Upsert topic_keys: `sdd/<project>/glossary/business`, `sdd/<project>/glossary/technical` (`scope: project`).
+-
+-### 5. Summary
+-
+-Paths created/updated. Remind: no root CONTEXT.md SoT; product narrative stays in `config.yaml` `context:` + glossary.
+-
+-## Gotchas
+-
+-- Old skills/docs may still say `agents/glossary/` — **sibling** `glossary/` wins per sdd-structure.
+-- Do not dump the whole product brief into glossary rows — short definitions only.
+-- `glossary` skill may still list the old path until updated; when conflicting, follow `sdd-structure.md`.
++**Retired.** Use [`../sdd-onboard/references/domain.md`](../sdd-onboard/references/domain.md) via `sdd-onboard` (or for a standalone glossary refresh). This stub exists so old references resolve; do not extend it.
+diff --git a/.agents/skills/sdd-explore/SKILL.md b/.agents/skills/sdd-explore/SKILL.md
+index 8058041..3360f52 100644
+--- a/.agents/skills/sdd-explore/SKILL.md
++++ b/.agents/skills/sdd-explore/SKILL.md
+@@ -50,21 +50,21 @@ Skip for ordinary in-repo features the code index already covers.
+ - Code ladder: `code_status` → `code_index` if stale → `code_search` → `code_read`.
+ 
+ If existing research answers the question and is not stale, return it — do not re-explore.
+ 
+ ### 2. Clarify the question
+ 
+ Feature / bug / refactor? Domain? If too vague to investigate, stop and state what clarification is needed.
+ 
+ ### 3. Investigate
+ 
+-Prefer **`investigate`** for high-trust primary sources (external APIs, rare docs). For large surfaces, `dispatching-parallel-agents`. Map: entry points, affected modules, existing tests/gaps, coupling.
++Prefer **`investigate`** for high-trust primary sources (external APIs, rare docs). For large surfaces, `subagent-execution` (`## Parallel investigation`). Map: entry points, affected modules, existing tests/gaps, coupling.
+ 
+ ### 4. Compare approaches
+ 
+ | Approach | Pros | Cons | Effort |
+ |---|---|---|---|
+ | A | … | … | Low/Med/High |
+ 
+ Recommendation ≠ commitment — propose locks the choice.
+ 
+ ### 5. Write research.md
+diff --git a/.agents/skills/sdd-map-codebase/SKILL.md b/.agents/skills/sdd-map-codebase/SKILL.md
+index 2c33a50..5b11ca1 100644
+--- a/.agents/skills/sdd-map-codebase/SKILL.md
++++ b/.agents/skills/sdd-map-codebase/SKILL.md
+@@ -1,75 +1,14 @@
+ ---
+ name: sdd-map-codebase
+-description: "Write or refresh an optional brownfield narrative map under docs/skillgrid/codebase/*.md. Use when onboarding an existing codebase, refreshing the map, or sdd-onboard runs map before init."
++description: "Retired — redirect to sdd-onboard. The brownfield map procedure now lives in sdd-onboard/references/map-codebase.md."
+ license: MIT
+ metadata:
+   author: devopstales
+-  version: "1.0"
+-  part-of: skillgrid
+-  family: sdd
++  version: "2.0"
++  status: retired
++  redirect: ../sdd-onboard/references/map-codebase.md
+ ---
+ 
+-# SDD Map Codebase
++# SDD Map Codebase (retired)
+ 
+-Optional brownfield narrative map. **Skip greenfield.** Primary navigation stays the Mnemonic Orientation Ladder (`code_status` → `code_map` → symbols/outline → related → `code_read`; reindex when freshness is not `fresh`). This map is refreshable context for humans/agents — not a second search index.
+-
+-Layout: [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md).
+-
+-## Hard Rules
+-
+-- Greenfield → exit immediately (no `docs/skillgrid/codebase/` required).
+-- Prefer Mnemonic for symbol/path lookup; map files hold architecture narrative and entry-point pointers.
+-- Always cite real paths in backticks. Never paste secrets, tokens, or `.env` values.
+-- Ask before wiping an existing map (Refresh vs Update vs Skip).
+-
+-## Workflow
+-
+-```
+-[ ] 1. Confirm brownfield (else skip)
+-[ ] 2. Ensure code index healthy
+-[ ] 3. Gate existing docs/skillgrid/codebase/
+-[ ] 4. Write/refresh map docs
+-[ ] 5. Summarize paths + line counts
+-```
+-
+-### 1. Confirm brownfield
+-
+-No application source → skip. User-forced map on empty repo → write a one-line `README.md` under `codebase/` stating "greenfield; map N/A" and stop.
+-
+-### 2. Code index first
+-
+-1. `code_status` — if stale/empty, `code_index`
+-2. Use `code_search` / `code_read` (and light Glob) to gather evidence
+-3. Parallel mapper agents OK for large repos via `dispatching-parallel-agents`
+-
+-### 3. Existing map gate
+-
+-If `docs/skillgrid/codebase/` exists:
+-
+-1. **Refresh** — replace docs
+-2. **Update** — only named files
+-3. **Skip** — keep as-is
+-
+-### 4. Write docs
+-
+-Create `docs/skillgrid/codebase/` and write lean markdown (adapt titles; omit empty topics):
+-
+-| File | Content |
+-|---|---|
+-| `STACK.md` | Languages, runtimes, frameworks, key deps, config entrypoints |
+-| `ARCHITECTURE.md` | Pattern, layers, data flow, main entry points |
+-| `STRUCTURE.md` | Directory layout, naming, where features live |
+-| `TESTING.md` | Runner, layers, how to run tests (optional if covered in config) |
+-| `CONCERNS.md` | Debt, fragile areas, security hotspots (optional) |
+-
+-Each doc: short sections, evidence-backed paths, last-mapped note (date or HEAD sha) at top.
+-
+-### 5. Summary
+-
+-List created/updated paths and approx line counts. Remind: navigate with `code_*`, use map for orientation.
+-
+-## Gotchas
+-
+-- Do not duplicate full `config.yaml` stack tables — point at config; map adds *where code lives*.
+-- Do not promote change-scoped `research.md` into `codebase/` by default.
+-- Incremental remap: if user names path prefixes, scope exploration to those prefixes only.
++**Retired.** Use [`../sdd-onboard/references/map-codebase.md`](../sdd-onboard/references/map-codebase.md) via `sdd-onboard` (brownfield step, skippable). This stub exists so old references resolve; do not extend it.
+diff --git a/.agents/skills/sdd-onboard/SKILL.md b/.agents/skills/sdd-onboard/SKILL.md
+index b998f00..960e93f 100644
+--- a/.agents/skills/sdd-onboard/SKILL.md
++++ b/.agents/skills/sdd-onboard/SKILL.md
+@@ -19,47 +19,47 @@ Layout: [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-s
+ 
+ - **Safe order** only — never skip ahead to propose/spec/apply from this skill.
+ - Greenfield: skip map. Brownfield (existing source): map first when useful.
+ - Stop with a summary + next step. Do not freestyle a product feature here.
+ - Reuse helpers; do not reimplement `sdd-init` detection or agent-block rendering.
+ 
+ ## Workflow
+ 
+ ```
+ [ ] 1. Classify greenfield vs brownfield
+-[ ] 2. (Brownfield) sdd-map-codebase — optional; skip if user declines
++[ ] 2. (Brownfield) map — references/map-codebase.md; optional; skip if user declines
+ [ ] 3. sdd-init — detect facts, skeleton, tracker, Mnemonic
+-[ ] 4. sdd-agent-context — AGENTS.md sentinel; one-line pointers elsewhere
+-[ ] 5. sdd-constraints — quality bar into config.yaml rules.*
+-[ ] 6. sdd-domain — glossary stubs under docs/skillgrid/glossary/
++[ ] 4. agent-context — references/agent-context.md; AGENTS.md sentinel
++[ ] 5. constraints — references/constraints.md; quality bar into config.yaml rules.*
++[ ] 6. domain — references/domain.md; glossary stubs under docs/skillgrid/glossary/
+ [ ] 7. Summary + next (propose or idle)
+ ```
+ 
+ ### 1. Classify
+ 
+ - **Greenfield** — little/no application source (empty repo, docs-only, or user says new app).
+ - **Brownfield** — meaningful existing code to navigate.
+ 
+ Ask once if unclear. Record the choice in the summary.
+ 
+ ### 2. Map (brownfield only)
+ 
+-Invoke `sdd-map-codebase`. User may skip. Primary navigation remains Mnemonic `code_*` — the map is narrative, not a second index.
++Follow `references/map-codebase.md`. User may skip. Primary navigation remains Mnemonic `code_*` — the map is narrative, not a second index.
+ 
+ ### 3–6. Helpers in safe order
+ 
+-Load and run each skill's checklist in order:
++Run in order — `sdd-init` as a skill, the rest as local references:
+ 
+ 1. `sdd-init`
+-2. `sdd-agent-context` (refresh even if init already wrote a block — ensure v4 workflow line)
+-3. `sdd-constraints`
+-4. `sdd-domain`
++2. `references/agent-context.md` (refresh even if init already wrote a block — ensure v4 workflow line)
++3. `references/constraints.md`
++4. `references/domain.md`
+ 
+ If `docs/skillgrid/config.yaml` already exists mid-run, ask before overwriting; prefer refresh of missing pieces only.
+ 
+ ### 7. Stop — summary + next
+ 
+ Return:
+ 
+ - Classification (greenfield/brownfield)
+ - Artifacts created/updated (paths)
+ - What was skipped
+diff --git a/.agents/skills/sdd-onboard/references/agent-context.md b/.agents/skills/sdd-onboard/references/agent-context.md
+new file mode 100644
+index 0000000..7971fa3
+--- /dev/null
++++ b/.agents/skills/sdd-onboard/references/agent-context.md
+@@ -0,0 +1,62 @@
++# Agent Context (reference — run via sdd-onboard)
++
++Keep one cross-agent SoT: **full** Skillgrid block in `AGENTS.md`. Cursor / OpenCode / Kilo / VS Code (and CLAUDE.md / GEMINI.md secondaries) get a **one-line pointer** only. Never duplicate project facts (stack, tracker, rules) into harness files.
++
++Payload: [`../../_shared/agent-config/block.md`](../../_shared/agent-config/block.md).
++Target matrix: [`../../_shared/agent-config/README.md`](../../_shared/agent-config/README.md).
++Layout: [`../../_shared/conventions/sdd-structure.md`](../../_shared/conventions/sdd-structure.md).
++
++## Hard Rules
++
++- Full block → `AGENTS.md` (create if missing and user agrees; default suggestion AGENTS.md).
++- Other harness files → one-line pointer inside secondary sentinels only.
++- Idempotent upsert via `<!-- skillgrid-sdd:start -->` … `<!-- skillgrid-sdd:end -->`.
++- Workflow line must be: `` `onboard → propose → spec → apply ⇄ verify → archive` ``.
++- Registry line is **optional** — omit or mark optional; never invent a registry gate.
++- Do not copy `config.yaml` facts into the block beyond the pointers in `block.md`.
++
++## Workflow
++
++```
++[ ] 1. Resolve primary (AGENTS.md) and secondaries present
++[ ] 2. Fill placeholders from config / tracker
++[ ] 3. Upsert full block into AGENTS.md
++[ ] 4. Upsert one-line pointers into other harness files
++[ ] 5. Confirm no duplicate full blocks
++```
++
++### 1. Resolve targets
++
++- Primary: `AGENTS.md` (preferred). If absent, ask before creating.
++- Secondaries (if present): `.cursor/rules` pointers only if the project already uses root harness files — prefer root `CLAUDE.md`, `GEMINI.md`, and any documented Cursor/OpenCode/Kilo/VS Code agent entry files the repo already has. Do not spray new harness files.
++
++### 2. Render payload
++
++Copy `block.md` exactly. Fill `{tracker-line}` (and `{registry}` only if the registry file exists — else drop or mark optional). Ensure workflow + entry lines match v4 (`use-skillgrid`, onboard path).
++
++### 3. Upsert AGENTS.md
++
++1. Find `<!-- skillgrid-sdd:start -->`
++2. Found → replace through `<!-- skillgrid-sdd:end -->`
++3. Missing → append at end
++4. Never append a second full block
++
++### 4. Secondaries — one line only
++
++```markdown
++<!-- skillgrid-sdd:start (secondary) -->
++SDD config lives here: `AGENTS.md` → `## Agent skills`. Do not duplicate that block.
++<!-- skillgrid-sdd:end (secondary) -->
++```
++
++If a secondary still holds a full old block, replace it with this pointer.
++
++### 5. Verify
++
++Grep for `skillgrid-sdd:start` — exactly one full block (in AGENTS.md); others secondary-only.
++
++## Gotchas
++
++- Two full blocks = two SoTs that drift — always demote extras to pointers.
++- Do not put stack/testing/rules prose in harness files; point at `docs/skillgrid/config.yaml`.
++- Init may have written an older workflow string — this reference refreshes to the v4 line.
+diff --git a/.agents/skills/sdd-onboard/references/constraints.md b/.agents/skills/sdd-onboard/references/constraints.md
+new file mode 100644
+index 0000000..a1db003
+--- /dev/null
++++ b/.agents/skills/sdd-onboard/references/constraints.md
+@@ -0,0 +1,75 @@
++# Constraints (reference — run via sdd-onboard)
++
++Capture the project's **quality bar in config** — `docs/skillgrid/config.yaml` → `rules.*` only. No root `CONSTRAINTS.md` by default (optional human export only; never a second SoT).
++
++Layout: [`../../_shared/conventions/sdd-structure.md`](../../_shared/conventions/sdd-structure.md).
++Interview style: load `questioning` when answers branch or conflict.
++
++## Hard Rules
++
++- Write **only** `rules.*` (and related testing fields the user confirms). Do not invent parallel constraint docs.
++- Detect existing `rules:` before asking — propose diffs, don't blind overwrite.
++- Keep `context:` short (<10 lines); quality gates live under `rules`, not `context`.
++- Default + confirm — do not present a long equal menu of philosophies.
++
++## Workflow
++
++```
++[ ] 1. Read docs/skillgrid/config.yaml (create via sdd-init if missing)
++[ ] 2. Interview the quality bar
++[ ] 3. Patch rules.* only
++[ ] 4. Confirm with user; summarize
++```
++
++### 1. Read config
++
++If `config.yaml` missing → stop and run/ask for `sdd-init` first.
++
++### 2. Interview (short confirmations)
++
++Ask one cluster at a time:
++
++1. **Propose gates** — rollback, success criteria, ADR-style rationale, threat rows?
++2. **Spec gates** — NN ownership, task sizing, acceptance coverage (happy + edge + failure)?
++3. **Apply** — TDD on/off, `test_command`, "follow existing patterns", mark `[x]` as you go?
++4. **Verify** — `test_command`, `build_command`, `coverage_threshold`?
++5. **Archive** — require PASS / PASS WITH WARNINGS on every step?
++
++Reuse detected testing commands from config/`sdd-init` as defaults.
++
++### 3. Write `rules.*`
++
++Shape (match existing project schema; example keys):
++
++```yaml
++rules:
++  explore: []
++  propose:
++    - Include success criteria (measurable)
++  spec:
++    - Own NN allocation; one ## section per Step Blueprint entry
++  apply:
++    guidelines:
++      - Follow existing code patterns
++      - Mark tasks [x] as you go (in tasks.md)
++    tdd: false
++    test_command: ""
++  verify:
++    test_command: ""
++    build_command: ""
++    coverage_threshold: 0
++  archive:
++    - Require every step in tasks.md to have PASS or PASS WITH WARNINGS before move
++```
++
++Only change keys the user confirmed. Leave unrelated YAML untouched.
++
++### 4. Summary
++
++List `rules` keys updated. State explicitly: SoT is `config.yaml` — not root CONSTRAINTS.md.
++
++## Gotchas
++
++- Root `CONSTRAINTS.md` duplicates and drifts — do not create unless the user explicitly wants an export that *cites* `rules.*`.
++- Empty `test_command` is fine until the user supplies one — do not invent fake CI commands.
++- `tdd: true` without a real `test_command` is a footgun — confirm both together.
+diff --git a/.agents/skills/sdd-onboard/references/domain.md b/.agents/skills/sdd-onboard/references/domain.md
+new file mode 100644
+index 0000000..82fb184
+--- /dev/null
++++ b/.agents/skills/sdd-onboard/references/domain.md
+@@ -0,0 +1,65 @@
++# Domain (reference — run via sdd-onboard)
++
++Bootstrap shared vocabulary under `docs/skillgrid/glossary/` — **sibling of** `agents/`, not `agents/glossary/`. No root `CONTEXT.md` by default (cite glossary + `config.yaml` `context:` instead).
++
++Layout: [`../../_shared/conventions/sdd-structure.md`](../../_shared/conventions/sdd-structure.md).
++Ongoing term discipline: load `glossary` when authoring specs later.
++
++## Hard Rules
++
++- Paths are `docs/skillgrid/glossary/business.md` and `technical.md` — never nest under `agents/`.
++- Stub tables are enough at onboard; do not invent a large fake glossary.
++- Prefer existing project terms (README, domain docs, code names) over new jargon.
++- No companion `*-glossary-reference.md` files.
++
++## Workflow
++
++```
++[ ] 1. Ensure docs/skillgrid/ exists (else sdd-init first)
++[ ] 2. Create glossary/ stubs if missing
++[ ] 3. Seed known terms (optional short interview)
++[ ] 4. Optional Mnemonic upsert
++[ ] 5. Summarize paths
++```
++
++### 1. Preconditions
++
++Need `docs/skillgrid/config.yaml` (or skeleton). If uninitialized → hand off to `sdd-init` / `sdd-onboard`.
++
++### 2. Stub files
++
++Create directory + files if absent:
++
++`docs/skillgrid/glossary/business.md` — domain, product, workflow terms.
++`docs/skillgrid/glossary/technical.md` — architecture, platform, protocol terms.
++
++Minimum table:
++
++```markdown
++# Business glossary
++
++| Term | Definition | Use When | Avoid |
++| --- | --- | --- | --- |
++```
++
++(Same header pattern for technical.)
++
++If files exist with the **old** path `docs/skillgrid/agents/glossary/`, migrate content into the sibling `glossary/` and leave a one-line pointer in the old location (or delete only if empty and user agrees).
++
++### 3. Seed (light)
++
++Optional 2–5 terms from README / user interview. Skip generic dictionary words. For close matches later, `glossary` owns the close-term question.
++
++### 4. Mnemonic (optional)
++
++Upsert topic_keys: `sdd/<project>/glossary/business`, `sdd/<project>/glossary/technical` (`scope: project`).
++
++### 5. Summary
++
++Paths created/updated. Remind: no root CONTEXT.md SoT; product narrative stays in `config.yaml` `context:` + glossary.
++
++## Gotchas
++
++- Old skills/docs may still say `agents/glossary/` — **sibling** `glossary/` wins per sdd-structure.
++- Do not dump the whole product brief into glossary rows — short definitions only.
++- `glossary` skill may still list the old path until updated; when conflicting, follow `sdd-structure.md`.
+diff --git a/.agents/skills/sdd-onboard/references/map-codebase.md b/.agents/skills/sdd-onboard/references/map-codebase.md
+new file mode 100644
+index 0000000..7c7f9de
+--- /dev/null
++++ b/.agents/skills/sdd-onboard/references/map-codebase.md
+@@ -0,0 +1,64 @@
++# Map Codebase (reference — run via sdd-onboard)
++
++Optional brownfield narrative map. **Skip greenfield.** Primary navigation stays the Mnemonic Orientation Ladder (`code_status` → `code_map` → symbols/outline → related → `code_read`; reindex when freshness is not `fresh`). This map is refreshable context for humans/agents — not a second search index.
++
++Layout: [`../../_shared/conventions/sdd-structure.md`](../../_shared/conventions/sdd-structure.md).
++
++## Hard Rules
++
++- Greenfield → exit immediately (no `docs/skillgrid/codebase/` required).
++- Prefer Mnemonic for symbol/path lookup; map files hold architecture narrative and entry-point pointers.
++- Always cite real paths in backticks. Never paste secrets, tokens, or `.env` values.
++- Ask before wiping an existing map (Refresh vs Update vs Skip).
++
++## Workflow
++
++```
++[ ] 1. Confirm brownfield (else skip)
++[ ] 2. Ensure code index healthy
++[ ] 3. Gate existing docs/skillgrid/codebase/
++[ ] 4. Write/refresh map docs
++[ ] 5. Summarize paths + line counts
++```
++
++### 1. Confirm brownfield
++
++No application source → skip. User-forced map on empty repo → write a one-line `README.md` under `codebase/` stating "greenfield; map N/A" and stop.
++
++### 2. Code index first
++
++1. `code_status` — if stale/empty, `code_index`
++2. Use `code_search` / `code_read` (and light Glob) to gather evidence
++3. Parallel mapper agents OK for large repos via `subagent-execution` (`## Parallel investigation`)
++
++### 3. Existing map gate
++
++If `docs/skillgrid/codebase/` exists:
++
++1. **Refresh** — replace docs
++2. **Update** — only named files
++3. **Skip** — keep as-is
++
++### 4. Write docs
++
++Create `docs/skillgrid/codebase/` and write lean markdown (adapt titles; omit empty topics):
++
++| File | Content |
++|---|---|
++| `STACK.md` | Languages, runtimes, frameworks, key deps, config entrypoints |
++| `ARCHITECTURE.md` | Pattern, layers, data flow, main entry points |
++| `STRUCTURE.md` | Directory layout, naming, where features live |
++| `TESTING.md` | Runner, layers, how to run tests (optional if covered in config) |
++| `CONCERNS.md` | Debt, fragile areas, security hotspots (optional) |
++
++Each doc: short sections, evidence-backed paths, last-mapped note (date or HEAD sha) at top.
++
++### 5. Summary
++
++List created/updated paths and approx line counts. Remind: navigate with `code_*`, use map for orientation.
++
++## Gotchas
++
++- Do not duplicate full `config.yaml` stack tables — point at config; map adds *where code lives*.
++- Do not promote change-scoped `research.md` into `codebase/` by default.
++- Incremental remap: if user names path prefixes, scope exploration to those prefixes only.
+diff --git a/.agents/skills/subagent-execution/SKILL.md b/.agents/skills/subagent-execution/SKILL.md
+index d3e5425..e6b59e7 100644
+--- a/.agents/skills/subagent-execution/SKILL.md
++++ b/.agents/skills/subagent-execution/SKILL.md
+@@ -1,13 +1,13 @@
+ ---
+ name: subagent-execution
+-description: Use when executing an implementation plan by dispatching a fresh subagent per task, with a spec+quality review after each and a bounded fix loop
++description: Use when executing an implementation plan by dispatching a fresh subagent per task, with a spec+quality review after each and a bounded fix loop. Includes the parallel-investigation dispatch protocol (formerly dispatching-parallel-agents).
+ license: MIT
+ metadata:
+   author: devopstales
+   version: "2.0"
+   part-of: skillgrid
+ ---
+ 
+ # Subagent Execution
+ 
+ Execute a plan by dispatching a fresh implementer subagent per task, a task-scoped review (spec compliance + code quality) after each, and a broad whole-branch review at the end.
+@@ -262,20 +262,38 @@ If findings: dispatch **ONE** fix subagent with the complete list (per-finding f
+ | "I'll do task 2 first, it's easier" | The task loop is ordered. Reordering breaks the review and the ledger. |
+ | "I'll use `HEAD~1` for the diff, it's faster" | A multi-commit task silently loses commits. Use the recorded `BASE`. |
+ | "I'll paste the brief into the prompt, saves a step" | A pasted brief stays resident in your context forever. Use the brief file. |
+ | "I'll skip the re-review for this small fix" | A fix round with no re-review is an unreviewed fix. |
+ | "The implementer said DONE and the tests passed, I'll trust it" | Open the report file. No RED+GREEN output, no command, no exit code → it's a NEEDS_CONTEXT, not a DONE. The reviewer is told not to re-run tests — the report *is* the test evidence. |
+ 
+ ## Example workflow
+ 
+ [references/example-workflow.md](references/example-workflow.md) — a full two-task run: clean review, then a Spec ❌ with one fix round, then the final review.
+ 
++## Parallel investigation (folded from dispatching-parallel-agents)
++
++Investigation-only fan-out. Implementers in the task loop above stay sequential — never parallel implementers.
++
++```
++Multiple unrelated work items?
++├── no  → single agent handles all
++└── yes → Are they independent (root-cause level)?
++         ├── no  (related; fixing one may fix others) → single agent investigates together
++         └── yes → Can they run truly in parallel (no shared state, no shared files)?
++                  ├── no  (shared files, shared resource, single Mnemonic topic_key) → sequential
++                  └── yes → PARALLEL DISPATCH
++```
++
++Use when 2+ independent domains (different test files, subsystems, root causes) with no shared files/state/`topic_key`. Don't use when failures are related, full-system context is needed, agents would edit the same files or write the same `topic_key` (second upsert silently overwrites the first), or debugging is still exploratory.
++
++Each agent gets one domain: specific scope, clear goal, must-not-change constraints, structured return (root cause / changes / blockers), and a unique `topic_key` (`sdd/<NNN-slug>/parallel/<domain>`). **Mechanical rule:** all parallel dispatches in a single response (multiple `task` calls = parallel; one per response = sequential). On return: read summaries, check conflicts, run full suite, spot-check one acceptance scenario per agent.
++
+ ## References
+ 
+ - [references/implementer-prompt.md](references/implementer-prompt.md) — implementer dispatch template
+ - [references/task-reviewer-prompt.md](references/task-reviewer-prompt.md) — task-scoped reviewer template (spec + quality + calibration + output)
+ - [references/re-review-prompt.md](references/re-review-prompt.md) — scoped re-review template (addressee, new breakage, out-of-scope)
+ - [references/example-workflow.md](references/example-workflow.md) — full worked example
+ - [scripts/sdd-workspace](scripts/sdd-workspace) — resolves + creates the per-plan scratch dir
+ - [scripts/task-brief](scripts/task-brief) — extracts one task's text to `$WORKSPACE/task-<N>-brief.md`
+ - [scripts/review-package](scripts/review-package) — writes commit list + stat + diff for a reviewer
+ - [../isolated-workspace/SKILL.md](../isolated-workspace/SKILL.md) — optional work isolation
+diff --git a/docs/skillgrid/agents/skill-registry.md b/docs/skillgrid/agents/skill-registry.md
+index a512f62..ebff228 100644
+--- a/docs/skillgrid/agents/skill-registry.md
++++ b/docs/skillgrid/agents/skill-registry.md
+@@ -5,56 +5,63 @@ Index of installed skills available to agents in this repo. Each entry points to
+ **Scan rules**: project-level skills (`.agents/skills/`) are preferred over user-level (`~/.agents/skills/`). `sdd-*`, `_shared`, and `skill-registry` entries are workflow machinery, not project skills, and are excluded from this listing. Convention files (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `GEMINI.md`, `CONTRIBUTING.md`) are listed at the bottom.
+ 
+ ## Project skills
+ 
+ | name | trigger | path | scope |
+ |---|---|---|---|
+ | codebase-design | Shared vocabulary for designing deep modules. Use when designing or improving a module's interface, finding deepening opportunities, deciding where a seam goes, making code more testable, or when another skill needs the deep-module vocabulary. | `.agents/skills/codebase-design/SKILL.md` | project |
+ | creating-skills | Create a new agent skill (a SKILL.md plus optional scripts/references) from a real task, domain expertise, or user request. Use when the user asks to make, write, scaffold, or refine a skill; when a repeating workflow, project convention, or repeated correction should become a skill; or when validating an existing skill's structure. | `.agents/skills/creating-skills/SKILL.md` | project |
+ | debugging | Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes | `.agents/skills/debugging/SKILL.md` | project |
+ | design-spike | Build a throwaway prototype to answer a design question — state machine, data shape, or UI look. Use when the user wants to sanity-check whether a state model or logic feels right, or explore what a UI should look like before committing; not for production code or feature work. | `.agents/skills/design-spike/SKILL.md` | project |
+-| dispatching-parallel-agents | Use when an SDD phase or debugging task has 2+ independent work items that can be executed without shared state or sequential dependencies. Provides the decision protocol for fanning out work to parallel sub-agents and the per-agent prompt structure. | `.agents/skills/dispatching-parallel-agents/SKILL.md` | project |
++| dispatching-parallel-agents | **retired** → redirect to `subagent-execution` (`## Parallel investigation`). | `.agents/skills/dispatching-parallel-agents/SKILL.md` | project |
+ | finishing-a-development-branch | Use when an SDD change is complete (all steps PASS, all `[x]` marks in place) and you need to decide how to integrate the work. Verifies tests on the integrated tree, detects environment, presents the merge/PR/keep menu, and owns worktree cleanup. | `.agents/skills/finishing-a-development-branch/SKILL.md` | project |
+ | glossary | Use when authoring or reviewing change.md, tasks, glossary entries, domain/technical terms, or wording consistency. Enforces term reuse; fold into main artifacts — no companion glossary-reference files. | `.agents/skills/glossary/SKILL.md` | project |
+ | handoff | Compact the current conversation into a handoff document for another agent to pick up. Use when ending a session, switching agents, or the user asks for a handoff / summary / context transfer. | `.agents/skills/handoff/SKILL.md` | project |
+ | investigate | Investigate a question against high-trust primary sources and capture the findings as one cited Markdown file. Use when you need to research a topic, gather docs or API facts, compare library options, delegate the reading legwork to a background agent, or produce the upstream research for an SDD change. | `.agents/skills/investigate/SKILL.md` | project |
+ | isolated-workspace | Use when starting feature work that needs isolation from current workspace or before executing implementation plans — ensures an isolated workspace exists via native tools or git worktree fallback | `.agents/skills/isolated-workspace/SKILL.md` | project |
+ | issue-creation | Create, triage, and publish issues to the repository's tracker — Jira, GitHub, GitLab, or Backlog.md. Trigger: when the user asks to create an issue/epic/task/ticket, report a bug, file a feature request, or map SDD tasks to tracker issues. | `.agents/skills/issue-creation/SKILL.md` | project |
+ | judgment-day | Trigger: judgment day, dual review, adversarial review, juzgar. Run explicit blind dual review with at most two scoped fix/re-judgment rounds. | `.agents/skills/judgment-day/SKILL.md` | project |
+-| mnemonic | ALWAYS ACTIVE — Mnemonic memory, code index, and web cache protocol: proactive mem_save, code ladder, search router, sessions | `.agents/skills/mnemonic/SKILL.md` | project |
++| mnemonic | ALWAYS ACTIVE — Mnemonic memory, code index, and web cache protocol: proactive mem_save, code ladder, search router, sessions (folded: former `mnemonic-code-index`) | `.agents/skills/mnemonic/SKILL.md` | project |
++| mnemonic-code-index | **retired** → redirect to `mnemonic` (Step 5 + `_shared/conventions/mnemonic-code-indexing.md`). | `.agents/skills/mnemonic-code-index/SKILL.md` | project |
+ | playwright | Playwright E2E testing patterns. Trigger: When writing E2E tests — Page Objects, selectors, MCP workflow. | `.agents/skills/playwright/SKILL.md` | project |
+ | questioning | Stress-test a plan, decision, or idea branch by branch before implementation, using a design tree, frontier, and rounds with recommendations. Use when you need to clarify intent, the orchestrator delegates a clarification round (explore/propose/init), or a request must be classified before design. | `.agents/skills/questioning/SKILL.md` | project |
+ | requesting-code-review | Use after completing an SDD step that carries high-risk signals, before sdd-archive, or optionally when stuck / before refactor / after a complex bug fix. Dispatches a fresh code-reviewer sub-agent with crafted context — never your session history — and acts on the findings. | `.agents/skills/requesting-code-review/SKILL.md` | project |
+ | review-reception | Use when receiving code review feedback, before implementing suggestions — verify the finding against the codebase first, push back with technical evidence when warranted, implement one item at a time with tests | `.agents/skills/review-reception/SKILL.md` | project |
+ | simple-execution | Execute SDD (or general) implementation plans inline — one task at a time in the current context, with a strict RED/GREEN/TRIANGULATE/REFACTOR cycle when the project requires it, marking each task [x] as it completes, and producing the per-step evidence that sdd-verify will audit. Use when the plan is small, tightly coupled, or below the dispatch threshold — not when the workload decision recommends chained or stacked PRs. | `.agents/skills/simple-execution/SKILL.md` | project |
+-| subagent-execution | Execute an implementation plan by dispatching a fresh implementer subagent per task, running a task-scoped spec+quality review after each (not a final pass), closing findings in a bounded fix loop, and keeping a per-plan work directory of briefs, reports, review packages, and a progress ledger that survives context loss. Use when there is an implementation plan to execute and the work should be delegated to fresh subagents with review between tasks, rather than done inline in a single context. | `.agents/skills/subagent-execution/SKILL.md` | project |
++| subagent-execution | Execute an implementation plan by dispatching a fresh implementer subagent per task, running a task-scoped spec+quality review after each (not a final pass), closing findings in a bounded fix loop, and keeping a per-plan work directory of briefs, reports, review packages, and a progress ledger that survives context loss. Use when there is an implementation plan to execute and the work should be delegated to fresh subagents with review between tasks, rather than done inline in a single context. (incl. Parallel investigation — former `dispatching-parallel-agents`) | `.agents/skills/subagent-execution/SKILL.md` | project |
+ | tdd | Use when implementing any feature or bugfix, before writing implementation code — write the failing test first, watch it fail, write minimal code to pass, then refactor | `.agents/skills/tdd/SKILL.md` | project |
+ | use-skillgrid | Use at conversation start and whenever feature/change work begins. Routes Skillgrid SDD: uninitialized → sdd-init; else → sdd-explore then propose → spec → apply → verify → archive. | `.agents/skills/use-skillgrid/SKILL.md` | project |
+ | verification | Use when about to claim work is complete, fixed, or passing, before committing, creating PRs, or marking a task done — run verification and read the output before any success claim; evidence before assertions always | `.agents/skills/verification/SKILL.md` | project |
+ 
+ ## SDD workflow skills
+ 
+ These are the SDD orchestration skills, available but excluded from the main index (they are workflow machinery).
+ 
+-Phase order (v3): `init → explore → propose → spec → apply → verify → archive`.
++Phase order (v4): `onboard → propose → spec → apply ⇄ verify → archive` (explore/spike are pre-propose helpers).
+ 
+ | name | path | scope | notes |
+ |---|---|---|---|
++| sdd-onboard | `.agents/skills/sdd-onboard/SKILL.md` | project | orchestrator; helpers are `references/` (see below) |
++| sdd-onboard refs | `.agents/skills/sdd-onboard/references/{map-codebase,agent-context,constraints,domain}.md` | project | **references, not invocable skills** (former `sdd-map-codebase`, `sdd-agent-context`, `sdd-constraints`, `sdd-domain` — retired stubs redirect here) |
+ | sdd-init | `.agents/skills/sdd-init/SKILL.md` | project | |
+ | sdd-explore | `.agents/skills/sdd-explore/SKILL.md` | project | |
+ | sdd-propose | `.agents/skills/sdd-propose/SKILL.md` | project | writes `change.md` (absorbs design) |
+ | sdd-spec | `.agents/skills/sdd-spec/SKILL.md` | project | writes `tasks.md` + `acceptance.feature` (absorbs tasks) |
+ | sdd-apply | `.agents/skills/sdd-apply/SKILL.md` | project | |
+ | sdd-verify | `.agents/skills/sdd-verify/SKILL.md` | project | verdicts in `tasks.md` |
+ | sdd-archive | `.agents/skills/sdd-archive/SKILL.md` | project | |
+ | use-skillgrid | `.agents/skills/use-skillgrid/SKILL.md` | project | **entry router** (not a phase) |
+ | sdd-design | `.agents/skills/sdd-design/SKILL.md` | project | **retired** → redirect to sdd-propose |
+ | sdd-tasks | `.agents/skills/sdd-tasks/SKILL.md` | project | **retired** → redirect to sdd-spec |
++| sdd-map-codebase | `.agents/skills/sdd-map-codebase/SKILL.md` | project | **retired** → redirect to sdd-onboard `references/map-codebase.md` |
++| sdd-agent-context | `.agents/skills/sdd-agent-context/SKILL.md` | project | **retired** → redirect to sdd-onboard `references/agent-context.md` |
++| sdd-constraints | `.agents/skills/sdd-constraints/SKILL.md` | project | **retired** → redirect to sdd-onboard `references/constraints.md` |
++| sdd-domain | `.agents/skills/sdd-domain/SKILL.md` | project | **retired** → redirect to sdd-onboard `references/domain.md` |
+ 
+ ## Convention files
+ 
+ | name | path | scope |
+ |---|---|---|
+ | AGENTS.md | `AGENTS.md` | project |
+ | _shared conventions | `.agents/skills/_shared/conventions/` | project |
+ | _shared agent config | `.agents/skills/_shared/agent-config/` | project |
+ | _shared issue-tracker seeds | `.agents/skills/_shared/issue-tracker/` | project |
+diff --git a/docs/user-manual/02-workflow-usage.md b/docs/user-manual/02-workflow-usage.md
+index c86460b..dccc14e 100644
+--- a/docs/user-manual/02-workflow-usage.md
++++ b/docs/user-manual/02-workflow-usage.md
+@@ -38,49 +38,58 @@ Announce pattern: `Using use-skillgrid to <route>`.
+ |-------|--------|---------|
+ | Onboard | `sdd-onboard` / `sdd-init` (+ helpers) | `config.yaml`, glossary stubs, AGENTS block |
+ | Propose | `sdd-propose` | `changes/<NNN-slug>/change.md` (WHY + HOW) |
+ | Explore (helper) | `sdd-explore` | Change-scoped `research.md` (may rot) |
+ | Spec | `sdd-spec` | `tasks.md` (blocking DAG) + `acceptance.feature` |
+ | **User gate** | — | **Implement** or **Revise** — never skip |
+ | Apply | `sdd-apply` | Unblocked steps executed; checkboxes + State updated |
+ | Verify | `sdd-verify` | Verdicts, evidence, human QA plan; findings → apply |
+ | Archive | `sdd-archive` | Move `changes/` → `archive/` when gates pass |
+ 
+-Onboard helpers (refresh anytime): `sdd-map-codebase`, `sdd-agent-context`, `sdd-constraints`, `sdd-domain`.
++Onboard helpers (references under `sdd-onboard/references/`, refresh anytime): `map-codebase`, `agent-context`, `constraints`, `domain`.
+ 
+ ## Skill triggers (who calls who)
+ 
+ Order: `onboard → propose → spec → apply ⇄ verify → archive` (explore/spike are pre-propose helpers).
+ 
+ ```mermaid
+ flowchart TD
+-    use["use-skillgrid<br/>router"] --> onboard["sdd-onboard"]
+-    use --> propose["sdd-propose"]
+-    use --> spec["sdd-spec"]
+-    use --> apply["sdd-apply"]
+-    use --> verify["sdd-verify"]
+-    use --> archive["sdd-archive"]
+-
+-    onboard --> map["sdd-map-codebase"]
++    subgraph main["Workflow (top→bottom)"]
++        direction TB
++        onboard["sdd-onboard"] --> propose["sdd-propose"]
++        propose --> spec["sdd-spec"]
++        spec --> apply["sdd-apply"]
++        apply --> verify["sdd-verify"]
++        verify --> archive["sdd-archive"]
++    end
++
++    use["use-skillgrid<br/>router"] --> onboard
++    use -.-> propose
++    use -.-> spec
++    use -.-> apply
++    use -.-> verify
++    use -.-> archive
++
++    onboard --> map["ref map-codebase"]
+     onboard --> init["sdd-init"]
+-    onboard --> agentctx["sdd-agent-context"]
+-    onboard --> constraints["sdd-constraints"]
+-    onboard --> domain["sdd-domain"]
++    onboard --> agentctx["ref agent-context"]
++    onboard --> constraints["ref constraints"]
++    onboard --> domain["ref domain"]
+     init --> questioning1["questioning"]
+ 
+     propose --> explore["sdd-explore"]
+     propose --> spike["design-spike"]
+     propose --> questioning2["questioning"]
+     propose --> codesign["codebase-design"]
+     propose --> glossary1["glossary"]
+     explore --> investigate["investigate"]
+-    explore --> dispatch1["dispatching-parallel-agents"]
++    explore --> dispatch1["subagent-execution<br/>Parallel investigation"]
+ 
+     spec --> glossary2["glossary"]
+     spec --> issuecreation["issue-creation"]
+ 
+     apply --> isolated1["isolated-workspace"]
+     apply --> simple["simple-execution"]
+     apply --> subexec["subagent-execution"]
+     apply --> tdd["tdd"]
+     apply --> debugging["debugging"]
+     apply --> workunits["work-unit-commits"]
+diff --git a/docs/user-manual/03-skills.md b/docs/user-manual/03-skills.md
+index 5202e0e..1305595 100644
+--- a/docs/user-manual/03-skills.md
++++ b/docs/user-manual/03-skills.md
+@@ -11,24 +11,21 @@ Two kinds of skills. Do not duplicate a general capability as an `sdd-*` stage s
+ 
+ Priority: `use-skillgrid` → `sdd-*` stage → general skills the stage loads.
+ 
+ ## Workflow skills
+ 
+ | Skill | Role |
+ |-------|------|
+ | `use-skillgrid` | Detect, classify, route, resume, enforce user gate |
+ | `sdd-onboard` | Bootstrap orchestrator (greenfield / brownfield) |
+ | `sdd-init` | Detect facts; write skeleton + AGENTS block |
+-| `sdd-map-codebase` | Optional brownfield narrative map |
+-| `sdd-agent-context` | AGENTS Skillgrid block / harness pointers |
+-| `sdd-constraints` | Quality bar into `config.yaml` `rules.*` |
+-| `sdd-domain` | Glossary bootstrap |
++| `sdd-onboard` refs (`map-codebase`, `agent-context`, `constraints`, `domain`) | Onboard helpers (references, not invocable skills) |
+ | `sdd-propose` | Reserve `NNN`; write `change.md` |
+ | `sdd-explore` | Helper: change-scoped `research.md` |
+ | `sdd-spec` | `tasks.md` (blocking DAG) + `acceptance.feature` |
+ | `sdd-apply` | Execute unblocked tasks |
+ | `sdd-verify` | Verdicts, QA plan, review; findings → apply |
+ | `sdd-archive` | Move change → `archive/` |
+ 
+ Skills live under `.agents/skills/` (hub copied to `~/.agents/` on install). Project copies may shadow for local customization.
+ 
+ ## General skills (cross-cutting)
+@@ -36,25 +33,25 @@ Skills live under `.agents/skills/` (hub copied to `~/.agents/` on install). Pro
+ | Skill | Typical callers |
+ |-------|-----------------|
+ | `questioning` | Init, propose, revise after user gate |
+ | `investigate` | Explore, Q&A |
+ | `design-spike` | Before locking `change.md` |
+ | `codebase-design` | Propose technical approach |
+ | `glossary` | Propose, spec, domain |
+ | `tdd` | Apply |
+ | `debugging` | Apply, verify FAIL |
+ | `isolated-workspace` | Apply start |
+-| `subagent-execution` / `dispatching-parallel-agents` / `simple-execution` | Apply |
++| `subagent-execution` (incl. Parallel investigation) / `simple-execution` | Apply |
+ | `verification` | Verify, any “done” claim |
+ | `requesting-code-review` / `review-reception` / `judgment-day` | Verify |
+ | `finishing-a-development-branch` | Archive / ship |
+-| `mnemonic` | All stages |
++| `mnemonic` (incl. code index + web cache; former `mnemonic-code-index` retired) | All stages |
+ | `handoff` | Peel out-of-scope side work mid-change |
+ | `issue-creation` | When tracker tickets are forced |
+ | `work-unit-commits` | Apply |
+ | `creating-skills` / `playwright` | As needed |
+ 
+ Optional generated index: `docs/skillgrid/agents/skill-registry.md` — never an init gate.
+ 
+ ## Where skills come from
+ 
+ Skillgrid unifies stage and general skills inspired by superpowers, mattpocock, addyosmani, gentleman-ai, BMAD, gsd-core, and intent-driven-template. See [Start here](00-start-here.md#sources-of-logic).
+diff --git a/docs/user-manual/06-multi-agent-work.md b/docs/user-manual/06-multi-agent-work.md
+index d157283..128cf78 100644
+--- a/docs/user-manual/06-multi-agent-work.md
++++ b/docs/user-manual/06-multi-agent-work.md
+@@ -15,21 +15,21 @@ How Skillgrid keeps the orchestrator lean while fanning out implementation and r
+ | **Smart** | Orchestrator: classify, unblock DAG, spawn work, record verdicts | Stay in the usable **smart zone** — roughly **≤ ~40%** of the context window for plan/execute load |
+ | **Dumb** | Raw dumps, long tool output, full-file reads, degraded late-window tokens | Offload to subagents, files, Mnemonic progressive disclosure |
+ 
+ Quality drops before the advertised window is full. Prefer more, smaller slices over one plan that burns the smart zone and finishes degraded (gsd-core smart-zone idea).
+ 
+ ## Skills
+ 
+ | Skill | When |
+ |-------|------|
+ | `subagent-execution` | Fresh agent per plan slice during apply |
+-| `dispatching-parallel-agents` | 2+ **independent** domains (no shared files / shared `topic_key`) |
++| `subagent-execution` (Parallel investigation) | 2+ **independent** domains (no shared files / shared `topic_key`) |
+ | `simple-execution` | Small slice; inline without spawning |
+ | `isolated-workspace` | Worktree isolation when branches would collide |
+ | `handoff` | Peel an out-of-scope side problem into a brief for another agent |
+ 
+ ## Parallel dispatch rules
+ 
+ Use parallel only when:
+ 
+ - Root causes / domains are independent
+ - Agents will not edit the same files
+diff --git a/docs/user-manual/07-memory-and-indexing.md b/docs/user-manual/07-memory-and-indexing.md
+index 9ecaf29..23b2838 100644
+--- a/docs/user-manual/07-memory-and-indexing.md
++++ b/docs/user-manual/07-memory-and-indexing.md
+@@ -65,15 +65,15 @@ skillgrid setup opencode|kilocode|cursor
+ ```
+ 
+ Installs plugin/rule + registers `skillgrid-mnemonic` MCP. Details: [Plugins](09-plugins.md).
+ 
+ ## Protocol reference
+ 
+ Full tool tables and HTTP routes live in the agent conventions:
+ 
+ - `.agents/skills/_shared/conventions/mnemonic-memory.md`
+ - `.agents/skills/_shared/conventions/mnemonic-code-indexing.md`
+-- Skill: `mnemonic`
++- Skill: `mnemonic` (code index + web cache folded in; former `mnemonic-code-index` skill retired → redirect)
+ 
+ ## Next step
+ 
+ [Ticketing](08-ticketing-integrations.md) · [Web UI](10-webui.md)
+diff --git a/skillgrid-cli/internal/mnemonic/integration/seed_test.go b/skillgrid-cli/internal/mnemonic/integration/seed_test.go
+index b342fc3..46e8541 100644
+--- a/skillgrid-cli/internal/mnemonic/integration/seed_test.go
++++ b/skillgrid-cli/internal/mnemonic/integration/seed_test.go
+@@ -1,26 +1,56 @@
+ package integration
+ 
+ import (
+ 	"context"
+ 	stdhttp "net/http"
+ 	"os"
+ 	"path/filepath"
+ 	"testing"
+ 
+ 	mnemonichttp "github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/http"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/search"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/webcache"
+ )
+ 
+ const seedProject = "seed-test"
+ 
++// handleFor opens the project handle for projectID once (test-only).
++func handleFor(t *testing.T, svc *service.Service, projectID string) *service.ProjectHandle {
++	t.Helper()
++	h, cleanup, err := svc.Open(projectID)
++	if err != nil {
++		t.Fatalf("open %s: %v", projectID, err)
++	}
++	t.Cleanup(cleanup)
++	return h
++}
++
++// saveObservation saves through the handle, mirroring the scope
++// normalization the old SaveObservation facade applied (blank scope ->
++// project, personal -> user).
++func saveObservation(t *testing.T, ctx context.Context, svc *service.Service, projectID string, in memory.SaveInput) {
++	t.Helper()
++	if in.Scope == "" {
++		in.Scope = "project"
++	}
++	if in.Scope == "personal" {
++		in.Scope = "user"
++	}
++	if _, err := handleFor(t, svc, projectID).Memory().Save(ctx, in); err != nil {
++		t.Fatalf("save observation: %v", err)
++	}
++}
++
+ // seedWorkspace creates a temp workspace with a pinned project id and a few
+ // source files for the code indexer. It returns the workspace path.
+ func seedWorkspace(t *testing.T) string {
+ 	t.Helper()
+ 	workspace := t.TempDir()
+ 	if err := os.MkdirAll(filepath.Join(workspace, ".skillgrid"), 0o755); err != nil {
+ 		t.Fatalf("mkdir .skillgrid: %v", err)
+ 	}
+ 	if err := os.WriteFile(filepath.Join(workspace, ".skillgrid", "config.json"),
+ 		[]byte(`{"project":"`+seedProject+`"}`), 0o644); err != nil {
+@@ -62,52 +92,51 @@ func TestSeedMemory(t *testing.T) {
+ 	ctx := context.Background()
+ 
+ 	sessID, projectID, err := svc.SessionStart(ctx, workspace, "Seed memory store")
+ 	if err != nil {
+ 		t.Fatalf("session start: %v", err)
+ 	}
+ 	if projectID != seedProject {
+ 		t.Fatalf("expected project %s, got %q", seedProject, projectID)
+ 	}
+ 
+-	seeded := []service.SaveObservationInput{
++	seeded := []memory.SaveInput{
+ 		{Type: "decision", Title: "Chose SQLite for the local store", Content: "single binary, per-project file", TopicKey: "architecture/store"},
+ 		{Type: "bugfix", Title: "Fixed N+1 query in UserList", Content: "batched the user lookups"},
+ 		{Type: "discovery", Title: "embed resolves relative to package dir", Content: "asset dir moved, silently dropped"},
+ 		{Type: "preference", Title: "Prefer compact table output", Content: "CLI tables, no prose", Scope: "user"},
+ 	}
+-	for i, in := range seeded {
+-		if _, err := svc.SaveObservation(ctx, projectID, service.SaveObservationInput{SessionID: sessID, Type: in.Type, Title: in.Title, Content: in.Content, Scope: in.Scope, TopicKey: in.TopicKey}); err != nil {
+-			t.Fatalf("save %d: %v", i, err)
+-		}
++	for i := range seeded {
++		seeded[i].SessionID = sessID
++		saveObservation(t, ctx, svc, projectID, seeded[i])
+ 	}
+ 
+-	st, err := svc.MemoryStatus(ctx, projectID)
++	st, err := handleFor(t, svc, projectID).Memory().Status(ctx)
+ 	if err != nil {
+ 		t.Fatalf("memory status: %v", err)
+ 	}
+ 	if st.ObservationCount != len(seeded) {
+ 		t.Errorf("expected %d observations, got %d", len(seeded), st.ObservationCount)
+ 	}
+ 	for _, want := range []string{"decision", "bugfix", "discovery", "preference"} {
+ 		if st.ByType[want] != 1 {
+ 			t.Errorf("expected by_type[%s]=1, got %v (all: %v)", want, st.ByType[want], st.ByType)
+ 		}
+ 	}
+ 	if st.ActiveSessions != 1 {
+ 		t.Errorf("expected 1 active session, got %d", st.ActiveSessions)
+ 	}
+ 	if st.NewestCreated == "" {
+ 		t.Errorf("expected newest_created to be set")
+ 	}
+ 
+-	hits, err := svc.SearchObservations(ctx, projectID, "sqlite batched embed", "any", 10)
++	hits, err := handleFor(t, svc, projectID).Memory().SearchWithScope(ctx, "sqlite batched embed", "any", "", 10)
+ 	if err != nil {
+ 		t.Fatalf("search: %v", err)
+ 	}
+ 	if len(hits) < 3 {
+ 		t.Errorf("expected >=3 search hits, got %d", len(hits))
+ 	}
+ }
+ 
+ // TestSeedCodeIndex writes a small repo, runs the incremental indexer, and
+ // verifies files, chunks, status, and FTS search.
+@@ -127,40 +156,52 @@ func TestSeedCodeIndex(t *testing.T) {
+ 	}
+ 
+ 	stats, err := svc.RunCodeIndex(ctx, workspace)
+ 	if err != nil {
+ 		t.Fatalf("run code index: %v", err)
+ 	}
+ 	if stats.FilesIndexed < 3 {
+ 		t.Errorf("expected >=3 files indexed, got %d", stats.FilesIndexed)
+ 	}
+ 
+-	status, stale, err := svc.CodeStatus(ctx, projectID)
++	h := handleFor(t, svc, projectID)
++	status, err := codeindex.GetStatus(h.Store())
+ 	if err != nil {
+ 		t.Fatalf("code status: %v", err)
+ 	}
++	stale := status.FileCount == 0 || status.LastIndexed == ""
+ 	if stale {
+ 		t.Errorf("expected index fresh, got stale")
+ 	}
+ 	if status.FileCount < 3 {
+ 		t.Errorf("expected >=3 files, got %d", status.FileCount)
+ 	}
+ 
+-	files, err := svc.CodeFiles(ctx, projectID)
++	var files []string
++	rows, err := h.Store().DB.Query(`SELECT path FROM files ORDER BY path`)
+ 	if err != nil {
+ 		t.Fatalf("code files: %v", err)
+ 	}
++	for rows.Next() {
++		var p string
++		if err := rows.Scan(&p); err != nil {
++			rows.Close()
++			t.Fatalf("scan path: %v", err)
++		}
++		files = append(files, p)
++	}
++	rows.Close()
+ 	if len(files) < 3 {
+ 		t.Errorf("expected >=3 indexed paths, got %d", len(files))
+ 	}
+ 
+-	hits, err := svc.CodeSearch(ctx, projectID, "Greet", 5)
++	hits, err := search.CodeSearch(h.Store().DB, "Greet", 5)
+ 	if err != nil {
+ 		t.Fatalf("code search: %v", err)
+ 	}
+ 	if len(hits) < 1 {
+ 		t.Errorf("expected a Greet chunk hit, got %d", len(hits))
+ 	}
+ }
+ 
+ // TestSeedWebCache persists cached snapshots across every supported source and
+ // verifies status, lookup, and freshness filtering.
+@@ -171,52 +212,52 @@ func TestSeedWebCache(t *testing.T) {
+ 	ctx := context.Background()
+ 
+ 	entries := []webcache.SaveWebInput{
+ 		{Source: "context7", LibraryID: "/vercel/next.js", Query: "route handlers", Content: "Next.js route handlers doc snippet"},
+ 		{Source: "exa", Query: "express rate limiting", Content: "express-rate-limit howto body"},
+ 		{Source: "deepwiki", RepoName: "facebook/react", Question: "useEffect cleanup", Content: "React useEffect cleanup doc"},
+ 		{Source: "fetch", URL: "https://example.com/spec", Query: "openapi", Content: "fetched spec page"},
+ 		{Source: "manual", Title: "bcrypt notes", Content: "cost 12 balances perf"},
+ 	}
+ 	for i, in := range entries {
+-		if _, err := svc.WebSave(ctx, seedProject, in); err != nil {
++		if _, err := handleFor(t, svc, seedProject).Web().Save(ctx, in); err != nil {
+ 			t.Fatalf("web save %d (%s): %v", i, in.Source, err)
+ 		}
+ 	}
+ 
+-	st, err := svc.WebCacheStatus(ctx, seedProject)
++	st, err := handleFor(t, svc, seedProject).Web().CacheStatus(ctx)
+ 	if err != nil {
+ 		t.Fatalf("web status: %v", err)
+ 	}
+ 	if st.TotalEntries != len(entries) {
+ 		t.Errorf("expected %d entries, got %d", len(entries), st.TotalEntries)
+ 	}
+ 	if st.ExpiredEntries != 0 {
+ 		t.Errorf("expected 0 expired (default TTLs are far-future), got %d", st.ExpiredEntries)
+ 	}
+ 	for _, want := range []string{"context7", "exa", "deepwiki", "fetch", "manual"} {
+ 		if st.BySource[want] != 1 {
+ 			t.Errorf("expected by_source[%s]=1, got %v (all: %v)", want, st.BySource[want], st.BySource)
+ 		}
+ 	}
+ 
+-	lr, err := svc.WebLookup(ctx, seedProject, webcache.LookupInput{
++	lr, err := handleFor(t, svc, seedProject).Web().Lookup(ctx, webcache.LookupInput{
+ 		Source: "context7", LibraryID: "/vercel/next.js", Query: "route handlers",
+ 	})
+ 	if err != nil {
+ 		t.Fatalf("lookup: %v", err)
+ 	}
+ 	if lr.Status != "hit" || !lr.Fresh {
+ 		t.Errorf("expected fresh hit, got status=%q fresh=%v", lr.Status, lr.Fresh)
+ 	}
+ 
+-	hits, err := svc.WebSearch(ctx, seedProject, "route handlers rate limiting", "", true, 10)
++	hits, err := handleFor(t, svc, seedProject).Web().Search(ctx, "route handlers rate limiting", "", true, 10)
+ 	if err != nil {
+ 		t.Fatalf("web search: %v", err)
+ 	}
+ 	if len(hits) < 2 {
+ 		t.Errorf("expected >=2 search hits, got %d", len(hits))
+ 	}
+ }
+ 
+ // TestSeedAllStoresVisibleOverHTTP seeds all three stores in one workspace and
+ // asserts the dashboard's three status endpoints expose the data. The memory
+@@ -230,33 +271,31 @@ func TestSeedAllStoresVisibleOverHTTP(t *testing.T) {
+ 	ctx := context.Background()
+ 
+ 	// Memory store.
+ 	sessID, projectID, err := svc.SessionStart(ctx, workspace, "All stores seed")
+ 	if err != nil {
+ 		t.Fatalf("session start: %v", err)
+ 	}
+ 	if projectID != seedProject {
+ 		t.Fatalf("expected project %s, got %q", seedProject, projectID)
+ 	}
+-	if _, err := svc.SaveObservation(ctx, projectID, service.SaveObservationInput{
++	saveObservation(t, ctx, svc, projectID, memory.SaveInput{
+ 		SessionID: sessID, Type: "decision", Title: "visible over http", Content: "seeded across all three stores",
+-	}); err != nil {
+-		t.Fatalf("save observation: %v", err)
+-	}
++	})
+ 
+ 	// Code index store.
+ 	if _, err := svc.RunCodeIndex(ctx, workspace); err != nil {
+ 		t.Fatalf("run code index: %v", err)
+ 	}
+ 
+ 	// Web cache store.
+-	if _, err := svc.WebSave(ctx, projectID, webcache.SaveWebInput{
++	if _, err := handleFor(t, svc, projectID).Web().Save(ctx, webcache.SaveWebInput{
+ 		Source: "context7", LibraryID: "/lib/x", Query: "visible", Content: "seeded web entry",
+ 	}); err != nil {
+ 		t.Fatalf("web save: %v", err)
+ 	}
+ 
+ 	h := mnemonichttp.NewServer(svc).Handler()
+ 	q := "?project=" + projectID
+ 
+ 	rr, mem := doHTTP(t, h, stdhttp.MethodGet, "/memory/status"+q, nil)
+ 	if rr.Code != stdhttp.StatusOK {
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/single_open_test.go b/skillgrid-cli/internal/mnemonic/mcp/single_open_test.go
+index 0e834a8..dbac8c8 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/single_open_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/single_open_test.go
+@@ -1,24 +1,46 @@
+ package mcp
+ 
+ import (
+ 	"context"
+ 	"encoding/json"
+ 	"os"
+ 	"path/filepath"
+ 	"strings"
+ 	"testing"
+ 
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+ )
+ 
++// seedObservation opens the project handle once and saves an observation,
++// mirroring the scope normalization the old SaveObservation facade applied
++// (blank scope -> project, personal -> user). Test-only seed helper.
++func seedObservation(t *testing.T, dataDir, projectID string, in memory.SaveInput) {
++	t.Helper()
++	h, cleanup, err := service.New(dataDir).Open(projectID)
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	defer cleanup()
++	if in.Scope == "" {
++		in.Scope = "project"
++	}
++	if in.Scope == "personal" {
++		in.Scope = "user"
++	}
++	if _, err := h.Memory().Save(context.Background(), in); err != nil {
++		t.Fatalf("save observation: %v", err)
++	}
++}
++
+ // pinProjectCwd pins the project via MNEMONIC_PROJECT, chdirs into dir, and
+ // injects a service rooted at dataDir. Returns the pinned project id. Every
+ // test that drives a project-scoped MCP handler through openService must pin
+ // the project this way: in a temp dir (no git/config) the fallback is a
+ // directory hash that changes per TempDir, so a stable override is required
+ // for the store the counter measures to be the one the handler opens.
+ func pinProjectCwd(t *testing.T, dataDir, dir, projID string) string {
+ 	t.Helper()
+ 	abs, err := filepath.Abs(dir)
+ 	if err != nil {
+@@ -111,29 +133,27 @@ func TestMemSavePromptSingleOpen(t *testing.T) {
+ func TestMemSearchContractShape(t *testing.T) {
+ 	dataDir := t.TempDir()
+ 	dir := t.TempDir()
+ 	pinProjectCwd(t, dataDir, dir, "shape-probe")
+ 
+ 	sid, _, err := (service.New(dataDir)).SessionStart(context.Background(), dir, "shape")
+ 	if err != nil {
+ 		t.Fatalf("seed session: %v", err)
+ 	}
+ 	// Seed an observation under the pinned project so search has a hit.
+-	if _, err := (service.New(dataDir)).SaveObservation(context.Background(), "shape-probe", service.SaveObservationInput{
++	seedObservation(t, dataDir, "shape-probe", memory.SaveInput{
+ 		Title:     "shape probe note",
+ 		Type:      "learning",
+ 		Content:   "contract shape check for mem_search after single-open rewire",
+ 		Scope:     "project",
+ 		SessionID: sid,
+-	}); err != nil {
+-		t.Fatalf("seed observation: %v", err)
+-	}
++	})
+ 
+ 	req := newCallTool("mem_search", map[string]any{"query": "contract shape check"})
+ 	res, err := handleMemSearch(context.Background(), req)
+ 	if err != nil {
+ 		t.Fatalf("handleMemSearch: %v", err)
+ 	}
+ 	if res.IsError {
+ 		t.Fatalf("mem_search returned error: %s", callResultText(t, res))
+ 	}
+ 	var out struct {
+@@ -165,29 +185,27 @@ func TestMemSearchContractShape(t *testing.T) {
+ // path (Scenario: "mem_search result shape unchanged" + single-open).
+ func TestMemSearchSingleOpen(t *testing.T) {
+ 	dataDir := t.TempDir()
+ 	dir := t.TempDir()
+ 	pinProjectCwd(t, dataDir, dir, "shape-search")
+ 
+ 	sid, _, err := (service.New(dataDir)).SessionStart(context.Background(), dir, "shape")
+ 	if err != nil {
+ 		t.Fatalf("seed session: %v", err)
+ 	}
+-	if _, err := (service.New(dataDir)).SaveObservation(context.Background(), "shape-search", service.SaveObservationInput{
++	seedObservation(t, dataDir, "shape-search", memory.SaveInput{
+ 		Title:     "search open once",
+ 		Type:      "learning",
+ 		Content:   "scoped search must open the store exactly once",
+ 		Scope:     "project",
+ 		SessionID: sid,
+-	}); err != nil {
+-		t.Fatalf("seed observation: %v", err)
+-	}
++	})
+ 
+ 	store.ResetOpenCount()
+ 	req := newCallTool("mem_search", map[string]any{"query": "scoped search once"})
+ 	res, err := handleMemSearch(context.Background(), req)
+ 	if err != nil {
+ 		t.Fatalf("handleMemSearch: %v", err)
+ 	}
+ 	if res.IsError {
+ 		t.Fatalf("mem_search returned error: %s", callResultText(t, res))
+ 	}
+diff --git a/skillgrid-cli/internal/mnemonic/service/compaction_test.go b/skillgrid-cli/internal/mnemonic/service/compaction_test.go
+index fc018f8..5ccc41e 100644
+--- a/skillgrid-cli/internal/mnemonic/service/compaction_test.go
++++ b/skillgrid-cli/internal/mnemonic/service/compaction_test.go
+@@ -77,28 +77,33 @@ func TestNoAutoCommitSessionEnd(t *testing.T) {
+ 	}
+ 	now := time.Now().UTC().Format(time.RFC3339)
+ 	if _, err := st.DB.Exec(`
+ 		INSERT INTO sessions (id, project, directory, started_at, status)
+ 		VALUES ('s1', ?, '/tmp', ?, 'active')`, project, now); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	st.Close()
+ 
+ 	svc := service.New(dataDir)
+-	before, err := svc.CountLongTermMemories(context.Background(), project)
++	before, err := countLongTermMemories(t, svc, project)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if err := svc.SessionEnd(context.Background(), project, "s1", "unsaved lessons"); err != nil {
++	h, cleanup, err := svc.Open(project)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := h.Memory().SessionEnd(context.Background(), "s1", "unsaved lessons"); err != nil {
+ 		t.Fatalf("session end: %v", err)
+ 	}
+-	after, err := svc.CountLongTermMemories(context.Background(), project)
++	cleanup()
++	after, err := countLongTermMemories(t, svc, project)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	if after != before {
+ 		t.Fatalf("session end wrote LTM: before=%d after=%d", before, after)
+ 	}
+ }
+ 
+ func TestMissingSourcesPartial(t *testing.T) {
+ 	dataDir := t.TempDir()
+@@ -106,21 +111,21 @@ func TestMissingSourcesPartial(t *testing.T) {
+ 	st, err := store.Open(dataDir, project)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	st.Close()
+ 	svc := service.New(dataDir)
+ 	_, err = svc.MnemonicCommit(context.Background(), project, service.MnemonicCommitInput{}, nil)
+ 	if err == nil || !errors.Is(err, service.ErrMissingCommitSources) {
+ 		t.Fatalf("want missing sources, got %v", err)
+ 	}
+-	n, err := svc.CountLongTermMemories(context.Background(), project)
++	n, err := countLongTermMemories(t, svc, project)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	if n != 0 {
+ 		t.Fatalf("partial row written n=%d", n)
+ 	}
+ 	entries, _ := os.ReadDir(filepath.Join(dataDir, project, "ltm"))
+ 	if len(entries) != 0 {
+ 		t.Fatalf("partial files: %v", entries)
+ 	}
+@@ -168,10 +173,26 @@ func TestCommitAsyncNoAwaitTier(t *testing.T) {
+ 
+ func mustOpenDB(t *testing.T, dataDir, project string) *store.Store {
+ 	t.Helper()
+ 	st, err := store.Open(dataDir, project)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	t.Cleanup(func() { st.Close() })
+ 	return st
+ }
++
++// countLongTermMemories counts rows for project via the handle (the
++// CountLongTermMemories facade was collapsed into the handle seam).
++func countLongTermMemories(t *testing.T, svc *service.Service, project string) (int, error) {
++	t.Helper()
++	h, cleanup, err := svc.Open(project)
++	if err != nil {
++		return 0, err
++	}
++	defer cleanup()
++	var n int
++	err = h.Store().DB.QueryRow(
++		`SELECT COUNT(*) FROM long_term_memories WHERE project = ?`, project,
++	).Scan(&n)
++	return n, err
++}
+diff --git a/skillgrid-cli/internal/mnemonic/service/double_open_test.go b/skillgrid-cli/internal/mnemonic/service/double_open_test.go
+new file mode 100644
+index 0000000..e1bf17c
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/service/double_open_test.go
+@@ -0,0 +1,82 @@
++package service
++
++import (
++	"context"
++	"sync"
++	"testing"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// TestServiceFacadePathOpensOnce is the step-04 double-open regression guard.
++// It exercises a single-project facade entry point that still exists on the
++// Service (the public Open seam, the production path used by MCP/HTTP) and
++// asserts the project store opens exactly once for that logical op. Before the
++// wrapper collapse, any surviving open-delegate-close wrapper that opened the
++// project a second time would push the counter to 2 and fail; after the
++// collapse it pins the invariant so a future double-open fails.
++func TestServiceFacadePathOpensOnce(t *testing.T) {
++	dataDir := t.TempDir()
++	svc := New(dataDir)
++
++	st, err := store.Open(dataDir, "doubleopen-guard")
++	if err != nil {
++		t.Fatalf("seed store: %v", err)
++	}
++	st.Close()
++
++	store.ResetOpenCount()
++	_, cleanup, err := svc.Open("doubleopen-guard")
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	cleanup()
++	if got := store.OpenCount(); got != 1 {
++		t.Errorf("svc.Open opened the store %d times, want exactly 1 (double-open)", got)
++	}
++}
++
++// TestMnemonicCommitOpensOnce proves the MnemonicCommit facade (a KEEP method
++// with a live MCP production caller, which internally opens the project) opens
++// the store exactly once for the logical op. MnemonicCommit fires an async
++// tiering hook that reopens the store in a background goroutine, so the
++// counter is snapshotted immediately after the (synchronous) commit returns,
++// before the hook goroutine can start, and the wait group is then awaited
++// before the test exits (the hook's extra Open is the async tiering path, not
++// a double-open of the logical op).
++func TestMnemonicCommitOpensOnce(t *testing.T) {
++	dataDir := t.TempDir()
++	svc := New(dataDir)
++
++	st, err := store.Open(dataDir, "commit-open-once")
++	if err != nil {
++		t.Fatalf("seed store: %v", err)
++	}
++	st.Close()
++
++	var wg sync.WaitGroup
++	store.ResetOpenCount()
++	_, err = svc.MnemonicCommit(context.Background(), "commit-open-once", MnemonicCommitInput{
++		Title:          "open once probe",
++		LessonsLearned: "MnemonicCommit must open the project store exactly once",
++	}, &wg)
++	if err != nil {
++		t.Fatalf("commit: %v", err)
++	}
++	// Snapshot immediately: the commit path itself opened exactly once; the
++	// tiering hook goroutine may not have run yet.
++	count := store.OpenCount()
++
++	done := make(chan struct{})
++	go func() { wg.Wait(); close(done) }()
++	select {
++	case <-done:
++	case <-time.After(3 * time.Second):
++		t.Fatal("tiering hook timed out")
++	}
++
++	if count != 1 {
++		t.Errorf("MnemonicCommit opened the store %d times, want exactly 1 (double-open)", count)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/service/orient_test.go b/skillgrid-cli/internal/mnemonic/service/orient_test.go
+index aa52c24..ddf4397 100644
+--- a/skillgrid-cli/internal/mnemonic/service/orient_test.go
++++ b/skillgrid-cli/internal/mnemonic/service/orient_test.go
+@@ -1,17 +1,19 @@
+ package service
+ 
+ import (
+ 	"context"
+ 	"os"
+ 	"path/filepath"
+ 	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/search"
+ )
+ 
+ // indexOrientFixture writes the fixture, indexes it through the resolved
+ // project (so the store path matches what the service opens), and returns the
+ // root and project ID.
+ func indexOrientFixture(t *testing.T) (string, string, *Service) {
+ 	t.Helper()
+ 	dataDir := t.TempDir()
+ 	svc := New(dataDir)
+ 	root := t.TempDir()
+@@ -28,21 +30,26 @@ func indexOrientFixture(t *testing.T) (string, string, *Service) {
+ 	if _, err := svc.RunCodeIndex(context.Background(), root); err != nil {
+ 		t.Fatalf("index: %v", err)
+ 	}
+ 	return root, projectID, svc
+ }
+ 
+ // TestSymbolSearchFindsIndexedSymbols covers @step-02 happy: identifier FTS
+ // finds camelCase/snake_case symbols that were indexed.
+ func TestSymbolSearchFindsIndexedSymbols(t *testing.T) {
+ 	_, projectID, svc := indexOrientFixture(t)
+-	hits, err := svc.SymbolSearch(context.Background(), projectID, "parseConfig", 10)
++	h, cleanup, err := svc.Open(projectID)
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	defer cleanup()
++	hits, err := search.SymbolFTS(h.Store().DB, "parseConfig", 10)
+ 	if err != nil {
+ 		t.Fatalf("symbol search: %v", err)
+ 	}
+ 	found := false
+ 	for _, h := range hits {
+ 		if h.Name == "parseConfig" {
+ 			found = true
+ 		}
+ 	}
+ 	if !found {
+diff --git a/skillgrid-cli/internal/mnemonic/service/service.go b/skillgrid-cli/internal/mnemonic/service/service.go
+index 31a2957..eb305a2 100644
+--- a/skillgrid-cli/internal/mnemonic/service/service.go
++++ b/skillgrid-cli/internal/mnemonic/service/service.go
+@@ -135,30 +135,20 @@ func (s *Service) ListProjects() ([]string, error) {
+ 		}
+ 		id := strings.TrimSuffix(e.Name(), ".sqlite")
+ 		if strings.TrimSpace(id) != "" {
+ 			ids = append(ids, id)
+ 		}
+ 	}
+ 	sort.Strings(ids)
+ 	return ids, nil
+ }
+ 
+-// ObservationsRecent returns stored observations, newest first.
+-func (s *Service) ObservationsRecent(ctx context.Context, projectID string, limit int) ([]memory.Observation, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return nil, err
+-	}
+-	defer cleanup()
+-	return h.memory.Recent(ctx, limit)
+-}
+-
+ // ResolveProject returns the project ID for directory.
+ func (s *Service) ResolveProject(directory string) (string, error) {
+ 	absDir, err := filepath.Abs(directory)
+ 	if err != nil {
+ 		return "", err
+ 	}
+ 	return project.Resolve(absDir)
+ }
+ 
+ // SessionStart creates a workspace session for directory. title is the
+@@ -169,106 +159,40 @@ func (s *Service) SessionStart(ctx context.Context, directory, title string) (se
+ 		return "", "", err
+ 	}
+ 	defer cleanup()
+ 	sessionID, err = h.memory.SessionStart(ctx, directory, title)
+ 	if err != nil {
+ 		return "", "", err
+ 	}
+ 	return sessionID, h.projectID, nil
+ }
+ 
+-// SessionSetTitle renames a session so the dashboard session list shows it.
+-func (s *Service) SessionSetTitle(ctx context.Context, projectID, sessionID, title string) error {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return err
+-	}
+-	defer cleanup()
+-	return h.memory.SessionSetTitle(ctx, sessionID, title)
+-}
+-
+-// SessionEnd ends a session with optional summary.
+-func (s *Service) SessionEnd(ctx context.Context, projectID, sessionID, summary string) error {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return err
+-	}
+-	defer cleanup()
+-	return h.memory.SessionEnd(ctx, sessionID, summary)
+-}
+-
+-// SessionSummary stores an end-of-session summary.
+-func (s *Service) SessionSummary(ctx context.Context, projectID, sessionID, summary string) error {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return err
+-	}
+-	defer cleanup()
+-	return h.memory.SessionSummary(ctx, sessionID, summary)
+-}
+-
+ // SessionStartByClientID registers a session under the caller's ID (idempotent).
+ func (s *Service) SessionStartByClientID(ctx context.Context, sessionID, directory, title string) (id, projectID string, existed bool, err error) {
+ 	h, cleanup, err := s.openProjectForDirectory(directory)
+ 	if err != nil {
+ 		return "", "", false, err
+ 	}
+ 	defer cleanup()
+ 	id, projID, existed, err := h.memory.SessionStartByClientID(ctx, sessionID, directory, title)
+ 	if err != nil {
+ 		return "", "", false, err
+ 	}
+ 	return id, projID, existed, nil
+ }
+ 
+ // PromptInput is a captured user prompt.
+ type PromptInput = memory.PromptInput
+ 
+-// SavePrompt stores a captured user prompt.
+-func (s *Service) SavePrompt(ctx context.Context, projectID string, in PromptInput) (int64, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return 0, err
+-	}
+-	defer cleanup()
+-	return h.memory.SavePrompt(ctx, in)
+-}
+-
+ // PassiveInput is free text for server-side learnings extraction.
+ type PassiveInput = memory.PassiveInput
+ 
+-// PassiveResult reports what the passive extractor found.
+-type PassiveResult = memory.CapturePassiveResult
+-
+-// CapturePassive extracts learnings from raw text and persists them.
+-func (s *Service) CapturePassive(ctx context.Context, projectID string, in PassiveInput) (PassiveResult, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return PassiveResult{}, err
+-	}
+-	defer cleanup()
+-	return h.memory.CapturePassive(ctx, in)
+-}
+-
+-// CompactionContext assembles session-scoped context for the compaction prompt.
+-type CompactionContext = memory.CompactionContext
+-
+-// ContextForCompaction returns the compaction context.
+-func (s *Service) ContextForCompaction(ctx context.Context, projectID, sessionID string, limit int) (CompactionContext, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return CompactionContext{}, err
+-	}
+-	defer cleanup()
+-	return h.memory.CompactionContext(ctx, sessionID, limit)
+-}
+-
+ // MigrateProjects rolls data recorded under oldProject into the newProject
+ // store. In Mnemonic each project has its own SQLite file, so the data lives
+ // in <oldProject>.sqlite while new writes go to <newProject>.sqlite. We open
+ // the old store, ATTACH the new one, copy every row tagged oldProject across
+ // (observations, sessions, web_cache, prompts, files), re-tag it as
+ // newProject, and record the migration for idempotency.
+ //
+ // Idempotent: if no rows tagged oldProject remain, nothing is copied and we
+ // just ensure the record exists. If the old store file is missing, this is a
+ // clean no-op (0 moved, nil error).
+@@ -365,72 +289,20 @@ func (s *Service) MigrateProjects(ctx context.Context, oldProject, newProject st
+ 	if _, err := newStore.DB.ExecContext(ctx, `
+ 		INSERT INTO project_migrations (old_project, new_project, migrated_at)
+ 		VALUES (?, ?, ?)`,
+ 		oldProject, newProject, now); err != nil && !strings.Contains(err.Error(), "no such table") {
+ 		// ignore — best effort
+ 	}
+ 
+ 	return total, nil
+ }
+ 
+-// LastObservationAt returns the newest observation time for the project, if any.
+-func (s *Service) LastObservationAt(ctx context.Context, projectID string) (time.Time, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return time.Time{}, err
+-	}
+-	defer cleanup()
+-	return h.memory.LastObservationAt(ctx)
+-}
+-
+-// RecordRelation stores a semantic link between two observations in the
+-// given project (mem_judge / mem_compare).
+-func (s *Service) RecordRelation(ctx context.Context, projectID string, srcID, dstID int64, relation, reason string, confidence *float64) (memory.Relation, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return memory.Relation{}, err
+-	}
+-	defer cleanup()
+-	return h.memory.RecordRelation(ctx, srcID, dstID, relation, reason, confidence)
+-}
+-
+-// RemoveRelation clears a live link between two observations (mem_judge
+-// not_conflict verdict).
+-func (s *Service) RemoveRelation(ctx context.Context, projectID string, srcID, dstID int64, relation string) (bool, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return false, err
+-	}
+-	defer cleanup()
+-	return h.memory.RemoveRelation(ctx, srcID, dstID, relation)
+-}
+-
+-// RelationsOf returns every live relation touching observation id.
+-func (s *Service) RelationsOf(ctx context.Context, projectID string, id int64) ([]memory.Relation, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return nil, err
+-	}
+-	defer cleanup()
+-	return h.memory.RelationsOf(ctx, id)
+-}
+-
+-// RelationsBetween returns the live links between two specific observations.
+-func (s *Service) RelationsBetween(ctx context.Context, projectID string, srcID, dstID int64) ([]memory.Relation, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return nil, err
+-	}
+-	defer cleanup()
+-	return h.memory.RelationsBetween(ctx, srcID, dstID)
+-}
+-
+ // ProjectDrift mirrors the memory package's drift report, for API consumers.
+ type ProjectDrift = memory.ProjectDrift
+ 
+ // CheckProjectDrift returns a drift report when projectName is a known alias
+ // of a canonical project. It probes the store that most likely holds the
+ // alias row (the canonical project's store, then the current CWD store, then
+ // every known store) and does not modify state.
+ func (s *Service) CheckProjectDrift(ctx context.Context, projectName string) (*ProjectDrift, error) {
+ 	name := strings.TrimSpace(projectName)
+ 	if name == "" {
+@@ -566,86 +438,39 @@ func (s *Service) recordProjectAlias(ctx context.Context, canonical, source stri
+ 	now := time.Now().UTC().Format(time.RFC3339)
+ 	_, err = newStore.DB.ExecContext(ctx, `
+ 		INSERT INTO project_aliases (alias, canonical, merged_at)
+ 		VALUES (?, ?, ?)
+ 		ON CONFLICT(alias) DO NOTHING`,
+ 		source, canonical, now,
+ 	)
+ 	return err
+ }
+ 
+-// SessionStartedAt returns the started_at of a session (zero if missing).
+-func (s *Service) SessionStartedAt(ctx context.Context, projectID, sessionID string) (time.Time, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return time.Time{}, err
+-	}
+-	defer cleanup()
+-	return h.memory.SessionStartedAt(ctx, sessionID)
+-}
+-
+-// ListProjectsForMigration returns all project ids with a store file.
+-func (s *Service) ListProjectsForMigration() ([]string, error) {
+-	return s.ListProjects()
+-}
+-
+ // SaveObservationInput holds fields for saving an observation (HTTP + MCP).
+ type SaveObservationInput struct {
+ 	Title     string `json:"title"`
+ 	Type      string `json:"type"`
+ 	Content   string `json:"content"`
+ 	Scope     string `json:"scope"`
+ 	TopicKey  string `json:"topic_key"`
+ 	SessionID string `json:"session_id"`
+ 	// CapturePrompt, when true, best-effort links the session's most recent
+ 	// user prompt to the observation (mem_save capture_prompt).
+ 	CapturePrompt bool `json:"capture_prompt"`
+ 	// ProjectName, when non-empty, names the logical project for the save. It
+ 	// is validated against project_aliases and a drift warning surfaced by the
+ 	// caller when the name has been retired by mem_merge_projects.
+ 	ProjectName string `json:"project_name"`
+ 	// ToolName is optional provenance for which tool produced the save.
+ 	ToolName string `json:"tool_name"`
+ }
+ 
+-// SaveObservation stores an observation with scope normalization matching MCP mem_save.
+-func (s *Service) SaveObservation(ctx context.Context, projectID string, in SaveObservationInput) (int64, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return 0, err
+-	}
+-	defer cleanup()
+-	scope := in.Scope
+-	if scope == "" {
+-		scope = "project"
+-	}
+-	if scope == "personal" {
+-		scope = "user"
+-	}
+-	return h.memory.Save(ctx, memory.SaveInput{
+-		Title:         in.Title,
+-		Type:          in.Type,
+-		Content:       in.Content,
+-		Scope:         scope,
+-		TopicKey:      in.TopicKey,
+-		SessionID:     in.SessionID,
+-		CapturePrompt: in.CapturePrompt,
+-		ProjectName:   in.ProjectName,
+-		ToolName:      in.ToolName,
+-	})
+-}
+-
+-// SearchObservations runs FTS over observations (scope = any).
+-func (s *Service) SearchObservations(ctx context.Context, projectID, query, matchMode string, limit int) ([]memory.Observation, error) {
+-	return s.SearchObservationsScoped(ctx, projectID, query, matchMode, "", limit)
+-}
+-
+ // SearchObservationsAll runs the same FTS query across every store in dataDir
+ // and returns the union, ordered by global rank (each store returns its own
+ // bm25-ranked list; the merged result interleaves by cross-store rank, so a
+ // #1 hit in one store is never buried under #5 hits from another). Used by
+ // mem_search all_projects=true so an agent at a parent directory can still
+ // find memories stored under a child project's store.
+ func (s *Service) SearchObservationsAll(ctx context.Context, query, matchMode, scope string, limit int) ([]memory.Observation, error) {
+ 	if limit <= 0 {
+ 		limit = 20
+ 	}
+@@ -693,149 +518,28 @@ func (s *Service) SearchObservationsAll(ctx context.Context, query, matchMode, s
+ // visibility scope when scope is non-empty (project|user|global).
+ func (s *Service) SearchObservationsScoped(ctx context.Context, projectID, query, matchMode, scope string, limit int) ([]memory.Observation, error) {
+ 	h, cleanup, err := s.openProject(projectID, ".")
+ 	if err != nil {
+ 		return nil, err
+ 	}
+ 	defer cleanup()
+ 	return h.memory.SearchWithScope(ctx, query, matchMode, scope, limit)
+ }
+ 
+-// GetObservation returns a single observation by ID.
+-func (s *Service) GetObservation(ctx context.Context, projectID string, id int64) (memory.Observation, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return memory.Observation{}, err
+-	}
+-	defer cleanup()
+-	return h.memory.Get(ctx, id)
+-}
+-
+-// RecentContext returns recent session summaries.
+-func (s *Service) RecentContext(ctx context.Context, projectID string, limit int) ([]memory.Session, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return nil, err
+-	}
+-	defer cleanup()
+-	return h.memory.RecentContext(ctx, limit)
+-}
+-
+ // SearchAllProjects runs the FTS query across every store in the data dir and
+ // returns the unified, rank-merged result set. This is the backing for
+ // mem_search(all_projects=true) and rescues memories stranded under a
+ // directory-hash store for the same logical project.
+ func (s *Service) SearchAllProjects(ctx context.Context, query, matchMode, scope string, limit int) ([]memory.Observation, error) {
+ 	return s.SearchObservationsAll(ctx, query, matchMode, scope, limit)
+ }
+ 
+-// BlendedSearch runs the FTS leg and, when a non-empty query vector is
+-// supplied and embedding recall is enabled, the vector leg, merging the two
+-// ranked lists with reciprocal rank fusion (P4). Passing an empty vector
+-// returns the plain FTS result unchanged — FTS5 is the floor.
+-func (s *Service) BlendedSearch(ctx context.Context, projectID, query, matchMode, scope string, queryVec []float32, limit int) ([]memory.Observation, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return nil, err
+-	}
+-	defer cleanup()
+-	vec := memory.Vector{Data: queryVec}
+-	return h.memory.BlendedSearch(ctx, query, matchMode, scope, vec, limit)
+-}
+-
+-// SetObservationEmbedding stores a precomputed embedding vector for an
+-// observation (P4). blob is the little-endian float32 encoding.
+-func (s *Service) SetObservationEmbedding(ctx context.Context, projectID string, id int64, blob []byte, model string) error {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return err
+-	}
+-	defer cleanup()
+-	return h.memory.SetEmbedding(ctx, id, blob, model)
+-}
+-
+-// SearchAllProjectsInProjects runs the FTS query over a fixed set of project
+-// store ids (the caller's explicit list) and merges results by rank. This is
+-// used when the caller names specific stores to span rather than "all".
+-func (s *Service) SearchAllProjectsInProjects(ctx context.Context, projectIDs []string, query, matchMode, scope string, limit int) ([]memory.Observation, error) {
+-	if limit <= 0 {
+-		limit = 20
+-	}
+-	var collected []memory.Observation
+-	for _, pid := range projectIDs {
+-		res, err := s.SearchObservationsScoped(ctx, pid, query, matchMode, scope, limit)
+-		if err != nil {
+-			continue
+-		}
+-		collected = append(collected, res...)
+-	}
+-	// de-dup by (project, id)
+-	seen := map[string]bool{}
+-	out := make([]memory.Observation, 0, len(collected))
+-	for _, o := range collected {
+-		k := o.Project + "|" + strconv.FormatInt(o.ID, 10)
+-		if seen[k] {
+-			continue
+-		}
+-		seen[k] = true
+-		out = append(out, o)
+-	}
+-	sort.SliceStable(out, func(i, j int) bool { return out[i].UpdatedAt > out[j].UpdatedAt })
+-	if len(out) > limit {
+-		out = out[:limit]
+-	}
+-	return out, nil
+-}
+-
+-// PinObservation marks an observation as pinned (mem_pin).
+-func (s *Service) PinObservation(ctx context.Context, projectID string, id int64) error {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return err
+-	}
+-	defer cleanup()
+-	return h.memory.Pin(ctx, id)
+-}
+-
+-// UnpinObservation clears the pinned flag (mem_unpin).
+-func (s *Service) UnpinObservation(ctx context.Context, projectID string, id int64) error {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return err
+-	}
+-	defer cleanup()
+-	return h.memory.Unpin(ctx, id)
+-}
+-
+-// TTLRetire soft-deletes expired observations for the project and returns how
+-// many were retired. Backs mem_review(action=retire_expired) and any
+-// maintenance path that wants a single sweep.
+-func (s *Service) TTLRetire(ctx context.Context, projectID string) (int, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return 0, err
+-	}
+-	defer cleanup()
+-	return h.memory.TTLRetire(ctx)
+-}
+-
+-// TTLPending returns the count of observations that are past their expires_at
+-// timestamp and have not been soft-deleted (diagnostic; feeds mem_doctor).
+-func (s *Service) TTLPending(ctx context.Context, projectID string) (int, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return 0, err
+-	}
+-	defer cleanup()
+-	return h.memory.TTLSoftExpiry(ctx)
+-}
+-
+ // Unify consolidates one or more source project stores into a single canonical
+ // project. It is the admin-facing wrapper around MergeProjects for cases where
+ // the caller wants to fold several names at once (e.g. three directory-hash
+ // variants of the same repo). For each source it records the alias and
+ // copies + re-tags rows, so a single mem_search(all_projects=false, project=
+ // canonical) then returns the combined history.
+ func (s *Service) Unify(ctx context.Context, canonical string, sources ...string) (int, error) {
+ 	canonical = strings.TrimSpace(canonical)
+ 	if canonical == "" {
+ 		return 0, fmt.Errorf("canonical project is required")
+@@ -848,83 +552,30 @@ func (s *Service) Unify(ctx context.Context, canonical string, sources ...string
+ 		}
+ 		moved, _, err := s.MergeProjects(ctx, src, canonical)
+ 		if err != nil {
+ 			return total, err
+ 		}
+ 		total += moved
+ 	}
+ 	return total, nil
+ }
+ 
+-// UpdateObservation modifies an existing observation by ID. Only non-empty
+-// fields in in are applied. Bumps updated_at; FTS trigger keeps the index
+-// in sync.
+-func (s *Service) UpdateObservation(ctx context.Context, projectID string, id int64, in memory.UpdateInput) error {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return err
+-	}
+-	defer cleanup()
+-	return h.memory.Update(ctx, id, in)
+-}
+-
+-// DeleteObservation removes an observation. Soft-delete by default; hard
+-// when hardDelete is true.
+-func (s *Service) DeleteObservation(ctx context.Context, projectID string, id int64, hardDelete bool) error {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return err
+-	}
+-	defer cleanup()
+-	return h.memory.Delete(ctx, id, hardDelete)
+-}
+-
+-// Timeline returns the progressive-disclosure window around an observation.
+-func (s *Service) ObservationTimeline(ctx context.Context, projectID string, anchorID int64, window time.Duration, limit int) (memory.Timeline, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return memory.Timeline{}, err
+-	}
+-	defer cleanup()
+-	return h.memory.Timeline(ctx, anchorID, window, limit)
+-}
+-
+ // ListReviews returns observations due for review, oldest review_after first.
+ func (s *Service) ListReviews(ctx context.Context, projectID string, limit int) ([]memory.ReviewDue, error) {
+ 	h, cleanup, err := s.openProject(projectID, ".")
+ 	if err != nil {
+ 		return nil, err
+ 	}
+ 	defer cleanup()
+ 	return h.memory.ListReviews(ctx, limit)
+ }
+ 
+-// MarkReviewed advances an observation's review cycle.
+-func (s *Service) MarkReviewReviewed(ctx context.Context, projectID string, id int64) (string, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return "", err
+-	}
+-	defer cleanup()
+-	return h.memory.MarkReviewed(ctx, id)
+-}
+-
+-// SetReviewAfter sets the review_after for an observation.
+-func (s *Service) SetObservationReviewAfter(ctx context.Context, projectID string, id int64, reviewAfter string) error {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return err
+-	}
+-	defer cleanup()
+-	return h.memory.SetReviewAfter(ctx, id, reviewAfter)
+-}
+-
+ // ProjectInfo describes the resolved project for cwd: id, source, all known
+ // projects, plus — when cwd is a parent of several git repositories — the
+ // candidate list so the caller (typically the agent) can pick one and retry
+ // the write with the chosen name.
+ type ProjectInfo struct {
+ 	Project           string   `json:"project"`
+ 	Source            string   `json:"source"`
+ 	Directory         string   `json:"directory"`
+ 	Projects          []string `json:"projects"`
+ 	Ambiguous         bool     `json:"ambiguous,omitempty"`
+@@ -978,94 +629,20 @@ type MemoryDoctor struct {
+ 	ChunksFTS       int            `json:"chunks_fts"`
+ 	WebCache        int            `json:"web_cache"`
+ 	WebCacheFTS     int            `json:"web_cache_fts"`
+ 	Prompts         int            `json:"prompts"`
+ 	ByType          map[string]int `json:"by_type"`
+ 	DiskSizeBytes   int64          `json:"disk_size_bytes"`
+ 	FTSIntegrityOK  bool           `json:"fts_integrity_ok"`
+ 	FTSDrift        int            `json:"fts_drift"`
+ }
+ 
+-// MemoryDoctor runs read-only diagnostics: schema count, FTS row counts
+-// and drift, WAL state, and on-disk size.
+-func (s *Service) MemoryDoctor(ctx context.Context, projectID string) (MemoryDoctor, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return MemoryDoctor{}, err
+-	}
+-	defer cleanup()
+-
+-	out := MemoryDoctor{}
+-	if err := h.store.DB.QueryRowContext(ctx, `SELECT schema_version FROM index_meta WHERE key='schema_version'`).Scan(&out.SchemaVersion); err != nil {
+-		if !errors.Is(err, sql.ErrNoRows) {
+-			return out, fmt.Errorf("schema_version: %w", err)
+-		}
+-	}
+-	if err := h.store.DB.QueryRowContext(ctx, `PRAGMA journal_mode`).Scan(&out.WALMode); err != nil {
+-		return out, fmt.Errorf("journal_mode: %w", err)
+-	}
+-	byType := map[string]int{}
+-	h.rowCount(ctx, "observations", &out.Observations)
+-	h.rowCount(ctx, "files", &out.Files)
+-	h.rowCount(ctx, "chunks", &out.Chunks)
+-	h.rowCount(ctx, "web_cache", &out.WebCache)
+-	h.rowCount(ctx, "prompts", &out.Prompts)
+-
+-	ftsObs, ftsChunks, ftsWeb := int64(0), int64(0), int64(0)
+-	_ = h.store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM observations_fts`).Scan(&ftsObs)
+-	_ = h.store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM chunks_fts`).Scan(&ftsChunks)
+-	_ = h.store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM web_cache_fts`).Scan(&ftsWeb)
+-	out.ObservationsFTS = int(ftsObs)
+-	out.ChunksFTS = int(ftsChunks)
+-	out.WebCacheFTS = int(ftsWeb)
+-
+-	rows, err := h.store.DB.QueryContext(ctx, `
+-		SELECT type, COUNT(*) FROM observations
+-		WHERE project = ? AND deleted_at IS NULL GROUP BY type`, projectID)
+-	if err == nil {
+-		for rows.Next() {
+-			var t string
+-			var c int
+-			if rows.Scan(&t, &c) == nil {
+-				byType[t] = c
+-			}
+-		}
+-		rows.Close()
+-	}
+-	out.ByType = byType
+-
+-	if info, err := os.Stat(h.store.Path()); err == nil {
+-		out.DiskSizeBytes = info.Size()
+-	}
+-	out.FTSDrift = int(ftsObs) - out.Observations
+-	out.FTSIntegrityOK = out.FTSDrift >= 0
+-	return out, nil
+-}
+-
+-// rowCount helper (keeps MemoryDoctor readable).
+-func (h *ProjectHandle) rowCount(ctx context.Context, table string, out *int) {
+-	_ = h.store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(out)
+-}
+-
+-// SymbolHitDTO is a public identifier-FTS hit.
+-type SymbolHitDTO = search.SymbolHit
+-
+-// SymbolSearch runs identifier-aware FTS over indexed symbols.
+-func (s *Service) SymbolSearch(ctx context.Context, projectID, query string, limit int) ([]search.SymbolHit, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return nil, err
+-	}
+-	defer cleanup()
+-	return search.SymbolFTS(h.store.DB, query, limit)
+-}
+-
+ // OrientResult is the Tier-1 orientation answer for one symbol: its metadata,
+ // the file TOC (all symbols in the file), a signature, and linked rationale.
+ type OrientResult struct {
+ 	Found     bool             `json:"found"`
+ 	Symbol    map[string]any   `json:"symbol,omitempty"`
+ 	FileTOC   []map[string]any `json:"file_toc,omitempty"`
+ 	Signature string           `json:"signature,omitempty"`
+ 	List      []map[string]any `json:"list,omitempty"`
+ 	Rationale []map[string]any `json:"rationale,omitempty"`
+ 	Reason    string           `json:"reason,omitempty"` // not-found note
+@@ -1186,81 +763,20 @@ func orientSymbol(db *sql.DB, symbol string) (*OrientResult, error) {
+ 					"kind": kind,
+ 					"line": line,
+ 				})
+ 			}
+ 		}
+ 		rationaleRows.Close()
+ 	}
+ 	return out, nil
+ }
+ 
+-// CodeStatus returns index stats and whether the index is stale.
+-func (s *Service) CodeStatus(ctx context.Context, projectID string) (codeindex.Status, bool, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return codeindex.Status{}, false, err
+-	}
+-	defer cleanup()
+-	status, err := codeindex.GetStatus(h.store)
+-	if err != nil {
+-		return codeindex.Status{}, false, err
+-	}
+-	stale := status.FileCount == 0 || status.LastIndexed == ""
+-	return status, stale, nil
+-}
+-
+-// CodeSearch runs BM25 FTS over indexed code chunks.
+-func (s *Service) CodeSearch(ctx context.Context, projectID, query string, limit int) ([]search.CodeHit, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return nil, err
+-	}
+-	defer cleanup()
+-	return search.CodeSearch(h.store.DB, query, limit)
+-}
+-
+-// CodeFiles returns all indexed file paths, sorted.
+-func (s *Service) CodeFiles(ctx context.Context, projectID string) ([]string, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return nil, err
+-	}
+-	defer cleanup()
+-	rows, err := h.store.DB.QueryContext(ctx, `SELECT path FROM files ORDER BY path`)
+-	if err != nil {
+-		return nil, fmt.Errorf("list files: %w", err)
+-	}
+-	defer rows.Close()
+-	var paths []string
+-	for rows.Next() {
+-		var p string
+-		if err := rows.Scan(&p); err != nil {
+-			return nil, err
+-		}
+-		paths = append(paths, p)
+-	}
+-	if err := rows.Err(); err != nil {
+-		return nil, err
+-	}
+-	return paths, nil
+-}
+-
+-// ReadIndexedCode returns indexed source for path and optional line range.
+-func (s *Service) ReadIndexedCode(ctx context.Context, projectID, path string, startLine, endLine int) (map[string]any, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return nil, err
+-	}
+-	defer cleanup()
+-	return readIndexedCode(h.store.DB, path, startLine, endLine)
+-}
+-
+ // ImpactOptions tunes a blast-radius traversal (narrowing + confidence).
+ type ImpactOptions struct {
+ 	File          string
+ 	UID           string
+ 	Kind          string
+ 	MinConfidence string
+ 	MaxDepth      int
+ }
+ 
+ // ImpactResultDTO is the code_impact answer. Either Target+tiers is set (a
+@@ -1432,33 +948,20 @@ func (s *Service) CodeExplain(ctx context.Context, projectID, symbol string) (*E
+ 		return &ExplainDTO{Found: false, Connections: []graph.Conn{}, Reason: "symbol not found: " + symbol}, nil
+ 	}
+ 	out, err := graph.Explain(ctx, h.store.DB, res.Target)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+ 	sym := res.Target
+ 	return &ExplainDTO{Found: true, Symbol: &sym, Degree: out.Degree, Connections: out.Connections}, nil
+ }
+ 
+-// FairCoverageDTO is the per-language fair-coverage field for code_status.
+-type FairCoverageDTO = graph.CoverageLang
+-
+-// CodeFairCoverage returns measured per-language fair coverage from edges.
+-func (s *Service) CodeFairCoverage(ctx context.Context, projectID string) (map[string]FairCoverageDTO, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return nil, err
+-	}
+-	defer cleanup()
+-	return graph.FairCoverage(ctx, h.store.DB)
+-}
+-
+ // ExploreSourceSpan is one symbol's verbatim source slice.
+ type ExploreSourceSpan struct {
+ 	Symbol    string
+ 	StartLine int
+ 	EndLine   int
+ 	Content   string
+ }
+ 
+ // ExploreFlowEdge is one call-flow hop between returned symbols.
+ type ExploreFlowEdge struct {
+@@ -1698,80 +1201,20 @@ func resolveEmbedder(configRoot string) embedder.Embedder {
+ 	default: // "onnx" is the default
+ 		return embedder.NewOnnx(embedder.OnnxConfig{
+ 			Model:     cfg.Embedder.Model,
+ 			Dimension: cfg.Embedder.Dimension,
+ 			Indexing:  toAsym(cfg.Embedder.Indexing),
+ 			Query:     toAsym(cfg.Embedder.Query),
+ 		})
+ 	}
+ }
+ 
+-// WebLookup checks the web cache for a matching entry.
+-func (s *Service) WebLookup(ctx context.Context, projectID string, in webcache.LookupInput) (webcache.LookupResult, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return webcache.LookupResult{}, err
+-	}
+-	defer cleanup()
+-	return h.web.Lookup(ctx, in)
+-}
+-
+-// WebSave persists a web research snapshot.
+-func (s *Service) WebSave(ctx context.Context, projectID string, in webcache.SaveWebInput) (int64, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return 0, err
+-	}
+-	defer cleanup()
+-	return h.web.Save(ctx, in)
+-}
+-
+-// WebSearch runs FTS over cached web snapshots.
+-func (s *Service) WebSearch(ctx context.Context, projectID, query, source string, freshOnly bool, limit int) ([]webcache.WebHit, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return nil, err
+-	}
+-	defer cleanup()
+-	return h.web.Search(ctx, query, source, freshOnly, limit)
+-}
+-
+-// WebGet returns a full cached snapshot by ID.
+-func (s *Service) WebGet(ctx context.Context, projectID string, id int64) (webcache.WebEntry, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return webcache.WebEntry{}, err
+-	}
+-	defer cleanup()
+-	return h.web.Get(ctx, id)
+-}
+-
+-// MemoryStatus returns memory store health stats.
+-func (s *Service) MemoryStatus(ctx context.Context, projectID string) (memory.Status, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return memory.Status{}, err
+-	}
+-	defer cleanup()
+-	return h.memory.Status(ctx)
+-}
+-
+-// WebCacheStatus returns web cache health stats.
+-func (s *Service) WebCacheStatus(ctx context.Context, projectID string) (webcache.Status, error) {
+-	h, cleanup, err := s.openProject(projectID, ".")
+-	if err != nil {
+-		return webcache.Status{}, err
+-	}
+-	defer cleanup()
+-	return h.web.CacheStatus(ctx)
+-}
+-
+ // Open opens a ProjectHandle for an explicit project id (config root ".").
+ // It aborts with an error on empty or invalid ids — blank ids are rejected
+ // up front and ".."-containing ids by store.Open — and never returns a
+ // partial handle.
+ func (s *Service) Open(projectID string) (*ProjectHandle, func(), error) {
+ 	return s.openProject(projectID, ".")
+ }
+ 
+ // OpenForCWD opens project-scoped services from the current working directory.
+ func (s *Service) OpenForCWD() (*ProjectHandle, func(), error) {

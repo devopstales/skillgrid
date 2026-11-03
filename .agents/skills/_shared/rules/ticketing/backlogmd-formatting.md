@@ -18,6 +18,8 @@ Shared formatting conventions for `backlog.md`-based workflows. Consumed by the 
 
 Create via `backlog milestone add` (epic equivalent, matching GitHub's milestone pattern). The milestone groups child tasks; each task file references its milestone in the body's `## Related Issues` section.
 
+**Milestone name = spec folder name.** The milestone title must be the full spec folder name from `.skillgrid/specs/` (or `.skillgrid/xarchive/`), e.g. `2026-10-06-mnemonic-standalone`. Do not use short slugs like `mnemonic-standalone-module` or numeric IDs like `m-8`. This makes the `milestone → spec` mapping 1:1 and recoverable from the tracker alone.
+
 ```markdown
 # {Milestone Title}
 
@@ -150,6 +152,8 @@ Format: `[TYPE] Brief description (COMPONENT)` where `[TYPE]` ∈ `{BUG, FEATURE
 - `[BUG] AWS GovCloud accounts cannot connect - STS region hardcoded (API + UI)`
 - `[FEATURE] Add dark mode toggle (UI)`
 - `[REFACTOR] Migrate E2E tests to Page Object Model (UI)`
+
+**ASCII only.** The backlog CLI slugifies the title into a filename. Em dashes (`—`), en dashes (`–`), curly quotes, and other non-ASCII characters survive the slugify and produce unquotable filenames. Use ASCII hyphens (`-`) for separators, and avoid dots in file-relevant parts of the title (e.g. `SOUL.md` → `SOUL-md` in the title if it becomes part of the filename). The pre-commit hook enforces this.
 
 Match the project's existing style if it differs. Title `[TYPE]` is **not** a substitute for frontmatter `type:` — both are required.
 

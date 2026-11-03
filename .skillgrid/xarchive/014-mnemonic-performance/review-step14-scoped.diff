@@ -1,0 +1,587 @@
+diff --git a/skillgrid-cli/cmd/skillgrid/mem.go b/skillgrid-cli/cmd/skillgrid/mem.go
+index a20151a..b311096 100644
+--- a/skillgrid-cli/cmd/skillgrid/mem.go
++++ b/skillgrid-cli/cmd/skillgrid/mem.go
+@@ -45,6 +45,7 @@ func runMem(version string, args []string) {
+ 		grants   string
+ 		exportFile string
+ 		skipEmb  bool
++		minConf  float64
+ 	)
+ 	fs.StringVar(&dataDir, "dir", envOr("SKILLGRID_MNEMONIC_DATA_DIR", ""), "mnemonic data directory")
+ 	fs.StringVar(&project, "project", "", "project id (defaults to CWD-resolved)")
+@@ -60,6 +61,7 @@ func runMem(version string, args []string) {
+ 	fs.StringVar(&grants, "grants", "", "share: comma-separated grantee list")
+ 	fs.StringVar(&exportFile, "file", "", "export: write the bundle to this file (default: stdout)")
+ 	fs.BoolVar(&skipEmb, "skip-embeddings", false, "export: omit embedding data for a smaller payload")
++	fs.Float64Var(&minConf, "min-confidence", 0.0, "relations: minimum edge confidence (0.0..1.0; 0.0 = all)")
+ 	var searchMode string
+ 	fs.StringVar(&searchMode, "mode", "", "search: FTS match mode (trigram|prefix|phrase|all; default = phrase OR)")
+ 	if err := fs.Parse(reorderMemArgs(rest)); err != nil {
+@@ -84,6 +86,8 @@ func runMem(version string, args []string) {
+ 		runMemTimeline(svc, projID, pos, window, limit, items, chars, timeout)
+ 	case "graph":
+ 		runMemGraph(svc, projID, limit)
++	case "relations":
++		runMemRelations(svc, projID, pos, minConf)
+ 	case "expire":
+ 		runMemExpire(svc, dataDir)
+ 	case "export":
+@@ -98,7 +102,7 @@ func runMem(version string, args []string) {
+ }
+ 
+ func printMemUsage() {
+-	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|expire|export> [args]
++	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|relations|expire|export> [args]
+ 
+   layers <session_id|topic_key>   inspect the L0→L1→L2→L3 chain (mem_layers)
+   governance <id>                 governed-asset view (mem_governance)
+@@ -112,7 +116,11 @@ func printMemUsage() {
+   timeline <id> [--window 1h] [--limit N] [--item N] [--char N] [--timeout 3s]
+                                     chronological context (mem_timeline)
+   graph [--limit N]                 temporal status of codeindex graph edges
+-                                    (valid_from, valid_to, active/expired/pending)
++                                     (valid_from, valid_to, active/expired/pending)
++  relations <observation_id> [--min-confidence 0.5]
++                                     typed @relation edges (outgoing + incoming)
++                                     between observations, with relation type,
++                                     confidence, and direction
+   expire                          retire expired observations across all projects
+                                    (TTL sweep; best-effort, exit 0 on missing stores)
+   export [--file out.json] [--skip-embeddings]
+@@ -505,6 +513,83 @@ func runMemGraph(svc *service.Service, projID string, limit int) {
+ 	printJSON(out)
+ }
+ 
++// runMemRelations is the CLI for typed @relation edges (014 step 14,
++// `mem relations <observation_id>`): it lists every observation_relations
++// edge touching the given observation — both outgoing (the obs is the source)
++// and incoming (the obs is the target) — with the relation type, confidence,
++// and a direction label. --min-confidence applies a floor (default 0.0 = all).
++// A missing observation id is a clear error; an observation with no relations
++// prints an empty list (graceful).
++func runMemRelations(svc *service.Service, projID string, pos []string, minConf float64) {
++	if len(pos) < 1 {
++		fmt.Fprintln(os.Stderr, "error: mem relations requires an observation id")
++		os.Exit(2)
++	}
++	id, err := strconv.ParseInt(pos[0], 10, 64)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error: invalid observation id")
++		os.Exit(2)
++	}
++	if minConf < 0.0 || minConf > 1.0 {
++		fmt.Fprintf(os.Stderr, "error: --min-confidence %v out of range (0.0..1.0)\n", minConf)
++		os.Exit(2)
++	}
++	h, cleanup, err := svc.Open(projID)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	defer cleanup()
++	ctx := hCtx()
++
++	// A missing observation id (no live observation with this id in the
++	// project) is a clear error, matching the other mem subcommands.
++	if _, ok := h.Memory().ObsTitle(ctx, id); !ok {
++		fmt.Fprintf(os.Stderr, "error: observation %d not found in this project\n", id)
++		os.Exit(1)
++	}
++
++	rels, err := h.Memory().GetRelations(ctx, id, minConf)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	type relationOut struct {
++		Direction    string  `json:"direction"`
++		RelationType string  `json:"relation_type"`
++		Confidence   float64 `json:"confidence"`
++		OtherID      int64   `json:"other_id"`
++		OtherTitle   string  `json:"other_title,omitempty"`
++	}
++	// Ensure a nil slice marshals as [] (empty list) rather than null.
++	outs := make([]relationOut, 0, len(rels))
++	for _, r := range rels {
++		dir := "outgoing"
++		other := r.TargetID
++		if r.SourceID != id {
++			dir = "incoming"
++			other = r.SourceID
++		}
++		o := relationOut{
++			Direction:    dir,
++			RelationType: r.RelationType,
++			Confidence:   r.Confidence,
++			OtherID:      other,
++		}
++		if title, ok := h.Memory().ObsTitle(ctx, other); ok {
++			o.OtherTitle = title
++		}
++		outs = append(outs, o)
++	}
++	out := map[string]any{
++		"observation_id": id,
++		"min_confidence": minConf,
++		"count":          len(outs),
++		"relations":      outs,
++	}
++	printJSON(out)
++}
++
+ func looksLikeSession(s string) bool {
+ 	// A session id is a UUID (36 chars with dashes) or a bare token with no
+ 	// spaces; a topic_key typically contains '/'.
+diff --git a/skillgrid-cli/cmd/skillgrid/mem_relations_test.go b/skillgrid-cli/cmd/skillgrid/mem_relations_test.go
+new file mode 100644
+index 0000000..844711c
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/mem_relations_test.go
+@@ -0,0 +1,102 @@
++package main
++
++import (
++	"context"
++	"strconv"
++	"strings"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// TestMemRelationsCLI covers 14.2: `mem relations <observation_id>` lists the
++// related observations with their relation type and confidence. An observation
++// A related to B (mentions), C (depends_on), and D (contradicts) shows all
++// three in the output; an observation with no relations produces an empty list;
++// a missing observation id fails with a clear error.
++func TestMemRelationsCLI(t *testing.T) {
++	dataDir := t.TempDir()
++	project := "memcli-relations"
++
++	st, err := store.Open(dataDir, project)
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	if _, err := st.DB.Exec(`
++		INSERT INTO sessions (id, project, directory, started_at, status, title, summary)
++		VALUES ('sess-rel', ?, '/tmp', '2026-01-01T00:00:00Z', 'ended', 'rel session', 'rel session summary')`,
++		project); err != nil {
++		t.Fatalf("insert session: %v", err)
++	}
++	mem := memory.New(st, project)
++	ctx := context.Background()
++	save := func(title, content string) int64 {
++		id, err := mem.Save(ctx, memory.SaveInput{
++			SessionID: "sess-rel",
++			Type:      "decision",
++			Title:     title,
++			Content:   content,
++		})
++		if err != nil {
++			t.Fatalf("save %q: %v", title, err)
++		}
++		return id
++	}
++	a := save("rel A", "content A")
++	b := save("rel B", "content B")
++	c := save("rel C", "content C")
++	d := save("rel D", "content D")
++	iso := save("rel isolated", "content iso")
++
++	if _, err := mem.AddRelation(ctx, a, b, "mentions", 0.9); err != nil {
++		t.Fatalf("AddRelation A->B: %v", err)
++	}
++	if _, err := mem.AddRelation(ctx, a, c, "depends_on", 0.8); err != nil {
++		t.Fatalf("AddRelation A->C: %v", err)
++	}
++	if _, err := mem.AddRelation(ctx, a, d, "contradicts", 0.7); err != nil {
++		t.Fatalf("AddRelation A->D: %v", err)
++	}
++	st.Close()
++
++	// `mem relations A` lists B, C, D with their relation types and confidences.
++	out := runMemCLI(t, dataDir, "relations", strconv.FormatInt(a, 10), "--project", project, "--dir", dataDir)
++	for _, title := range []string{"rel B", "rel C", "rel D"} {
++		if !strings.Contains(out, title) {
++			t.Fatalf("mem relations A missing related obs %q: %s", title, out)
++		}
++	}
++	for _, rt := range []string{"mentions", "depends_on", "contradicts"} {
++		if !strings.Contains(out, rt) {
++			t.Fatalf("mem relations A missing relation type %q: %s", rt, out)
++		}
++	}
++	if !strings.Contains(out, "0.9") || !strings.Contains(out, "0.8") || !strings.Contains(out, "0.7") {
++		t.Fatalf("mem relations A missing confidence scores: %s", out)
++	}
++
++	// `--min-confidence 0.85` filters down to only the 0.9 edge (14.3 CLI).
++	out = runMemCLI(t, dataDir, "relations", strconv.FormatInt(a, 10), "--min-confidence", "0.85", "--project", project, "--dir", dataDir)
++	if !strings.Contains(out, "rel B") {
++		t.Fatalf("mem relations A --min-confidence 0.85 must keep the 0.9 edge: %s", out)
++	}
++	if strings.Contains(out, "rel C") || strings.Contains(out, "rel D") {
++		t.Fatalf("mem relations A --min-confidence 0.85 must drop the 0.8/0.7 edges: %s", out)
++	}
++
++	// An observation with no relations produces an empty list (graceful).
++	out = runMemCLI(t, dataDir, "relations", strconv.FormatInt(iso, 10), "--project", project, "--dir", dataDir)
++	if !strings.Contains(out, `"relations": []`) {
++		t.Fatalf("mem relations for an isolated obs must print an empty list: %s", out)
++	}
++
++	// A missing observation id fails with a clear error (non-zero exit).
++	out, err = runMemCLIExpectError(t, dataDir, "relations", "999999", "--project", project, "--dir", dataDir)
++	if err == nil {
++		t.Fatalf("mem relations with a missing id should fail, got: %s", out)
++	}
++	if !strings.Contains(out, "not found") {
++		t.Fatalf("missing observation id should be rejected clearly, got: %s", out)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/observation_relations.go b/skillgrid-cli/internal/mnemonic/memory/observation_relations.go
+new file mode 100644
+index 0000000..ba6a360
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/observation_relations.go
+@@ -0,0 +1,155 @@
++package memory
++
++import (
++	"context"
++	"database/sql"
++	"errors"
++	"fmt"
++	"strings"
++)
++
++// Typed @relation edges between observations (014, step 14).
++//
++// This is a NEW, additive table (observation_relations, migration 026) in the
++// per-project memory store. It is distinct from both memory_relations (006,
++// the mem_judge verdict vocabulary) and the codeindex edges table (symbol-level
++// graph edges): observation_relations is a typed, confidence-weighted relation
++// between OBSERVATION ids, not symbol ids. The step-07 triple-store linkage is
++// consumed read-only — the edge endpoints are validated against the live
++// observations table before insert.
++
++// canonicalRelationTypes is the fixed @relation vocabulary for observation
++// edges. Unknown types are rejected at AddRelation time.
++var canonicalRelationTypes = map[string]struct{}{
++	"mentions":    {},
++	"depends_on":  {},
++	"contradicts": {},
++	"supports":    {},
++	"references":  {},
++}
++
++// ObservationRelation is a stored typed edge between two observations.
++type ObservationRelation struct {
++	SourceID     int64   `json:"source_id"`
++	TargetID     int64   `json:"target_id"`
++	RelationType string  `json:"relation_type"`
++	Confidence   float64 `json:"confidence"`
++}
++
++// AddRelation stores (or upserts) a typed, confidence-weighted edge from
++// sourceID to targetID. Both observation IDs must be live in this project,
++// and relationType must be one of the 5 canonical types. Confidence must lie
++// in [0.0, 1.0]. Re-asserting the same (source, target, type) triple updates
++// its confidence in place (the composite primary key makes the triple unique).
++func (s *Service) AddRelation(ctx context.Context, sourceID, targetID int64, relationType string, confidence float64) (ObservationRelation, error) {
++	if s == nil || s.store == nil || s.store.DB == nil {
++		return ObservationRelation{}, errors.New("memory service not initialized")
++	}
++	rel := strings.TrimSpace(relationType)
++	if _, ok := canonicalRelationTypes[rel]; !ok {
++		return ObservationRelation{}, fmt.Errorf("invalid relation type %q (valid: mentions, depends_on, contradicts, supports, references)", relationType)
++	}
++	if confidence < 0.0 || confidence > 1.0 {
++		return ObservationRelation{}, fmt.Errorf("confidence %v out of range (must be 0.0..1.0)", confidence)
++	}
++	for _, id := range []int64{sourceID, targetID} {
++		if err := s.obsExists(ctx, id); err != nil {
++			return ObservationRelation{}, err
++		}
++	}
++	// The composite PK makes (source, target, type) unique; a re-assertion
++	// upserts confidence + timestamp instead of erroring.
++	if _, err := s.store.DB.ExecContext(ctx, `
++		INSERT INTO observation_relations (source_id, target_id, relation_type, confidence)
++		VALUES (?, ?, ?, ?)
++		ON CONFLICT (source_id, target_id, relation_type)
++		DO UPDATE SET confidence = excluded.confidence,
++		              created_at = excluded.created_at`,
++		sourceID, targetID, rel, confidence); err != nil {
++		return ObservationRelation{}, fmt.Errorf("upsert observation relation: %w", err)
++	}
++	return ObservationRelation{
++		SourceID:     sourceID,
++		TargetID:     targetID,
++		RelationType: rel,
++		Confidence:   confidence,
++	}, nil
++}
++
++// GetRelations returns every typed edge touching obsID as either source or
++// target, filtered to confidence >= minConfidence (0.0 returns all). The
++// result is bidirectional: outgoing edges (obsID is source) and incoming edges
++// (obsID is target) are both included, so the caller can compute direction.
++func (s *Service) GetRelations(ctx context.Context, obsID int64, minConfidence float64) ([]ObservationRelation, error) {
++	if s == nil || s.store == nil || s.store.DB == nil {
++		return nil, errors.New("memory service not initialized")
++	}
++	if minConfidence < 0.0 {
++		minConfidence = 0.0
++	}
++	rows, err := s.store.DB.QueryContext(ctx, `
++		SELECT source_id, target_id, relation_type, confidence
++		FROM observation_relations
++		WHERE (source_id = ? OR target_id = ?) AND confidence >= ?
++		ORDER BY confidence DESC, source_id, target_id, relation_type`,
++		obsID, obsID, minConfidence,
++	)
++	if err != nil {
++		return nil, fmt.Errorf("list observation relations: %w", err)
++	}
++	defer rows.Close()
++	var out []ObservationRelation
++	for rows.Next() {
++		var r ObservationRelation
++		if err := rows.Scan(&r.SourceID, &r.TargetID, &r.RelationType, &r.Confidence); err != nil {
++			return nil, fmt.Errorf("scan observation relation: %w", err)
++		}
++		out = append(out, r)
++	}
++	return out, rows.Err()
++}
++
++// DeleteRelation deletes a single typed edge by its full (source, target,
++// type) triple. Returns true if a row was removed. (Named DeleteRelation to
++// avoid clashing with the memory_relations RemoveRelation, which has a
++// different signature and operates on the 006 verdict table.)
++func (s *Service) DeleteRelation(ctx context.Context, sourceID, targetID int64, relationType string) (bool, error) {
++	if s == nil || s.store == nil || s.store.DB == nil {
++		return false, errors.New("memory service not initialized")
++	}
++	rel := strings.TrimSpace(relationType)
++	res, err := s.store.DB.ExecContext(ctx, `
++		DELETE FROM observation_relations
++		WHERE source_id = ? AND target_id = ? AND relation_type = ?`,
++		sourceID, targetID, rel,
++	)
++	if err != nil {
++		return false, fmt.Errorf("remove observation relation: %w", err)
++	}
++	n, err := res.RowsAffected()
++	if err != nil {
++		return false, err
++	}
++	return n > 0, nil
++}
++
++// ObsTitle fetches the title of a live observation in this project, for CLI
++// display. Returns ("", false) if the observation does not exist here.
++func (s *Service) ObsTitle(ctx context.Context, id int64) (string, bool) {
++	if s == nil || s.store == nil || s.store.DB == nil {
++		return "", false
++	}
++	var title string
++	err := s.store.DB.QueryRowContext(ctx, `
++		SELECT title FROM observations
++		WHERE id = ? AND project = ? AND deleted_at IS NULL`,
++		id, s.projectID,
++	).Scan(&title)
++	if err == sql.ErrNoRows {
++		return "", false
++	}
++	if err != nil {
++		return "", false
++	}
++	return title, true
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/observation_relations_test.go b/skillgrid-cli/internal/mnemonic/memory/observation_relations_test.go
+new file mode 100644
+index 0000000..29938ee
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/observation_relations_test.go
+@@ -0,0 +1,141 @@
++package memory
++
++import (
++	"context"
++	"testing"
++)
++
++// seedObservation saves a distinct observation and returns its id. The title
++// is unique per call (the dedup key is title+content+type within 24h), so the
++// returned ids are always distinct.
++func seedObservation(t *testing.T, svc *Service, title, content string) int64 {
++	t.Helper()
++	// The observations table has a FK on session_id; guarantee the session
++	// exists (idempotent) before the first save in this store.
++	if _, err := svc.store.DB.Exec(`
++		INSERT OR IGNORE INTO sessions (id, project, directory, started_at, status, title, summary)
++		VALUES ('sess-rel', ?, '/tmp', '2026-01-01T00:00:00Z', 'ended', 'rel session', 'rel session summary')`,
++		svc.projectID); err != nil {
++		t.Fatalf("ensure session: %v", err)
++	}
++	id, err := svc.Save(context.Background(), SaveInput{
++		SessionID: "sess-rel",
++		Type:      "decision",
++		Title:     title,
++		Content:   content,
++	})
++	if err != nil {
++		t.Fatalf("save %q: %v", title, err)
++	}
++	return id
++}
++
++// TestRelationEdgeCreation covers 14.1: typed relation edges between
++// observations store source_id, target_id, relation_type, and confidence.
++// AddRelation(A, B, "mentions", 0.9) round-trips through GetRelations with the
++// correct fields, and every one of the 5 canonical relation types is accepted.
++func TestRelationEdgeCreation(t *testing.T) {
++	_, svc := newTestStore(t, "relproj")
++	ctx := context.Background()
++
++	a := seedObservation(t, svc, "rel note A", "content A")
++	b := seedObservation(t, svc, "rel note B", "content B")
++
++	if _, err := svc.AddRelation(ctx, a, b, "mentions", 0.9); err != nil {
++		t.Fatalf("AddRelation: %v", err)
++	}
++
++	rels, err := svc.GetRelations(ctx, a, 0.0)
++	if err != nil {
++		t.Fatalf("GetRelations: %v", err)
++	}
++	if len(rels) != 1 {
++		t.Fatalf("expected 1 relation for A, got %d: %+v", len(rels), rels)
++	}
++	got := rels[0]
++	if got.SourceID != a {
++		t.Fatalf("source_id: got %d, want %d", got.SourceID, a)
++	}
++	if got.TargetID != b {
++		t.Fatalf("target_id: got %d, want %d", got.TargetID, b)
++	}
++	if got.RelationType != "mentions" {
++		t.Fatalf("relation_type: got %q, want %q", got.RelationType, "mentions")
++	}
++	if got.Confidence != 0.9 {
++		t.Fatalf("confidence: got %v, want 0.9", got.Confidence)
++	}
++
++	// All 5 canonical relation types can be created on a fresh pair.
++	types := []string{"mentions", "depends_on", "contradicts", "supports", "references"}
++	for i, rt := range types {
++		src := seedObservation(t, svc, "rel type src "+string(rune('a'+i)), "src "+rt)
++		dst := seedObservation(t, svc, "rel type dst "+string(rune('a'+i)), "dst "+rt)
++		if _, err := svc.AddRelation(ctx, src, dst, rt, 0.5); err != nil {
++			t.Fatalf("AddRelation type %q: %v", rt, err)
++		}
++		got, err := svc.GetRelations(ctx, src, 0.0)
++		if err != nil {
++			t.Fatalf("GetRelations after %q: %v", rt, err)
++		}
++		if len(got) != 1 || got[0].RelationType != rt {
++			t.Fatalf("type %q: expected 1 %q relation, got %+v", rt, rt, got)
++		}
++	}
++}
++
++// TestRelationConfidenceFiltering covers 14.3: GetRelations honors a
++// minConfidence floor (WHERE confidence >= minConfidence). With three
++// relations at 0.3/0.7/0.95, a floor of 0.5 returns only the 0.7 and 0.95
++// edges; a floor of 0.0 returns all three.
++func TestRelationConfidenceFiltering(t *testing.T) {
++	_, svc := newTestStore(t, "relconf")
++	ctx := context.Background()
++
++	src := seedObservation(t, svc, "rel conf src", "content src")
++	dst1 := seedObservation(t, svc, "rel conf dst low", "content low")
++	dst2 := seedObservation(t, svc, "rel conf dst mid", "content mid")
++	dst3 := seedObservation(t, svc, "rel conf dst high", "content high")
++
++	for _, c := range []struct {
++		dst        int64
++		rel        string
++		confidence float64
++	}{
++		{dst1, "mentions", 0.3},
++		{dst2, "supports", 0.7},
++		{dst3, "references", 0.95},
++	} {
++		if _, err := svc.AddRelation(ctx, src, c.dst, c.rel, c.confidence); err != nil {
++			t.Fatalf("AddRelation %v: %v", c.confidence, err)
++		}
++	}
++
++	// minConfidence=0.5 → only the 0.7 and 0.95 relations survive.
++	filt, err := svc.GetRelations(ctx, src, 0.5)
++	if err != nil {
++		t.Fatalf("GetRelations 0.5: %v", err)
++	}
++	if len(filt) != 2 {
++		t.Fatalf("minConfidence=0.5: expected 2 relations, got %d: %+v", len(filt), filt)
++	}
++	seen := map[float64]bool{}
++	for _, r := range filt {
++		if r.Confidence < 0.5 {
++			t.Fatalf("minConfidence=0.5 returned a below-floor relation: %+v", r)
++		}
++		seen[r.Confidence] = true
++	}
++	if !seen[0.7] || !seen[0.95] {
++		t.Fatalf("minConfidence=0.5 must keep 0.7 and 0.95: %+v", filt)
++	}
++
++	// minConfidence=0.0 → all three relations.
++	all, err := svc.GetRelations(ctx, src, 0.0)
++	if err != nil {
++		t.Fatalf("GetRelations 0.0: %v", err)
++	}
++	if len(all) != 3 {
++		t.Fatalf("minConfidence=0.0: expected all 3 relations, got %d: %+v", len(all), all)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/store/migrations/026_observation_relations.sql b/skillgrid-cli/internal/mnemonic/store/migrations/026_observation_relations.sql
+new file mode 100644
+index 0000000..7cfe928
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/store/migrations/026_observation_relations.sql
+@@ -0,0 +1,30 @@
++-- 026: typed @relation edges between observations (change 014, step 14).
++--
++-- Additive: a NEW table in the same per-project store. It is distinct from
++-- memory_relations (006, mem_judge verdicts) and from the codeindex edges
++-- table (011/021, symbol-level graph edges): observation_relations is a
++-- typed, confidence-weighted relation between OBSERVATION ids.
++--
++--   source_id      — the observation that asserts the relation.
++--   target_id      — the observation the relation points at.
++--   relation_type  — one of the canonical set: mentions, depends_on,
++--                    contradicts, supports, references.
++--   confidence     — 0.0..1.0 weight on the assertion.
++--
++-- The composite primary key makes each (source, target, type) triple unique,
++-- so re-asserting the same triple upserts confidence instead of duplicating.
++
++CREATE TABLE IF NOT EXISTS observation_relations (
++    source_id INTEGER NOT NULL,
++    target_id INTEGER NOT NULL,
++    relation_type TEXT NOT NULL,
++    confidence REAL NOT NULL,
++    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
++    PRIMARY KEY (source_id, target_id, relation_type)
++);
++
++-- Bidirectional lookup support (mem relations <id> queries source OR target).
++CREATE INDEX IF NOT EXISTS idx_obs_rel_source
++    ON observation_relations (source_id);
++CREATE INDEX IF NOT EXISTS idx_obs_rel_target
++    ON observation_relations (target_id);

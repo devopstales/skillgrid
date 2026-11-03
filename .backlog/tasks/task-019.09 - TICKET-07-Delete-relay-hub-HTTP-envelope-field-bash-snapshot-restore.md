@@ -6,7 +6,7 @@ assignee: []
 created_date: '2026-09-21 15:11'
 updated_date: '2026-10-06 08:35'
 labels: []
-milestone: m-0
+milestone: 2026-09-21-session-events-layer
 dependencies:
   - TASK-019.07
   - TASK-019.06
