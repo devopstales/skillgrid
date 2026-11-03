@@ -82,10 +82,19 @@ type WatchConfig struct {
 
 // OnSyncFunc is the re-index seam the watcher fires on a debounced burst. The
 // paths are the deduped repo-relative changed paths. A nil OnSync means the
-// watcher only tracks pending files (no re-index). A non-nil OnSync that fails
-// is isolated (logged + the watcher keeps running — failure isolation, spec
-// 007 §3).
-type OnSyncFunc func(paths []string)
+// watcher only tracks pending files (no re-index). A non-nil OnSync that
+// returns an error is isolated: the error is recorded (LastErrForTest) + the
+// watcher keeps running (the next event still drains — failure isolation, spec
+// 007 §3). The error return (the v1 signature shape) lets fireReindex record
+// the REAL re-index error, not just a panic.
+type OnSyncFunc func(paths []string) error
+
+// rawQuerier is the store's raw-SELECT seam the watcher uses to read
+// index_freshness (the stored stamp + the last committed index). A single alias
+// (Q-5) so the two read sites share one type assertion.
+type rawQuerier interface {
+	RawQuery(query string, args ...any) ([][]any, error)
+}
 
 // Watcher is the autosync watcher: it watches the index root for
 // create/modify/delete of source files, debounces bursts, runs the
@@ -296,13 +305,11 @@ func (w *Watcher) drainPending() []string {
 // but the watcher keeps running — the next event still drains (failure
 // isolation, spec 007 §3).
 //
-// The onSync seam is a value callback (no error return) — the production
-// caller (the TICKET-07 code_watch tool / CLI) wraps the Index driver and logs
-// its own error. For the watcher's own failure-isolation accounting, a re-index
-// failure is signaled by the onSync setting the test error (setErrForTest); a
-// panic in the seam is recovered + recorded. LastErr is only set (never
-// cleared) here — the onSync clears it on the next success (the test seam
-// contract).
+// The onSync seam returns an error (the v1 signature shape): a returning onSync
+// error IS recorded in lastErr (the REAL re-index error, not just a panic). On
+// a succeeding re-index, lastErr is cleared (the last re-index is healthy). A
+// panic in the seam is recovered + recorded. The loop never returns early on an
+// error — it continues (the next event still drains).
 func (w *Watcher) fireReindex(paths []string) {
 	if w.onSync == nil {
 		// No re-index seam: count the re-index (the deterministic tests assert
@@ -323,24 +330,33 @@ func (w *Watcher) fireReindex(paths []string) {
 				err = fmt.Errorf("reindex panic: %v", r)
 			}
 		}()
-		w.onSync(paths)
+		err = w.onSync(paths)
 	}()
-	if err != nil {
-		w.setErrForTest(err)
-	}
 	w.mu.Lock()
+	w.lastErr = err // a returning onSync error IS recorded; nil clears it
 	w.reindexInFlight = false
 	w.mu.Unlock()
 }
 
 // recheck runs the metadata-only stat-walk fingerprint re-check (spec 007 §2,
-// 001 §4): for each pending path, stat it; compare size+mtime against the
+// 001 §4): for each pending path, stat it; compare its fingerprint against the
 // files table + the extractor stamp. The NO-OP condition (no re-index): the
-// path is present on disk AND its size+mtime match the stored files row AND
-// the extractor stamp is unchanged. A stamp change forces a re-index even if
-// size+mtime match. An absent path (M10) is kept for the re-index (the
-// driver's absent-on-disk = delete handles it — the re-check does NOT delete;
-// it passes the path through so the re-index sees the absence).
+// path is present on disk AND its size is unchanged (content identical) AND
+// the extractor stamp is unchanged. A size change (content changed) or a stamp
+// change forces a re-index even if mtime matches. An mtime-only change with
+// identical size (a git checkout that touched mtime only) is the NO-OP — the
+// spec's "mtime touched, content identical" case. An absent path (M10) is kept
+// for the re-index (the driver's absent-on-disk = delete handles it — the
+// re-check does NOT delete; it passes the path through so the re-index sees
+// the absence).
+//
+// The fingerprint is (size, stamp) — the metadata-only signal. mtime is the
+// WATCH trigger (fsnotify fires on a mtime change) but NOT the re-check's
+// content-identity test: identical content → identical size, so a size match
+// is the content-identical signal. A size-preserving mtime bump is a no-op; a
+// size change (same mtime or not) is a re-index. mtime is read by the
+// re-check (it is in the files table) but is not the no-op discriminator —
+// the size is.
 //
 // ponytail: the re-check is per-pending-path (not a full tree walk) — the
 // watch only re-checks the paths its events touched. A git checkout that
@@ -372,15 +388,17 @@ func (w *Watcher) recheck(paths []string) []string {
 			out = append(out, p)
 			continue
 		}
-		// Compare size+mtime against the stored files row.
+		// Compare size+stamp against the stored files row.
 		row, err := st.FileByPath(context.Background(), p)
 		if err != nil {
 			// Not in the index (a new file) → changed.
 			out = append(out, p)
 			continue
 		}
-		// The NO-OP condition: size+mtime unchanged AND stamp unchanged.
-		if info.Size() == row.Size && info.ModTime().UnixNano() == row.MtimeNS && !stampChanged {
+		// The NO-OP condition: size unchanged (content identical) AND stamp
+		// unchanged. A size-preserving mtime bump is a no-op; a size change or
+		// stamp change is a re-index.
+		if info.Size() == row.Size && !stampChanged {
 			continue // no-op
 		}
 		out = append(out, p)
@@ -392,9 +410,7 @@ func (w *Watcher) recheck(paths []string) []string {
 // index's stamp) via the RawQuery seam. "" when there is no freshness record
 // or the store lacks the seam.
 func (w *Watcher) storedStamp(st store.Store) string {
-	raw, ok := st.(interface {
-		RawQuery(query string, args ...any) ([][]any, error)
-	})
+	raw, ok := st.(rawQuerier)
 	if !ok {
 		return ""
 	}
@@ -450,15 +466,6 @@ func (w *Watcher) LastErrForTest() error {
 	return w.lastErr
 }
 
-// setErrForTest records a re-index error (the failure-isolation test's onSync
-// signals a failure through it). It is a test seam: the production onSync
-// (the Index driver) returns its own error, which the caller logs.
-func (w *Watcher) setErrForTest(err error) {
-	w.mu.Lock()
-	w.lastErr = err
-	w.mu.Unlock()
-}
-
 // StartReindexForTest simulates an in-flight re-index for the given duration
 // (the trigger-not-gate test: a freshness check during it must not block). It
 // runs on a background goroutine so the test's FreshnessForTest call happens
@@ -468,7 +475,12 @@ func (w *Watcher) StartReindexForTest(d time.Duration) {
 	w.reindexInFlight = true
 	w.mu.Unlock()
 	go func() {
-		time.Sleep(d)
+		// Q-1: select against w.stop so the sleeper clears when the watcher
+		// stops (no leaked bare time.Sleep goroutine).
+		select {
+		case <-time.After(d):
+		case <-w.stop:
+		}
 		w.mu.Lock()
 		w.reindexInFlight = false
 		w.mu.Unlock()
@@ -490,9 +502,7 @@ func (w *Watcher) FreshnessForTest() (string, string) {
 	// The last committed index (the index_freshness row).
 	last := ""
 	if st := w.cfg.Store; st != nil {
-		if raw, ok := st.(interface {
-			RawQuery(query string, args ...any) ([][]any, error)
-		}); ok {
+		if raw, ok := st.(rawQuerier); ok {
 			if rows, err := raw.RawQuery(`SELECT ifnull(last_indexed_at,'') FROM index_freshness LIMIT 1`); err == nil && len(rows) > 0 && len(rows[0]) > 0 {
 				if s, ok := rows[0][0].(string); ok {
 					last = s

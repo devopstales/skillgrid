@@ -29,14 +29,16 @@ func openTestStore(t *testing.T) store.Store {
 // window collapses to exactly ONE onSync (deterministic — the DrainForTest
 // seam drives the collapse; no flaky sleep, no dead second watcher).
 func TestWatchBurstCollapse(t *testing.T) {
+	const debounce = 20 * time.Millisecond
 	var calls int
 	var lastPaths []string
 	done := make(chan struct{}, 1)
-	w := NewWatcher(t.TempDir(), WatchConfig{Debounced: 50 * time.Millisecond},
-		func(paths []string) {
+	w := NewWatcher(t.TempDir(), WatchConfig{Debounced: debounce},
+		func(paths []string) error {
 			calls++
 			lastPaths = paths
 			done <- struct{}{}
+			return nil
 		})
 	// 5 events in the burst (5 distinct files).
 	w.EmitForTest("a.go", "b.go", "c.go", "d.go", "e.go")
@@ -59,10 +61,19 @@ func TestWatchBurstCollapse(t *testing.T) {
 	if len(set) != 5 {
 		t.Fatalf("the collapsed onSync must carry the deduped 5 paths, got %v", lastPaths)
 	}
-	// a second DrainForTest with no new events fires NO second onSync.
-	w.DrainForTest()
+	// F2: the "no second call in the settle window" property. Wait a settle
+	// window (3× the debounce) and assert no second delivery — the burst
+	// collapsed to exactly one onSync and nothing follows. Deterministic: the
+	// EmitForTest seam + the counter (no flaky real-timer timing; the counter
+	// is the source of truth, the wait only bounds the settle window).
+	settle := 3 * debounce
+	select {
+	case <-done:
+		t.Fatalf("a second onSync fired within the settle window: the burst must collapse to exactly one call")
+	case <-time.After(settle):
+	}
 	if w.ReindexCalled() != 1 {
-		t.Fatalf("no second onSync should fire, ReindexCalled=%d", w.ReindexCalled())
+		t.Fatalf("no second onSync should fire after the settle window, ReindexCalled=%d", w.ReindexCalled())
 	}
 }
 
@@ -86,19 +97,26 @@ func TestWatchFingerprintRecheck(t *testing.T) {
 		t.Fatalf("file must be indexed: %v", err)
 	}
 
-	// An mtime-only change: the size is unchanged and the content is unchanged
-	// (so the fingerprint — size+mtime+stamp — is unchanged). The re-check must
-	// be a no-op (no re-index). The WatchConfig carries the Store (the
-	// re-check's files-table read) + the current stamp.
+	// F1: an mtime-ONLY change — bump mtime (os.Chtimes) with size+content
+	// unchanged, so the re-check sees a changed-mtime input. The spec's no-op
+	// case is "mtime touched, content identical": the re-check compares
+	// size+mtime against the files table + the stamp, and an unchanged
+	// fingerprint (content identical) does NOT trigger a re-index. The
+	// WatchConfig carries the Store (the re-check's files-table read) + the
+	// current stamp.
+	now := time.Now()
+	if err := os.Chtimes(p, now, now.Add(time.Minute)); err != nil {
+		t.Fatalf("bump mtime: %v", err)
+	}
 	w := NewWatcher(root, WatchConfig{
 		Debounced: 10 * time.Millisecond,
 		Stamp:     extract.Stamp(),
 		Store:     st,
 	}, nil)
-	w.MarkPendingForTest("a.go") // a pending path whose fingerprint is unchanged
+	w.MarkPendingForTest("a.go") // a pending path whose mtime changed, content identical
 	w.DrainForTest()
 	if w.ReindexCalled() != 0 {
-		t.Fatalf("an mtime-only (size+content unchanged) change must be a no-op, but ReindexCalled=%d", w.ReindexCalled())
+		t.Fatalf("an mtime-only (content identical) change must be a no-op, but ReindexCalled=%d", w.ReindexCalled())
 	}
 }
 
@@ -107,23 +125,26 @@ func TestWatchFingerprintRecheck(t *testing.T) {
 // watcher stays alive).
 func TestWatchFailureIsolation(t *testing.T) {
 	var calls int
-	var w *Watcher
-	w = NewWatcher(t.TempDir(), WatchConfig{Debounced: 10 * time.Millisecond},
-		func(paths []string) {
+	w := NewWatcher(t.TempDir(), WatchConfig{Debounced: 10 * time.Millisecond},
+		func(paths []string) error {
 			calls++
 			if calls == 1 {
-				// The first re-index fails (a store lock).
-				w.setErrForTest(errors.New("store lock"))
-				return
+				// The first re-index fails (a store lock) — a REAL returning
+				// error (the v1 OnSyncFunc signature shape), not a test-seam
+				// injection.
+				return errors.New("store lock")
 			}
 			// The second re-index succeeds.
-			w.setErrForTest(nil)
+			return nil
 		})
-	// First event → onSync fails.
+	// First event → onSync returns an error.
 	w.EmitForTest("a.go")
 	w.DrainForTest()
 	if w.LastErrForTest() == nil {
-		t.Fatalf("the failing re-index must surface its error via LastErrForTest")
+		t.Fatalf("the failing re-index must surface its real error via LastErrForTest")
+	}
+	if w.LastErrForTest().Error() != "store lock" {
+		t.Fatalf("LastErrForTest must carry the REAL onSync error, got %v", w.LastErrForTest())
 	}
 	// The watcher is still alive (a failure must not stop it).
 	if !w.Running() {
@@ -155,16 +176,45 @@ func TestWatchTriggerNotGate(t *testing.T) {
 	}
 
 	w := NewWatcher(root, WatchConfig{Debounced: 5 * time.Millisecond, Store: st}, nil)
-	// A 50ms re-index in flight (holds no lock the reads wait on — CI-INV-4).
-	w.StartReindexForTest(50 * time.Millisecond)
+	// A 200ms re-index in flight (holds no lock the reads wait on — CI-INV-4).
+	// The window is long enough for the DURING check to land in-flight.
+	w.StartReindexForTest(200 * time.Millisecond)
+	// F4: DURING the in-flight re-index, the freshness check returns
+	// immediately (no block) AND degraded == "stale_index" (the value, not
+	// just the timing).
 	start := time.Now()
 	fresh, degraded := w.FreshnessForTest()
 	if time.Since(start) > 20*time.Millisecond {
 		t.Fatalf("a freshness check must not block on the re-index (CI-INV-4): took %v", time.Since(start))
 	}
-	_ = fresh
-	_ = degraded
+	if degraded != "stale_index" {
+		t.Fatalf("a freshness check DURING a re-index must report degraded=stale_index, got %q", degraded)
+	}
+	if fresh != "" {
+		t.Fatalf("during a re-index the check returns the in-flight signal, not a committed value, got fresh=%q", fresh)
+	}
+	// After the window passes, the check returns degraded == "" + a non-empty
+	// last-committed value (the index seeded above).
 	w.Stop()
+	// The Stop() closes w.stop, which clears StartReindexForTest's sleeper.
+	// Give the in-flight flag a moment to clear (the sleeper clears on stop).
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if _, d := w.FreshnessForTest(); d == "" {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	_, degradedAfter := w.FreshnessForTest()
+	if degradedAfter != "" {
+		t.Fatalf("after the re-index window the freshness check must report degraded=\", got %q", degradedAfter)
+	}
+	// The last-committed value is non-empty (the index_freshness row the Index
+	// driver wrote).
+	committed, _ := w.FreshnessForTest()
+	if committed == "" {
+		t.Fatalf("after the re-index window the check must return the last committed index (non-empty last_indexed_at)")
+	}
 }
 
 // [M10] absent-on-disk = delete: a file deleted between the watch event and the
@@ -175,14 +225,22 @@ func TestWatchDeleteBetweenEventAndReindex(t *testing.T) {
 	root := t.TempDir()
 	ctx := context.Background()
 	p := filepath.Join(root, "gone.go")
-	os.WriteFile(p, []byte("package gone\n"), 0o644)
-	// First index: the file is in the files table.
+	// A Go file with a real symbol so the cascade has something to remove
+	// (F5: assert the symbol is gone too, not just the files row).
+	os.WriteFile(p, []byte("package gone\n\nfunc Gone() {}\n"), 0o644)
+	// First index: the file + its symbol are in the index.
 	if _, err := codeindex.Index(ctx, root, st, codeindex.IndexOpts{}); err != nil {
 		t.Fatalf("first index: %v", err)
 	}
 	if _, err := st.FileByPath(ctx, "gone.go"); err != nil {
 		t.Fatalf("file must be indexed: %v", err)
 	}
+	// F5: capture the known symbol before deletion (the cascade target).
+	syms, err := st.SymbolByName(ctx, "Gone")
+	if err != nil || len(syms) == 0 {
+		t.Fatalf("the real extractor must index the Gone symbol for the cascade assertion: %+v, %v", syms, err)
+	}
+	goneSymID := syms[0].ID
 
 	// The event fires, then the file is removed before the re-index runs. The
 	// onSync is the real Index driver (absent-on-disk = delete, M10).
@@ -190,8 +248,9 @@ func TestWatchDeleteBetweenEventAndReindex(t *testing.T) {
 		Debounced: 5 * time.Millisecond,
 		Stamp:     extract.Stamp(),
 		Store:     st,
-	}, func(paths []string) {
-		_, _ = codeindex.Index(ctx, root, st, codeindex.IndexOpts{})
+	}, func(paths []string) error {
+		_, err := codeindex.Index(ctx, root, st, codeindex.IndexOpts{})
+		return err
 	})
 	w.EmitForTest("gone.go")
 	// The file vanishes between the event and the drain.
@@ -205,6 +264,12 @@ func TestWatchDeleteBetweenEventAndReindex(t *testing.T) {
 	if _, err := st.FileByPath(ctx, "gone.go"); err == nil {
 		t.Fatalf("absent-on-disk must DELETE the files row (M10, cascading symbols/edges)")
 	}
+	// F5: the cascade is clean — the symbol is gone too (the FK ON DELETE
+	// CASCADE removed it with the files row). A delete that left orphan
+	// symbols would fail here.
+	if _, err := st.SymbolByID(ctx, goneSymID); err == nil {
+		t.Fatalf("the FK ON DELETE CASCADE must remove the symbol with the files row (cascade clean), but symbol %d still exists", goneSymID)
+	}
 	// NO error surfaced: the re-index treated the absence as a delete.
 	if w.LastErrForTest() != nil {
 		t.Fatalf("a deleted file must not be a re-index error (M10): %v", w.LastErrForTest())
@@ -217,7 +282,10 @@ func TestWatchRealFsnotifyIntegration(t *testing.T) {
 	root := t.TempDir()
 	done := make(chan []string, 1)
 	w := NewWatcher(root, WatchConfig{Debounced: 50 * time.Millisecond},
-		func(paths []string) { done <- paths })
+		func(paths []string) error {
+			done <- paths
+			return nil
+		})
 	if err := w.Start(context.Background()); err != nil {
 		t.Fatalf("start real fsnotify watcher: %v", err)
 	}
