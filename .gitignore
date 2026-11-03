@@ -50,3 +50,7 @@ site/public/
 .playwright-mcp/
 # Playwright CLI output (may contain credentials)
 .playwright-cli/
+
+# Local tooling scratch + stray build artifacts
+.pi/
+mnemonic_back/mnemonic

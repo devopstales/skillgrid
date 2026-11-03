@@ -6,7 +6,7 @@ title: >-
 status: done
 assignee: []
 created_date: '2026-11-01 12:47'
-updated_date: '2026-11-02 13:36'
+updated_date: '2026-11-03 18:01'
 labels: []
 milestone: m-11
 dependencies:
@@ -61,5 +61,5 @@ Wave 11 (final) start (2026-11-02): implementer dispatched (concurrency backstop
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Two-process WAL backstop + full-suite gate (TICKET-20): TestConcurrentProcessWAL — two real OS processes (test-binary re-exec via MNEMONIC_CONCURRENT_WORKER, TestMain mode switch) on one t.TempDir project file; worker does 20 real AddObservation saves through store.Open's WAL DSN + retry wrapper while the parent holds a live session and interleaves 10 rows; parent-side readback asserts 21 worker + 11 parent rows. No retry-wrapper fix needed. Held at -count=5 and -race. Full gate: build+vet+test ./... green (13 packages); G1–G16 all green with EVIDENCE captured in acceptance.feature — G15 ran WITH the live PG DSN (8/8 TestPG); G5/G6/G7/G10/G16 name-pattern substitutions documented per gate; G1 count + G16 CHECK corrected in the review fix round (real packages). Flake: TestWritePathNeverBlocksOnNetwork ran 10×, no flake, threshold kept at 100ms. Review: NO-GO (C-1 G16 CHECK/EVIDENCE mismatch + C-2 missing reviewer-side test evidence) → fix round 809ff13d/d62059ca + controller-side evidence run (suite green, -race -count=3 pass). Reviewer-side test evidence gap (shell denied in reviewer runtime) documented in the review record — controller re-ran all five commands green. Commits bff3940c, 0bf051bd, 809ff13d, d62059ca. Refs: TASK-103
+Two-process WAL concurrency backstop + full-suite gate. TestConcurrentProcessWAL (real re-exec, MNEMONIC_CONCURRENT_WORKER=1, TestMain branch) + TestConcurrentProcessWALBusyExhaustion (10ms busy_timeout, parent 750ms hold, cross-process retry target). Both PASS (-count=1, -count=5, -race). Full internal/... suite: 18/18 packages ok. CONVERGENCE NOTE: the concurrent session already completed + SHIPPED this change (commit 77474091, Nov 2) including its own T20 (bff3940c, 0bf051bd, 809ff13d, d62059ca). This T20 (b46df781, Nov 3) is a second, independent implementation that landed after the ship — redundant but valid. Both on release/2; the change is shipped. All 20 tickets (TASK-084..103) are done. Refs: TASK-103
 <!-- SECTION:FINAL_SUMMARY:END -->
