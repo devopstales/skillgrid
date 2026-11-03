@@ -170,8 +170,10 @@ func TestServePrintsPointer(t *testing.T) {
 // dispatch is complete; the delegation is a one-line change later when the
 // owning change lands). index is now a REAL command (TICKET-07 — the
 // code-index CLI group); it requires a project (the detector's resolution)
-// and exits 0 for a read (status) when a project is given. migrate is a real
-// command (TICKET-19) — it requires --v1-dir and exits 2 when absent.
+// and exits 0 for a read (status) when a project is given. migrate (the
+// v1→v2 seed, TICKET-19) is removed from the CLI surface — it is now an
+// unknown command (the cutover is the operator's call: delete the v1 store
+// and generate a fresh v2 db, or run the seed programmatically).
 func TestStubSubcommands(t *testing.T) {
 	// setup is the remaining delegation stub.
 	if out := runCLI(t, "setup", "opencode"); out == "" {
@@ -184,9 +186,9 @@ func TestStubSubcommands(t *testing.T) {
 	if _, code := captureRun(t, "index", "status", "--project", "p"); code != exitOK {
 		t.Fatalf("index status --project p must exit 0 (the code_status read); got %d", code)
 	}
-	// migrate is a real command: a usage error when --v1-dir is absent.
+	// migrate is removed: it is now an unknown command (usage error).
 	if _, code := captureRun(t, "migrate"); code != exitUsage {
-		t.Fatalf("migrate without --v1-dir must exit %d (usage error); got %d", exitUsage, code)
+		t.Fatalf("migrate (removed) must exit %d as an unknown command; got %d", exitUsage, code)
 	}
 }
 

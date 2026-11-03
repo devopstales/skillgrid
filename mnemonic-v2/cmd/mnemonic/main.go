@@ -204,8 +204,6 @@ func run(args []string) int {
 		return runDoctor(fl, cwd, args)
 	case "index":
 		return runIndex(fl, cwd, args)
-	case "migrate":
-		return runMigrate(fl, cwd, args)
 	case "setup":
 		fmt.Fprintln(outW(), "mnemonic setup delegates to the agent-plugin change (not yet in this build).")
 		return exitOK
@@ -306,7 +304,6 @@ Commands:
   trail         Inspect retrieval trails (recent|show)
   doctor        Whole-system health (--strict for CI)
   index         (delegates to the code-index change)
-  migrate       (delegates to the v1→v2 seed migration)
   setup <agent> (delegates to the agent-plugin change)
   help          Show this help
 
