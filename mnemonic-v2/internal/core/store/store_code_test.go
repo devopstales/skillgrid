@@ -56,6 +56,94 @@ func TestUpsertFileConflictReturnsExistingID(t *testing.T) {
 	}
 }
 
+// [upsert-file-conflict-txn-returns-existing-id] the K1 per-file transaction
+// path: the index driver writes file+symbols in ONE tx (tx.UpsertFile →
+// tx.UpsertSymbols). On a re-index (incremental), the file upsert takes the
+// ON CONFLICT(path) DO UPDATE branch — and inside the txn, LastInsertId()
+// must still return the EXISTING rowid, not 0. A 0 here → the symbol upsert
+// references file_id=0 → the symbols.file_id → files.id FK fails. This is
+// the re-index regression the live `mnemonic index` (second run) hit.
+func TestUpsertFileConflictTxnReturnsExistingID(t *testing.T) {
+	st := openTestStore(t)
+	ctx := context.Background()
+
+	// first run: fresh file + symbol in a txn
+	tx, err := st.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	fid1, err := tx.UpsertFile(ctx, FileRow{
+		Path: "internal/codeindex/vectorstore/store.go", MtimeNS: 1, Size: 100,
+		ContentHash: "v1", Language: "go",
+	})
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("first txn upsert file: %v", err)
+	}
+	if _, err := tx.UpsertSymbols(ctx, fid1, []Symbol{{
+		Name: "Store", QualifiedName: "vectorstore.Store",
+		Kind: "type", Language: "go", StartLine: 1, EndLine: 10,
+		ContentHash: "s1", UID: "store.go:Store:type",
+	}}); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("first txn upsert symbols: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("first txn commit: %v", err)
+	}
+
+	// second run (re-index): the driver re-walks files in sequence. Interleave
+	// a SECOND file's upsert between the two upserts of the first file, so
+	// LastInsertId() (connection-global, holds the last INSERT's rowid) is
+	// the OTHER file's id — not the first file's. The first file's upsert
+	// takes the ON CONFLICT DO UPDATE branch and must still return fid1,
+	// not the interleaved file's id.
+	tx2, err := st.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin 2: %v", err)
+	}
+	// interleave: upsert a different file (fresh insert → LastInsertId = its id)
+	fidOther, err := tx2.UpsertFile(ctx, FileRow{
+		Path: "internal/codeindex/vectorstore/dim.go", MtimeNS: 1, Size: 50,
+		ContentHash: "d1", Language: "go",
+	})
+	if err != nil {
+		_ = tx2.Rollback(ctx)
+		t.Fatalf("interleave upsert file: %v", err)
+	}
+	if fidOther == fid1 {
+		_ = tx2.Rollback(ctx)
+		t.Fatalf("interleave file must get a distinct id: got %d (== fid1)", fidOther)
+	}
+	// now re-upsert the first file (conflict branch). LastInsertId() holds
+	// fidOther (the interleave's insert), not fid1.
+	fid2, err := tx2.UpsertFile(ctx, FileRow{
+		Path: "internal/codeindex/vectorstore/store.go", MtimeNS: 2, Size: 120,
+		ContentHash: "v2", Language: "go",
+	})
+	if err != nil {
+		_ = tx2.Rollback(ctx)
+		t.Fatalf("second txn upsert file: %v", err)
+	}
+	if fid2 != fid1 {
+		_ = tx2.Rollback(ctx)
+		t.Fatalf("txn conflict upsert must return the existing rowid %d, got %d (stale LastInsertId)", fid1, fid2)
+	}
+	// the FK the bug violated: a symbol upserted with the conflict-path id
+	// must succeed inside the txn.
+	if _, err := tx2.UpsertSymbols(ctx, fid2, []Symbol{{
+		Name: "Store", QualifiedName: "vectorstore.Store",
+		Kind: "type", Language: "go", StartLine: 1, EndLine: 12,
+		ContentHash: "s2", UID: "store.go:Store:type",
+	}}); err != nil {
+		_ = tx2.Rollback(ctx)
+		t.Fatalf("txn symbol upsert with conflict-path file id must satisfy the FK: %v", err)
+	}
+	if err := tx2.Commit(ctx); err != nil {
+		t.Fatalf("second txn commit: %v", err)
+	}
+}
+
 // [door-check-code] the hypothesis falsifier: a code_index writes
 // files+symbols+edges through the extended Store (SQLite, WAL), and the FTS
 // floor finds a saved symbol. The v1 live probe showed the broken shape (the
