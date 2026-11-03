@@ -130,6 +130,7 @@ func runIndexIndex(fl config.Flags, cwd string, args []string) int {
 	pdg := fs.Bool("pdg", false, "run the PDG pass (v2.1)")
 	communities := fs.Bool("communities", false, "run the communities pass (v2.1)")
 	process := fs.Bool("process", false, "run the process pass (v2.1)")
+	noProgress := fs.Bool("no-progress", false, "suppress the live progress line (default: on for an interactive index)")
 	if err := fs.Parse(reorderArgs(args)); err != nil {
 		return exitUsage
 	}
@@ -139,8 +140,34 @@ func runIndexIndex(fl config.Flags, cwd string, args []string) int {
 		return exitErr
 	}
 	defer st.Close()
+	// Live progress (the v1 index streamed per-file feedback; a silent
+	// multi-minute re-index looks stuck). Off for --json (stdout is the
+	// machine result; the progress would interleave) and for --no-progress.
+	// It writes a single \r-overwritten line to stderr (stdout stays clean
+	// for the result), ending in a newline on completion.
+	if !*jsonOut && !*noProgress {
+		ch.SetProgressFn(func(done, total int, path string) {
+			if total <= 0 {
+				return
+			}
+			pct := done * 100 / total
+			fmt.Fprintf(errW(), "\rindexing %d/%d (%d%%)  %s", done, total, pct, truncatePath(path, 48))
+		})
+	}
 	res, err := ch.Index(context.Background(), *proj, *full, *lsp, *pdg, *communities, *process)
+	if !*jsonOut && !*noProgress {
+		fmt.Fprintln(errW()) // terminate the \r progress line
+	}
 	return finish(fs, *jsonOut, dispatchResult{result: res, err: err})
+}
+
+// truncatePath shortens a long repo-relative path for the progress line,
+// keeping the tail (the file name + last dirs) — the head is the noise.
+func truncatePath(p string, max int) string {
+	if len(p) <= max {
+		return p
+	}
+	return "…" + p[len(p)-max+1:]
 }
 
 // runIndexStatus runs `mnemonic status` (the code_status read — the 4-state

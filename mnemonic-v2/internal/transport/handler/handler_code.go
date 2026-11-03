@@ -59,6 +59,11 @@ type CodeHandler struct {
 	// the mock seam, the test double for the real subprocess). Nil = the real
 	// server on PATH (gopls/pyright/...). Set via SetLSPResolverForTest.
 	lspResolver extract.LSPResolver
+	// progress is the live-progress seam (the v1 index streamed per-file
+	// feedback; a silent multi-minute re-index looks stuck). Set by the CLI
+	// before an interactive Index call; nil on the MCP + watch surfaces (no
+	// stream). The Index method passes it through to codeindex.IndexOpts.
+	progress func(done, total int, path string)
 	// lspWarn is the run's LSP degradation-note sink (the warn + continue
 	// contract's buffer; the Index result's Warnings surface it).
 	lspWarn struct {
@@ -340,6 +345,7 @@ func (h *CodeHandler) Index(ctx context.Context, project string, full, lsp, pdg,
 	h.activeRunID = runID
 	h.activeRunStart = time.Now()
 	root := h.rootLocked()
+	progress := h.progress // read under the lock (SetProgressFn writes it)
 	h.mu.Unlock()
 
 	// This call minted the run (it was not pre-set), so clear it on completion.
@@ -384,9 +390,10 @@ func (h *CodeHandler) Index(ctx context.Context, project string, full, lsp, pdg,
 	// freshness record) + the LSP pass when --lsp is set (the optional passes
 	// pdg/communities/process are the v2.1 deferrals).
 	if _, err := fn(ctx, root, h.st, codeindex.IndexOpts{
-		Project: p,
-		Stamp:   extract.Stamp(),
-		LSP:     lspCfg,
+		Project:  p,
+		Stamp:    extract.Stamp(),
+		LSP:      lspCfg,
+		Progress: progress, // nil on MCP + watch (no stream); the CLI sets it
 	}); err != nil {
 		return IndexResult{RunID: runID, Status: "error"}, err
 	}
@@ -425,6 +432,17 @@ func (h *CodeHandler) Index(ctx context.Context, project string, full, lsp, pdg,
 		res.Warnings = append(res.Warnings, "process tier not yet built (v2.1) — run code_index --process in v2.1")
 	}
 	return res, nil
+}
+
+// SetProgressFn wires the live-progress callback (the v1 index streamed
+// per-file feedback; a silent multi-minute re-index looks stuck). The CLI sets
+// a stderr printer before an interactive code_index; the MCP tool and the watch
+// loop leave it nil (no stream). It is read on the next Index call, so set it
+// before calling Index. A nil fn clears it (the silent default).
+func (h *CodeHandler) SetProgressFn(fn func(done, total int, path string)) {
+	h.mu.Lock()
+	h.progress = fn
+	h.mu.Unlock()
 }
 
 // SetIndexFnForTest injects the index driver (F4 — the test-intended seam,

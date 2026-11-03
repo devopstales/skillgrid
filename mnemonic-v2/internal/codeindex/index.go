@@ -54,6 +54,15 @@ type IndexOpts struct {
 	// Best-effort: a failing/timing-out server warns + continues (the static
 	// name-only edge stands, never a partial edge set).
 	LSP *extract.LSPConfig
+	// Progress, when non-nil, is called once per file committed this run,
+	// after its per-file tx succeeds: (done, total, path). `done` counts the
+	// files indexed so far this run (1..N); `total` is the eligible-file
+	// count the walk produced; `path` is the repo-relative path just written.
+	// It is the live-progress seam (the v1 index streamed per-file feedback;
+	// a silent 2-minute re-index looks stuck). The MCP tool and the watch loop
+	// leave it nil (no stream); the CLI wires a stderr printer. It must be
+	// cheap + side-effect-light (it runs on the index's hot path, per file).
+	Progress func(done, total int, path string)
 }
 
 // IndexReport is the run's first-class outcomes (T1: oversized files are
@@ -114,6 +123,20 @@ func Index(ctx context.Context, root string, st store.Store, opts IndexOpts) (In
 	// the target uid set (the orphan prune's input, spec 002 §9)
 	var targetUIDs []string
 	var symbolsCount, edgesCount, chunksCount, unresolvedCount int
+
+	// the progress denominator: the index-eligible files (a mapped language).
+	// Unmapped extensions are skipped before extraction, so they are not part
+	// of the run's work — counting them would make the bar stall below 100%.
+	// (The incremental no-op + oversized files still count toward `total`: the
+	// bar reflects "files the run examined", and `done` (files committed) is
+	// the honest numerator — a no-op/oversized run finishes with done<total,
+	// which is accurate: not every examined file is rewritten.)
+	total := 0
+	for _, rel := range rels {
+		if languageOf(rel) != "" {
+			total++
+		}
+	}
 
 	for _, rel := range rels {
 		full := filepath.Join(root, rel)
@@ -194,6 +217,12 @@ func Index(ctx context.Context, root string, st store.Store, opts IndexOpts) (In
 		}
 
 		rep.FilesIndexed++
+		// live progress (the v1 index streamed per-file feedback; a silent
+		// multi-minute re-index looks stuck). Fired after the per-file tx
+		// commits, so `done` only ever advances on a file actually written.
+		if opts.Progress != nil {
+			opts.Progress(rep.FilesIndexed, total, rel)
+		}
 		targetUIDs = append(targetUIDs, uidsOf(g.Symbols)...)
 		symbolsCount += len(g.Symbols)
 		edgesCount += len(g.Edges)

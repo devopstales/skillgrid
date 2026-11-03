@@ -185,3 +185,88 @@ func ftsCount(t *testing.T, st store.Store, table, term string) int {
 	}
 	return int(n)
 }
+
+// [index-progress-callback] the driver must surface live progress during a
+// run (the v1 index streamed per-file progress; v2 was silent, so a 2-minute
+// re-index looked stuck). IndexOpts.Progress, when non-nil, is called once per
+// indexed file with (done, total, path) — done counts the files committed this
+// run, total is the eligible-file count, path is the repo-relative path just
+// written. A nil callback (the default, the MCP + watch surfaces) is silent.
+// Oversized / unchanged (incremental no-op) files are NOT indexed this run, so
+// they do not advance `done` — the progress reflects files actually written.
+func TestIndexProgressCallbackFiresPerIndexedFile(t *testing.T) {
+	root := t.TempDir()
+	writeTree := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	writeTree("pay.go", "package pay\n\nfunc CapturePayment() {}\n")
+	writeTree("billing.go", "package billing\n\nfunc ApplyDiscount() {}\n")
+
+	dir := t.TempDir()
+	st, err := store.Open(context.Background(), dir, "proj-p", store.SQLite, "")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	var calls []struct{ done, total int; path string }
+	rep, err := Index(context.Background(), root, st, IndexOpts{
+		Project:   "proj-p",
+		ExtractFn: func(path, content string) (store.FileGraph, error) { return fakeExtract(path), nil },
+		Progress: func(done, total int, path string) {
+			calls = append(calls, struct{ done, total int; path string }{done, total, path})
+		},
+	})
+	if err != nil {
+		t.Fatalf("index run: %v", err)
+	}
+	if rep.FilesIndexed != 2 {
+		t.Fatalf("both files must be indexed: %+v", rep)
+	}
+	// exactly one callback per indexed file, in deterministic (sorted) order,
+	// with done advancing 1..N and total == the eligible-file count (2 here).
+	if len(calls) != 2 {
+		t.Fatalf("Progress must fire once per indexed file: got %d calls %+v", len(calls), calls)
+	}
+	if calls[0].total != 2 || calls[1].total != 2 {
+		t.Fatalf("Progress.total must be the eligible-file count 2: %+v", calls)
+	}
+	if calls[0].done != 1 || calls[1].done != 2 {
+		t.Fatalf("Progress.done must advance 1,2: %+v", calls)
+	}
+	// deterministic walk order (sort.Strings on the rels) → billing.go then pay.go
+	if calls[0].path != "billing.go" || calls[1].path != "pay.go" {
+		t.Fatalf("Progress paths must follow the deterministic walk order: %+v", calls)
+	}
+}
+
+// [index-progress-nil-default] a nil Progress (the default — the MCP tool and
+// the watch loop do not stream) must not panic and must behave identically to
+// a run with no progress wiring (the silent floor).
+func TestIndexProgressNilCallbackIsSilent(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "pay.go"), []byte("package pay\n\nfunc CapturePayment() {}\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	dir := t.TempDir()
+	st, err := store.Open(context.Background(), dir, "proj-n", store.SQLite, "")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	// nil Progress: must not panic, must still index.
+	rep, err := Index(context.Background(), root, st, IndexOpts{
+		Project:   "proj-n",
+		ExtractFn: func(path, content string) (store.FileGraph, error) { return fakeExtract(path), nil },
+	})
+	if err != nil {
+		t.Fatalf("index run (nil progress): %v", err)
+	}
+	if rep.FilesIndexed != 1 {
+		t.Fatalf("file must be indexed with nil Progress: %+v", rep)
+	}
+}
