@@ -253,6 +253,14 @@ If the user corrects anything, use their value. If they say "looks good" or "yes
 - The block is idempotent — running onboarding twice never duplicates it.
 - **Nested AGENTS.md:** for monorepos or distinct areas (a `payments` module, `apps/api` vs `apps/web`), create a nested `<area>/AGENTS.md` for that area's specific rules — the agent loads root + nested for the folder it's in. The root block stays global and lean; do not push area-specific conventions up into it.
 
+**4b. Write the CRITICAL_INSTRUCTION block (if `mnemonic.enabled: true`):**
+- Render the file's **only** `<CRITICAL_INSTRUCTION>` from `templates/agents-mnemonic.md` and upsert it between `<!-- mnemonic:start -->` / `<!-- mnemonic:end -->`, immediately after `<!-- skillgrid:end -->`. Same idempotent rule as the sentinel block: found → replace the region in place; not found → append the region after `<!-- skillgrid:end -->`. Never a second region.
+- The block carries the `Mnemonic — Memory` + `Mnemonic — Code Index` sections, plus a `## Backlog.md Workflow` section when `ticketing.type: backlogmd`.
+- **Single-block invariant:** if the `backlog` CLI's injection created its own region (`<!-- BACKLOG.MD GUIDELINES ... -->` markers + its own `<CRITICAL_INSTRUCTION>` tag), move its `## Backlog.md Workflow` content into this block as the last section, then delete its wrapper, version comment, and second tag. Exactly one `<CRITICAL_INSTRUCTION>` may remain — if multiple exist, only the last one is honored, so two tagged regions is a defect (the tool's wrapper/version stamp and the second tag are what must go).
+- **Menu adaptation:** the template's ladder lists the default narrow MCP menu — verify it against this session's mounted tool inventory before writing; never list a tool that isn't mounted.
+- **Merge mode:** re-render the same way from the template; re-verify the menu only if the tool menu changed, and refresh the folded-in Backlog section only if the `backlog` CLI version changed.
+- If `mnemonic.enabled: false`: the region is absent — never render an empty block.
+
 **5. Update `.gitignore`:**
 - Ensure `.skillgrid/sdd/` is gitignored (scratch, ephemeral)
 - Ensure `.skillgrid/brainstorm/` is gitignored (visual companion state)
