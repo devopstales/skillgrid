@@ -472,7 +472,8 @@ the others.
        New Function blueprints.
      - **Consolidated** (no pauses): full 5-stage pipeline, no checkpoint
        gates, findings consolidated into `consolidated_review_report.md` with
-       cross-stage dedup + traceability matrix. For time-constrained reviews.
+       cross-stage dedup + traceability matrix (main agent synthesizes inline
+       — there is no synthesizer subagent). For time-constrained reviews.
      - **Feature-spec-only** (stages 5-8, skip 9): for blueprints that are
        architecture-heavy but have straightforward task steps. Skips
        implementation readiness.
@@ -594,11 +595,29 @@ the others.
       Findings` section (not a separate file). A failed/timed-out reviewer is
       recorded as `not run` (never counted as zero findings) and retried once.
       The review is committed in the spec zone (spec-before-code zone guard).
+      **Chat-response contract (all presets):** the agent works WITH the user,
+      not just for them — a review that ends in silence plus a file path is a
+      failed delivery. After the final stage (Interactive) or after
+      consolidation (Consolidated), the agent posts a **consolidated chat
+      response** containing: (1) stage/reviewer status table
+      (`completed` / `not run`), (2) severity breakdown (🔴/🟡/🟢 counts),
+      (3) every 🔴 Blocker and 🟡 Major finding in one or two lines each
+      (description + affected scope + the agent's proposed disposition: fix /
+      contest / decline), (4) the path to the full report
+      (`consolidated_review_report.md` or the `review/` dir for the per-stage
+      files). The full report is NOT dumped in chat (the artifact-first rule
+      still holds — this is a working summary, not a paste of the file). The
+      same contract applies to Track A's shootdown synthesis: the chat shows
+      the severity table + each 🔴 Blocker with its disposition options, not
+      just a pointer at `briefing.md`.
     - **Acceptance:** after a `goldfish-review` of a ≥3-task blueprint, the
       stage report files exist (or a `not run` marker for a failed stage) and
       are committed before `acceptance.feature` is written. After a Track A
       shootdown, `briefing.md`'s `## Shootdown Findings` section is populated
-      and committed.
+      and committed. After any review run, the chat turn ends with the
+      consolidated response (status + severity + Blocker/Major findings +
+      report path); a turn that ends with only a file path does not satisfy
+      this requirement.
     - **Acceptance scenario:** `happy path review-artifacts-committed` →
       `acceptance.feature`.
 
@@ -1025,6 +1044,154 @@ the others.
     - **Acceptance scenario:** `happy path drift-skill-size` →
       `acceptance.feature`.
 
+### Cross-track — Goldfish Isolation & Harness Portability
+
+36. **R36 — Goldfish freshness is non-negotiable; a harness without fresh-context
+    subagents does NOT degrade — it STOPS.**
+    - **Current:** `brainstorming`'s feasibility check and `writing-blueprints`'
+      Self-Review run in the author's own context; a missing subagent tool would
+      be absorbed silently (same-context review stands in).
+    - **Target:** port EGM's strictness verbatim: *"If your harness has no
+      subagent tool, stop and tell the user: a review in the same context is not
+      a Goldfish review."* The check applies at the first dispatch point of each
+      track:
+      - Track A: before the six-lens shootdown is spawned.
+      - Track B: before Stage 5 of `goldfish-review` is dispatched.
+      - Track D: before the first `codebase-details` reviewer is dispatched.
+      A review run in the author's own context is not a Goldfish review and MUST
+      NOT count toward satisfying R1 or R7 (already stated there; R36 makes the
+      stop-the-world behavior explicit). The stop is not a suggestion: the skill
+      halts, tells the user the harness cannot spawn a fresh-context subagent,
+      and names the EGM rule it is enforcing. No partial run, no "we'll count
+      this one as a review anyway."
+    - **Acceptance:** `brainstorming/references/shootdown.md`,
+      `goldfish-review/SKILL.md`, and `drift-report/SKILL.md` each contain the
+      stop rule verbatim (or its normative equivalent); a same-context run
+      recorded as "review complete" in any of the three tracks is a defect.
+    - **Acceptance scenario:** `happy path no-subagent-stop` →
+      `acceptance.feature`.
+
+37. **R37 — Goldfish stays a Goldfish: context isolation contract.**
+    - **Current:** the harness's `reviewer`/`general` subagents inherit whatever
+      the harness injects — in Claude Code that includes `CLAUDE.md` (user and
+      project instruction files), in OpenCode it includes project
+      instructions/skills/references. EGM's Claude adapters declare
+      `omitClaudeMd: true` + `tools: [Read, Grep, Glob]` to cut both.
+    - **Target:** every Goldfish dispatch (Track A lens, Track B stage reviewer,
+      Track D reviewer) enforces the **four-part isolation contract**:
+      1. **Fresh context** — no conversation history, no author narrative, no
+         parent deliberation. (Already R1/R7.)
+      2. **Read-only** — no file edits, no shell, no writes. A reviewer that
+         edits the target has not reviewed; its findings are discarded.
+      3. **No project instructions** — the harness's per-project instruction
+         files (Claude Code: `CLAUDE.md` → `omitClaudeMd: true`; OpenCode:
+         project instructions block excluded; Cursor: `rules` files not loaded;
+         Pi: `AGENTS.md` not injected) must not reach the reviewer. The
+         reviewer sees ONLY: the persona brief, the target file path(s), the
+         explicit reading list, and the `Mode: BRAINSTORM|REVIEW` flag.
+      4. **No network, no MCP** — the reviewer cannot open URLs, fetch web
+         pages, or call MCP tools. Documentation the review needs is saved as a
+         file in the workspace and passed by path.
+      The contract is stated in each persona brief's `## Isolation mandate`
+      section (R11) and re-asserted in the dispatch prompt. A harness that
+      cannot enforce part 3 (no project instructions) must either (a) enforce
+      it via its own mechanism (adapter / agent config) or (b) say so in the
+      review report header ("harness did not exclude project instructions —
+      findings may carry author context"); it must not silently pass.
+    - **Acceptance:** each persona brief in `_shared/elephant-goldfish/` has a
+      `## Isolation mandate` naming all four parts; the dispatch prompt in
+      `brainstorming/references/shootdown.md`, `goldfish-review/SKILL.md`, and
+      `drift-report/SKILL.md` re-asserts the four parts verbatim; the review
+      report format (R10, R13) includes a one-line harness-isolation attestation
+      (which of the four parts the harness enforced vs. could not).
+    - **Acceptance scenario:** `happy path goldfish-isolation-contract` →
+      `acceptance.feature`.
+
+38. **R38 — Harness portability: Claude Code, OpenCode, Cursor, Pi.**
+    - **Current:** the spec's persona-pool assumption (Open Questions) names
+      only `reviewer`/`general` and assumes they honor the persona file. No
+      other harness is named.
+    - **Target:** the Goldfish protocol is harness-agnostic at the skill layer
+      and harness-specific at the adapter layer. The skill text never names a
+      harness tool; it says "spawn a fresh-context read-only subagent and tell
+      it to read this persona file first." Each supported harness supplies its
+      own adapter:
+      - **Claude Code** (`.claude-plugin/agents/<persona>.md`):
+        `omitClaudeMd: true`, `tools: [Read, Grep, Glob]`, `model: inherit`.
+        Subagent tool: `Agent` (Task). Nesting allowed (up to 3 levels) — the
+        main context may dispatch reviewers directly without a synthesizer.
+      - **OpenCode** (`.opencode/agents/<persona>.md`):
+        `mode: subagent`, `permissions: [edit: deny, shell: deny]` (allow
+        read/glob/grep only). Subagent tool: `subagent`. The Goldfish plugin
+        (below) strips project instructions from Goldfish child sessions via a
+        `context` hook — native enforcement, not just a persona mandate.
+      - **Cursor** (`.cursor/agents/<persona>.md`): read-only tools via
+        Cursor's agent permission settings; subagent tool: Cursor's Task
+        subagent. `rules/` files are NOT loaded for subagents by default —
+        verify at install time.
+      - **Pi** (pi.dev): subagent capability is detected at runtime via Pi's
+        native delegation (Pi supports MCP and agent delegation as of v0.99);
+        if Pi cannot spawn a fresh-context subagent in the current session,
+        R36's stop rule applies — do not degrade.
+      **OpenCode Goldfish plugin (`.opencode/plugins/goldfish/index.ts`):**
+      OpenCode V2 agent frontmatter has no `omitClaudeMd` equivalent, but a
+      server plugin provides native enforcement. The plugin registers:
+      1. **`context` hook** — when a model request fires for a Goldfish child
+         session (child sessions run under the goldfish reviewer agent; the
+         hook detects them via session lineage / agent identity), it strips the
+         instruction sources from `event.system` before dispatch: the
+         `AGENTS.md` files, `instructions` entries, and skill/reference/MCP
+         guidance. What remains: the provider/agent system prompt (the persona
+         brief is the agent's `system`), tool guidance, and the session's own
+         dispatch prompt. `metadata.experimental.instructions` lists each
+         source as `{key, text}` so the hook can identify and remove the
+         instruction parts. Residual: the provider base system prompt still
+         loads (unavoidable; `omitClaudeMd` in Claude Code also leaves the base
+         prompt) — attested in the report header.
+      2. **`tool.transform`** — denies `edit`/`write`/`shell` for Goldfish
+         agent sessions (read-only contract part 2, enforced natively rather
+         than by prompt discipline).
+      3. **`session.hook("prompt")`** — denies `webfetch`/`websearch` tool
+         availability in Goldfish sessions (contract part 4, no network).
+      The plugin is part of this change's OpenCode adapter (it ships in
+      `.opencode/plugins/goldfish/`, loaded automatically). The persona brief's
+      isolation mandate stays as defense-in-depth: the plugin is the
+      enforcement, the mandate is the fallback if the plugin fails to load.
+      The report-header attestation changes from "harness could not exclude
+      project instructions" to "stripped by goldfish plugin, provider base
+      prompt remains" — full enforcement, not partial.
+      The skill must not break when a fifth harness appears: the adapter is a
+      file, the skill is a protocol. Adding a harness = adding an adapter
+      file + a row in the harness table in `goldfish-review/references/
+      harnesses.md` (NEW — the port of EGM's `docs/harnesses.md`, scoped to
+      the four supported harnesses + a "contributing a new harness" section).
+    - **Acceptance:** `goldfish-review/references/harnesses.md` exists with a
+      table covering Claude Code, OpenCode, Cursor, Pi (subagent tool,
+      read-only mechanism, project-instruction exclusion mechanism,
+      partial-enforcement note where applicable); each skill's dispatch
+      section names the protocol, not a specific harness; no harness-specific
+      string (`Agent`, `invoke_subagent`, `omitClaudeMd`) appears in
+      `SKILL.md` or persona briefs — only in `references/harnesses.md` and the
+      adapter files. The OpenCode adapter (`.opencode/plugins/goldfish/`)
+      loads and strips instruction sources from a Goldfish child session in a
+      smoke test (a reviewer spawned under the goldfish agent does not see the
+      project `AGENTS.md` in its context); the attestation in a real
+      `goldfish-review` run on OpenCode reads "stripped by goldfish plugin,
+      provider base prompt remains."
+    - **Acceptance scenario:** `happy path harness-portability` →
+      `acceptance.feature`.
+    - **Current:** N/A (new skill).
+    - **Target:** the drift report protocol detail (divergence categories,
+      reconciliation, source grounding) lives in `references/`. The SKILL.md
+      is thin: invocation, intake, the 4-category summary, the sequential
+      processing rule, the artifact path, the pointer to `references/`.
+      `skill-size-budget.mjs check` exits 0 for `drift-report`.
+    - **Acceptance:** `node .agents/skills/verification/qa/scripts/skill-size-
+      budget.mjs check` exits 0 for `drift-report`; the SKILL.md is < 100
+      lines.
+    - **Acceptance scenario:** `happy path drift-skill-size` →
+      `acceptance.feature`.
+
 ## Implementation Decisions
 
 - **Modules to build/modify:**
@@ -1091,6 +1258,30 @@ the others.
       md` (the two-way reconciliation protocol).
     - MODIFY `.agents/skills/verification/reflect/SKILL.md` (add advisory
       drift check to the checklist).
+  - **Cross-track (Goldfish isolation & harness portability, R36-R38):**
+    - NEW `.agents/skills/planning/goldfish-review/references/harnesses.md`
+      (port of EGM's `docs/harnesses.md`, scoped to Claude Code, OpenCode,
+      Cursor, Pi: subagent tool, read-only mechanism, project-instruction
+      exclusion mechanism, partial-enforcement notes, + "contributing a new
+      harness" section).
+    - MODIFY each persona brief in
+      `.agents/skills/_shared/elephant-goldfish/` to carry a `## Isolation
+      mandate` section naming all four parts of the R37 contract (fresh
+      context, read-only, no project instructions, no network/MCP).
+    - MODIFY `brainstorming/references/shootdown.md`,
+      `goldfish-review/SKILL.md`, and `drift-report/SKILL.md` dispatch
+      sections: re-assert the R37 contract in every dispatch prompt + the R36
+      stop rule at the first dispatch point.
+    - Review report format (R10 / R13 / R31) gains a one-line
+      harness-isolation attestation: which of the four parts the harness
+      enforced natively vs. which it could not (attested in the report
+      header).
+    - NEW `.opencode/plugins/goldfish/index.ts` (OpenCode adapter: `context`
+      hook that strips instruction sources from Goldfish child sessions,
+      `tool.transform` denying edit/write/shell, `session.hook("prompt")`
+      denying web tools). Ships in `.opencode/plugins/`, loads automatically.
+      The persona-brief isolation mandate remains as fallback if the plugin
+      fails to load.
   - **Light qa edit:**
     - MODIFY (light) `.agents/skills/verification/qa/SKILL.md` decision-debt
       paragraph — surface a parked blueprint-review finding as a WARNING.
@@ -1109,16 +1300,18 @@ the others.
 - **Data flow:**
   - **Track A:** anchored hypothesis (user-confirmed) + relevant existing
     code/files → 6 parallel fresh subagents (one per lens) → main agent
-    synthesizes inline (dedupe, group by severity) → user dispositions 🔴
-    Blockers → `briefing.md` `## Shootdown Findings` section → commit →
-    `writing-blueprints`.
+    synthesizes inline (dedupe, group by severity) → **consolidated chat
+    response** (severity table + each 🔴 Blocker with disposition options)
+    → user dispositions 🔴 Blockers → `briefing.md` `## Shootdown Findings`
+    section → commit → `writing-blueprints`.
   - **Track B:** `writing-blueprints` invokes `skillgrid:goldfish-review` on
     `blueprint.md` → 5-stage pipeline (each stage: spawn fresh reviewers →
     collect findings → Elephant-side resolution (categorize + interactive gate
     + apply fixes) → re-scan line ranges → next round) → convergence (2 clean
     rounds) or cap (5) or churn → `.skillgrid/specs/<topic>/review/<stage>.
-    md` + `goldfish_review_report.md` → commit → User Review Gate → Execution
-    Handoff. A parked CRITICAL → `qa` WARNING (R17).
+    md` + `goldfish_review_report.md` → **consolidated chat response** (status
+    + severity + Blocker/Major findings + report path) → commit → User Review
+    Gate → Execution Handoff. A parked CRITICAL → `qa` WARNING (R17).
   - **Track C:** `briefing.md` (+ `findings.md` + `adr.md`) → ingestion
     confirmation → section-by-section drafting (each section written to
     `blueprint.md` + approval gate; per-task gate for Tasks section) → Self-
@@ -1129,10 +1322,17 @@ the others.
     feature` (per-change) or all spec dirs + `ARCHITECTURE.md` + `AGENTS.md`
     (project-wide) → sequential processing (one spec dir at a time) → source
     grounding (code search to resolve references) → 4-category divergence
-    detection → difference filtering → `drift-report.md` → resolution
-    (reuses R10: CONTEST/ESCALATE/PROPOSE-FIX/DECLINE + interactive gate) →
-    two-way reconciliation (update doc OR file task/fix code) → commit.
-    Periodic ritual, not a per-change gate.
+    detection → difference filtering → `drift-report.md` (with harness-
+    isolation attestation in the header) → resolution (reuses R10:
+    CONTEST/ESCALATE/PROPOSE-FIX/DECLINE + interactive gate) → two-way
+    reconciliation (update doc OR file task/fix code) → commit. Periodic
+    ritual, not a per-change gate.
+  - **Cross-track (all dispatch points):** before any reviewer is spawned, the
+    orchestrating skill checks that the harness can spawn a fresh-context
+    subagent (R36). If not: stop, tell the user, name the EGM rule. If yes:
+    re-assert the R37 four-part isolation contract in the dispatch prompt
+    (fresh context, read-only, no project instructions, no network/MCP) and
+    record the harness's enforcement level in the report header.
 - **Error handling:** a reviewer that times out / returns no report → retry
   once → record `not run` (never zero findings). A stage whose reviewer is
   `not run` caps that stage's verdict at "not verified," not "clean."
@@ -1289,7 +1489,17 @@ the others.
   the shootdown degrades to sequential dispatch (still fresh-context, still
   one subagent per lens) — the parallelism is an optimization, not a
   requirement. The freshness (no conversation history) is the load-bearing
-  rule.
+  rule. If the harness has **no** subagent tool at all, there is no degradation:
+  R36 stops the review and says so.
+- **Assumption (R38, OpenCode-specific):** the OpenCode Goldfish plugin's
+  `context` hook can identify Goldfish child sessions at request time and
+  strip the instruction sources from `event.system` using
+  `metadata.experimental.instructions` (the per-source `{key, text}` list).
+  This metadata is marked experimental in the V2 docs — if its shape changes,
+  the hook breaks loudly (instructions remain, attestation reverts to partial)
+  rather than silently. The provider base system prompt cannot be stripped
+  and remains in reviewer context; this matches Claude Code's `omitClaudeMd`
+  behavior (base prompt loads, instruction files do not).
 - **Question (open, non-blocking):** whether to also run the comprehension
   reviewer over `briefing.md` (the what-side) or only `blueprint.md`. Default
   for this change: `blueprint.md` only; `briefing.md` review is an optional
@@ -1359,6 +1569,12 @@ the others.
 - **Anchored hypothesis:** the 2-3 sentence summary of the feature concept that
   the user explicitly confirmed at the brainstorming readiness gate, before the
   shootdown is spawned. It is the input to all six lenses.
+- **Consolidated chat response:** the working summary the agent posts in chat
+  at the end of any review run (goldfish-review, all presets, and the Track A
+  shootdown): stage/reviewer status, severity breakdown, every Blocker and
+  Major finding in 1-2 lines with the proposed disposition, and the path to
+  the full report. The agent works WITH the user, not just for them — the full
+  report stays in the artifact, but the chat never ends with only a file path.
 - **Section-by-section drafting:** the blueprint drafting model where each
   section (Header, Hypothesis, Must-Haves, etc.) is written to `blueprint.md`
   and approved by the user before the next section is written. Each task in the
