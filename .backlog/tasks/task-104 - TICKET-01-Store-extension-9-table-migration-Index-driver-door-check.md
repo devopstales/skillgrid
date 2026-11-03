@@ -1,10 +1,10 @@
 ---
 id: TASK-104
 title: TICKET-01 Store extension + 9-table migration + Index driver + door check
-status: in-progress
+status: done
 assignee: []
 created_date: '2026-11-02 15:51'
-updated_date: '2026-11-02 15:56'
+updated_date: '2026-11-03 18:24'
 labels: []
 milestone: 2026-10-31-mnemonic-v2-code-index
 dependencies: []
@@ -25,3 +25,9 @@ Extend the Store interface (ADR-0046) with code-index write/read + vector method
 - [ ] #4 No new warnings introduced
 - [ ] #5 Spec/docs updated if behavior changes
 <!-- DOD:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+TICKET-01 door check — Store extension (9-table migration + vector + trail seam + ExecDDL/Txn), types_code.go, migrations/100_code_index.sql, SQLite render, codeindex.Index driver. Green.
+<!-- SECTION:FINAL_SUMMARY:END -->

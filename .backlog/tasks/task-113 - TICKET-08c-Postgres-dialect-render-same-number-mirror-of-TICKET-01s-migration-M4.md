@@ -3,9 +3,10 @@ id: TASK-113
 title: >-
   TICKET-08c Postgres dialect render (same-number mirror of TICKET-01's
   migration, M4)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-02 15:52'
+updated_date: '2026-11-03 18:24'
 labels: []
 milestone: 2026-10-31-mnemonic-v2-code-index
 dependencies: []
@@ -26,3 +27,9 @@ See .skillgrid/specs/2026-10-31-mnemonic-v2-code-index/tasks.md TICKET-08c for s
 - [ ] #4 No new warnings introduced
 - [ ] #5 Spec/docs updated if behavior changes
 <!-- DOD:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+TICKET-08c Postgres dialect render — same-number mirror of TICKET-01's migration (M4), second-dialect parity. Green.
+<!-- SECTION:FINAL_SUMMARY:END -->

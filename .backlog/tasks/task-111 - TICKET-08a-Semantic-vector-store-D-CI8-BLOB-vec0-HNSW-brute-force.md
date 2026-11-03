@@ -1,9 +1,10 @@
 ---
 id: TASK-111
 title: 'TICKET-08a Semantic vector store (D-CI8: BLOB + vec0 + HNSW + brute-force)'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-02 15:52'
+updated_date: '2026-11-03 18:24'
 labels: []
 milestone: 2026-10-31-mnemonic-v2-code-index
 dependencies: []
@@ -24,3 +25,9 @@ See .skillgrid/specs/2026-10-31-mnemonic-v2-code-index/tasks.md TICKET-08a for s
 - [ ] #4 No new warnings introduced
 - [ ] #5 Spec/docs updated if behavior changes
 <!-- DOD:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+TICKET-08a semantic vector store — D-CI8: BLOB+vec0+HNSW+brute-force (LSH/IVF dropped, hash-64 default). search/semantic.go + hybrid leg. Green.
+<!-- SECTION:FINAL_SUMMARY:END -->
