@@ -87,7 +87,7 @@ human confirmation). Record your classification in the report.
 
 Per [sdd-structure.md](../rules/sdd-structure.md) and [skill-anatomy.md](skill-anatomy.md):
 
-- Skill-specific scripts → `.agents/skills/<group>/<skill>/scripts/`
+- Skill-specific scripts → `.agents/skills/<skill>/scripts/`
 - Project-level CI/drift guards → `scripts/` (repo root)
 - Data files (budgets, thresholds) → alongside the script that consumes them,
   or in `_shared/` when multiple scripts read the same file

@@ -53,7 +53,7 @@ If `mnemonic.enabled: false`, stop — memory, code index, and web cache are all
 
 **Fallback**: if tools are unexpectedly unavailable, run `skillgrid setup` again and restart the agent. Setup repairs the durable MCP config and permissions allowlist.
 
-**Degradation contract** (per `../../_shared/knowledge/hybrid-degradation.md`): if Mnemonic is unavailable mid-session (MCP disconnected, binary missing), do NOT fail silently. Continue with filesystem-only persistence and emit a degradation line in your return envelope: `Degraded: mnemonic — {reason}`. Do not retry more than once per session. The filesystem copy in `.skillgrid/specs/` is the recovery source of truth.
+**Degradation contract** (per `../_shared/knowledge/hybrid-degradation.md`): if Mnemonic is unavailable mid-session (MCP disconnected, binary missing), do NOT fail silently. Continue with filesystem-only persistence and emit a degradation line in your return envelope: `Degraded: mnemonic — {reason}`. Do not retry more than once per session. The filesystem copy in `.skillgrid/specs/` is the recovery source of truth.
 
 ## Usage
 
@@ -216,7 +216,7 @@ web_cache_lookup(source: context7|exa|deepwiki|fetch|manual, ...)  # BEFORE the 
 2. mem_session_end(session_id: sid, summary: "one-line outcome")
 ```
 
-The `mem_session_summary` body uses the **six-section structure** (Goal / Instructions / Discoveries / Accomplished / Next Steps / Relevant Files) defined in [`../../_shared/rules/mnemonic-memory.md`](../_shared/rules/mnemonic-memory.md) — all six must be filled.
+The `mem_session_summary` body uses the **six-section structure** (Goal / Instructions / Discoveries / Accomplished / Next Steps / Relevant Files) defined in [`../_shared/rules/mnemonic-memory.md`](../_shared/rules/mnemonic-memory.md) — all six must be filled.
 
 This is NOT optional — if you skip it, the next session starts blind.
 

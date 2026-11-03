@@ -35,6 +35,10 @@ Companion contracts (this file assumes they exist and are honored):
     scripts/            # optional — executable helpers
 ```
 
+Flat layout: one directory per skill, directly under `.agents/skills/`. No
+category/group layer — the frontmatter `name` (and the `description`'s
+"Use when …" triggers) do the routing.
+
 - `SKILL.md` is always uppercase, always the entry point.
 - `name` (frontmatter) == directory name == kebab-case. No exceptions.
 - One skill, one directory. No skill may reach into another skill's directory
@@ -278,7 +282,7 @@ Crossing the budget is a code smell, not a permission. Split, don't bloat. Push 
 
 Copy the fill-in skeleton at
 [`../templates/skill-template.md`](../templates/skill-template.md) to
-`.agents/skills/<category>/{skill-name}/SKILL.md`. It is this anatomy made concrete — every
+`.agents/skills/{skill-name}/SKILL.md`. It is this anatomy made concrete — every
 required section is present in order with `<!-- hint -->` comments and a
 compliance gate at the bottom. Replace the placeholders, delete the hints, and
 run the checklist below. If the template and this file ever drift, this file

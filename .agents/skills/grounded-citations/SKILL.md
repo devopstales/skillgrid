@@ -33,7 +33,7 @@ Ported from the Hermes `grounded-citations` skill under MIT (see ADR-0015). Beha
 Node 18+ (the repo runtime). Script:
 
 ```bash
-S=.agents/skills/knowledge/grounded-citations/scripts/sources.mjs
+S=.agents/skills/grounded-citations/scripts/sources.mjs
 ```
 
 The Python original (`sources.py`) is retained as a fallback; `sources.mjs` is

@@ -39,7 +39,7 @@ Before slicing, classify the change per `.skillgrid/config.yaml` `rules.fast_tra
 
 **Blocked from fast-track** (full pipeline mandatory): any threat-matrix row Applicable, new trust boundary or migration, multi-domain impact, 400+ line change. When in doubt, run the full pipeline.
 
-The waiver record (class, skips, reason, approved-by) must be present in `briefing.md` before `slicing` produces a light `tasks.md`. See `../../_shared/planning/fast-track.md`.
+The waiver record (class, skips, reason, approved-by) must be present in `briefing.md` before `slicing` produces a light `tasks.md`. See `../_shared/planning/fast-track.md`.
 
 **Downstream:** the `SATISFIES` scenario names in `tasks.md` are the traceability oracle for `skillgrid:qa` — every scenario must be referenceable from a test. Name them precisely.
 

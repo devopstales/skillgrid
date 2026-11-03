@@ -52,7 +52,7 @@ Implement fresh from tests. Period.
 
 ## Red-Green-Triangulate-Refactor
 
-The canonical cycle (RED → GREEN → TRIANGULATE → REFACTOR) lives in [`../../_shared/references/strict-tdd.md`](../_shared/references/strict-tdd.md); this skill is its executable form. TRIANGULATE is not optional for P0 behaviors.
+The canonical cycle (RED → GREEN → TRIANGULATE → REFACTOR) lives in [`../_shared/references/strict-tdd.md`](../_shared/references/strict-tdd.md); this skill is its executable form. TRIANGULATE is not optional for P0 behaviors.
 
 ```dot
 digraph tdd_cycle {

@@ -75,7 +75,7 @@ copy `.agents/` into `~/.agents/`.
 
 It ships:
 
-- **30 skills** under `.agents/skills/` — workflow stages + general capabilities the agent loads at the right moment.
+- **99 skills** under `.agents/skills/` — workflow stages + general capabilities the agent loads at the right moment.
 - **Git + agent hooks** under `hooks/` and `git-hooks/`, agent **plugins** under `plugins/` — "a rule asks; a hook guarantees."
 - **Templates, references, and a router** the agent consumes at runtime.
 
@@ -155,7 +155,7 @@ For the full walkthrough see [docs/user-guide/03-workflow-usage.md](docs/user-gu
 
 ## Skills
 
-30 skills under `.agents/skills/`, grouped by role. Stages load general skills — a capability is not duplicated as a stage.
+99 skills under `.agents/skills/`, flat (one directory per skill, grouped by role in this catalog only). Stages load general skills — a capability is not duplicated as a stage.
 
 ### Entry / router
 | Skill | Use when |
@@ -225,7 +225,7 @@ The shape is **enforced, not just documented**: `task skill-check` (→ `scripts
 
 ```
 .agents/
-└── skills/            # the 30 skills + _shared/ (conventions, references)
+└── skills/            # the 99 skills, flat + _shared/ (conventions, references)
 hooks/                 # guard implementations (zone, protected-ref, stop, gate-*)
 git-hooks/             # thin shims over hooks/ (exec ../hooks/...)
 plugins/               # agent capture-bridge plugins (opencode, kilo, cursor)

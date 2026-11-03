@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
-const LINT = join(ROOT, ".agents", "skills", "verification", "qa", "scripts", "okf-lint.mjs");
+const LINT = join(ROOT, ".agents", "skills", "qa", "scripts", "okf-lint.mjs");
 const CLEAN = join(ROOT, "test", "fixtures", "okf-clean");
 const DRIFT = join(ROOT, "test", "fixtures", "okf-drift");
 

@@ -14,7 +14,7 @@ func TestLoadAgentsPreambleTemplate(t *testing.T) {
 	prev := agentsPreamblePath
 	t.Cleanup(func() { agentsPreamblePath = prev })
 	agentsPreamblePath = func(dir string) string {
-		return "../../../.agents/skills/lifecycle/onboarding/templates/agents-preamble.md"
+		return "../../../.agents/skills/onboarding/templates/agents-preamble.md"
 	}
 	tmpl, _, err := loadAgentsPreambleTemplate(t.TempDir())
 	if err != nil {
@@ -129,7 +129,7 @@ func TestInitPreambleIdempotentAndKeepsSentinel(t *testing.T) {
 }
 
 func TestConfigTemplateHasAgentsBlock(t *testing.T) {
-	body, err := os.ReadFile("../../../.agents/skills/lifecycle/onboarding/templates/config.yaml")
+	body, err := os.ReadFile("../../../.agents/skills/onboarding/templates/config.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}

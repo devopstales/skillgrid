@@ -29,7 +29,7 @@
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parse } from "yaml";
-import { derivePhase as derivePhaseLib, worstScope as libWorstScope } from "../../../../../scripts/lib/skillgrid-parse.mjs";
+import { derivePhase as derivePhaseLib, worstScope as libWorstScope } from "../../../../scripts/lib/skillgrid-parse.mjs";
 
 // Phase derivation + scope atoms now live in scripts/lib/skillgrid-parse.mjs
 // (the single source of truth shared with phase-router.mjs). The guard keeps

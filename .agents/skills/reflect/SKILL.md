@@ -109,7 +109,7 @@ Confirm, in order: **Ship Gate** → **QA Gate** → **Verdict Gate** (advisory)
 
 ### Step 3: Complete `report.md` (retro half)
 
-Complete the existing file IN PLACE in the moved folder (`.skillgrid/xarchive/YYYY-MM-DD-<topic>/report.md`) — do not recreate it. The QA half (through `## Gate Decision` + `## Human Override`) is already written by qa; fill the retro half from `## Final-State Facts` onward. Use the merged template [../../verification/qa/templates/report.md](../../verification/qa/templates/report.md) (see [templates/report.md](templates/report.md) for the pointer).
+Complete the existing file IN PLACE in the moved folder (`.skillgrid/xarchive/YYYY-MM-DD-<topic>/report.md`) — do not recreate it. The QA half (through `## Gate Decision` + `## Human Override`) is already written by qa; fill the retro half from `## Final-State Facts` onward. Use the merged template [../qa/templates/report.md](../qa/templates/report.md) (see [templates/report.md](templates/report.md) for the pointer).
 
 **Final-state facts** — what shipped, to which base, at which commit/PR (from ship context).
 
@@ -182,7 +182,7 @@ Research done during this change (via the `skillgrid:mnemonic` web-cache protoco
 
 ### Step 4: Persist to Mnemonic + Close the Session (you own this)
 
-`reflect` is the **only** phase that closes the session. Follow [`../../_shared/rules/mnemonic-memory.md`](../../_shared/rules/mnemonic-memory.md).
+`reflect` is the **only** phase that closes the session. Follow [`../_shared/rules/mnemonic-memory.md`](../_shared/rules/mnemonic-memory.md).
 
 ```
 mem_save(
@@ -200,7 +200,7 @@ mem_session_summary(session_id: "{sid}", summary: <structure below>)
 mem_session_end(session_id: "{sid}", summary: "one-line outcome")
 ```
 
-The `mem_session_summary` body uses the **six-section structure** (Goal / Instructions / Discoveries / Accomplished / Next Steps / Relevant Files) defined in [`../../_shared/rules/mnemonic-memory.md`](../../_shared/rules/mnemonic-memory.md) — all six must be filled.
+The `mem_session_summary` body uses the **six-section structure** (Goal / Instructions / Discoveries / Accomplished / Next Steps / Relevant Files) defined in [`../_shared/rules/mnemonic-memory.md`](../_shared/rules/mnemonic-memory.md) — all six must be filled.
 
 > If `mnemonic.enabled` is `false`, the in-repo `report.md` is the sole record — skip the Mnemonic saves and session close (degrade explicitly, never fail silently).
 
@@ -312,10 +312,10 @@ The waiver is honored, never silently dropped — note `Fast-track: {trivial|sma
 
 ## References
 
-- [templates/report.md](templates/report.md) — thin pointer to the merged template at [../../verification/qa/templates/report.md](../../verification/qa/templates/report.md) (the `report.md` artifact shape: qa half + retro half — final-state + sourced learnings + verdict + lineage).
+- [templates/report.md](templates/report.md) — thin pointer to the merged template at [../qa/templates/report.md](../qa/templates/report.md) (the `report.md` artifact shape: qa half + retro half — final-state + sourced learnings + verdict + lineage).
 - [`../ship/SKILL.md`](../ship/SKILL.md) — upstream; moved the folder to `.skillgrid/xarchive/` and produced the ship context (the Ship Gate evidence).
-- [`../../verification/qa/SKILL.md`](../../verification/qa/SKILL.md) — upstream; it wrote the QA half of `report.md` (through `## Gate Decision`), whose verdict drives the QA Gate and grounds the acceptance verdict.
-- [`../../_shared/rules/sdd-structure.md`](../../_shared/rules/sdd-structure.md) — the `xarchive/` layout, terminal phase order, and Mnemonic slots.
-- [`../../_shared/rules/mnemonic-memory.md`](../../_shared/rules/mnemonic-memory.md) — save shape, recovery ladder, session-close structure, and the observation-ID lineage the report must carry.
-- [`../../_shared/planning/fast-track.md`](../../_shared/planning/fast-track.md) — the light-variant waiver this phase honors.
+- [`../qa/SKILL.md`](../qa/SKILL.md) — upstream; it wrote the QA half of `report.md` (through `## Gate Decision`), whose verdict drives the QA Gate and grounds the acceptance verdict.
+- [`../_shared/rules/sdd-structure.md`](../_shared/rules/sdd-structure.md) — the `xarchive/` layout, terminal phase order, and Mnemonic slots.
+- [`../_shared/rules/mnemonic-memory.md`](../_shared/rules/mnemonic-memory.md) — save shape, recovery ladder, session-close structure, and the observation-ID lineage the report must carry.
+- [`../_shared/planning/fast-track.md`](../_shared/planning/fast-track.md) — the light-variant waiver this phase honors.
 - [`../environment-retro/SKILL.md`](../environment-retro/SKILL.md) — the Step 3.6 sub-phase; sweeps the agent environment and appends the `## Environment Retro` section to this same `report.md` before session close.

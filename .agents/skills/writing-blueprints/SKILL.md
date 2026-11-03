@@ -157,7 +157,7 @@ is invalidated and the user decides whether to revise or abandon.
 If the blueprint touches routing, shell commands, subprocesses, version-control
 automation, PR automation, executable-file classification, process integration,
 Mnemonic tool contracts, or any `_shared/{planning,craft,verification,knowledge}/` file, include a threat
-matrix section per `../../_shared/references/threat-matrix.md`. Copy this block into `blueprint.md` under a `## Threat Matrix` heading:
+matrix section per `../_shared/references/threat-matrix.md`. Copy this block into `blueprint.md` under a `## Threat Matrix` heading:
 
 ```markdown
 | Boundary | Applicability | Design response | Planned RED test |
@@ -209,7 +209,7 @@ Classify the blueprint before writing tasks:
 | `risky` | L3 (+ coverage + lint) | New trust boundary, migration |
 | `high-risk` | L4 (+ mutation + security) | Auth, data migration, public API, money, concurrency |
 
-Record the classification in the blueprint header. The `qa` skill uses it to select the verification level. See `../../_shared/rules/verification-ladder.md`.
+Record the classification in the blueprint header. The `qa` skill uses it to select the verification level. See `../_shared/rules/verification-ladder.md`.
 
 ## Task Right-Sizing
 

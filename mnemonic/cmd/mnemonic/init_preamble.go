@@ -15,7 +15,7 @@ import (
 // agentsConfig is the subset of .skillgrid/config.yaml that the preamble
 // renderer consumes. Mirrors the onboarding config template's shape.
 type agentsConfig struct {
-	Project string        `yaml:"project"`
+	Project  string       `yaml:"project"`
 	Commands commandsCfg  `yaml:"commands"`
 	Testing  testingCfg   `yaml:"testing"`
 	Security securityCfg  `yaml:"security"`
@@ -62,7 +62,7 @@ type dirEntry struct {
 }
 
 // agentsPreambleRel is the path of the preamble template inside the skill tree.
-const agentsPreambleRel = ".agents/skills/lifecycle/onboarding/templates/agents-preamble.md"
+const agentsPreambleRel = ".agents/skills/onboarding/templates/agents-preamble.md"
 
 // agentsPreamblePath is overridable in tests (mirrors blockMDPath).
 var agentsPreamblePath = func(dir string) string {

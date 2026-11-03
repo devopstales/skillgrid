@@ -66,8 +66,8 @@ the Markdown bundle for the knowledge base (ADR-0048 amending ADR-0012).
 
 ## Participating sites
 
-- Phase mechanics: `.agents/skills/planning/`, `.agents/skills/execution/`,
-  `.agents/skills/verification/`, `.agents/skills/lifecycle/`
+- Phase mechanics: the pipeline skills under `.agents/skills/` (planning,
+  execution, verification, lifecycle)
 - Layout + machine state: `_shared/rules/sdd-structure.md`
 - Zone enforcement: `hooks/precommit-zone-guard.js`
 - Drift guards: `scripts/state-drift-check.mjs`,

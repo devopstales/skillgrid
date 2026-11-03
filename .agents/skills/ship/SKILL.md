@@ -219,9 +219,9 @@ Per `_shared/craft/measurement.md`.
 ## References
 
 - [integrate.md](references/integrate.md) — integrated-tree tests, the ship menu, the archive move, reconcile, and mnemonic.
-- [`../../verification/qa/SKILL.md`](../../verification/qa/SKILL.md) — upstream; it wrote the QA half of `report.md`, whose `## Gate Decision` verdict drives the QA Gate (read pre-move).
-- [`../../planning/slicing/SKILL.md`](../../planning/slicing/SKILL.md) — upstream; the `## Delivery Strategy` guard lines + work-unit table resolve the base branch.
+- [`../qa/SKILL.md`](../qa/SKILL.md) — upstream; it wrote the QA half of `report.md`, whose `## Gate Decision` verdict drives the QA Gate (read pre-move).
+- [`../slicing/SKILL.md`](../slicing/SKILL.md) — upstream; the `## Delivery Strategy` guard lines + work-unit table resolve the base branch.
 - [`../reflect/SKILL.md`](../reflect/SKILL.md) — next; reads the moved folder from `.skillgrid/xarchive/`, completes `report.md`'s retro half in place, owns session close.
-- [`../../_shared/planning/fast-track.md`](../../_shared/planning/fast-track.md) — the light-variant waiver this phase honors.
-- [`../../_shared/rules/sdd-structure.md`](../../_shared/rules/sdd-structure.md) — the `specs/` → `xarchive/` layout, phase order, and Mnemonic slots.
-- [`../../_shared/rules/mnemonic-memory.md`](../../_shared/rules/mnemonic-memory.md) — save shape (`title == topic_key`, `scope: "project"`, active `session_id`).
+- [`../_shared/planning/fast-track.md`](../_shared/planning/fast-track.md) — the light-variant waiver this phase honors.
+- [`../_shared/rules/sdd-structure.md`](../_shared/rules/sdd-structure.md) — the `specs/` → `xarchive/` layout, phase order, and Mnemonic slots.
+- [`../_shared/rules/mnemonic-memory.md`](../_shared/rules/mnemonic-memory.md) — save shape (`title == topic_key`, `scope: "project"`, active `session_id`).

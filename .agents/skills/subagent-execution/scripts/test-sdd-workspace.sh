@@ -15,7 +15,7 @@
 set -uo pipefail
 
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$SCRIPTS_DIR/../../.." && pwd)"
+ROOT="$(cd "$SCRIPTS_DIR/../.." && pwd)"
 WORKSPACE="$SCRIPTS_DIR/sdd-workspace"
 BRIEF="$SCRIPTS_DIR/task-brief"
 REVIEW="$SCRIPTS_DIR/review-package"

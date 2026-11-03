@@ -27,7 +27,7 @@ func TestMain(m *testing.M) {
 		return "../../../.agents/skills/_shared/agent-config/block.md"
 	}
 	agentsPreamblePath = func(dir string) string {
-		return "../../../.agents/skills/lifecycle/onboarding/templates/agents-preamble.md"
+		return "../../../.agents/skills/onboarding/templates/agents-preamble.md"
 	}
 	code := m.Run()
 	blockMDPath = prevBlock
@@ -731,7 +731,7 @@ func TestOnboardingSkillHasNoSecondIngest(t *testing.T) {
 func onboardingSkillPath(t *testing.T) string {
 	t.Helper()
 	// repo root: this file is mnemonic/cmd/mnemonic
-	p := filepath.Join("..", "..", "..", ".agents", "skills", "lifecycle", "onboarding", "SKILL.md")
+	p := filepath.Join("..", "..", "..", ".agents", "skills", "onboarding", "SKILL.md")
 	if _, err := os.Stat(p); err != nil {
 		t.Fatal(err)
 	}

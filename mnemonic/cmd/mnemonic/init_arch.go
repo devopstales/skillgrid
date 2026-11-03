@@ -13,7 +13,7 @@ import (
 
 // architectureRel is the path of the ARCHITECTURE.md scaffold template inside
 // the skill tree.
-const architectureRel = ".agents/skills/lifecycle/onboarding/templates/architecture.md"
+const architectureRel = ".agents/skills/onboarding/templates/architecture.md"
 
 // architecturePath is overridable in tests (mirrors agentsPreamblePath).
 var architecturePath = func(dir string) string {
@@ -27,11 +27,11 @@ var archRepoRoot = setup.FindRepoRoot
 // Everything is optional: an empty field renders as a <detect> placeholder so a
 // greenfield init still produces a complete, navigable scaffold.
 type archCfg struct {
-	Project   string `yaml:"project"`
-	Language  string `yaml:"language"`
-	Version   string `yaml:"version"`
-	Commands  commandsCfg `yaml:"commands"`
-	Testing   testingCfg  `yaml:"testing"`
+	Project  string      `yaml:"project"`
+	Language string      `yaml:"language"`
+	Version  string      `yaml:"version"`
+	Commands commandsCfg `yaml:"commands"`
+	Testing  testingCfg  `yaml:"testing"`
 }
 
 // loadArchCfg reuses the onboarding config facts. A missing file yields a zero

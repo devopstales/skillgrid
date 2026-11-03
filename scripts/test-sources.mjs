@@ -20,8 +20,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 // sources.mjs lives in the grounded-citations skill (the single source of truth
 // for the citation ledger), not the repo scripts/ dir.
 // sources.mjs lives in the grounded-citations skill. HERE is scripts/, so the
-// skill is at <repo>/.agents/skills/knowledge/grounded-citations/scripts/.
-const SRC = join(HERE, "..", ".agents", "skills", "knowledge", "grounded-citations", "scripts", "sources.mjs");
+// skill is at <repo>/.agents/skills/grounded-citations/scripts/.
+const SRC = join(HERE, "..", ".agents", "skills", "grounded-citations", "scripts", "sources.mjs");
 
 let passed = 0, failed = 0;
 const failures = [];
