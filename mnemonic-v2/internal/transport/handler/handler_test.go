@@ -81,6 +81,23 @@ func (d fixedDetector) Resolve(_ string, explicit string) (string, error) {
 	return testProject, nil
 }
 
+// strictDetector mimics the REAL project.Detector: an empty cwd with no
+// explicit selector is an error (the git/basename binding needs a directory).
+// This is the seam the mem Handler hits at call time — its methods pass
+// DefaultCWD (""), so without a fallback the run fails "cwd is empty". The
+// Handler must fall back to the config's already-resolved Project.Name.
+type strictDetector struct{}
+
+func (d strictDetector) Resolve(cwd, explicit string) (string, error) {
+	if explicit != "" {
+		return explicit, nil
+	}
+	if cwd == "" {
+		return "", errors.New("project: cwd is empty and no project selector was given")
+	}
+	return "from-cwd", nil
+}
+
 // newHandler builds a Handler over a real SQLite store, nil seams.
 func newHandler(t *testing.T) *Handler {
 	t.Helper()
@@ -142,6 +159,49 @@ func TestSaveWithoutProjectUsesDetector(t *testing.T) {
 		SessionID: "s1", Type: "decision", Title: "pick y", Content: "c",
 	}); err != nil {
 		t.Fatalf("save: %v", err)
+	}
+}
+
+// TestSaveEmptyCWDFallsBackToResolvedProject pins the live-regression fix:
+// the mem Handler's methods resolve the project at call time with
+// DefaultCWD (""), and a real project.Detector errors on an empty cwd (the
+// git/basename binding needs a directory) — "project: cwd is empty and no
+// project selector was given" (the error the user hit running `mnemonic mem
+// search` bare). The Handler must fall back to the config's already-resolved
+// Project.Name (openRuntime sets it after resolving with the REAL cwd), so a
+// bare mem command works without an env var or --project flag.
+func TestSaveEmptyCWDFallsBackToResolvedProject(t *testing.T) {
+	st := openTestStore(t, t.TempDir())
+	c := config.Default()
+	c.DataDir = t.TempDir()
+	c.Project.Detect = false
+	// openRuntime resolves the project with the real cwd, then records it in
+	// the config the handler is built with. That is the value the call-time
+	// resolution must fall back to when the detector can't resolve (empty cwd).
+	c.Project.Name = testProject
+	h := NewHandler(memory.NewService(st, c, memory.NewEventBus(), nil, nil), c, strictDetector{})
+
+	// No explicit project + the handler resolves with DefaultCWD ("") → the
+	// strict detector errors → the fallback to c.Project.Name must carry it.
+	res, err := h.Save(ctx, SaveRequest{
+		SessionID: "s1", Type: "decision", Title: "pick z", Content: "c",
+	})
+	if err != nil {
+		t.Fatalf("save (empty cwd, no explicit) must fall back to the resolved project, not fail: %v", err)
+	}
+	if res.SyncID == "" {
+		t.Fatal("save returned no sync_id")
+	}
+	got, err := h.Get(ctx, 0, res.SyncID, false, 0)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Project == nil || *got.Project != testProject {
+		p := "<nil>"
+		if got.Project != nil {
+			p = *got.Project
+		}
+		t.Fatalf("row landed in project %q, want the config's resolved %q", p, testProject)
 	}
 }
 

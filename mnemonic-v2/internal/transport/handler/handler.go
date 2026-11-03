@@ -71,21 +71,38 @@ func (h *Handler) Config() config.Config { return h.cfg }
 // the contract, not a closed world).
 func (h *Handler) Service() *memory.Service { return h.svc }
 
-// resolveProject runs the call-time resolution: explicit > detector. An
-// empty explicit passes through to the detector (the chain is the
-// detector's job); a non-empty explicit wins outright (spec §4).
+// resolveProject runs the call-time resolution: explicit > detector >
+// config's already-resolved Project.Name. An empty explicit passes through
+// to the detector (the chain is the detector's job); a non-empty explicit
+// wins outright (spec §4). When the detector cannot resolve (an empty cwd —
+// the live bug: the mem Handler's methods pass DefaultCWD "", and a real
+// project.Detector errors on empty cwd), the Handler falls back to
+// cfg.Project.Name (openRuntime resolves the project with the real cwd and
+// records it in the config before building the handler). This is the same
+// pattern as the CodeHandler's SetRoot fallback.
 func (h *Handler) resolveProject(cwd, explicit string) (string, error) {
 	if strings.TrimSpace(explicit) != "" {
 		return strings.TrimSpace(explicit), nil
 	}
-	if h.det == nil {
-		return "", errNoDetector
-	}
-	name, err := h.det.Resolve(cwd, "")
-	if err != nil {
+	if h.det != nil {
+		name, err := h.det.Resolve(cwd, "")
+		if err == nil {
+			return name, nil
+		}
+		// The detector failed (e.g. empty cwd). Fall back to the config's
+		// already-resolved project (openRuntime sets cfg.Project.Name after
+		// resolving with the real cwd). Without this, a bare `mnemonic mem
+		// search` fails "cwd is empty" even though the project was already
+		// resolved at startup.
+		if h.cfg.Project.Name != "" {
+			return h.cfg.Project.Name, nil
+		}
 		return "", err
 	}
-	return name, nil
+	if h.cfg.Project.Name != "" {
+		return h.cfg.Project.Name, nil
+	}
+	return "", errNoDetector
 }
 
 // errNoDetector is the (code, message) for a Handler with no detector
