@@ -28,7 +28,8 @@ import (
 )
 
 // version is set at build time via -ldflags "-X main.version=vX.Y.Z".
-const version = "0.1.0"
+// It must be a var (not a const) for the linker substitution to apply.
+var version = "0.1.0"
 
 // exit codes (the v1 contract): 0 ok, 1 handler/doctor-strict error, 2
 // usage error.

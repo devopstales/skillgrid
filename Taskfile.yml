@@ -14,7 +14,8 @@
 #   task version      show the version that would be baked in
 #
 # Version is derived from `git describe --tags --always --dirty`.
-# Override with SKILLGRID_VERSION=vX.Y.Z env.
+# Overrides: SKILLGRID_VERSION=vX.Y.Z (both binaries),
+#            MNEMONIC_VERSION=vX.Y.Z (mnemonic binary only).
 
 version: "3"
 
@@ -31,6 +32,10 @@ vars:
   MEM_PKG: "./cmd/mnemonic"
   VERSION:
     sh: 'echo "${SKILLGRID_VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo 0.1.0-dev)}"'
+  # mnemonic-v2 is the active mnemonic producer and carries its own version
+  # line (0.2.0); the skillgrid CLI keeps the repo-derived version.
+  MEM2_VERSION:
+    sh: 'echo "${MNEMONIC_VERSION:-0.2.0}"'
 
 tasks:
   default:
@@ -41,7 +46,7 @@ tasks:
     desc: Build both local platform binaries into dist/.
     cmds:
       - mkdir -p {{.OUT}}
-      - cd {{.MEM2_DIR}} && go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}} {{.MEM_PKG}}
+      - cd {{.MEM2_DIR}} && go build -ldflags "-s -w -X main.version={{.MEM2_VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}} {{.MEM_PKG}}
       - cd {{.CLI_DIR}} && go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}} {{.CLI_PKG}}
       - rm -f ~/.local/bin/{{.MEM_BIN}} ~/.local/bin/{{.CLI_BIN}}
       - cp {{.OUT}}/{{.MEM_BIN}} ~/.local/bin/
@@ -57,16 +62,16 @@ tasks:
   build-linux:
     desc: Build linux binaries (amd64 + 386) for both modules.
     cmds:
-      - cd {{.MEM2_DIR}} && GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-linux-amd64 {{.MEM_PKG}}
-      - cd {{.MEM2_DIR}} && GOOS=linux GOARCH=386 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-linux-386 {{.MEM_PKG}}
+      - cd {{.MEM2_DIR}} && GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.MEM2_VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-linux-amd64 {{.MEM_PKG}}
+      - cd {{.MEM2_DIR}} && GOOS=linux GOARCH=386 go build -ldflags "-s -w -X main.version={{.MEM2_VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-linux-386 {{.MEM_PKG}}
       - cd {{.CLI_DIR}} && GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}}-linux-amd64 {{.CLI_PKG}}
       - cd {{.CLI_DIR}} && GOOS=linux GOARCH=386 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}}-linux-386 {{.CLI_PKG}}
 
   build-darwin:
     desc: Build macOS binaries (amd64 + arm64) for both modules.
     cmds:
-      - cd {{.MEM2_DIR}} && GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-darwin-amd64 {{.MEM_PKG}}
-      - cd {{.MEM2_DIR}} && GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-darwin-arm64 {{.MEM_PKG}}
+      - cd {{.MEM2_DIR}} && GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.MEM2_VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-darwin-amd64 {{.MEM_PKG}}
+      - cd {{.MEM2_DIR}} && GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.version={{.MEM2_VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-darwin-arm64 {{.MEM_PKG}}
       - cd {{.CLI_DIR}} && GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}}-darwin-amd64 {{.CLI_PKG}}
       - cd {{.CLI_DIR}} && GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}}-darwin-arm64 {{.CLI_PKG}}
 
