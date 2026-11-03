@@ -130,24 +130,6 @@ func Open(ctx context.Context, dataDir, project string, dialect Dialect, dsn str
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
 		return nil, fmt.Errorf("store.Open: create db dir: %w", err)
 	}
-	// Auto-cutover (one-way door D4): a v1-era store at the v2 path would
-	// otherwise wedge Open (the v2 migrations walk a foreign v1 schema). When
-	// the hook is bound, run the seed in place first; the seed reopens the
-	// file fresh (no live handle on it yet), runs the v2 migrations, and
-	// seeds the v1 live set. The detection is a read-only probe (no handle
-	// held), so it is safe before the pool acquire.
-	if v1AutoMigrateFn != nil && !v1Migrating() {
-		if v1, err := isV1EraStore(dbPath); err != nil {
-			return nil, fmt.Errorf("store.Open: %w", err)
-		} else if v1 {
-			setV1Migrating(true)
-			_, _, merr := v1AutoMigrateFn(ctx, dataDir, project)
-			setV1Migrating(false)
-			if merr != nil {
-				return nil, fmt.Errorf("store.Open: v1→v2 auto-migrate: %w", merr)
-			}
-		}
-	}
 	db, err := poolAcquire(dbPath, func() (*sql.DB, error) {
 		return openSQLite(dbPath)
 	})
@@ -160,13 +142,6 @@ func Open(ctx context.Context, dataDir, project string, dialect Dialect, dsn str
 			_ = poolRelease(dbPath)
 		} else {
 			_ = db.Close()
-		}
-		// A v1 store with no auto-migrate hook bound: the migration walked
-		// a foreign schema. Say what to do, not just what failed.
-		if v1AutoMigrateFn == nil {
-			if v1, _ := isV1EraStore(dbPath); v1 {
-				return nil, fmt.Errorf("store.Open: v1-era store at %s (run `mnemonic migrate --v1-dir %s --project %s` or bind the auto-migrate hook): %w", dbPath, dataDir, project, err)
-			}
 		}
 		return nil, fmt.Errorf("store.Open: migrate: %w", err)
 	}
