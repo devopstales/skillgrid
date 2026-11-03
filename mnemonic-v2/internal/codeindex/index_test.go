@@ -2,6 +2,7 @@ package codeindex
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -385,6 +386,78 @@ func TestIndexWritesVectorsWhenEngineWired(t *testing.T) {
 		t.Fatalf("nil-Vectors run must embed nothing (the FTS-only floor), got %d", n)
 	}
 }
+
+// [index-surface-embed-degradation] a dead/unpulled embedder must be REPORTED
+// on the index run, not silently swallowed (the M8 contract — a reported no-op,
+// not a silent one). The driver calls OnEmbedWarn once per DISTINCT embed error
+// (a 404 "model not found" errors on every file, so it dedupes to one), and the
+// run's EmbedErrors count is >0. The run itself succeeds (best-effort: the
+// file's symbols/chunks are committed; the FTS leg still answers). Uses a
+// failing embedder to model the unpulled-model 404.
+func TestIndexSurfacesEmbedDegradation(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "pay.go"), []byte("package pay\n\nfunc CapturePayment() {}\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	dir := t.TempDir()
+	st, err := store.Open(context.Background(), dir, "proj-deg", store.SQLite, "")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	var warns []string
+	rep, err := Index(context.Background(), root, st, IndexOpts{
+		Project: "proj-deg",
+		ExtractFn: func(p, c string) (store.FileGraph, error) {
+			return store.FileGraph{
+				Symbols: []store.Symbol{{Name: "CapturePayment", Kind: "method", Language: "go", UID: "pay.go:CapturePayment:method"}},
+				Chunks:  []store.Chunk{{Kind: "ast", Text: "CapturePayment applies the discount"}},
+			}, nil
+		},
+		Vectors:     vectorstore.NewEngine(st, failingEmbedder{err: errors.New(`embed: model 'embeddinggemma:300m' not found`)}),
+		OnEmbedWarn: func(msg string) { warns = append(warns, msg) },
+	})
+	if err != nil {
+		t.Fatalf("run must still succeed (best-effort embed): %v", err)
+	}
+	// The file is indexed (symbols/chunks committed) despite the dead embedder.
+	if rep.FilesIndexed != 1 {
+		t.Fatalf("file must be indexed (embed is best-effort): %+v", rep)
+	}
+	// The distinct embed error is surfaced ONCE (deduped), and counted.
+	// The distinct embed error(s) are surfaced (deduped by message — a single
+	// underlying 404 the engine wraps per call kind), and counted. The run hit
+	// 1 symbol + 1 chunk embed, so at least one warning must fire; it must not
+	// be silently swallowed (the pre-fix behavior: best-effort _= , no report).
+	if rep.EmbedErrors < 1 {
+		t.Fatalf("embed degradation must be counted (not silently swallowed), got %d: %+v", rep.EmbedErrors, rep)
+	}
+	if len(warns) < 1 {
+		t.Fatalf("OnEmbedWarn must fire (the dead embedder is reported, not silent), got %d", len(warns))
+	}
+	// Dedupe: the same distinct message is reported once, not once per file.
+	// (A single-file tree here; the multi-file dedupe is the real guarantee —
+	// assert no duplicate messages.)
+	seen := map[string]bool{}
+	for _, w := range warns {
+		if seen[w] {
+			t.Fatalf("duplicate embed warning (dedupe broke): %q in %q", w, warns)
+		}
+		seen[w] = true
+	}
+}
+
+// failingEmbedder is the embed seam for the degradation test (always errors —
+// models the unpulled-model 404). It implements the Embedder interface the
+// vectorstore.Engine consumes.
+type failingEmbedder struct{ err error }
+
+func (f failingEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+	return nil, f.err
+}
+func (failingEmbedder) Model() string   { return "failing" }
+func (failingEmbedder) Dimensions() int { return 64 }
 
 // [index-progress-nil-default] a nil Progress (the default — the MCP tool and
 // the watch loop do not stream) must not panic and must behave identically to

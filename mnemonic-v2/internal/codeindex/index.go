@@ -70,6 +70,13 @@ type IndexOpts struct {
 	// vector methods existed but the driver never called them, so the
 	// embeddings table stayed empty even with a configured embedder.
 	Vectors *vectorstore.Engine
+	// OnEmbedWarn, when non-nil, is called once per DISTINCT embed error
+	// (deduped by error message) so the caller can surface the semantic-leg
+	// degradation in the run's result (a dead/unpulled embedder must be
+	// REPORTED, not silently swallowed). Best-effort semantics: the error is
+	// reported, the run continues (the file's symbols/chunks are committed;
+	// the FTS leg still answers). The handler wires this to res.Warnings.
+	OnEmbedWarn func(msg string)
 	// Progress, when non-nil, is called once per file committed this run,
 	// after its per-file tx succeeds: (done, total, path). `done` counts the
 	// files indexed so far this run (1..N); `total` is the eligible-file
@@ -94,6 +101,12 @@ type IndexReport struct {
 	// caller can respond honestly ("nothing to do — 1954 files unchanged")
 	// instead of a silent no-op that looks like a hang or an empty tree.
 	FilesUnchanged int
+	// EmbedErrors counts the DISTINCT embed errors this run hit (a dead/unpulled
+	// embedder errors on every file, so it is deduped to one per distinct
+	// message). >0 means the semantic leg degraded (vectors not/only partially
+	// written) — the run's Degraded flag carries "semantic_error" and the
+	// warnings carry the message. 0 = the leg ran clean (or was absent/nil).
+	EmbedErrors int
 }
 
 // Index walks root, extracts every eligible file, writes each file's
@@ -151,6 +164,11 @@ func Index(ctx context.Context, root string, st store.Store, opts IndexOpts) (In
 	// must visibly walk all N files and reach N/N, whether or not each was
 	// rewritten. FilesIndexed (committed) is the separate, stricter count.
 	var examined int
+	// embedFailures counts distinct embed errors (a dead/unpulled embedder
+	// errors on every file — dedupe so the result carries ONE warning, not
+	// N). The first (and only) distinct error is surfaced via OnEmbedWarn.
+	embedFailures := 0
+	seenEmbedErr := map[string]bool{}
 
 	// the progress denominator: the index-eligible files (a mapped language).
 	// Unmapped extensions are skipped before extraction, so they are not part
@@ -260,13 +278,28 @@ func Index(ctx context.Context, root string, st store.Store, opts IndexOpts) (In
 		// the semantic leg (the pre-08a gap): embed the file's symbols + chunks
 		// through the Vectors engine (nil = absent floor). Best-effort: a
 		// failing embedder degrades that file's vectors, never the run (the
-		// FTS leg still answers; the file's symbols/chunks are already committed).
+		// FTS leg still answers; the file's symbols/chunks are already committed)
+		// -- but it is REPORTED (OnEmbedWarn, deduped) so a dead/unpulled
+		// embedder is not a silent no-vector index.
 		if opts.Vectors != nil {
+			reportEmbedErr := func(err error) {
+				if err == nil {
+					return
+				}
+				if seenEmbedErr[err.Error()] {
+					return
+				}
+				seenEmbedErr[err.Error()] = true
+				embedFailures++
+				if opts.OnEmbedWarn != nil {
+					opts.OnEmbedWarn("semantic leg: " + err.Error())
+				}
+			}
 			for _, s := range g.Symbols {
-				_ = opts.Vectors.EmbedSymbol(ctx, fid, s.UID, s.Name+" "+s.Signature)
+				reportEmbedErr(opts.Vectors.EmbedSymbol(ctx, fid, s.UID, s.Name+" "+s.Signature))
 			}
 			for i := range g.Chunks {
-				_ = opts.Vectors.EmbedChunk(ctx, fid, i, g.Chunks[i].Text)
+				reportEmbedErr(opts.Vectors.EmbedChunk(ctx, fid, i, g.Chunks[i].Text))
 			}
 		}
 
@@ -340,6 +373,7 @@ func Index(ctx context.Context, root string, st store.Store, opts IndexOpts) (In
 	// the freshness record (spec 001 §4 — the query-path staleness
 	// contract's data source; the counts are the run's; capabilities.lsp
 	// reflects the tier's wiring — true when --lsp ran, false otherwise).
+	rep.EmbedErrors = embedFailures
 	now := nowStampUTC()
 	lspCap := "false"
 	if lspRan {

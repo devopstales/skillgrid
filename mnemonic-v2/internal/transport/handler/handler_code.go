@@ -396,6 +396,12 @@ func (h *CodeHandler) Index(ctx context.Context, project string, full, lsp, pdg,
 	// The core index run (the per-file extract tx + the orphan prune + the
 	// freshness record) + the LSP pass when --lsp is set (the optional passes
 	// pdg/communities/process are the v2.1 deferrals).
+	// the semantic leg's degradation sink (the deduped embed error). A
+	// dead/unpulled embedder must surface on the run result (semantic_error
+	// + the message), not be silently swallowed — the M8 contract (a REPORTED
+	// no-op, not a silent one), the same pattern as the LSP tier's notes.
+	var embedWarnMu sync.Mutex
+	var embedWarns []string
 	rep, err := fn(ctx, root, h.st, codeindex.IndexOpts{
 		Project: p,
 		Stamp:   extract.Stamp(),
@@ -404,6 +410,11 @@ func (h *CodeHandler) Index(ctx context.Context, project string, full, lsp, pdg,
 		// embedder. A nil embedder (absent) → the engine is the no-op floor
 		// (no vector written, the FTS leg still answers, degraded: no_vector).
 		Vectors: vectorstore.NewEngine(h.st, h.emb),
+		OnEmbedWarn: func(msg string) {
+			embedWarnMu.Lock()
+			embedWarns = append(embedWarns, msg)
+			embedWarnMu.Unlock()
+		},
 		LSP:      lspCfg,
 		Progress: progress, // nil on MCP + watch (no stream); the CLI sets it
 	})
@@ -421,6 +432,16 @@ func (h *CodeHandler) Index(ctx context.Context, project string, full, lsp, pdg,
 		Status:         "done",
 		FilesIndexed:   rep.FilesIndexed,
 		FilesUnchanged: rep.FilesUnchanged,
+	}
+	// the semantic leg's degradation (the deduped embed error): surface the
+	// message on the warnings + the semantic_error flag (a reported, not
+	// silent, no-vector index — the M8 contract).
+	if rep.EmbedErrors > 0 {
+		embedWarnMu.Lock()
+		res.Warnings = append(res.Warnings, embedWarns...)
+		embedWarns = nil
+		embedWarnMu.Unlock()
+		res.Degraded = "semantic_error"
 	}
 	h.lspWarn.Lock()
 	res.Warnings = append(res.Warnings, h.lspWarn.notes...)

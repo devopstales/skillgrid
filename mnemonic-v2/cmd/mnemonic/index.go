@@ -155,13 +155,26 @@ func runIndexIndex(fl config.Flags, cwd string, args []string) int {
 		})
 	}
 	res, err := ch.Index(context.Background(), *proj, *full, *lsp, *pdg, *communities, *process)
-	if !*jsonOut && !*noProgress {
-		fmt.Fprintln(errW()) // terminate the \r progress line
+	if !*jsonOut {
+		if !*noProgress {
+			fmt.Fprintln(errW()) // terminate the \r progress line
+		}
 		// --full on an unchanged tree (or any run that examined files but wrote
 		// none) must RESPOND, not be a silent no-op that looks like a hang.
 		// FilesIndexed==0 + FilesUnchanged>0 = "nothing to do". (A true first
 		// index of an empty tree has FilesUnchanged==0 and is not reported.)
-		if err == nil && res.FilesIndexed == 0 && res.FilesUnchanged > 0 {
+		// The degradation report below is independent of --no-progress: a
+		// dead/unpulled embedder is a result to surface, not the live stream.
+		if err == nil && res.Degraded != "" {
+			// The run degraded (the semantic leg failed / an optional tier was
+			// unavailable). Surface it readably, not just in the JSON — a
+			// dead/unpulled embedder must be visible in human mode too.
+			fmt.Fprintf(errW(), "index: degraded: %s\n", res.Degraded)
+			for _, w := range res.Warnings {
+				fmt.Fprintf(errW(), "  - %s\n", w)
+			}
+		}
+		if err == nil && res.Degraded == "" && res.FilesIndexed == 0 && res.FilesUnchanged > 0 {
 			what := "index"
 			if *full {
 				what = "full re-index"
