@@ -14,8 +14,11 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -127,6 +130,24 @@ func Open(ctx context.Context, dataDir, project string, dialect Dialect, dsn str
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
 		return nil, fmt.Errorf("store.Open: create db dir: %w", err)
 	}
+	// Auto-cutover (one-way door D4): a v1-era store at the v2 path would
+	// otherwise wedge Open (the v2 migrations walk a foreign v1 schema). When
+	// the hook is bound, run the seed in place first; the seed reopens the
+	// file fresh (no live handle on it yet), runs the v2 migrations, and
+	// seeds the v1 live set. The detection is a read-only probe (no handle
+	// held), so it is safe before the pool acquire.
+	if v1AutoMigrateFn != nil && !v1Migrating() {
+		if v1, err := isV1EraStore(dbPath); err != nil {
+			return nil, fmt.Errorf("store.Open: %w", err)
+		} else if v1 {
+			setV1Migrating(true)
+			_, _, merr := v1AutoMigrateFn(ctx, dataDir, project)
+			setV1Migrating(false)
+			if merr != nil {
+				return nil, fmt.Errorf("store.Open: v1→v2 auto-migrate: %w", merr)
+			}
+		}
+	}
 	db, err := poolAcquire(dbPath, func() (*sql.DB, error) {
 		return openSQLite(dbPath)
 	})
@@ -139,6 +160,13 @@ func Open(ctx context.Context, dataDir, project string, dialect Dialect, dsn str
 			_ = poolRelease(dbPath)
 		} else {
 			_ = db.Close()
+		}
+		// A v1 store with no auto-migrate hook bound: the migration walked
+		// a foreign schema. Say what to do, not just what failed.
+		if v1AutoMigrateFn == nil {
+			if v1, _ := isV1EraStore(dbPath); v1 {
+				return nil, fmt.Errorf("store.Open: v1-era store at %s (run `mnemonic migrate --v1-dir %s --project %s` or bind the auto-migrate hook): %w", dbPath, dataDir, project, err)
+			}
 		}
 		return nil, fmt.Errorf("store.Open: migrate: %w", err)
 	}
@@ -190,6 +218,86 @@ func openSQLiteUpTo(ctx context.Context, dataDir, project, lastFile string) (Sto
 // with a shortened budget (concurrency_test.go's walTestBusyTimeoutMS
 // mirrors it; the tests never run in parallel, so the shared var is safe).
 var sqliteBusyTimeoutMS = 5000
+
+// v1AutoMigrateFn is the auto-cutover hook: when Open finds a v1-era store
+// at the v2 path, it runs the v1→v2 seed in place and returns the seeded row
+// count ("" = no seed ran, an empty report). It is a var (not a package
+// import) so core/store keeps its one-way dependency on internal/migrate —
+// the wiring binds it from the CLI layer, which imports both (the same
+// pattern as SetMigrationStateHook). A nil hook leaves a v1 store unseeded:
+// Open proceeds, the migration fails on the v1 schema, and the error carries
+// the run-migrate hint (the pre-hook behavior).
+var v1AutoMigrateFn func(ctx context.Context, dataDir, project string) (int, string, error)
+
+// SetV1AutoMigrateHook binds (or clears, with nil) the auto-cutover hook.
+// The CLI calls this once at startup, before any store.Open.
+func SetV1AutoMigrateHook(fn func(ctx context.Context, dataDir, project string) (int, string, error)) {
+	v1AutoMigrateFn = fn
+}
+
+// v1MigratingG is the per-goroutine re-entrancy guard for the auto-cutover.
+// The seed (MigrateV1InPlace) reopens the same file through store.Open;
+// without the guard that inner Open re-detects the v1 store (sync_state is
+// not created until the seed's own migration runs) and recurses. The guard
+// is per-goroutine because the seed's store.Open runs on the same goroutine
+// as the outer Open (no pool is held on the file at detection time).
+var v1MigratingG atomic.Uint64
+
+func goroutineID() uint64 {
+	var b []byte
+	n := runtime.Stack(b, false)
+	b = b[:n]
+	// The stack dump starts with "goroutine <id> [...]". Parse the id.
+	s := string(b)
+	if i := strings.IndexByte(s, ' '); i > 0 {
+		id, err := strconv.ParseUint(s[len("goroutine "):i], 10, 64)
+		if err == nil {
+			return id
+		}
+	}
+	return 0
+}
+
+// v1Migrating reports whether this goroutine is inside an auto-cutover seed
+// (set by Open before it calls the hook, cleared on return). The seed's
+// inner store.Open sees it and skips detection.
+func v1Migrating() bool { return v1MigratingG.Load() == goroutineID() }
+
+// setV1Migrating marks this goroutine as inside the seed (true) or not
+// (false). A false write that does not match the current goroutine is a
+// no-op for other goroutines (the load in v1Migrating compares IDs).
+func setV1Migrating(on bool) {
+	if on {
+		v1MigratingG.Store(goroutineID())
+	} else {
+		v1MigratingG.Store(0)
+	}
+}
+
+// isV1EraStore reports whether dbPath is a v1-era store the v2 runner cannot
+// walk: it has the v1 observations table (the seed's source of truth) but no
+// v2 sync_state (v2 migration 001). A v1 file the seed already converted has
+// sync_state (the seed runs the v2 migrations on it) and is not flagged; a
+// fresh v2 file has neither table and is not flagged.
+func isV1EraStore(dbPath string) (bool, error) {
+	q := url.Values{}
+	q.Set("mode", "ro")
+	q.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", 1000))
+	dsn := (&url.URL{Scheme: "file", Path: dbPath}).String() + "?" + q.Encode()
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return false, fmt.Errorf("detect v1: %w", err)
+	}
+	defer db.Close()
+	var obs, syncState int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='observations'`).Scan(&obs); err != nil {
+		return false, fmt.Errorf("detect v1 observations: %w", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sync_state'`).Scan(&syncState); err != nil {
+		return false, fmt.Errorf("detect v1 sync_state: %w", err)
+	}
+	return obs > 0 && syncState == 0, nil
+}
 
 // openSQLite opens the file with the Engram-proven WAL DSN: pragmas as
 // _pragma query parameters (applied to every physical connection),

@@ -261,6 +261,18 @@ type State struct {
 	MigrationState string
 }
 
+// MigrateV1InPlace runs the v1→v2 seed against a v1 store that sits at the
+// v2 store's own path (the data dir the v2 runner is opening). It opens the
+// v1 file read-only, seeds through the normal save pipeline (redaction,
+// dedup, importance, sync journal — INV-4), and closes. The v2 store must be
+// closed by the caller before the call (the seed reopens it for its writes,
+// and a live WAL handle on the same file would contend with the seed's
+// writes). Idempotent: a re-run replays nothing (the per-row v1migrate:
+// operation ids are a no-op).
+func MigrateV1InPlace(ctx context.Context, dataDir, project string) (MigrateReport, error) {
+	return Migrate(ctx, dataDir, dataDir, project)
+}
+
 // Report reports the migration state for project: whether the v1 store is
 // present, how many live rows it carries, and whether the seed has run
 // (the v2 replay ledger's v1migrate: rows). It opens the v1 file

@@ -23,6 +23,7 @@ import (
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/project"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/store"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic-v2/internal/migrate"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/transport/envelope"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/transport/handler"
 )
@@ -274,6 +275,17 @@ func errW() io.Writer { return stderrPipe }
 
 // main wires the stdlib flag dispatch onto run (the v1 entry shape).
 func main() {
+	// Bind the store's v1→v2 auto-cutover hook (one-way door D4): a v1-era
+	// store at the v2 data dir seeds in place on Open instead of wedging the
+	// migration runner. The CLI imports both store and migrate (no cycle);
+	// store core keeps its one-way dependency on migrate via this hook var.
+	store.SetV1AutoMigrateHook(func(ctx context.Context, dataDir, project string) (int, string, error) {
+		rep, err := migrate.MigrateV1InPlace(ctx, dataDir, project)
+		if err != nil {
+			return 0, "", err
+		}
+		return rep.Exported, fmt.Sprintf("exported=%d skipped=%d errors=%d", rep.Exported, rep.Skipped, len(rep.Errors)), nil
+	})
 	os.Exit(run(os.Args[1:]))
 }
 

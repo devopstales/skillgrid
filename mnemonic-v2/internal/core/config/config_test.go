@@ -69,6 +69,57 @@ func TestConfigFileBeatsDefault(t *testing.T) {
 	}
 }
 
+// TestConfigDataDirTildeExpansion covers the spec 006-config §2 example shape
+// `data_dir: ~/.skillgrid/mnemonic`: a leading ~ must resolve to the home
+// dir at load time (file, env, and flag layers all funnel through it), or the
+// store Open fails with "invalid uri authority: ~" (the SQLite URI rejects a
+// tilde authority).
+func TestConfigDataDirTildeExpansion(t *testing.T) {
+	clearMnemonicEnv(t)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("no home dir: %v", err)
+	}
+	want := filepath.Join(home, ".skillgrid", "mnemonic")
+	// file layer: the repo's own .skillgrid/config.yaml writes data_dir this way.
+	got, err := config.LoadWithYAML("mnemonic:\n  data_dir: ~/.skillgrid/mnemonic\n", config.Flags{})
+	if err != nil {
+		t.Fatalf("LoadWithYAML: %v", err)
+	}
+	if got.DataDir != want {
+		t.Fatalf("file data_dir ~ = %q, want %q", got.DataDir, want)
+	}
+	// env layer.
+	t.Setenv("MNEMONIC_DATA_DIR", "~/.skillgrid/mnemonic")
+	got, err = config.Load(t.TempDir(), config.Flags{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.DataDir != want {
+		t.Fatalf("env data_dir ~ = %q, want %q", got.DataDir, want)
+	}
+	// flag layer (per-invocation, beats env).
+	got, err = config.Load(t.TempDir(), config.Flags{DataDir: "~/somewhere-else"})
+	if err != nil {
+		t.Fatalf("Load with flag: %v", err)
+	}
+	if wantFlag := filepath.Join(home, "somewhere-else"); got.DataDir != wantFlag {
+		t.Fatalf("flag data_dir ~ = %q, want %q", got.DataDir, wantFlag)
+	}
+	// A bare ~ is the home dir itself; an absolute path passes through
+	// untouched.
+	got, err = config.Load(t.TempDir(), config.Flags{DataDir: "~"})
+	if err != nil {
+		t.Fatalf("Load with ~: %v", err)
+	}
+	if got.DataDir != home {
+		t.Fatalf("bare ~ = %q, want %q", got.DataDir, home)
+	}
+	if got, _ = config.Load(t.TempDir(), config.Flags{DataDir: "/abs/path"}); got.DataDir != "/abs/path" {
+		t.Fatalf("absolute path must pass through: %q", got.DataDir)
+	}
+}
+
 // TestConfigValidation covers the spec 006-config §5 load-time validation
 // (BDD [config-validation]).
 func TestConfigValidation(t *testing.T) {

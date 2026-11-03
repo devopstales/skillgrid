@@ -42,6 +42,22 @@ const (
 	EnvTimezone  = "MNEMONIC_TIMEZONE"
 )
 
+// resolveDataDir expands a leading ~ (the home dir) in a data_dir value.
+// The spec 006-config §2 example writes `data_dir: ~/.skillgrid/mnemonic`,
+// and a committed config may legitimately carry the tilde; without expansion
+// the SQLite DSN's file URL takes the ~ as a URI authority and Open fails
+// with "invalid uri authority: ~". Applied at the end of Load/LoadWithYAML,
+// so the file, env, and flag layers all resolve. An absolute or relative
+// path (no leading ~) passes through unchanged.
+func resolveDataDir(dir string) string {
+	if dir == "~" || strings.HasPrefix(dir, "~/") {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			return filepath.Join(home, strings.TrimPrefix(dir, "~"))
+		}
+	}
+	return dir
+}
+
 // DefaultDataDir is the store location (spec 006-config §2:
 // ~/.skillgrid/mnemonic; the brief's Config comment is the same default).
 func DefaultDataDir() string {
@@ -250,6 +266,7 @@ func Load(path string, flags Flags) (Config, error) {
 	}
 	applyEnv(&cfg)
 	applyFlags(&cfg, flags)
+	cfg.DataDir = resolveDataDir(cfg.DataDir)
 	return cfg, validate(cfg)
 }
 
@@ -266,6 +283,7 @@ func LoadWithYAML(yamlText string, flags Flags) (Config, error) {
 	mergeFile(&cfg, f)
 	applyEnv(&cfg)
 	applyFlags(&cfg, flags)
+	cfg.DataDir = resolveDataDir(cfg.DataDir)
 	return cfg, validate(cfg)
 }
 
