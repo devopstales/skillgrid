@@ -46,6 +46,12 @@ type CodeHandler struct {
 	mu             sync.Mutex
 	activeRunID    string
 	activeRunStart time.Time
+	// indexFn is the index driver's seam (F4 — the test-intended seam, the
+	// same pattern as TICKET-03's WithGrammar): a nil indexFn defaults to
+	// codeindex.Index (the production driver); the test injects a blocking
+	// fn to prove the mint→hold→409→clear→success cycle of the active-run
+	// guard (the run Index mints is held active while indexFn runs).
+	indexFn func(ctx context.Context, root string, st store.Store, opts codeindex.IndexOpts) (codeindex.IndexReport, error)
 	// watch is the live watcher (code_watch starts it; nil when inactive).
 	watcher *watch.Watcher
 }
@@ -128,17 +134,31 @@ type StatusResult struct {
 }
 
 // Status runs the code_status read (spec 008 §5). It reads index_freshness
-// (the query-path staleness record) + the schema version (index_meta) and
-// reports the 4-state freshness (NOT a boolean — the T-CI-4 fix), the
-// per-language extractor tier (D-TIER), the schema version, and the fair
-// coverage. CI-INV-4: a query during a re-index sees the last committed
-// index + degraded: stale_index, never blocks.
+// (the query-path staleness record) + the schema version (index_meta) + the
+// newest files.indexed_at (the lag derivation) and reports the 4-state
+// freshness (NOT a boolean — the T-CI-4 fix), the per-language extractor
+// tier (D-TIER), the schema version, and the fair coverage. CI-INV-4: a
+// query during a re-index sees the last committed index, never blocks.
+//
+// The 4-state freshness (F1 — the T-CI-4 fix, the spec's fresh/lag/empty/
+// unknown set, NOT v1's boolean stale):
+//   - unknown — the index_freshness query ERRORS (migration not yet applied,
+//     the table unreadable). Not a crash, not empty: the store is in a state
+//     the status reader cannot assert (the error is the signal).
+//   - empty   — no index_freshness rows (the table is empty — the index has
+//     never run). Not an error, not unknown: the table is readable but holds
+//     no freshness record.
+//   - lag     — last_indexed_at is present BUT the newest files.indexed_at is
+//     NEWER than last_indexed_at (a file was indexed after the last recorded
+//     index — the index is behind the working tree).
+//   - fresh   — last_indexed_at is present AND no file is newer (the index
+//     is current).
 func (h *CodeHandler) Status(ctx context.Context, project string) (StatusResult, error) {
 	p, err := h.resolveProject("", project)
 	if err != nil {
 		return StatusResult{}, err
 	}
-	res := StatusResult{Freshness: "unindexed", Tiers: map[string]string{}, Capabilities: map[string]bool{}}
+	res := StatusResult{Freshness: "unknown", Tiers: map[string]string{}, Capabilities: map[string]bool{}}
 
 	// The freshness record (the query-path staleness contract's data source).
 	raw, ok := h.st.(interface {
@@ -155,8 +175,18 @@ func (h *CodeHandler) Status(ctx context.Context, project string) (StatusResult,
 		       ifnull(coverage_fair,0.0), ifnull(capabilities,'{}'),
 		       ifnull(extractor_tiers,'')
 		FROM index_freshness WHERE project = ?`, p)
-	if err != nil || len(rows) == 0 {
-		// No freshness row → unindexed (the 4-state floor, not a boolean).
+	if err != nil {
+		// The table query ERRORS (migration not yet applied, the table
+		// unreadable) → unknown (F1 — not a crash, not empty: the error is
+		// the signal that the store is in a state the reader cannot assert).
+		res.Freshness = "unknown"
+		return res, nil
+	}
+	if len(rows) == 0 {
+		// No index_freshness rows (the table is empty — the index has never
+		// run) → empty (F1 — not an error, not unknown: the table is
+		// readable but holds no freshness record).
+		res.Freshness = "empty"
 		return res, nil
 	}
 	r := rows[0]
@@ -189,17 +219,32 @@ func (h *CodeHandler) Status(ctx context.Context, project string) (StatusResult,
 			}
 		}
 	}
-	// The 4-state freshness (the T-CI-4 fix — NOT v1's boolean stale):
-	//   unindexed — no freshness row (handled above).
-	//   fresh     — last_indexed_at is recent (within the watch debounce).
-	//   stale     — the index exists but a re-index is in flight (CI-INV-4).
-	//   lag       — the index exists but is older than the freshness budget.
-	if h.hasActiveRun() {
-		res.Freshness = "stale" // a re-index is in flight (CI-INV-4: stale is a signal).
-	} else if res.LastIndexedAt != "" {
-		res.Freshness = "fresh" // the index exists + no in-flight re-index.
+	// The 4-state freshness (F1 — the spec's fresh/lag/empty/unknown set;
+	// empty + unknown are handled above). lag: a file was indexed after the
+	// last recorded index (MAX(files.indexed_at) > last_indexed_at). fresh:
+	// last_indexed_at is present AND no file is newer. The timestamps are
+	// compared as strings (the store's format is fixed-width
+	// "2006-01-02 15:04:05" — lexicographic order == chronological order).
+	if res.LastIndexedAt == "" {
+		// The freshness row exists but has no last_indexed_at (a partial
+		// record) → empty (no usable index timestamp to assert on).
+		res.Freshness = "empty"
+		return res, nil
+	}
+	newestFile, err := h.newestFileIndexedAt(raw)
+	if err != nil {
+		// The files table is unreadable (a query error) → the index is
+		// present but its currency cannot be asserted → unknown.
+		res.Freshness = "unknown"
+		return res, nil
+	}
+	if newestFile > res.LastIndexedAt {
+		// A file was indexed after the last recorded index → lag (the index
+		// is behind the working tree).
+		res.Freshness = "lag"
 	} else {
-		res.Freshness = "unindexed"
+		// No file is newer than the last recorded index → fresh.
+		res.Freshness = "fresh"
 	}
 	// The watch status (active/inactive).
 	h.mu.Lock()
@@ -213,12 +258,35 @@ func (h *CodeHandler) Status(ctx context.Context, project string) (StatusResult,
 	return res, nil
 }
 
+// newestFileIndexedAt returns the newest files.indexed_at (the lag
+// derivation's input — the file's last-index timestamp, F1's controller
+// ruling: MAX(files.indexed_at) > last_indexed_at → lag). It returns "" when
+// there are no files (nothing to lag on). A query error is propagated (the
+// caller maps it to unknown).
+func (h *CodeHandler) newestFileIndexedAt(raw interface {
+	RawQuery(query string, args ...any) ([][]any, error)
+}) (string, error) {
+	rows, err := raw.RawQuery(`SELECT ifnull(MAX(indexed_at),'') FROM files`)
+	if err != nil {
+		return "", err
+	}
+	if len(rows) == 0 || len(rows[0]) == 0 {
+		return "", nil
+	}
+	return strAt(rows[0], 0), nil
+}
+
 // IndexResult is the code_index answer (the run id + the status — the async
 // contract: a POST that starts an index returns a run_id + status
-// immediately; the index completes on the write queue).
+// immediately; the index completes on the write queue). Degraded is the
+// explicit degradation flag (F2 — the --lsp no-op window reports
+// "lsp_not_built", the M8 contract: a silent no-op is a ghost, a reported
+// no-op is the envelope). Warnings carries the per-pass notes.
 type IndexResult struct {
-	RunID  string `json:"run_id"`
-	Status string `json:"status"`
+	RunID    string   `json:"run_id"`
+	Status   string   `json:"status"`
+	Degraded string   `json:"degraded,omitempty"`
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // Index runs the code_index (spec 008 §6 — the queued write, the active-run
@@ -256,16 +324,54 @@ func (h *CodeHandler) Index(ctx context.Context, project string, full, lsp, pdg,
 	// This call minted the run (it was not pre-set), so clear it on completion.
 	defer h.finishRunLocked()
 
+	// The index driver (F4 — the indexFn seam: a nil indexFn defaults to
+	// codeindex.Index; the test injects a blocking fn to prove the guard).
+	fn := h.indexFn
+	if fn == nil {
+		fn = func(ctx context.Context, root string, st store.Store, opts codeindex.IndexOpts) (codeindex.IndexReport, error) {
+			return codeindex.Index(ctx, root, st, opts)
+		}
+	}
+
 	// The core index run (the per-file extract tx + the orphan prune + the
 	// freshness record). The optional passes (lsp/pdg/communities/process)
 	// are the v2.1 deferrals — the core run is the v2 scope.
-	if _, err := codeindex.Index(ctx, root, h.st, codeindex.IndexOpts{
+	if _, err := fn(ctx, root, h.st, codeindex.IndexOpts{
 		Project: p,
 		Stamp:   extract.Stamp(),
 	}); err != nil {
 		return IndexResult{RunID: runID, Status: "error"}, err
 	}
-	return IndexResult{RunID: runID, Status: "done"}, nil
+
+	// The optional-pass degradation (F2 — the M8 contract: a REPORTED no-op,
+	// not a silent one). The v2 core run does not build the LSP/PDG/
+	// communities/process tiers; when a flag is set, the result carries the
+	// degraded string + the message (the agent sees the no-op, not a ghost).
+	res := IndexResult{RunID: runID, Status: "done"}
+	if lsp {
+		res.Degraded = "lsp_not_built"
+		res.Warnings = append(res.Warnings, "LSP tier not yet built (TICKET-08b)")
+	}
+	if pdg {
+		res.Warnings = append(res.Warnings, "PDG tier not yet built (v2.1) — run code_index --pdg in v2.1")
+	}
+	if communities {
+		res.Warnings = append(res.Warnings, "communities tier not yet built (v2.1) — run code_index --communities in v2.1")
+	}
+	if process {
+		res.Warnings = append(res.Warnings, "process tier not yet built (v2.1) — run code_index --process in v2.1")
+	}
+	return res, nil
+}
+
+// SetIndexFnForTest injects the index driver (F4 — the test-intended seam,
+// the same pattern as TICKET-03's WithGrammar): the test injects a blocking
+// fn to prove the active-run guard's mint→hold→409→clear→success cycle. A
+// nil fn is the default (codeindex.Index).
+func (h *CodeHandler) SetIndexFnForTest(fn func(ctx context.Context, root string, st store.Store, opts codeindex.IndexOpts) (codeindex.IndexReport, error)) {
+	h.mu.Lock()
+	h.indexFn = fn
+	h.mu.Unlock()
 }
 
 // newRunID mints a run id (the async contract's run identifier). It is a

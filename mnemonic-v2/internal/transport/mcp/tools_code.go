@@ -102,8 +102,9 @@ func codeImpactTool() mcplib.Tool {
 
 func codeAffectedTool() mcplib.Tool {
 	return mcplib.NewTool("code_affected",
-		mcplib.WithDescription("'Which tests do I run after this change?' — the tests affected by a set of changed files."),
+		mcplib.WithDescription("'Which tests do I run after this change?' — the tests affected by a set of changed files (changed) or a git ref (base). Exactly one of changed/base is set. The MCP transport has no git: base reports the CLI command (mnemonic affected --base <ref>) — the CLI does the git-diff."),
 		mcplib.WithString("changed", mcplib.Description("JSON array of changed file paths (repo-relative)")),
+		mcplib.WithString("base", mcplib.Description("The git ref to diff against (the CLI does the git-diff; the MCP surface reports the CLI command)")),
 		mcplib.WithNumber("depth", mcplib.Description("The traversal depth (default 5)")),
 	)
 }
@@ -349,7 +350,16 @@ func dispatchCodeImpact(h *handler.CodeHandler) func(ctx context.Context, args m
 
 func dispatchCodeAffected(h *handler.CodeHandler) func(ctx context.Context, args map[string]any) (any, error) {
 	return func(ctx context.Context, args map[string]any) (any, error) {
-		return h.Affected(ctx, argStringSlice(args, "changed"), int(argNumber(args, "depth")))
+		// F3 — the base arg (spec 008: {"changed": [...]} / {"base": "<ref>"},
+		// exactly one set). The MCP transport has no git: when base is set
+		// (and changed is empty), report the CLI command (the CLI --base does
+		// the git-diff; the MCP surface declares the arg for the contract).
+		base := argString(args, "base")
+		changed := argStringSlice(args, "changed")
+		if base != "" && len(changed) == 0 {
+			return nil, fmt.Errorf("code_affected: the MCP transport has no git — run `mnemonic affected --base %s` (the CLI does the git-diff)", base)
+		}
+		return h.Affected(ctx, changed, int(argNumber(args, "depth")))
 	}
 }
 

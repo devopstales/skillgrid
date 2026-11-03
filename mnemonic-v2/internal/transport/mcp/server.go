@@ -40,13 +40,25 @@ const (
 	serverVersion = "0.1.0"
 )
 
-// instructions is the memory↔wiki routing rule (spec 01-memory/005 §6 —
-// wiki-first, mem_lookup as the memory-half fallback).
-const instructions = `mnemonic-v2 memory server.
+// memoryInstructions is the memory↔wiki routing rule (spec 01-memory/005 §6
+// — wiki-first, mem_lookup as the memory-half fallback). It is the Server's
+// initial instructions (the memory-only build serves with this intact).
+const memoryInstructions = `mnemonic-v2 memory server.
 Routing: prefer the wiki for persistent knowledge; use mem_lookup as the narrow raw-fact fallback when the wiki has no answer.
 mem_save is the primary write; reuse topic_key to upsert evolving topics.
 mem_suggest_topic_key is a hint, not proof of identity (spec 004-dedup §6).
 All ids the agent sees are sync_id (INV-6); mem_get_observation accepts both sync_id and the local id.`
+
+// combinedInstructions is the memory + code routing block (F6 — the
+// RegisterCodeTools seam rewrites the Server's instructions to this when the
+// code tools register): it names both families' routing — wiki-first for
+// knowledge, code_search/code_orient for code. The memory instructions stay
+// intact when code tools are absent (the field starts as memoryInstructions).
+const combinedInstructions = `mnemonic-v2 memory + code server.
+Memory: prefer the wiki for persistent knowledge; use mem_lookup as the narrow raw-fact fallback when the wiki has no answer.
+mem_save is the primary write; reuse topic_key to upsert evolving topics.
+Code: use code_status to check index health (4-state freshness); code_search to find code (prefer over grep); code_orient as the navigation entry point (the "find a feature" first verb); code_read to fetch a span after search narrows it.
+All ids the agent sees are sync_id (INV-6); mem_get_observation + code_resolve accept both sync_id and the local id.`
 
 // Server is an MCP server instance with the profile-filtered mem_* tools
 // registered, ready to be served over stdio.
@@ -59,6 +71,11 @@ type Server struct {
 	// nil until RegisterCodeTools is called (the memory-only build still
 	// serves without it). The dispatch consults it for the code_* tools.
 	codeTools *handler.CodeHandler
+	// instructions is the server's routing block (F6 — a field, not a
+	// const): it starts as memoryInstructions (the memory-only build) and
+	// RegisterCodeTools rewrites it to the combined memory + code text. The
+	// memory-only instructions stay intact when code tools are absent.
+	instructions string
 	// calls is the in-process dispatch (the test harness calls CallTool
 	// directly; the stdio path goes through mcp.HandleMessage).
 	calls map[string]func(ctx context.Context, args map[string]any) (any, error)
@@ -87,7 +104,10 @@ func NewServer(h *handler.Handler, profile Profile) *Server {
 		s.txnMu.Unlock()
 	})
 	// Build the underlying mcp-go server with the profile-filtered tools.
-	s.mcp = server.NewMCPServer(serverName, serverVersion, server.WithInstructions(instructions))
+	// The instructions start as the memory text (F6 — the field;
+	// RegisterCodeTools rewrites it to the combined block).
+	s.instructions = memoryInstructions
+	s.mcp = server.NewMCPServer(serverName, serverVersion, server.WithInstructions(s.instructions))
 	s.calls = s.buildToolDispatch()
 	for _, tool := range s.toolSet() {
 		s.mcp.AddTool(tool.def, s.mcpToolHandler(tool.name))
@@ -104,6 +124,15 @@ func NewServer(h *handler.Handler, profile Profile) *Server {
 // mechanism, D-PROFILE — not v1's SKILLGRID_MCP_CODE_TOOLS env filter).
 func (s *Server) RegisterCodeTools(ch *handler.CodeHandler) {
 	s.codeTools = ch
+	// F6 — the combined instructions: the RegisterCodeTools seam rewrites
+	// the Server's instructions to the combined memory + code block (the
+	// brief's setInstructions, blueprint M3). The memory-only instructions
+	// stay intact when code tools are absent (the field started as
+	// memoryInstructions in NewServer). The field is the in-process source
+	// of truth (the stdio initialize response's instructions are captured
+	// at server construction — the mcp-go server's instructions field is
+	// unexported; the field here is what the test + the CLI surface read).
+	s.instructions = combinedInstructions
 	// Extend the in-process dispatch with the code_* tools (the profile
 	// filters the set — the agent profile drops the admin tools).
 	for name, fn := range s.codeToolDispatch() {

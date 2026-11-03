@@ -155,6 +155,22 @@ func TestCodeProfileMembership(t *testing.T) {
 			t.Fatalf("admin tool %q must be in the all profile", want)
 		}
 	}
+
+	// F6 — the combined instructions: RegisterCodeTools rewrites the
+	// Server's instructions to the combined memory + code block (the memory-
+	// only instructions stay intact when code tools are absent).
+	if !strings.Contains(allSrv.instructions, "code_search") {
+		t.Fatalf("after RegisterCodeTools the instructions must be the combined memory + code block (name code routing), got: %s", allSrv.instructions)
+	}
+	if !strings.Contains(allSrv.instructions, "code_orient") {
+		t.Fatalf("the combined instructions must name code_orient (the navigation entry point), got: %s", allSrv.instructions)
+	}
+	// A memory-only server (no code tools) keeps the memory instructions.
+	memOnly := NewServer(newTestHandler(t), Agent)
+	defer memOnly.Close()
+	if strings.Contains(memOnly.instructions, "code_search") {
+		t.Fatalf("a memory-only server must keep the memory instructions (no code routing), got: %s", memOnly.instructions)
+	}
 }
 
 // TestCodeStatusReportsVersionTierCoverage verifies the T-CI-4 fix:
@@ -219,7 +235,9 @@ func TestCodeStatusFreshnessFourStates(t *testing.T) {
 	chLag.SetRootForTest(rootLag)
 	// Bump the file's indexed_at past the freshness's last_indexed_at (the
 	// lag signal: a file indexed after the last recorded index).
-	raw := stLag.(interface{ RawQuery(query string, args ...any) ([][]any, error) })
+	raw := stLag.(interface {
+		RawQuery(query string, args ...any) ([][]any, error)
+	})
 	if _, err := raw.RawQuery(`SELECT 1`); err != nil { // the seam is reachable
 		t.Fatalf("RawQuery seam: %v", err)
 	}
@@ -255,7 +273,9 @@ func TestCodeStatusFreshnessFourStates(t *testing.T) {
 // surface, the same pattern the session rows use).
 func bumpFileIndexedAt(t *testing.T, st store.Store) error {
 	t.Helper()
-	re, ok := st.(interface{ RawExec(query string, args ...any) error })
+	re, ok := st.(interface {
+		RawExec(query string, args ...any) error
+	})
 	if !ok {
 		return fmt.Errorf("store %T does not expose the RawExec seam", st)
 	}
@@ -347,6 +367,49 @@ func waitForInactive(t *testing.T, ch *handler.CodeHandler) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatalf("the guard must clear after the run completes")
+}
+
+// TestLSPFlagNoOpWindow verifies the M8 contract (F2): when --lsp is set,
+// the index result REPORTS the no-op (degraded: lsp_not_built + the message
+// "LSP tier not yet built (TICKET-08b)") — a reported no-op, not a silent
+// one. It does NOT crash. The MCP code_index tool's lsp:true arg carries the
+// same degraded string (I-3).
+func TestLSPFlagNoOpWindow(t *testing.T) {
+	ch := newTestCodeHandler(t)
+	root := t.TempDir()
+	mustWriteFile(t, root, "main.go", "package main\n\nfunc main() {}\n")
+	ch.SetRootForTest(root)
+
+	// The handler: lsp=true → the result carries the degraded string + the
+	// message (a reported no-op, the M8 contract).
+	res, err := ch.Index(ctx, "", false, true, false, false, false)
+	if err != nil {
+		t.Fatalf("Index with lsp=true must not crash, got: %v", err)
+	}
+	if res.Degraded != "lsp_not_built" {
+		t.Fatalf("lsp=true must set degraded=lsp_not_built (a reported no-op), got %q", res.Degraded)
+	}
+	found := false
+	for _, w := range res.Warnings {
+		if w == "LSP tier not yet built (TICKET-08b)" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("lsp=true must include the message 'LSP tier not yet built (TICKET-08b)', got warnings=%v", res.Warnings)
+	}
+
+	// The MCP surface: the code_index tool's lsp:true arg carries the same
+	// degraded string (I-3). The CallTool's envelope carries degraded
+	// (the wrapEnvelope of the IndexResult with Degraded set).
+	srv := NewServer(newTestHandler(t), All)
+	defer srv.Close()
+	srv.RegisterCodeTools(ch)
+	out := srv.CallTool(ctx, "code_index", map[string]any{"lsp": true})
+	resMap := mustMap(t, out)
+	if resMap["degraded"] != "lsp_not_built" {
+		t.Fatalf("the MCP code_index lsp:true must carry degraded=lsp_not_built, got: %v", resMap)
+	}
 }
 
 // TestV21DeferredReportRunFlag verifies the v2.1-deferred tools are declared
