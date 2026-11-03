@@ -304,6 +304,11 @@ func Report(ctx context.Context, v1Dir, v2DataDir, project string, st store.Stor
 	return out, nil
 }
 
+// v1BusyTimeoutMS mirrors the store's production busy_timeout (Task 1's
+// openSQLite; the one-time cutover opens both sides under the same
+// budget).
+const v1BusyTimeoutMS = 5000
+
 // openV1ReadOnly opens the v1 file as read-only (file:<path>?mode=ro — the
 // same pure-Go driver, no v1 dependency: only the table layout is read).
 // A read-only open may not rewrite pages or append to a WAL file, so the
@@ -312,7 +317,7 @@ func Report(ctx context.Context, v1Dir, v2DataDir, project string, st store.Stor
 func openV1ReadOnly(path string) (*sql.DB, error) {
 	q := url.Values{}
 	q.Set("mode", "ro")
-	q.Add("_pragma", "busy_timeout(5000)")
+	q.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", v1BusyTimeoutMS))
 	dsn := (&url.URL{Scheme: "file", Path: path}).String() + "?" + q.Encode()
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

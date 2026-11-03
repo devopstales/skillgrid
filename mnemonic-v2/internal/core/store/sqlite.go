@@ -182,6 +182,15 @@ func openSQLiteUpTo(ctx context.Context, dataDir, project, lastFile string) (Sto
 	return &sqliteStore{db: db, path: dbPath, pooled: pooled}, nil
 }
 
+// sqliteBusyTimeoutMS is the DSN's busy_timeout in milliseconds. The
+// production default is 5000 (the Engram-proven value: it absorbs the
+// two-process BEGIN IMMEDIATE contention — the loser waits out the winner's
+// write inside the budget, no retry needed). It is a var (not a const)
+// because the two-process tests override it to exercise the retry wrapper
+// with a shortened budget (concurrency_test.go's walTestBusyTimeoutMS
+// mirrors it; the tests never run in parallel, so the shared var is safe).
+var sqliteBusyTimeoutMS = 5000
+
 // openSQLite opens the file with the Engram-proven WAL DSN: pragmas as
 // _pragma query parameters (applied to every physical connection),
 // _txlock=immediate (BEGIN IMMEDIATE so busy_timeout serializes writers),
@@ -190,7 +199,7 @@ func openSQLite(dbPath string) (*sql.DB, error) {
 	q := url.Values{}
 	q.Set("_txlock", "immediate")
 	for _, p := range []string{
-		"busy_timeout(5000)",
+		fmt.Sprintf("busy_timeout(%d)", sqliteBusyTimeoutMS),
 		"journal_mode(WAL)",
 		"synchronous(NORMAL)",
 		"foreign_keys(1)",
@@ -589,7 +598,7 @@ func (s *sqliteStore) AddObservation(ctx context.Context, p AddObservationParams
 	hash := hashNormalized(p.Content)
 
 	var id int64
-	err := s.withWriteRetry(func() error {
+	fn := func() error {
 		tx, err := s.db.BeginTx(ctx, nil)
 		if err != nil {
 			return err
@@ -634,7 +643,8 @@ func (s *sqliteStore) AddObservation(ctx context.Context, p AddObservationParams
 			}
 		}
 		return tx.Commit()
-	})
+	}
+	err := fn() // RETRY-REMOVED (T20 RED proof)
 	if err != nil {
 		return AddObservationResult{}, err
 	}
