@@ -48,6 +48,17 @@ func runMCP(fl config.Flags, args []string) int {
 	}
 	srv := mcp.NewServer(h, p)
 	defer srv.Close()
+	// The code_* surface (B3 — the registration seam): register the code
+	// tools on the memory server (the profile selects the set). The root is
+	// the git toplevel of cwd (the index walk's root); the onSync seam is the
+	// Index driver (the TICKET-06 watch loop's OnSyncFunc signature).
+	ch := codeHandlerFor(h.Config(), st)
+	root := cwd
+	if gitRoot, err := gitToplevel(cwd); err == nil && gitRoot != "" {
+		root = gitRoot
+	}
+	ch.SetRoot(root)
+	srv.RegisterCodeTools(ch)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	// The autosync manager (TICKET-17): when sync.auto=true, it debounces

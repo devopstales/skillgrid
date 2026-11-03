@@ -166,17 +166,23 @@ func TestServePrintsPointer(t *testing.T) {
 	}
 }
 
-// TestStubSubcommands: index/setup are delegation stubs — they print a
-// pointer (the dispatch is complete; the delegation is a one-line change
-// later when the owning change lands). migrate is now a real command
-// (TICKET-19) — it requires --v1-dir and exits 2 when absent (a usage
-// error, not a delegation pointer).
+// TestStubSubcommands: setup is a delegation stub — it prints a pointer (the
+// dispatch is complete; the delegation is a one-line change later when the
+// owning change lands). index is now a REAL command (TICKET-07 — the
+// code-index CLI group); it requires a project (the detector's resolution)
+// and exits 0 for a read (status) when a project is given. migrate is a real
+// command (TICKET-19) — it requires --v1-dir and exits 2 when absent.
 func TestStubSubcommands(t *testing.T) {
-	for _, cmd := range [][]string{{"index"}, {"setup", "opencode"}} {
-		out := runCLI(t, cmd...)
-		if out == "" {
-			t.Fatalf("%v must print a delegation pointer", cmd)
-		}
+	// setup is the remaining delegation stub.
+	if out := runCLI(t, "setup", "opencode"); out == "" {
+		t.Fatalf("setup must print a delegation pointer")
+	}
+	// index is now a real command: the status read (a project is required —
+	// the detector's resolution). A bare `index` with no project selector in
+	// a non-git cwd is a handler error (exit 1), not a stub pointer.
+	installRunEnv(t)
+	if _, code := captureRun(t, "index", "status", "--project", "p"); code != exitOK {
+		t.Fatalf("index status --project p must exit 0 (the code_status read); got %d", code)
 	}
 	// migrate is a real command: a usage error when --v1-dir is absent.
 	if _, code := captureRun(t, "migrate"); code != exitUsage {

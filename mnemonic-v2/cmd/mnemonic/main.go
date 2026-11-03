@@ -202,8 +202,7 @@ func run(args []string) int {
 	case "doctor":
 		return runDoctor(fl, cwd, args)
 	case "index":
-		fmt.Fprintln(outW(), "mnemonic index delegates to the code-index change (not yet in this build).")
-		return exitOK
+		return runIndex(fl, cwd, args)
 	case "migrate":
 		return runMigrate(fl, cwd, args)
 	case "setup":

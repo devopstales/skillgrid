@@ -55,6 +55,10 @@ type Server struct {
 	h       *handler.Handler
 	profile Profile
 	queue   *writeQueue
+	// codeTools is the code-index handler (B3 — the registration seam):
+	// nil until RegisterCodeTools is called (the memory-only build still
+	// serves without it). The dispatch consults it for the code_* tools.
+	codeTools *handler.CodeHandler
 	// calls is the in-process dispatch (the test harness calls CallTool
 	// directly; the stdio path goes through mcp.HandleMessage).
 	calls map[string]func(ctx context.Context, args map[string]any) (any, error)
@@ -89,6 +93,164 @@ func NewServer(h *handler.Handler, profile Profile) *Server {
 		s.mcp.AddTool(tool.def, s.mcpToolHandler(tool.name))
 	}
 	return s
+}
+
+// RegisterCodeTools adds the code_* tool family to the server (B3 — the
+// registration seam, spec 008-transport §1): it extends the dispatch with
+// the profile-filtered code_* tools + the isWriteTool set (code_index is a
+// queued write) + the combined instructions. It is ADDITIVE — the memory-only
+// build still serves without it (codeTools is nil until this is called). The
+// profile (Agent/All) selects which code_* tools register (the two-profile
+// mechanism, D-PROFILE — not v1's SKILLGRID_MCP_CODE_TOOLS env filter).
+func (s *Server) RegisterCodeTools(ch *handler.CodeHandler) {
+	s.codeTools = ch
+	// Extend the in-process dispatch with the code_* tools (the profile
+	// filters the set — the agent profile drops the admin tools).
+	for name, fn := range s.codeToolDispatch() {
+		s.calls[name] = fn
+	}
+	// Register the profile-filtered code_* tool definitions with mcp-go
+	// (the stdio path: the tools/list response carries them).
+	for _, tool := range s.codeToolSet() {
+		s.mcp.AddTool(tool.def, s.mcpToolHandler(tool.name))
+	}
+}
+
+// codeToolDispatch returns the code_* tool name → dispatch fn map (the
+// profile filters the set — the agent profile drops the admin tools). The
+// dispatch fns are the MCP adapter's half of the K6 seam: the CLI adapter
+// (cmd/mnemonic/index.go) has its own, over the same CodeHandler.
+func (s *Server) codeToolDispatch() map[string]func(ctx context.Context, args map[string]any) (any, error) {
+	ch := s.codeTools
+	if ch == nil {
+		return nil
+	}
+	d := map[string]func(ctx context.Context, args map[string]any) (any, error){
+		"code_status":           dispatchCodeStatus(ch),
+		"code_index":            dispatchCodeIndex(ch),
+		"code_search":           dispatchCodeSearch(ch),
+		"code_read":             dispatchCodeRead(ch),
+		"code_orient":           dispatchCodeOrient(ch),
+		"code_explain":          dispatchCodeExplain(ch),
+		"code_path":             dispatchCodePath(ch),
+		"code_impact":           dispatchCodeImpact(ch),
+		"code_affected":         dispatchCodeAffected(ch),
+		"code_grep":             dispatchCodeGrep(ch),
+		"code_semantic":         dispatchCodeSemantic(ch),
+		"code_get_callers":      dispatchCodeNeighbors(ch, "callers"),
+		"code_get_callees":      dispatchCodeNeighbors(ch, "callees"),
+		"code_get_dependents":   dispatchCodeNeighbors(ch, "dependents"),
+		"code_get_implementors": dispatchCodeNeighbors(ch, "implementors"),
+		"code_get_hierarchy":    dispatchCodeNeighbors(ch, "hierarchy"),
+		"code_get_tests_for":    dispatchCodeNeighbors(ch, "tests_for"),
+		"code_resolve":          dispatchCodeResolve(ch),
+		"code_packages":         dispatchCodePackages(ch),
+		// admin (All profile only)
+		"code_rename":           dispatchCodeRename(ch),
+		"code_unresolved":       dispatchCodeUnresolved(ch),
+		"code_circles":          dispatchCodeCircles(ch),
+		"code_deps":             dispatchCodeDeps(ch),
+		"code_dep_impact":       dispatchCodeDepImpact(ch),
+		"code_embedding_status": dispatchCodeEmbeddingStatus(ch),
+		"code_watch":            dispatchCodeWatch(ch),
+		// v2.1-deferred (declared, reporting "run code_index --flag")
+		"code_pdg_query":         dispatchCodeDeferred(ch, "code_pdg_query", "pdg"),
+		"code_taint":             dispatchCodeDeferred(ch, "code_taint", "pdg"),
+		"code_communities":       dispatchCodeDeferred(ch, "code_communities", "communities"),
+		"code_god_nodes":         dispatchCodeDeferred(ch, "code_god_nodes", "communities"),
+		"code_explain_community": dispatchCodeDeferred(ch, "code_explain_community", "communities"),
+		"code_processes":         dispatchCodeDeferred(ch, "code_processes", "process"),
+		"code_process":           dispatchCodeDeferred(ch, "code_process", "process"),
+		// knowledge-graph reads (the knowledge nodes in the core graph)
+		"code_route":      dispatchCodeRoute(ch),
+		"code_navigates":  dispatchCodeNavigates(ch),
+		"code_docs":       dispatchCodeDocs(ch),
+		"code_configs":    dispatchCodeConfigs(ch),
+		"code_sql_schema": dispatchCodeSQLSchema(ch),
+	}
+	return d
+}
+
+// codeToolSet returns the profile-filtered code_* tool definitions (the
+// agent profile drops the admin tools — the two-profile mechanism,
+// D-PROFILE). The tool definitions are the D1 contract: the plugins' only
+// interface into the code-index.
+func (s *Server) codeToolSet() []toolEntry {
+	ch := s.codeTools
+	if ch == nil {
+		return nil
+	}
+	entries := []toolEntry{
+		{name: "code_status", def: codeStatusTool(), isWrite: false},
+		{name: "code_index", def: codeIndexTool(), isWrite: true},
+		{name: "code_search", def: codeSearchTool(), isWrite: false},
+		{name: "code_read", def: codeReadTool(), isWrite: false},
+		{name: "code_orient", def: codeOrientTool(), isWrite: false},
+		{name: "code_explain", def: codeExplainTool(), isWrite: false},
+		{name: "code_path", def: codePathTool(), isWrite: false},
+		{name: "code_impact", def: codeImpactTool(), isWrite: false},
+		{name: "code_affected", def: codeAffectedTool(), isWrite: false},
+		{name: "code_grep", def: codeGrepTool(), isWrite: false},
+		{name: "code_semantic", def: codeSemanticTool(), isWrite: false},
+		{name: "code_get_callers", def: codeNeighborTool("code_get_callers", "callers"), isWrite: false},
+		{name: "code_get_callees", def: codeNeighborTool("code_get_callees", "callees"), isWrite: false},
+		{name: "code_get_dependents", def: codeNeighborTool("code_get_dependents", "dependents"), isWrite: false},
+		{name: "code_get_implementors", def: codeNeighborTool("code_get_implementors", "implementors"), isWrite: false},
+		{name: "code_get_hierarchy", def: codeNeighborTool("code_get_hierarchy", "hierarchy"), isWrite: false},
+		{name: "code_get_tests_for", def: codeNeighborTool("code_get_tests_for", "tests_for"), isWrite: false},
+		{name: "code_resolve", def: codeResolveTool(), isWrite: false},
+		{name: "code_packages", def: codePackagesTool(), isWrite: false},
+		// admin (All profile only)
+		{name: "code_rename", def: codeRenameTool(), isWrite: true},
+		{name: "code_unresolved", def: codeUnresolvedTool(), isWrite: false},
+		{name: "code_circles", def: codeCirclesTool(), isWrite: false},
+		{name: "code_deps", def: codeDepsTool(), isWrite: false},
+		{name: "code_dep_impact", def: codeDepImpactTool(), isWrite: false},
+		{name: "code_embedding_status", def: codeEmbeddingStatusTool(), isWrite: false},
+		{name: "code_watch", def: codeWatchTool(), isWrite: true},
+		// v2.1-deferred (declared in the surface, not missing)
+		{name: "code_pdg_query", def: codeDeferredTool("code_pdg_query", "pdg"), isWrite: false},
+		{name: "code_taint", def: codeDeferredTool("code_taint", "pdg"), isWrite: false},
+		{name: "code_communities", def: codeDeferredTool("code_communities", "communities"), isWrite: false},
+		{name: "code_god_nodes", def: codeDeferredTool("code_god_nodes", "communities"), isWrite: false},
+		{name: "code_explain_community", def: codeDeferredTool("code_explain_community", "communities"), isWrite: false},
+		{name: "code_processes", def: codeDeferredTool("code_processes", "process"), isWrite: false},
+		{name: "code_process", def: codeDeferredTool("code_process", "process"), isWrite: false},
+		// knowledge-graph reads
+		{name: "code_route", def: codeRouteTool(), isWrite: false},
+		{name: "code_navigates", def: codeNavigatesTool(), isWrite: false},
+		{name: "code_docs", def: codeDocsTool(), isWrite: false},
+		{name: "code_configs", def: codeConfigsTool(), isWrite: false},
+		{name: "code_sql_schema", def: codeSQLSchemaTool(), isWrite: false},
+	}
+	if s.profile == Agent {
+		// Filter to agent tools (drop the admin + deferred + knowledge reads).
+		admin := map[string]bool{}
+		for _, n := range codeAdminOnlyTools {
+			admin[n] = true
+		}
+		out := make([]toolEntry, 0, len(entries))
+		for _, e := range entries {
+			if !admin[e.name] {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+	return entries
+}
+
+// codeAdminOnlyTools is the admin-only code_* tool names (the agent profile
+// drops them — the two-profile mechanism, D-PROFILE). The v2.1-deferred +
+// the knowledge-graph reads are admin-only too (they are not in the 16
+// agent tools).
+var codeAdminOnlyTools = []string{
+	"code_rename", "code_unresolved", "code_circles", "code_deps",
+	"code_dep_impact", "code_embedding_status", "code_watch",
+	"code_pdg_query", "code_taint", "code_communities", "code_god_nodes",
+	"code_explain_community", "code_processes", "code_process",
+	"code_route", "code_navigates", "code_docs", "code_configs",
+	"code_sql_schema",
 }
 
 // txnOrder returns a copy of the committed-transaction sequence (the test
@@ -230,10 +392,14 @@ func (s *Server) SetDeadlockForTest() {
 }
 
 // Close stops the write queue worker and detaches the store's transaction
-// hook (the test cleanup; the cmd layer calls this on shutdown).
+// hook (the test cleanup; the cmd layer calls this on shutdown). It also
+// stops the code watcher (code_watch's live watcher, if started).
 func (s *Server) Close() {
 	s.h.Service().St().SetTxnHook(func() {})
 	s.queue.Close()
+	if s.codeTools != nil {
+		s.codeTools.StopWatchForTest()
+	}
 }
 
 // mcpToolHandler adapts a dispatch fn onto the mcp-go ToolHandlerFunc
@@ -247,10 +413,15 @@ func (s *Server) mcpToolHandler(name string) server.ToolHandlerFunc {
 }
 
 // isWriteTool reports whether a tool mutates state (spec 004-transport-mcp
-// §4: the write queue serializes these; reads bypass it).
+// §4: the write queue serializes these; reads bypass it). The code_* writes
+// (code_index — the queued write with the active-run guard, code_rename,
+// code_watch) are added by the code-index change (B3 — additive to the
+// memory set).
 func (s *Server) isWriteTool(name string) bool {
 	switch name {
 	case "mem_save", "mem_update", "mem_delete", "mem_judge", "mem_judge_many", "mem_consolidate", "mem_pin", "mem_unpin":
+		return true
+	case "code_index", "code_rename", "code_watch":
 		return true
 	}
 	return false

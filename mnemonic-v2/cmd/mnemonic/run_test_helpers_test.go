@@ -28,7 +28,7 @@ func installRunEnv(t *testing.T) {
 	t.Helper()
 	dataDir := t.TempDir()
 
-	prevStoreFor, prevHandlerFor, prevGit := storeFor, handlerFor, gitToplevel
+	prevStoreFor, prevHandlerFor, prevCodeHandlerFor, prevGit := storeFor, handlerFor, codeHandlerFor, gitToplevel
 
 	// Each call opens a new store (acquires a new pool ref). The pool
 	// keeps the DB open until the last ref is released, so the commands
@@ -39,10 +39,13 @@ func installRunEnv(t *testing.T) {
 	handlerFor = func(cfg config.Config, s store.Store) (*handler.Handler, error) {
 		return newTestHandlerWithStore(t, s), nil
 	}
+	codeHandlerFor = func(cfg config.Config, s store.Store) *handler.CodeHandler {
+		return newTestCodeHandlerForStore(t, s)
+	}
 	gitToplevel = func(string) (string, error) { return "", errors.New("no git in tests") }
 
 	t.Cleanup(func() {
-		storeFor, handlerFor, gitToplevel = prevStoreFor, prevHandlerFor, prevGit
+		storeFor, handlerFor, codeHandlerFor, gitToplevel = prevStoreFor, prevHandlerFor, prevCodeHandlerFor, prevGit
 	})
 }
 
@@ -80,6 +83,30 @@ func runCLIExit(t *testing.T, args ...string) int {
 	_, code := captureRun(t, args...)
 	return code
 }
+
+// newTestCodeHandlerForStore builds a CodeHandler over a caller-provided
+// store (the test fixture for the index command group — the stub detector
+// never shells out, the embedder is absent (the degraded: no_vector floor)).
+func newTestCodeHandlerForStore(t *testing.T, s store.Store) *handler.CodeHandler {
+	t.Helper()
+	c := config.Default()
+	c.DataDir = t.TempDir()
+	c.Project.Detect = false
+	return handler.NewCodeHandler(s, nil, c, t.TempDir(), &codeDetStub{resolve: func(cwd, explicit string) (string, error) {
+		if explicit != "" {
+			return explicit, nil
+		}
+		return "p", nil
+	}})
+}
+
+// codeDetStub is the stub detector the CodeHandler test fixture uses (no git
+// shell-out — the test's project is fixed to "p").
+type codeDetStub struct {
+	resolve func(cwd, explicit string) (string, error)
+}
+
+func (s *codeDetStub) Resolve(cwd, explicit string) (string, error) { return s.resolve(cwd, explicit) }
 
 // runError is the error a run helper returns for a non-zero exit (the
 // msg is the combined output the command printed).
