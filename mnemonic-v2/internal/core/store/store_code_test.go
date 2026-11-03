@@ -8,6 +8,54 @@ import (
 	"testing"
 )
 
+// [upsert-file-conflict-returns-existing-id] the ON CONFLICT(path) DO UPDATE
+// path of UpsertFile must return the EXISTING file rowid, not 0. SQLite's
+// LastInsertId() is not updated by an upsert that takes the DO UPDATE branch,
+// so a naive LastInsertId() read returns 0 on the conflict path — and a
+// symbol upserted with file_id=0 violates the symbols.file_id → files.id FK.
+// This is the re-index regression: every file the index re-walks (the common
+// case — the watch loop re-indexes changed files) hit the conflict path.
+func TestUpsertFileConflictReturnsExistingID(t *testing.T) {
+	st := openTestStore(t)
+	ctx := context.Background()
+
+	// first upsert: fresh insert → LastInsertId() is the new rowid
+	fid1, err := st.UpsertFile(ctx, FileRow{
+		Path: "internal/store/sqlite.go", MtimeNS: 1, Size: 100,
+		ContentHash: "v1", Language: "go",
+	})
+	if err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	if fid1 <= 0 {
+		t.Fatalf("first upsert must return a positive rowid: %d", fid1)
+	}
+
+	// second upsert, same path (different content): takes the ON CONFLICT
+	// DO UPDATE branch. The returned id MUST be the existing rowid (fid1),
+	// not 0.
+	fid2, err := st.UpsertFile(ctx, FileRow{
+		Path: "internal/store/sqlite.go", MtimeNS: 2, Size: 120,
+		ContentHash: "v2", Language: "go",
+	})
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if fid2 != fid1 {
+		t.Fatalf("conflict upsert must return the existing rowid %d, got %d", fid1, fid2)
+	}
+
+	// the FK the bug violated: a symbol upserted with the conflict-path id
+	// must succeed (file_id resolves to a real files row).
+	if _, err := st.UpsertSymbols(ctx, fid2, []Symbol{{
+		Name: "openSQLite", QualifiedName: "store.openSQLite",
+		Kind: "function", Language: "go", StartLine: 1, EndLine: 20,
+		ContentHash: "s", UID: "sqlite.go:openSQLite:function",
+	}}); err != nil {
+		t.Fatalf("symbol upsert with conflict-path file id must satisfy the FK: %v", err)
+	}
+}
+
 // [door-check-code] the hypothesis falsifier: a code_index writes
 // files+symbols+edges through the extended Store (SQLite, WAL), and the FTS
 // floor finds a saved symbol. The v1 live probe showed the broken shape (the
