@@ -24,6 +24,11 @@ import (
 
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/syncid"
 	"modernc.org/sqlite"
+	// Registers the vec0 vtab module + vec_distance_cosine + vec_f32 with the
+	// modernc driver (TICKET-08a, the v1 store.go:20 blank-import). Without
+	// it the vec0 virtual tables (vec_symbols/vec_chunks) fail to create with
+	// "no such module: vec0". Cgo-free (the modernc family).
+	_ "modernc.org/sqlite/vec"
 )
 
 // float32FromLE decodes one little-endian float32 (the stored-vector
@@ -373,6 +378,17 @@ func migrateSQLiteUpTo(db *sql.DB, lastFile string) error {
 		appliedCount,
 	); err != nil {
 		return fmt.Errorf("record schema_version: %w", err)
+	}
+	// The ANN table render (TICKET-08a, D-CI8): the vec0 + HNSW tables,
+	// SQLite-only. Created on the full set only (lastFile == "" — production
+	// Open / Migrate); the OpenUpTo seam (a partial set, lastFile non-empty)
+	// is the migration-parity regression's pre-ANN store and skips them.
+	if lastFile == "" {
+		for _, ddl := range annTableDDL {
+			if _, err := db.Exec(ddl); err != nil {
+				return fmt.Errorf("ANN table render: %w", err)
+			}
+		}
 	}
 	return nil
 }
@@ -1814,10 +1830,54 @@ func (s *sqliteStore) SetTxnHook(hook func()) {
 
 // ── lifecycle ───────────────────────────────────────────────────────────────
 
-// Migrate re-runs the migration set (idempotent, additive-only).
+// Migrate re-runs the migration set (idempotent, additive-only) + the ANN
+// table render (TICKET-08a — the vec0 + HNSW tables, SQLite-only). The ANN
+// tables are created by migrateSQLiteUpTo on the full set (lastFile == "").
 func (s *sqliteStore) Migrate(ctx context.Context) error {
 	return migrateSQLite(s.db)
 }
+
+// annTableDDL is the ANN table render (TICKET-08a, D-CI8): the vec0 virtual
+// tables (vec_symbols/vec_chunks, the in-SQL cosine ANN — the v1 store.go
+// render) + the HNSW nodes/links (the pure-Go HNSW graph's persistence — the
+// v1 hnsw.go:26-37 params). SQLite-only (the PG adapter has no ANN tables —
+// the brute-force floor, TICKET-08c). LSH + IVF are DROPPED (not shipped —
+// the v1 lsh_buckets is schema-only, IVF is an adapter not wired).
+var annTableDDL = []string{
+	// vec0: the in-SQL cosine ANN (the v1 migration 042 render — the vec0
+	// virtual table, the dim is 768 (the AnnDim pin), rowid keyed to the
+	// parent table's PK so a top-K hit maps 1:1 back to the BLOB row).
+	`CREATE VIRTUAL TABLE IF NOT EXISTS vec_symbols USING vec0(
+		rowid     INTEGER PRIMARY KEY,
+		embedding float[768]
+	)`,
+	`CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
+		rowid     INTEGER PRIMARY KEY,
+		embedding float[768]
+	)`,
+	// HNSW: the pure-Go HNSW graph's persistence (the v1 migration 058
+	// render — the nodes + links, keyed (source, node_id) so the symbol and
+	// chunk id spaces do not mix, L-1). The vector is the BLOB source of
+	// truth's mirror (the warm-load rebuilds the in-memory graph from it).
+	`CREATE TABLE IF NOT EXISTS hnsw_nodes (
+		source   TEXT NOT NULL,
+		node_id  INTEGER NOT NULL,
+		level    INTEGER NOT NULL,
+		vector   BLOB NOT NULL,
+		PRIMARY KEY (source, node_id)
+	)`,
+	`CREATE TABLE IF NOT EXISTS hnsw_links (
+		source      TEXT NOT NULL,
+		node_id     INTEGER NOT NULL,
+		neighbor_id INTEGER NOT NULL,
+		layer       INTEGER NOT NULL,
+		PRIMARY KEY (source, node_id, neighbor_id, layer)
+	)`,
+}
+
+// (the ANN table render is in migrateSQLiteUpTo — the full-set path creates
+// vec_symbols/vec_chunks + hnsw_nodes/hnsw_links, the SQLite-only ANN
+// indexes; the PG adapter has no ANN tables, the brute-force floor.)
 
 // Close releases one reference to the store handle.
 func (s *sqliteStore) Close() error {
@@ -1944,6 +2004,15 @@ func (s *sqliteStore) UpsertFile(ctx context.Context, f FileRow) (int64, error) 
 }
 
 func (s *sqliteStore) upsertFile(ctx context.Context, q executor, f FileRow, syncID string) (int64, error) {
+	// Did the path already exist? A pre-existing path takes the ON CONFLICT
+	// DO UPDATE branch, where LastInsertId() is NOT updated — it keeps the
+	// last INSERT's rowid on this connection (a prior file's id, not this
+	// file's). For the update branch we look the rowid up by path; for the
+	// insert branch LastInsertId() is authoritative.
+	var preExisting int
+	if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM files WHERE path = ?`, f.Path).Scan(&preExisting); err != nil {
+		return 0, err
+	}
 	var id int64
 	err := s.withWriteRetry(func() error {
 		now := f.IndexedAt
@@ -1965,6 +2034,14 @@ func (s *sqliteStore) upsertFile(ctx context.Context, q executor, f FileRow, syn
 		)
 		if err != nil {
 			return err
+		}
+		if preExisting > 0 {
+			// update branch: LastInsertId() is stale (a prior file's id) —
+			// look the rowid up by path (the stable upsert key).
+			if err := q.QueryRowContext(ctx, `SELECT id FROM files WHERE path = ?`, f.Path).Scan(&id); err != nil {
+				return err
+			}
+			return nil
 		}
 		id, err = res.LastInsertId()
 		return err
@@ -2516,6 +2593,10 @@ func (t *sqliteTxn) Rollback(ctx context.Context) error {
 // over (the tx twins share the store's helpers, K1).
 type executor interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	// QueryRowContext is the upsert-on-conflict rowid lookup (an update-only
+	// ON CONFLICT DO UPDATE does not update LastInsertId — the existing
+	// rowid is looked up by the unique key instead).
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
 // nullableOrEmpty maps "" → NULL and keeps a non-empty string (the columns

@@ -22,6 +22,7 @@ import (
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/codeindex/extract"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/codeindex/graph"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/codeindex/search"
+	"github.com/devopstales/skillgrid/mnemonic-v2/internal/codeindex/vectorstore"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/codeindex/watch"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/config"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/store"
@@ -97,13 +98,23 @@ func (h *CodeHandler) rootLocked() string { return h.root }
 
 // resolveProject runs the call-time resolution: explicit > detector. An
 // empty explicit passes through to the detector (the chain is the
-// detector's job); a non-empty explicit wins outright (spec 008 §1).
+// detector's job); a non-empty explicit wins outright (spec 008 §1). When
+// cwd is empty (the CodeHandler methods don't carry a per-call cwd — the
+// shared seam resolves at call time), fall back to h.root (the git
+// toplevel the wiring set via SetRoot): the detector's git + basename
+// binding needs a directory to resolve against, and the root is the
+// project's working-tree root — the correct dir for that binding.
 func (h *CodeHandler) resolveProject(cwd, explicit string) (string, error) {
 	if strings.TrimSpace(explicit) != "" {
 		return strings.TrimSpace(explicit), nil
 	}
 	if h.det == nil {
 		return "", errNoDetector
+	}
+	if strings.TrimSpace(cwd) == "" {
+		h.mu.Lock()
+		cwd = h.root
+		h.mu.Unlock()
 	}
 	return h.det.Resolve(cwd, "")
 }
@@ -323,6 +334,17 @@ func (h *CodeHandler) Index(ctx context.Context, project string, full, lsp, pdg,
 
 	// This call minted the run (it was not pre-set), so clear it on completion.
 	defer h.finishRunLocked()
+
+	// The model-swap guard (M9, TICKET-08a): called at the start of every
+	// code_index run, before any vector write. A model-name change (same dim)
+	// → ClearVectors; a dim change (64↔768) → ClearVectors + DROP the
+	// dim-shaped ANN tables. The run registry's one-index-at-a-time guard (B3)
+	// serializes a mid-in-flight swap (the watch's re-index runs through this
+	// same entry). A nil embedder (absent — the vector leg does not run) is a
+	// no-op (the guard returns early).
+	if err := vectorstore.GuardModelSwap(ctx, h.st, h.emb); err != nil {
+		return IndexResult{RunID: runID, Status: "error"}, fmt.Errorf("guard model swap: %w", err)
+	}
 
 	// The index driver (F4 — the indexFn seam: a nil indexFn defaults to
 	// codeindex.Index; the test injects a blocking fn to prove the guard).
