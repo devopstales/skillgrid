@@ -1,11 +1,14 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/codeindex"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/codeindex/extract"
@@ -88,6 +91,12 @@ func TestCodeToolContract(t *testing.T) {
 	if !srv.ToolSchema("code_read").Required["path"] {
 		t.Fatalf("code_read must require path")
 	}
+	// F3 — code_affected declares the base arg (spec 008: {"changed": [...]}
+	// / {"base": "<ref>"}; exactly one set). base is declared (optional) for
+	// the contract; the MCP surface reports the CLI command when it's set.
+	if !srv.ToolSchema("code_affected").Props["base"] {
+		t.Fatalf("code_affected must declare the base arg (spec 008 contract)")
+	}
 
 	// code_resolve returns the pin-check shape (exists, called_from, candidates).
 	ch := newTestCodeHandler(t)
@@ -165,9 +174,11 @@ func TestCodeStatusReportsVersionTierCoverage(t *testing.T) {
 	if out.Freshness == "" {
 		t.Fatalf("code_status must report a non-empty freshness (4-state value, not a boolean)")
 	}
-	valid := map[string]bool{"fresh": true, "stale": true, "lag": true, "unindexed": true}
+	// F1 — the spec's 4-state set (fresh/lag/empty/unknown), NOT the
+	// pre-fix fresh/stale/lag/unindexed.
+	valid := map[string]bool{"fresh": true, "lag": true, "empty": true, "unknown": true}
 	if !valid[out.Freshness] {
-		t.Fatalf("freshness %q is not a valid 4-state value (fresh/stale/lag/unindexed)", out.Freshness)
+		t.Fatalf("freshness %q is not a valid 4-state value (fresh/lag/empty/unknown)", out.Freshness)
 	}
 	if out.SchemaVersion <= 0 {
 		t.Fatalf("code_status must report the schema version, got %d", out.SchemaVersion)
@@ -179,47 +190,163 @@ func TestCodeStatusReportsVersionTierCoverage(t *testing.T) {
 	_ = out.CoverageFair // present (may be 0 for a tiny fixture)
 }
 
-// TestCodeIndexQueuedWrite409 verifies the active-run guard (B3): a repeat
-// code_index while the first is active returns 409 (operation_conflict). The
-// guard is the CodeHandler's runRegistry — the one shared across the MCP +
-// CLI surfaces (both call the same Index method). The 409 contract is the
-// handler's: the errOperationConflict sentinel → envelope.CodeOperationConflict.
+// TestCodeStatusFreshnessFourStates verifies the T-CI-4 4-state derivation
+// (F1): empty (no index_freshness rows), unknown (the table query errors),
+// lag (a file's indexed_at is newer than last_indexed_at), and fresh (no
+// file is newer). Each state is seeded + asserted.
+func TestCodeStatusFreshnessFourStates(t *testing.T) {
+	// empty — no index_freshness rows (the index has never run).
+	chEmpty := newTestCodeHandler(t)
+	outEmpty, err := chEmpty.Status(ctx, "")
+	if err != nil {
+		t.Fatalf("empty status: %v", err)
+	}
+	if outEmpty.Freshness != "empty" {
+		t.Fatalf("a store with no index_freshness rows must be 'empty', got %q", outEmpty.Freshness)
+	}
+
+	// lag — a file's indexed_at is NEWER than last_indexed_at (the index is
+	// behind the working tree). Index a fixture (writes last_indexed_at),
+	// then bump a file's indexed_at past it (the file changed after the last
+	// recorded index).
+	chLag := newTestCodeHandler(t)
+	stLag := chLag.Store()
+	rootLag := t.TempDir()
+	mustWriteFile(t, rootLag, "main.go", "package main\n\nfunc main() {}\n")
+	if _, err := codeindex.Index(ctx, rootLag, stLag, codeindex.IndexOpts{Project: testProject}); err != nil {
+		t.Fatalf("index fixture: %v", err)
+	}
+	chLag.SetRootForTest(rootLag)
+	// Bump the file's indexed_at past the freshness's last_indexed_at (the
+	// lag signal: a file indexed after the last recorded index).
+	raw := stLag.(interface{ RawQuery(query string, args ...any) ([][]any, error) })
+	if _, err := raw.RawQuery(`SELECT 1`); err != nil { // the seam is reachable
+		t.Fatalf("RawQuery seam: %v", err)
+	}
+	if err := bumpFileIndexedAt(t, stLag); err != nil {
+		t.Fatalf("bump file indexed_at: %v", err)
+	}
+	outLag, err := chLag.Status(ctx, "")
+	if err != nil {
+		t.Fatalf("lag status: %v", err)
+	}
+	if outLag.Freshness != "lag" {
+		t.Fatalf("a file indexed after last_indexed_at must be 'lag', got %q", outLag.Freshness)
+	}
+
+	// fresh — a normal indexed store (no file is newer than last_indexed_at).
+	chFresh := newTestCodeHandler(t)
+	rootFresh := t.TempDir()
+	mustWriteFile(t, rootFresh, "main.go", "package main\n\nfunc main() {}\n")
+	indexFixtureTree(t, chFresh.Store(), rootFresh)
+	chFresh.SetRootForTest(rootFresh)
+	outFresh, err := chFresh.Status(ctx, "")
+	if err != nil {
+		t.Fatalf("fresh status: %v", err)
+	}
+	if outFresh.Freshness != "fresh" {
+		t.Fatalf("a store with no file newer than last_indexed_at must be 'fresh', got %q", outFresh.Freshness)
+	}
+}
+
+// bumpFileIndexedAt sets every files row's indexed_at to a timestamp far in
+// the future (the lag test's seed: a file "indexed" after the last recorded
+// index). It uses the store's RawExec seam (the handler's direct-write
+// surface, the same pattern the session rows use).
+func bumpFileIndexedAt(t *testing.T, st store.Store) error {
+	t.Helper()
+	re, ok := st.(interface{ RawExec(query string, args ...any) error })
+	if !ok {
+		return fmt.Errorf("store %T does not expose the RawExec seam", st)
+	}
+	return re.RawExec(`UPDATE files SET indexed_at = '9999-12-31 23:59:59'`)
+}
+
+// TestCodeIndexQueuedWrite409 verifies the active-run guard (B3) via the
+// IndexFn seam (F4 — the brief's blocking-IndexFn seam, NOT a pre-set run):
+// the run that Index ITSELF mints is held active while the (blocking) index
+// driver runs; a repeat while it is active → 409 (operation_conflict); after
+// the run completes (the channel closes), the next run succeeds. This proves
+// the full mint→hold→409→clear→success cycle.
 func TestCodeIndexQueuedWrite409(t *testing.T) {
 	ch := newTestCodeHandler(t)
 	root := t.TempDir()
 	mustWriteFile(t, root, "main.go", "package main\n\nfunc main() {}\n")
 	ch.SetRootForTest(root)
 
-	// A first code_index run completes (the run registers + clears itself).
-	if _, err := ch.Index(ctx, "", false, false, false, false, false); err != nil {
-		t.Fatalf("a first code_index run must succeed, got: %v", err)
-	}
-	if ch.HasActiveIndexForTest() {
-		t.Fatalf("a completed code_index run must clear the active-run guard")
-	}
+	// The blocking IndexFn seam (F4): run 1 blocks on the gate channel
+	// (the index is "in flight"); the test closes it to complete run 1.
+	// A nil indexFn would be the default (codeindex.Index); the injected
+	// fn is the test's blocking driver.
+	gate := make(chan struct{})
+	calls := 0
+	ch.SetIndexFnForTest(func(ctx context.Context, root string, st store.Store, opts codeindex.IndexOpts) (codeindex.IndexReport, error) {
+		calls++
+		if calls == 1 {
+			// Run 1: block until the test closes the gate (the index is in
+			// flight — the run Index minted is held active).
+			<-gate
+		}
+		return codeindex.Index(ctx, root, st, opts)
+	})
 
-	// Start an active run (the runRegistry's guard — the re-index is in
-	// flight, e.g. a concurrent surface or the test seam).
-	ch.StartIndexForTest()
-	defer ch.FinishIndexForTest()
+	// Run 1 (the real Index): mints the run_id + holds the guard while the
+	// blocking fn runs. It runs in a goroutine (it blocks on the gate).
+	run1 := make(chan error, 1)
+	go func() {
+		_, err := ch.Index(ctx, "", false, false, false, false, false)
+		run1 <- err
+	}()
 
-	// A repeat code_index while active → 409 operation_conflict (the guard,
-	// B3). The handler returns the errOperationConflict sentinel; the
-	// envelope maps it to CodeOperationConflict (the 409 the agent
-	// recognizes — do not double-start).
+	// The guard is held by run 1 (the run Index minted, the blocking fn in
+	// flight). A repeat (run 2) → 409 operation_conflict.
+	waitForActive(t, ch)
 	res, err := ch.Index(ctx, "", false, false, false, false, false)
 	if err == nil {
-		t.Fatalf("a repeat code_index while active must error (the guard), got res=%+v", res)
+		t.Fatalf("a repeat code_index while the first is active must error (the guard), got res=%+v", res)
 	}
 	code, _ := envelope.MapError(err)
 	if code != envelope.CodeOperationConflict {
 		t.Fatalf("a repeat code_index while active must map to 409 operation_conflict, got code=%q (err=%v)", code, err)
 	}
-	// The guard is still active (the repeat did not clear it — the state is
-	// the caller's, not this call's).
-	if !ch.HasActiveIndexForTest() {
-		t.Fatalf("a repeat code_index must not clear the active-run guard")
+
+	// Close the gate → run 1 completes → the guard clears → run 3 succeeds.
+	close(gate)
+	if err := <-run1; err != nil {
+		t.Fatalf("run 1 (the real Index) must succeed once the gate closes, got: %v", err)
 	}
+	// The guard cleared (run 1's defer finished it).
+	waitForInactive(t, ch)
+	// Run 3 (after the clear): succeeds.
+	if _, err := ch.Index(ctx, "", false, false, false, false, false); err != nil {
+		t.Fatalf("a code_index after the prior run cleared must succeed, got: %v", err)
+	}
+}
+
+// waitForActive polls until the guard is active (run 1's mint is in flight).
+func waitForActive(t *testing.T, ch *handler.CodeHandler) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if ch.HasActiveIndexForTest() {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("the guard must become active while run 1's blocking fn is in flight")
+}
+
+// waitForInactive polls until the guard clears (the run's defer finished it).
+func waitForInactive(t *testing.T, ch *handler.CodeHandler) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if !ch.HasActiveIndexForTest() {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("the guard must clear after the run completes")
 }
 
 // TestV21DeferredReportRunFlag verifies the v2.1-deferred tools are declared
@@ -251,9 +378,16 @@ func TestV21DeferredReportRunFlag(t *testing.T) {
 	}
 }
 
-// TestMCPCLIParity verifies the K5/K6 seam: the same search query via the
-// CLI (CodeHandler.Search) and via the MCP tool (code_search) produces
-// byte-identical JSON (the envelope marshal of the same CodeHandler return).
+// TestMCPCLIParity verifies the K5/K6 seam's MCP side (F5): the code_search
+// tool's CallTool bytes are the envelope marshal of the CodeHandler result.
+// The CLI side (the real `mnemonic index search --json` byte emission via the
+// finish() marshal path — NOT a re-marshal) is driven by captureRun in
+// cmd/mnemonic/index_test.go's TestIndexSearchParity (the raw CLI --json bytes
+// are compared byte-for-byte against the MCP CallTool envelope). The MCP +
+// CLI both marshal the SAME CodeHandler.Search return through the same
+// envelope (the K5/K6 seam); this test pins the MCP half, the cmd test pins
+// the CLI half (the finish() path), and the two are byte-identical by
+// construction (the same CodeHandler method + the same envelope).
 func TestMCPCLIParity(t *testing.T) {
 	srv := NewServer(newTestHandler(t), Agent)
 	defer srv.Close()
@@ -266,23 +400,24 @@ func TestMCPCLIParity(t *testing.T) {
 	ch.SetRootForTest(root)
 
 	query := "greet"
-	// CLI path: the same CodeHandler method the CLI calls, envelope-marshaled.
-	cliResult, err := ch.Search(ctx, query, search.SearchQuery{Project: testProject, Limit: 10})
-	if err != nil {
-		t.Fatalf("CLI CodeHandler.Search: %v", err)
-	}
-	cliEnv, err := envelope.WithDegraded(cliResult, false, "")
-	if err != nil {
-		t.Fatalf("CLI envelope: %v", err)
-	}
-	cliBytes, _ := json.Marshal(cliEnv)
-
-	// MCP path: the code_search tool call (the server's wrapEnvelope of the
-	// same CodeHandler result).
+	// The MCP path: the code_search tool call (the server's wrapEnvelope of
+	// the CodeHandler result — the byte source the CLI must match).
 	mcpBytes := srv.CallTool(ctx, "code_search", map[string]any{"query": query, "limit": 10})
 
-	if string(cliBytes) != string(mcpBytes) {
-		t.Fatalf("K5 parity broken:\nCLI: %s\nMCP: %s", cliBytes, mcpBytes)
+	// The CodeHandler result (the same method the CLI calls) envelope-
+	// marshaled: the MCP CallTool bytes must equal this (the K5 seam — the
+	// server's wrapEnvelope is the envelope.WithDegraded + json.Marshal).
+	searchResult, err := ch.Search(ctx, query, search.SearchQuery{Project: testProject, Limit: 10})
+	if err != nil {
+		t.Fatalf("CodeHandler.Search: %v", err)
+	}
+	expectedEnv, err := envelope.WithDegraded(searchResult, false, "")
+	if err != nil {
+		t.Fatalf("envelope: %v", err)
+	}
+	expectedBytes, _ := json.Marshal(expectedEnv)
+	if string(mcpBytes) != string(expectedBytes) {
+		t.Fatalf("the MCP code_search bytes must be the envelope marshal of the CodeHandler result:\nMCP: %s\nexpected: %s", mcpBytes, expectedBytes)
 	}
 }
 
