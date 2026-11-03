@@ -122,42 +122,32 @@ function parseName(fm) {
 
 // --- per-skill checks -------------------------------------------------------
 
-// Skills live either flat (a dir with SKILL.md) or nested inside group dirs
-// (a dir with DESCRIPTION.md, Hermes-style; groups may nest, e.g. craft/
-// craft-refactor/). _shared is infra, not a skill. A skill is external when
-// its frontmatter lacks `metadata.part-of: skillgrid` — external skills are
-// inventoried (duplicate names, ref targets) but skip the skillgrid anatomy
-// checks, since they are vendored from third-party repos.
-const GROUP_DESC = "DESCRIPTION.md";
-const skillEntries = []; // { name, group: string|null, external: boolean }
-const groupNames = new Set();
-function scan(dir, group) {
-  for (const d of readdirSync(dir, { withFileTypes: true })) {
-    if (!d.isDirectory() || d.name.startsWith(".")) continue;
-    const p = join(dir, d.name);
-    if (existsSync(join(p, "SKILL.md"))) {
-      const text = readFileSync(join(p, "SKILL.md"), "utf8");
-      const external = !/^\s*part-of: *skillgrid/m.test(frontmatterOf(text) ?? "");
-      skillEntries.push({ name: d.name, group, external });
-    } else if (existsSync(join(p, GROUP_DESC))) {
-      groupNames.add(group ? `${group}/${d.name}` : d.name);
-      scan(p, group ? `${group}/${d.name}` : d.name);
-    }
+// Skills live FLAT: .agents/skills/<skill-name>/SKILL.md — one level deep.
+// Group folders (code-style/, design/, craft/, ...) were removed 2026-11-03
+// because consumers (oh-my-pi) scan skills non-recursively. A residual group
+// dir is a layout regression: it hides every skill inside it from discovery.
+// _shared is infra, not a skill. A skill is external when its frontmatter
+// lacks `metadata.part-of: skillgrid` — external skills are inventoried
+// (duplicate names, ref targets) but skip the skillgrid anatomy checks, since
+// they are vendored from third-party repos.
+const skillEntries = []; // { name, external: boolean }
+for (const d of readdirSync(SKILLS, { withFileTypes: true })) {
+  if (!d.isDirectory() || d.name.startsWith(".")) continue;
+  const p = join(SKILLS, d.name);
+  if (existsSync(join(p, "SKILL.md"))) {
+    const text = readFileSync(join(p, "SKILL.md"), "utf8");
+    const external = !/^\s*part-of: *skillgrid/m.test(frontmatterOf(text) ?? "");
+    skillEntries.push({ name: d.name, external });
+  } else if (d.name !== "_shared") {
+    err(".agents/skills/" + d.name, "unexpected group dir — skills must be flat (no category subfolders)");
   }
 }
-scan(SKILLS, null);
 skillEntries.sort((a, b) => a.name.localeCompare(b.name));
 const skillDirs = skillEntries.map((e) => e.name);
-const skillFile = (e) =>
-  e.group ? join(SKILLS, e.group, e.name, "SKILL.md") : join(SKILLS, e.name, "SKILL.md");
-const skillRel = (e) =>
-  e.group ? `.agents/skills/${e.group}/${e.name}/SKILL.md` : `.agents/skills/${e.name}/SKILL.md`;
-const skillRefsDir = (e) =>
-  e.group ? join(SKILLS, e.group, e.name, "references") : join(SKILLS, e.name, "references");
-const skillRefsRel = (e, file) =>
-  e.group
-    ? `.agents/skills/${e.group}/${e.name}/references/${file}`
-    : `.agents/skills/${e.name}/references/${file}`;
+const skillFile = (e) => join(SKILLS, e.name, "SKILL.md");
+const skillRel = (e) => `.agents/skills/${e.name}/SKILL.md`;
+const skillRefsDir = (e) => join(SKILLS, e.name, "references");
+const skillRefsRel = (e, file) => `.agents/skills/${e.name}/references/${file}`;
 
 // Duplicate skill names are a load-order hazard: the first match wins silently.
 const seen = new Map();
@@ -214,12 +204,11 @@ for (const e of skillEntries) {
   // 4. cross-skill refs: a raw path is allowed only into this skill's own
   // dir (scripts/, references/) or into _shared. Any raw path resolving to a
   // DIFFERENT skill's dir is a violation — use skillgrid:{name} instead.
-  const ownRel = e.group ? `${e.group}/${name}/` : `${name}/`;
+  const ownRel = `${name}/`;
   const rawRefs = text.match(/\.agents\/skills\/[a-z0-9-]+(?:\/[a-z0-9-]+)*/g) ?? [];
   const bad = new Set();
   for (const r of rawRefs) {
     const segs = r.replace(/\.agents\/skills\//, "").replace(/\/$/, "").split("/");
-    while (segs.length > 1 && groupNames.has(segs.join("/"))) segs = segs.slice(1);
     const target = segs.join("/");
     if (target === "_shared" || target.startsWith(ownRel)) continue;
     if (skillDirs.some((s) => s.toLowerCase() === segs[0].toLowerCase())) bad.add(segs[0]);

@@ -51,7 +51,7 @@ If the state file has `current_phase: spec` but the spec directory contains
 is missing or unparseable, report the parse error as a WARNING.
 
 # GOOD — one line calling the script
-Run `node .agents/skills/verification/qa/scripts/state-drift-check.mjs` from the project
+Run `node .agents/skills/qa/scripts/state-drift-check.mjs` from the project
 root. Exit 0 = no drift. Exit 1 = drift (report the table it prints).
 Exit 2 = parse error (report the error it prints).
 ```

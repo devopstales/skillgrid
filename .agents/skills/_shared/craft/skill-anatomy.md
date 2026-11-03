@@ -18,18 +18,21 @@ Companion contracts (this file assumes they exist and are honored):
 - [../references/strict-tdd.md](../references/strict-tdd.md) — RED → GREEN → TRIANGULATE → REFACTOR.
 - [code-standards.md](../rules/code-standards.md) — global, language-agnostic code standards for any skill that writes or reviews code.
 - [prose-style.md](../rules/prose-style.md) — the generation-time prose rules (agent-style v0.9.0, 21 rules) for any skill that writes or reviews Markdown.
-- [../../code-style/README.md](../../code-style/README.md) — the `code-style` group: the review side of the same ruleset (`style-review` audit), separate from this group's skill-construction craft.
+- `skillgrid:style-review` — the review side of the prose ruleset (post-hoc audit against the same 21 rules), separate from this group's skill-construction craft.
 
 ## File location
 
 ```
 .agents/skills/
-  <category>/           # planning, execution, verification, lifecycle, knowledge, design, craft
-    skill-name/         # kebab-case, matches frontmatter `name` exactly
-      SKILL.md          # required — the skill definition (entry point)
-      references/       # optional — on-demand detail, loaded only when needed
-      templates/        # optional — fill-in artifacts the skill writes
-      scripts/          # optional — executable helpers
+  _shared/              # shared references (not a skill; disable-model-invocation)
+  skill-name/           # kebab-case, matches frontmatter `name` exactly — FLAT,
+                        # no group/category subfolders (consumers scan one level
+                        # deep; groupings like `code-style` or `design` are
+                        # prose-only, e.g. "part of the skillgrid code-style group")
+    SKILL.md            # required — the skill definition (entry point)
+    references/         # optional — on-demand detail, loaded only when needed
+    templates/          # optional — fill-in artifacts the skill writes
+    scripts/            # optional — executable helpers
 ```
 
 - `SKILL.md` is always uppercase, always the entry point.

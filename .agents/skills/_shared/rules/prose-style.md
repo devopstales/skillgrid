@@ -12,7 +12,7 @@ does not touch code identifiers.
 Strunk & White 1959, Orwell 1946, Pinker 2014, Gopen & Swan 1990; field-observed
 rules from 2022–2026 LLM-output maintenance). Full directive text, BAD/GOOD
 examples, severity, and the house-style section live at
-[`../../code-style/style-review/references/rules.md`](../../code-style/style-review/references/rules.md).
+[`../../code-style/style-review/references/rules.md`](../../style-review/references/rules.md).
 This file carries the compact directives that reach context at write time; the
 full bodies load only when judging a draft (per the escape hatch below).
 
@@ -66,7 +66,7 @@ Field-observed rules (maintainer observation of LLM output, 2022–2026):
 
 The rules start from classic guides and are tuned to one author, Yue Zhao. The
 House Style section in
-[`../../code-style/style-review/references/rules.md`](../../code-style/style-review/references/rules.md)
+[`../../code-style/style-review/references/rules.md`](../../style-review/references/rules.md)
 lists that author's habits, drawn from first-author ML papers written before AI
 writing tools: the moves of an abstract, introduction, results paragraph, and
 conclusion; about one sentence in four past 30 words, carrying parenthetical

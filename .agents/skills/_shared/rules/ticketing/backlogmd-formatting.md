@@ -173,7 +173,7 @@ Apply both a **type** and a **component** label (when the project's `backlog.con
 
 - Type: `bug` / `feature` / `enhancement`
 - Component: `api` / `ui` / `sdk` / any project-specific component
-- Triage: the five canonical roles (see [triage-labels.md](../../../planning/ticketing/references/triage-labels.md))
+- Triage: the five canonical roles (see [triage-labels.md](../../../ticketing/references/triage-labels.md))
 
 Only use labels declared in `backlog.config.yml`.
 
