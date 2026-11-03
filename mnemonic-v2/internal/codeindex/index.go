@@ -48,6 +48,13 @@ type IndexOpts struct {
 	Project   string
 	ExtractFn extractFn
 	Stamp     string
+	// Full is the --full flag (a full re-index request). It does NOT bypass the
+	// content-hash incremental guard (an unchanged file is still a no-op —
+	// rewriting it would churn the WAL for no gain); it changes how the caller
+	// PRESENTS the run: a full run that indexes nothing but examined files
+	// reports FilesUnchanged>0 so the CLI can respond "nothing to do (N files
+	// unchanged)" instead of a silent no-op. See IndexReport.FilesUnchanged.
+	Full bool
 	// LSP is the optional LSP tier (TICKET-08b, CI-6, off by default). When
 	// non-nil the run resolves member calls through it after the core index:
 	// a resolved call → an LSP_RESOLVED edge (the 4th confidence tier).
@@ -71,6 +78,13 @@ type IndexReport struct {
 	FilesIndexed   int
 	FilesDeleted   int
 	FilesOversized int
+	// FilesUnchanged counts the eligible files the content-hash incremental
+	// guard skipped (same content_hash as the last index — a no-op upsert, T1).
+	// It is the "nothing to do" signal: a run (especially --full) that indexed
+	// nothing but examined N unchanged files reports FilesUnchanged=N, so the
+	// caller can respond honestly ("nothing to do — 1954 files unchanged")
+	// instead of a silent no-op that looks like a hang or an empty tree.
+	FilesUnchanged int
 }
 
 // Index walks root, extracts every eligible file, writes each file's
@@ -123,6 +137,11 @@ func Index(ctx context.Context, root string, st store.Store, opts IndexOpts) (In
 	// the target uid set (the orphan prune's input, spec 002 §9)
 	var targetUIDs []string
 	var symbolsCount, edgesCount, chunksCount, unresolvedCount int
+	// examined advances over every eligible file the run looks at (indexed OR
+	// skipped-by-the-hash-guard). It is the progress bar's `done`: a --full run
+	// must visibly walk all N files and reach N/N, whether or not each was
+	// rewritten. FilesIndexed (committed) is the separate, stricter count.
+	var examined int
 
 	// the progress denominator: the index-eligible files (a mapped language).
 	// Unmapped extensions are skipped before extraction, so they are not part
@@ -162,6 +181,15 @@ func Index(ctx context.Context, root string, st store.Store, opts IndexOpts) (In
 		// prune the graph it is not touching).
 		if f, err := st.FileByPath(ctx, rel); err == nil && f.ContentHash == hash {
 			targetUIDs = append(targetUIDs, fileUids(ctx, st, f.ID)...)
+			// Count the skip (the "nothing to do" signal) and still advance the
+			// progress bar over it (a --full run must visibly walk every file,
+			// even the ones it does not rewrite — otherwise an unchanged --full
+			// run streams nothing and looks stuck again).
+			rep.FilesUnchanged++
+			examined++
+			if opts.Progress != nil {
+				opts.Progress(examined, total, rel)
+			}
 			continue
 		}
 
@@ -175,6 +203,10 @@ func Index(ctx context.Context, root string, st store.Store, opts IndexOpts) (In
 		// from a test double has Oversized=false → treated as indexed).
 		if g.Oversized {
 			rep.FilesOversized++
+			examined++
+			if opts.Progress != nil {
+				opts.Progress(examined, total, rel)
+			}
 			continue
 		}
 
@@ -217,11 +249,13 @@ func Index(ctx context.Context, root string, st store.Store, opts IndexOpts) (In
 		}
 
 		rep.FilesIndexed++
+		examined++
 		// live progress (the v1 index streamed per-file feedback; a silent
 		// multi-minute re-index looks stuck). Fired after the per-file tx
-		// commits, so `done` only ever advances on a file actually written.
+		// commits. `done` = examined (indexed + skipped), so a --full run walks
+		// to N/N whether or not each file was rewritten.
 		if opts.Progress != nil {
-			opts.Progress(rep.FilesIndexed, total, rel)
+			opts.Progress(examined, total, rel)
 		}
 		targetUIDs = append(targetUIDs, uidsOf(g.Symbols)...)
 		symbolsCount += len(g.Symbols)

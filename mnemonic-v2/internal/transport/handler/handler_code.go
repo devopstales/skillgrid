@@ -313,6 +313,13 @@ type IndexResult struct {
 	Status   string   `json:"status"`
 	Degraded string   `json:"degraded,omitempty"`
 	Warnings []string `json:"warnings,omitempty"`
+	// FilesIndexed / FilesUnchanged are the run's file outcomes (the driver's
+	// IndexReport surfaced). FilesUnchanged is the "nothing to do" signal: a
+	// --full run that indexed nothing but examined N unchanged files reports
+	// FilesIndexed=0 + FilesUnchanged=N, so the CLI responds "nothing to do
+	// (N files unchanged)" instead of a silent no-op that looks like a hang.
+	FilesIndexed   int `json:"files_indexed"`
+	FilesUnchanged int `json:"files_unchanged"`
 }
 
 // Index runs the code_index (spec 008 §6 — the queued write, the active-run
@@ -389,12 +396,14 @@ func (h *CodeHandler) Index(ctx context.Context, project string, full, lsp, pdg,
 	// The core index run (the per-file extract tx + the orphan prune + the
 	// freshness record) + the LSP pass when --lsp is set (the optional passes
 	// pdg/communities/process are the v2.1 deferrals).
-	if _, err := fn(ctx, root, h.st, codeindex.IndexOpts{
+	rep, err := fn(ctx, root, h.st, codeindex.IndexOpts{
 		Project:  p,
 		Stamp:    extract.Stamp(),
+		Full:     full, // the --full flag: a full-run no-op must report, not silently skip
 		LSP:      lspCfg,
 		Progress: progress, // nil on MCP + watch (no stream); the CLI sets it
-	}); err != nil {
+	})
+	if err != nil {
 		return IndexResult{RunID: runID, Status: "error"}, err
 	}
 
@@ -403,7 +412,12 @@ func (h *CodeHandler) Index(ctx context.Context, project string, full, lsp, pdg,
 	// missing server degrades (lsp_unavailable:<lang>, the run's warnings
 	// carry the note) — NOT "lsp_not_built" (that was the no-op window). The
 	// PDG/communities/process tiers remain the v2.1 deferrals.
-	res := IndexResult{RunID: runID, Status: "done"}
+	res := IndexResult{
+		RunID:          runID,
+		Status:         "done",
+		FilesIndexed:   rep.FilesIndexed,
+		FilesUnchanged: rep.FilesUnchanged,
+	}
 	h.lspWarn.Lock()
 	res.Warnings = append(res.Warnings, h.lspWarn.notes...)
 	for _, w := range h.lspWarn.notes {

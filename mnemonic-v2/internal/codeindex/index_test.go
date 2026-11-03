@@ -243,6 +243,90 @@ func TestIndexProgressCallbackFiresPerIndexedFile(t *testing.T) {
 	}
 }
 
+// [full-unchanged-reports-no-op] --full on an unchanged tree must RESPOND,
+// not be a silent no-op (the user had to watch the WAL to know a "full" re-index
+// did nothing). The driver counts the files the incremental guard skipped
+// (FilesUnchanged) on EVERY run; a full run that indexed nothing but examined
+// files must report FilesUnchanged>0 + FilesIndexed==0 so the caller can say
+// "nothing to do (N files unchanged)". The count is correct whether or not
+// Full is set (an incremental no-op also skips — the report is honest either
+// way); Full only changes how the caller *presents* it.
+func TestFullUnchangedRunReportsNoOp(t *testing.T) {
+	root := t.TempDir()
+	writeTree := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	writeTree("pay.go", "package pay\n\nfunc CapturePayment() {}\n")
+	writeTree("billing.go", "package billing\n\nfunc ApplyDiscount() {}\n")
+
+	dir := t.TempDir()
+	st, err := store.Open(context.Background(), dir, "proj-fu", store.SQLite, "")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	opts := IndexOpts{
+		Project:   "proj-fu",
+		Full:      true,
+		ExtractFn: func(path, content string) (store.FileGraph, error) { return fakeExtract(path), nil },
+	}
+	// first run: indexes both files
+	rep1, err := Index(context.Background(), root, st, opts)
+	if err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	if rep1.FilesIndexed != 2 {
+		t.Fatalf("first run must index both: %+v", rep1)
+	}
+	// second run (tree unchanged, --full): nothing to rewrite. It must count
+	// the skipped files, not silently return a zero report.
+	rep2, err := Index(context.Background(), root, st, opts)
+	if err != nil {
+		t.Fatalf("second (full, unchanged) run: %v", err)
+	}
+	if rep2.FilesIndexed != 0 {
+		t.Fatalf("unchanged --full run must index nothing: %+v", rep2)
+	}
+	if rep2.FilesUnchanged != 2 {
+		t.Fatalf("unchanged --full run must report 2 files unchanged (so it responds, not silently no-op): %+v", rep2)
+	}
+}
+
+// [incremental-no-op-also-counts-unchanged] the FilesUnchanged count is honest
+// on a plain incremental run too (no --full): an unchanged re-index reports the
+// skipped files, so the caller can distinguish "nothing changed" from "first
+// index of an empty tree". A zero report from a no-op run is indistinguishable
+// from a fresh empty index without it.
+func TestIncrementalNoOpCountsUnchanged(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "pay.go"), []byte("package pay\n\nfunc CapturePayment() {}\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	dir := t.TempDir()
+	st, err := store.Open(context.Background(), dir, "proj-inc", store.SQLite, "")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	base := IndexOpts{Project: "proj-inc", ExtractFn: func(p, c string) (store.FileGraph, error) { return fakeExtract(p), nil }}
+	if _, err := Index(context.Background(), root, st, base); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	// unchanged incremental re-run: the single file is skipped + counted
+	rep2, err := Index(context.Background(), root, st, base)
+	if err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	if rep2.FilesIndexed != 0 || rep2.FilesUnchanged != 1 {
+		t.Fatalf("incremental no-op must report 0 indexed / 1 unchanged: %+v", rep2)
+	}
+}
+
 // [index-progress-nil-default] a nil Progress (the default — the MCP tool and
 // the watch loop do not stream) must not panic and must behave identically to
 // a run with no progress wiring (the silent floor).
