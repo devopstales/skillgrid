@@ -193,14 +193,13 @@ func TestConcurrentProcessWAL(t *testing.T) {
 // backstop (the scenario's RED half: a busy error that busy_timeout alone
 // cannot absorb must still be absorbed by Task 1's withWriteRetry). It is
 // TestConcurrentProcessWAL's variant with a different input: the DSN's
-// busy_timeout is shortened (10 ms via MNEMONIC_WAL_BUSY_TIMEOUT_MS, which
-// runConcurrentWorker mirrors into the test package's walTestBusyTimeoutMS)
-// so the parent's held write lock makes the worker's BEGIN IMMEDIATE hit
-// SQLITE_BUSY inside its budget. The parent's 750 ms hold exceeds the full
-// backoff budget (10+25+50+100+200 ms ≈ 385 ms), so a save that starts
-// inside the hold window fails when the retry wrapper is absent (the test's
-// RED) — with it, the wrapper's retries are what carry the save through.
-// Same two real OS processes, same file, different budget.
+// busy_timeout is shortened (10 ms) so the parent's held write lock makes
+// the PARENT's own next save hit SQLITE_BUSY inside its budget. The parent's
+// 750 ms hold exceeds the full backoff budget (10+25+50+100+200 ms ≈ 385 ms),
+// so a save that starts inside the hold window fails when the retry wrapper
+// is absent (the test's RED) — with it, the wrapper's retries carry the save
+// through. Two real OS processes share the file (the worker runs its 20
+// saves concurrently); the parent's hold is the retry wrapper's target.
 func TestConcurrentProcessWALBusyExhaustion(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()
@@ -208,10 +207,8 @@ func TestConcurrentProcessWALBusyExhaustion(t *testing.T) {
 	const parentSession = "ses-parent"
 	const workerSession = "ses-worker"
 
-	// The parent (this process) writes with the shortened budget too —
-	// both sides of the scenario share the DSN, and the worker's hold is
-	// what must be absorbed, so the parent's budget is not what is
-	// exercised here (it does one write and then reads).
+	// The parent (this process) writes with the shortened budget (10 ms) —
+	// the hold's lock is what the parent's next save must ride out.
 	prev := walTestBusyTimeoutMS
 	walTestBusyTimeoutMS = 10
 	t.Cleanup(func() { walTestBusyTimeoutMS = prev })
@@ -230,22 +227,8 @@ func TestConcurrentProcessWALBusyExhaustion(t *testing.T) {
 		t.Fatalf("parent row: %v", err)
 	}
 
-	// The parent's hold is what the worker must ride out: start it
-	// BEFORE the worker so the worker's session-registration save and
-	// its first saves all meet the held write lock (a 10 ms
-	// busy_timeout cannot wait them out — withWriteRetry's backoffs
-	// can). The hold's 750 ms exceeds the full backoff budget
-	// (10+25+50+100+200 ms ≈ 385 ms), so a save that starts inside the
-	// hold window fails when the retry wrapper is absent (the test's
-	// RED) and the wrapper's effect is the variable under test.
-	holdDone, err := rawSQLiteHold(ctx, st, 750*time.Millisecond)
-	if err != nil {
-		t.Fatalf("parent hold: %v", err)
-	}
-	defer func() { <-holdDone }()
-
-	// Worker: the same 20-save scenario, but its busy_timeout is 10 ms —
-	// a hold the 5 s default absorbs is, to it, a retryable busy error.
+	// Worker: the same 20-save scenario, its busy_timeout also 10 ms (the
+	// DSN's value — the worker mirrors the parent's walTestBusyTimeoutMS).
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatalf("os.Executable: %v", err)
@@ -266,6 +249,38 @@ func TestConcurrentProcessWALBusyExhaustion(t *testing.T) {
 	})
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
+
+	// The parent's hold: a BEGIN IMMEDIATE transaction that sleeps 750 ms
+	// and commits (the write lock is held the whole time). The parent's
+	// NEXT save (below) starts inside the hold window: a 10 ms
+	// busy_timeout cannot wait it out, but withWriteRetry's backoffs
+	// (10+25+50+100+200 ms ≈ 385 ms of retry budget) can. Without the
+	// retry wrapper this save fails (the test's RED).
+	holdDone, err := rawSQLiteHold(ctx, st, 750*time.Millisecond)
+	if err != nil {
+		t.Fatalf("parent hold: %v", err)
+	}
+	// The hold runs in a goroutine; the parent's next save (below) must
+	// wait for the hold's lock. We do NOT join here — the save's own
+	// busy-timeout/retry is what we're measuring.
+	go func() { <-holdDone }()
+
+	// The parent's save during the hold: this is the retry wrapper's
+	// target. With busy_timeout=10 ms and a 750 ms hold, the first
+	// BEGIN IMMEDIATE fails after 10 ms; the wrapper retries with
+	// backoffs and the save lands once the hold commits (~750 ms in).
+	// Without the wrapper, this fails (the test's RED).
+	t0 := time.Now()
+	_, err = st.AddObservation(ctx, AddObservationParams{
+		SessionID: parentSession, Type: "decision",
+		Title:   "Parent save during hold",
+		Content: "this save must ride out the 750 ms hold via withWriteRetry",
+		Project: project,
+	})
+	if err != nil {
+		t.Fatalf("parent save during hold failed (retry wrapper regression): %v\n(took %v)", err, time.Since(t0))
+	}
+	t.Logf("parent save during hold took %v (expected ~750 ms: the hold's length)", time.Since(t0))
 
 	select {
 	case err := <-done:
@@ -292,6 +307,9 @@ func TestConcurrentProcessWALBusyExhaustion(t *testing.T) {
 	}
 	if n := countObservationsBySession(t, st, workerSession); n != concurrentWorkerSaves+1 {
 		t.Errorf("store holds %d worker rows, want %d (20 saves + session row)", n, concurrentWorkerSaves+1)
+	}
+	if n := countObservationsBySession(t, st, parentSession); n != 2 {
+		t.Errorf("store holds %d parent rows, want 2 (hold row + save-during-hold row)", n)
 	}
 	if err := st.Ping(ctx); err != nil {
 		t.Fatalf("post-run ping: %v", err)
