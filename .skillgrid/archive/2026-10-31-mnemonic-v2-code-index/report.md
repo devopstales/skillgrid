@@ -210,3 +210,13 @@ None required.
 ---
 
 *QA half complete (qa). The retro half (from `## Final-State Facts` onward) is written by `reflect` at archive time.*
+## Final-State Facts
+
+- Change: `2026-10-31-mnemonic-v2-code-index` (branch `release/2`).
+- QA gate: PASS (qa, 2026-11-03T19:40Z). Code review: met-with-fixes (three-axis, floor met-with-fixes, 2026-11-03T20:45Z).
+- Fix loop (code): converged + green (gofmt/build/vet/tests + smoke); 2 unfixed Important (Spec) resolved this session; ship unblocked.
+- Ship: spec folder archived; commit `ad974fa4`; pipeline → `ship` / `fix-loop-green`.
+
+## Retro
+
+- Fix-loop evidence held; blockers were spec-boundary gaps (deferral record, CLI surface promise), not walker/store regressions.
