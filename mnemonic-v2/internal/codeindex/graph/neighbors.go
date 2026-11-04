@@ -87,6 +87,10 @@ func viewEdges(ctx context.Context, st store.Store, symID int64, v view) (Neighb
 	if symID == 0 {
 		return Neighbors{Edges: []NeighborEdge{}}, nil
 	}
+	symRow, err := st.SymbolByID(ctx, symID)
+	if err != nil {
+		return Neighbors{}, err
+	}
 
 	// Fetch all edges involving this symbol
 	edges, err := fetchEdges(ctx, st, symID)
@@ -137,7 +141,7 @@ func viewEdges(ctx context.Context, st store.Store, symID int64, v view) (Neighb
 	case viewTestsFor:
 		route = "code_tests_for"
 	}
-	RecordTrail(ctx, st, route, string(rune(symID)), "", trailIDs...)
+	RecordTrail(ctx, st, route, symRow.Name, "", trailIDs...)
 
 	return Neighbors{Edges: out}, nil
 }

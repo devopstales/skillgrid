@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"math"
+	"strconv"
 
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/store"
 )
@@ -80,7 +81,7 @@ func semanticLeg(ctx context.Context, st store.Store, q SearchQuery) ([]legHit, 
 		}
 		cands = append(cands, cand{
 			h: legHit{
-				ID:        "sym:" + itoa(rowInt(row, 0)),
+				ID:        "sym:" + strconv.Itoa(rowInt(row, 0)),
 				Path:      rowStr(row, 3),
 				StartLine: rowInt(row, 4),
 				EndLine:   rowInt(row, 5),

@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -36,10 +37,10 @@ import (
 // project's working-tree root (the index walk + the watch root); it is set
 // by the wiring (the CLI's openRuntime, the MCP server's RegisterCodeTools).
 type CodeHandler struct {
-	st   store.Store
-	emb  embedder.Embedder
-	cfg  config.Config
-	det  Detector
+	st   store.Store       // immutable after construction (set in NewCodeHandler; no setter)
+	emb  embedder.Embedder // immutable after construction (set in NewCodeHandler; no setter)
+	cfg  config.Config     // immutable after construction (set in NewCodeHandler; no setter)
+	det  Detector          // immutable after construction (set in NewCodeHandler; no setter)
 	root string
 	// runRegistry is the active-run guard (B3, named): a repeat code_index
 	// while a run is active → 409 operation_conflict (the guard is the one
@@ -576,7 +577,34 @@ func (h *CodeHandler) Read(ctx context.Context, path string, start, end int, mod
 	if mode == "content" {
 		m = search.ReadModeContent
 	}
+	if err := h.confinePath(path); err != nil {
+		return search.ReadResult{}, err
+	}
 	return search.Read(ctx, h.st, path, start, end, m)
+}
+
+// confinePath rejects paths that escape the handler's working-tree root
+// (absolute paths, .. traversal, symlinks escaping the root) — the review
+// Security finding on code_read (full mode): an unconfined read is an
+// arbitrary-file read on an unauthenticated stdio MCP surface.
+func (h *CodeHandler) confinePath(path string) error {
+	if path == "" {
+		return fmt.Errorf("code_read: empty path")
+	}
+	if filepath.IsAbs(path) {
+		return fmt.Errorf("code_read: absolute paths are not permitted: %s", path)
+	}
+	root := filepath.Clean(h.rootLocked())
+	full := filepath.Clean(filepath.Join(root, path))
+	if full != root && !strings.HasPrefix(full, root+string(filepath.Separator)) {
+		return fmt.Errorf("code_read: path escapes the index root: %s", path)
+	}
+	if resolved, err := filepath.EvalSymlinks(full); err == nil {
+		if resolved != root && !strings.HasPrefix(resolved, root+string(filepath.Separator)) {
+			return fmt.Errorf("code_read: path escapes the index root: %s", path)
+		}
+	}
+	return nil
 }
 
 // Resolve runs the code_resolve (spec 004 §3 — the KB pin-check contract:

@@ -122,7 +122,7 @@ func Affected(ctx context.Context, st store.Store, opts AffectedOpts) (AffectedR
 		// consumed into memory before any next query).
 		edges, err := st.EdgesByTo(ctx, cur.id, dependentsKinds)
 		if err != nil {
-			continue
+			return res, err
 		}
 
 		// Collect the distinct from_ids this frontier reached.

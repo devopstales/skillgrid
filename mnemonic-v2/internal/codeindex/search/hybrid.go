@@ -15,6 +15,7 @@ package search
 import (
 	"context"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/codeindex/graph"
@@ -138,7 +139,7 @@ func Hybrid(ctx context.Context, st store.Store, q SearchQuery) (SearchResult, e
 					continue
 				}
 				h := legHit{
-					ID:        "grep:" + gh.Path + ":" + itoa(gh.Line),
+					ID:        "grep:" + gh.Path + ":" + strconv.Itoa(gh.Line),
 					Path:      gh.Path,
 					StartLine: gh.Line,
 					EndLine:   gh.Line,
@@ -193,7 +194,7 @@ func Hybrid(ctx context.Context, st store.Store, q SearchQuery) (SearchResult, e
 			trailIDs = append(trailIDs, h.StoreID)
 			continue
 		}
-		trailIDs = append(trailIDs, hitKeyID(h.Path+":"+itoa(h.StartLine)))
+		trailIDs = append(trailIDs, hitKeyID(h.Path+":"+strconv.Itoa(h.StartLine)))
 	}
 	query := q.Query
 	if q.Under != "" {
@@ -329,16 +330,3 @@ func hitKeyID(id string) int64 {
 type errString string
 
 func (e errString) Error() string { return string(e) }
-
-// itoa is a small int→string (avoids a strconv import for one call site).
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var b []byte
-	for n > 0 {
-		b = append([]byte{byte('0' + n%10)}, b...)
-		n /= 10
-	}
-	return string(b)
-}

@@ -63,6 +63,8 @@ func (r ImpactResult) HasLikely(name string) bool {
 // Impact returns the blast radius of symID, risk-tiered by depth, honoring minConfidence.
 // It walks reverse edges (dependents): who calls/imports/extends the target.
 // An unknown symbol (ID 0) returns an empty result.
+const maxImpactDepth = 10
+
 func Impact(ctx context.Context, st store.Store, symID int64, minConfidence string, maxDepth int) (ImpactResult, error) {
 	out := ImpactResult{}
 	if symID == 0 {
@@ -70,6 +72,11 @@ func Impact(ctx context.Context, st store.Store, symID int64, minConfidence stri
 	}
 	if maxDepth <= 0 {
 		maxDepth = 5
+	}
+	// Security (review): cap the agent-supplied max_depth — an unbounded
+	// traversal is a DoS vector on a dense reverse-dependency graph.
+	if maxDepth > maxImpactDepth {
+		maxDepth = maxImpactDepth
 	}
 
 	// Reverse BFS over dependents: from a node, its dependents are the FROM
@@ -88,6 +95,7 @@ func Impact(ctx context.Context, st store.Store, symID int64, minConfidence stri
 		}
 	}
 
+	trailName := ""
 	for len(queue) > 0 {
 		cur := queue[0]
 		queue = queue[1:]
@@ -95,24 +103,23 @@ func Impact(ctx context.Context, st store.Store, symID int64, minConfidence stri
 			continue
 		}
 
-		// Get the current symbol's name (for name-only edge matching)
 		curSym, err := st.SymbolByID(ctx, cur.id)
 		if err != nil {
 			continue
 		}
-
+		trailName = curSym.Name
 		// Reverse dependents: edges where to_id = cur.id (resolved)
 		edges, err := st.EdgesByTo(ctx, cur.id, dependentsKinds)
 		if err != nil {
 			// A read that failed is still a degraded retrieval (INV-5).
-			RecordTrail(ctx, st, "code_impact", string(rune(symID)), "edges_by_to: "+err.Error(), trailIDs...)
+			RecordTrail(ctx, st, "code_impact", curSym.Name, "edges_by_to: "+err.Error(), trailIDs...)
 			return out, err
 		}
 
 		// Also fetch name-only edges where to_name = curSym.Name
 		nameOnlyEdges, err := st.EdgesByNameOnlyToName(ctx, curSym.Name, dependentsKinds)
 		if err != nil {
-			RecordTrail(ctx, st, "code_impact", string(rune(symID)), "name_only: "+err.Error(), trailIDs...)
+			RecordTrail(ctx, st, "code_impact", curSym.Name, "name_only: "+err.Error(), trailIDs...)
 			return out, err
 		}
 
@@ -149,7 +156,7 @@ func Impact(ctx context.Context, st store.Store, symID int64, minConfidence stri
 	})
 
 	// Record the trail with the returned symbol ids.
-	RecordTrail(ctx, st, "code_impact", string(rune(symID)), "", trailIDs...)
+	RecordTrail(ctx, st, "code_impact", trailName, "", trailIDs...)
 
 	return out, nil
 }

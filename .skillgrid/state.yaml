@@ -4,9 +4,9 @@ P26-11-03-mnv2codeindex-qa: "2026-11-03: 2026-10-31-mnemonic-v2-code-index QA GA
 P26-11-03-mnv2codeindex-review: "2026-11-03: 2026-10-31-mnemonic-v2-code-index CODE REVIEW = met-with-fixes (floor). Three-axis review (Standards/Spec/Security), Grade B independence, 3-round budget. 2 Critical (PG stub duplicate [resolved — stale build cache], circuit breaker per-file pool), 8 Important (lossy trail queries, unlocked st/emb/det, Affected vs Impact error handling, hand-rolled itoa, TICKET-08a/b/c post-hoc deferral, code_affected base-ref missing, code_read arbitrary file read [High], unbounded code_impact/code_path DoS [Medium]). review.md committed. NEXT: receiving-code-review (triage + fix the in-scope set) -> ship; after ship repoint current_change to the next queued function (knowledge-base)."
 schema: skillgrid/state/v1
 pipeline:
-  current_phase: review
+  current_phase: ship
   current_change: 2026-10-31-mnemonic-v2-code-index
-  status: review-passed
+  status: fix-loop-green
 progress:
   completed_changes: 27
   blocked_changes: 0

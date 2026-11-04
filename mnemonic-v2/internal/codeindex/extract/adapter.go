@@ -68,10 +68,11 @@ func ToStoreGraph(g FileGraph) store.FileGraph {
 
 // DefaultExtractFn is the codeindex.Index ExtractFn seam wired to the real
 // 3-tier ladder (TICKET-03 replaces TICKET-01's test double). path is the
-// repo-relative path; content is the file body. The language is detected from
-// the path ("" when unmapped → regex tier).
-func DefaultExtractFn(path, content string) (store.FileGraph, error) {
-	g, _, err := ExtractFile(context.Background(), path, content, "")
+// repo-relative path; content is the file body; the language is detected from
+// the path ("" when unmapped → regex tier). opts are the ExtractOptions (the
+// WithPool seam: the circuit-breaker state lives for the run, not per call).
+func DefaultExtractFn(path, content string, opts ...ExtractOption) (store.FileGraph, error) {
+	g, _, err := ExtractFile(context.Background(), path, content, "", opts...)
 	if err != nil {
 		return ToStoreGraph(g), err
 	}

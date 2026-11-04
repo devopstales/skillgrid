@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -65,7 +66,7 @@ func ftsLeg(ctx context.Context, st store.Store, q SearchQuery) ([]legHit, error
 		}
 		for _, row := range rows {
 			identHits = append(identHits, legHit{
-				ID:        "sym:" + itoa(rowInt(row, 0)),
+				ID:        "sym:" + strconv.Itoa(rowInt(row, 0)),
 				Path:      rowStr(row, 3),
 				StartLine: rowInt(row, 4),
 				EndLine:   rowInt(row, 5),
@@ -107,7 +108,7 @@ func ftsLeg(ctx context.Context, st store.Store, q SearchQuery) ([]legHit, error
 		}
 		for _, row := range crows {
 			textHits = append(textHits, legHit{
-				ID:        "chunk:" + rowStr(row, 0) + ":" + itoa(rowInt(row, 1)),
+				ID:        "chunk:" + rowStr(row, 0) + ":" + strconv.Itoa(rowInt(row, 1)),
 				Path:      rowStr(row, 0),
 				StartLine: rowInt(row, 1),
 				EndLine:   rowInt(row, 2),
@@ -136,7 +137,7 @@ func ftsLeg(ctx context.Context, st store.Store, q SearchQuery) ([]legHit, error
 		}
 		for _, row := range srows {
 			textHits = append(textHits, legHit{
-				ID:        "sym:" + itoa(rowInt(row, 0)),
+				ID:        "sym:" + strconv.Itoa(rowInt(row, 0)),
 				Path:      rowStr(row, 3),
 				StartLine: rowInt(row, 4),
 				EndLine:   rowInt(row, 5),

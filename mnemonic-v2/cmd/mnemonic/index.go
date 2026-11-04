@@ -371,9 +371,32 @@ func runIndexImpact(fl config.Flags, cwd string, args []string) int {
 	return finish(fs, *jsonOut, dispatchResult{result: res, err: err})
 }
 
+// gitChangedFiles returns the repo-relative paths changed between <base> and
+// HEAD (git merge-base <base> HEAD + diff --name-only <mb> HEAD) — the
+// code_affected base input (spec 004 §6); the CLI owns the git-diff.
+func gitChangedFiles(dir, base string) ([]string, error) {
+	mb, err := gitOutput(dir, "merge-base", base, "HEAD")
+	if err != nil {
+		return nil, fmt.Errorf("affected: git merge-base %s HEAD failed: %w", base, err)
+	}
+	mb = strings.TrimSpace(string(mb))
+	out, err := gitOutput(dir, "diff", "--name-only", mb)
+	if err != nil {
+		return nil, fmt.Errorf("affected: git diff --name-only %s..HEAD failed: %w", mb, err)
+	}
+	var files []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if p := strings.TrimSpace(line); p != "" {
+			files = append(files, p)
+		}
+	}
+	return files, nil
+}
+
 // runIndexAffected runs `mnemonic affected [base]` (the code_affected read —
-// the tests to run after a change). The --changed flag takes a comma-separated
-// file list; --stdin reads it from stdin.
+// the tests to run after a change). The --base flag takes a git ref and the
+// CLI resolves the changed set via git merge-base + diff; the --changed flag
+// takes a comma-separated file list; --stdin reads it from stdin.
 func runIndexAffected(fl config.Flags, cwd string, args []string) int {
 	fs := flag.NewFlagSet("affected", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -381,12 +404,20 @@ func runIndexAffected(fl config.Flags, cwd string, args []string) int {
 	jsonOut := jsonFlag(fs)
 	changed := fs.String("changed", "", "comma-separated changed file paths")
 	stdin := fs.Bool("stdin", false, "read the changed file list from stdin")
+	base := fs.String("base", "", "git ref to diff against (the CLI does the git-diff)")
 	depth := fs.Int("depth", 5, "the traversal depth (default 5)")
 	if err := fs.Parse(reorderArgs(args)); err != nil {
 		return exitUsage
 	}
 	var files []string
-	if *changed != "" {
+	if *base != "" {
+		f, err := gitChangedFiles(cwd, *base)
+		if err != nil {
+			fmt.Fprintf(outW(), "error: %s\n", err.Error())
+			return exitErr
+		}
+		files = f
+	} else if *changed != "" {
 		files = splitComma(*changed)
 	} else if *stdin {
 		files = readStdinLines()

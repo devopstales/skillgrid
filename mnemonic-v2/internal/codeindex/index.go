@@ -118,10 +118,15 @@ type IndexReport struct {
 func Index(ctx context.Context, root string, st store.Store, opts IndexOpts) (IndexReport, error) {
 	// The ExtractFn seam (TICKET-01's test double, TICKET-03's real ladder):
 	// a nil ExtractFn defaults to the real 3-tier ladder (TICKET-03 wires it
-	// in; the store-level tests still inject a test double).
+	// in; the store-level tests still inject a test double). The default runs
+	// ONE pool per index run (the circuit breaker must survive the per-file
+	// fallback, else it never trips — review Critical #2).
 	fn := opts.ExtractFn
 	if fn == nil {
-		fn = extract.DefaultExtractFn
+		pool := extract.NewPool(extract.PoolConfig{})
+		fn = func(path, content string) (store.FileGraph, error) {
+			return extract.DefaultExtractFn(path, content, extract.WithPool(pool))
+		}
 	}
 	stamp := opts.Stamp
 	if stamp == "" {

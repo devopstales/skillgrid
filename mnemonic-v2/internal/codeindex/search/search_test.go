@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -113,7 +114,7 @@ func topHit(hits []Hit) string {
 		return ""
 	}
 	h := hits[0]
-	return h.Path + ":" + itoa(h.StartLine)
+	return h.Path + ":" + strconv.Itoa(h.StartLine)
 }
 
 // [structural-grep-pattern-language] T12 triangulation: \f(ARGS) against a
@@ -810,7 +811,7 @@ func TestSearchTrailCarriesStoreIDs(t *testing.T) {
 			idsSet[p] = true
 		}
 	}
-	if !idsSet[itoa(int(wantID))] {
+	if !idsSet[strconv.Itoa(int(wantID))] {
 		t.Fatalf("trail must carry the symbol's store id %d (F4), got ids=%q", wantID, idsCol)
 	}
 }

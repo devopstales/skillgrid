@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/store"
 )
@@ -30,6 +31,8 @@ type RefusedMatch struct {
 
 // Path returns the BFS shortest path between fromID and toID (spec 004 §7).
 // If no path exists, returns the "where the graph stops" answer.
+const maxPathVisits = 1000
+
 func Path(ctx context.Context, st store.Store, fromID, toID int64) (PathResult, error) {
 	// BFS from fromID to toID
 	visited := map[int64]bool{fromID: true}
@@ -38,6 +41,9 @@ func Path(ctx context.Context, st store.Store, fromID, toID int64) (PathResult, 
 	found := false
 
 	for len(queue) > 0 && !found {
+		if int64(len(visited)) > maxPathVisits {
+			break
+		}
 		cur := queue[0]
 		queue = queue[1:]
 
@@ -96,14 +102,14 @@ func Path(ctx context.Context, st store.Store, fromID, toID int64) (PathResult, 
 			cur = parent[cur]
 		}
 		// Record the trail with the path's symbol ids.
-		RecordTrail(ctx, st, "code_path", string(rune(fromID))+":"+string(rune(toID)), "", pathIDs...)
+		RecordTrail(ctx, st, "code_path", strconv.FormatInt(fromID, 10)+":"+strconv.FormatInt(toID, 10), "", pathIDs...)
 		return PathResult{Found: true, Path: path}, nil
 	}
 
 	// No path found: build the graph-stops answer (a degraded read — the flow
 	// could not be completed).
 	stops := buildGraphStops(ctx, st, fromID, visited)
-	RecordTrail(ctx, st, "code_path", string(rune(fromID))+":"+string(rune(toID)), "graph_stops")
+	RecordTrail(ctx, st, "code_path", strconv.FormatInt(fromID, 10)+":"+strconv.FormatInt(toID, 10), "graph_stops")
 	return PathResult{Found: false, Stops: stops}, nil
 }
 
