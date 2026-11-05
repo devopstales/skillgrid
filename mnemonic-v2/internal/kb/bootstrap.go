@@ -42,6 +42,9 @@ type Scaffold struct {
 // sentinel config.json → no-op.
 func Bootstrap(ctx context.Context, st store.Store, root string, opts Options) (*Scaffold, error) {
 	sc := &Scaffold{Root: root}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return nil, fmt.Errorf("kb: mkdir %s: %w", root, err)
+	}
 	sentinel := filepath.Join(root, VaultConfigFile)
 	if _, err := os.Stat(sentinel); err == nil {
 		sc.Skipped = append(sc.Skipped, VaultConfigFile)

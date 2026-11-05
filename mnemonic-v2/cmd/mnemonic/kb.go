@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/config"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/project"
@@ -58,6 +59,13 @@ func kbStore(cwd string, fl config.Flags, explicit string) (store.Store, string,
 	return st, p, nil
 }
 
+// kbRoot returns the knowledge vault root for this project (spec
+// 001-structure: the vault lives under a single sentinel dir,
+// .skillgrid/knowledge/).
+func kbRoot(cwd string) string {
+	return filepath.Join(cwd, ".skillgrid", "knowledge")
+}
+
 func runKbBootstrap(fl config.Flags, cwd string, args []string) int {
 	st, proj, err := kbStore(cwd, fl, "")
 	if err != nil {
@@ -65,7 +73,7 @@ func runKbBootstrap(fl config.Flags, cwd string, args []string) int {
 		return exitUsage
 	}
 	defer st.Close()
-	res, err := kb.Bootstrap(context.Background(), st, proj, kb.Options{Project: proj})
+	res, err := kb.Bootstrap(context.Background(), st, kbRoot(cwd), kb.Options{Project: proj})
 	if err != nil {
 		fmt.Fprintf(errW(), "error: %v\n", err)
 		return 1
@@ -81,7 +89,7 @@ func runKbIndex(fl config.Flags, cwd string, args []string) int {
 		return exitUsage
 	}
 	defer st.Close()
-	res, err := kb.Reindex(context.Background(), st, ".", proj)
+	res, err := kb.Reindex(context.Background(), st, kbRoot(cwd), proj)
 	if err != nil {
 		fmt.Fprintf(errW(), "error: %v\n", err)
 		return 1

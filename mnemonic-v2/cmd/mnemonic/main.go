@@ -204,6 +204,8 @@ func run(args []string) int {
 		return runDoctor(fl, cwd, args)
 	case "index":
 		return runIndex(fl, cwd, args)
+	case "kb":
+		return runKb(fl, cwd, args)
 	case "setup":
 		fmt.Fprintln(outW(), "mnemonic setup delegates to the agent-plugin change (not yet in this build).")
 		return exitOK
