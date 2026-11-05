@@ -133,6 +133,7 @@ Skillgrid itself is dependency-free — the hub is Go + bash + markdown. But ski
 | `pygount` | `codebase-inspection` | LOC, language breakdown, file counts, code-vs-comment ratios | `pip install pygount` (approved by ADR-0015, user scope, never vendored) |
 | `jscpd` | `jscpd`, `dry-refactoring`, `codebase-refactoring` | Copy-paste detector (220+ languages): duplication %, dead code, complexity hotspots | `npx jscpd` (on-demand, no global install) |
 | `playwright` / `playwright-cli` | `dogfood`, `playwright-cli` | Browser automation for exploratory QA and web-app interaction | `npm install -g @playwright/cli` + `npx playwright install` |
+| `agent-reach` | `agent-reach` | Read-only platform content: Xiaohongshu, Bilibili, Twitter/X, Reddit, YouTube subtitles, GitHub, V2EX, Xueqiu quotes, LinkedIn/Boss Zhipin jobs | `skillgrid install` (uv tool install); first use runs `agent-reach setup` (see the `agent-reach` skill) |
 
 **Notes:**
 

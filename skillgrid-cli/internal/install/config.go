@@ -132,14 +132,17 @@ type SecTool struct {
 	Hint string
 }
 
-// SecurityTools returns the security scanners installed with their own
-// managers, run after the npm tools.
+const agentReachReleaseURL = "https://github.com/Panniantong/Agent-Reach/releases/latest/download/agent-reach.zip"
+
+// SecurityTools returns the tool dependencies installed with their own managers
+// (security scanners + agent-reach), run after the npm tools.
 func SecurityTools() []SecTool {
 	return []SecTool{
 		{Name: "wapiti3", Manager: "uv", InstallArgs: []string{"tool", "install", "wapiti3"}, Bin: "wapiti3", Hint: "curl -LsSf https://astral.sh/uv/install.sh | sh"},
 		{Name: "akca", Manager: "go", InstallArgs: []string{"install", "github.com/akha-security/akca/engine/cmd/akca@latest"}, Bin: "akca", Hint: "install Go, then: " + "go install github.com/akha-security/akca/engine/cmd/akca@latest"},
 		{Name: "nuclei", Manager: "go", InstallArgs: []string{"install", "-v", "github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"}, Bin: "nuclei", Hint: "install Go, then: " + "go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"},
 		{Name: "trivy", Manager: "go", InstallArgs: []string{"install", "github.com/aquasecurity/trivy/cmd/trivy@latest"}, Bin: "trivy", Hint: "install Go, then: " + "go install github.com/aquasecurity/trivy/cmd/trivy@latest"},
+		{Name: "agent-reach", Manager: "uv", InstallArgs: []string{"tool", "install", agentReachReleaseURL}, Bin: "agent-reach", Hint: "uv tool install " + agentReachReleaseURL},
 	}
 }
 

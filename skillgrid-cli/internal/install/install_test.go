@@ -96,8 +96,8 @@ func TestGlobalTools(t *testing.T) {
 
 func TestSecurityTools(t *testing.T) {
 	got := SecurityTools()
-	if len(got) != 4 {
-		t.Fatalf("want 4 security tools, got %d", len(got))
+	if len(got) != 5 {
+		t.Fatalf("want 5 security tools, got %d", len(got))
 	}
 	want := map[string]struct {
 		manager string
@@ -123,6 +123,11 @@ func TestSecurityTools(t *testing.T) {
 			manager: "go",
 			bin:     "trivy",
 			args:    []string{"install", "github.com/aquasecurity/trivy/cmd/trivy@latest"},
+		},
+		"agent-reach": {
+			manager: "uv",
+			bin:     "agent-reach",
+			args:    []string{"tool", "install", agentReachReleaseURL},
 		},
 	}
 	for _, s := range got {

@@ -27,8 +27,9 @@ The `skillgrid` CLI installs the hub into this machine. It creates
 `~/.skillgrid/`, copies the repo into `~/.skillgrid/repos/skillgrid`,
 verifies Node is available, lets you pick which agent (Kilo, OpenCode,
 Cursor) to install, runs `npm install -g` for the chosen agents and the
-shared tools (`skills`, `cucumber`), and copies the hub's `.agents/`
-into `~/.agents/`.
+shared tools (`skills`, `cucumber`), installs Agent-Reach (`agent-reach`)
+for read-only platform content, and copies the hub's `.agents/` into
+`~/.agents/`.
 
 ```
 skillgrid --version                 print version
@@ -75,7 +76,7 @@ copy `.agents/` into `~/.agents/`.
 
 It ships:
 
-- **99 skills** under `.agents/skills/` — workflow stages + general capabilities the agent loads at the right moment.
+- **101 skills** under `.agents/skills/` — workflow stages + general capabilities the agent loads at the right moment.
 - **Git + agent hooks** under `hooks/` and `git-hooks/`, agent **plugins** under `plugins/` — "a rule asks; a hook guarantees."
 - **Templates, references, and a router** the agent consumes at runtime.
 
@@ -137,6 +138,7 @@ if your agent doesn't already have them:
 | [Jira CLI](https://github.com/ankitpokhrel/jira-cli) (`jira`) | Jira issues and boards — tracker integration | `brew install jira` / `go install github.com/ankitpokhrel/jira-cli@latest` |
 | [Backlog.md](https://github.com/nstottard/backlog.md) (`backlog`) | Local file-based issue tracker — default tracker for `ticketing` | `brew install nstottard/tap/backlog` / `go install github.com/nstottard/backlog/cmd/backlog@latest` |
 | [skills](https://github.com/vercel-labs/skills) (`npx skills`) | Open agent skills CLI — install/discover/update SKILL.md files across 75+ agents | `npx skills add <owner/repo>` |
+| [Agent-Reach](https://github.com/Panniantong/Agent-Reach) (`agent-reach`) | Read-only platform content — Xiaohongshu, Bilibili, Twitter/X, Reddit, YouTube subtitles, GitHub, V2EX, Xueqiu quotes, LinkedIn/Boss Zhipin jobs | `skillgrid install` (uv); or `uv tool install https://github.com/Panniantong/Agent-Reach/releases/latest/download/agent-reach.zip` then `agent-reach setup` |
 
 All optional — the pipeline works without them, but the relevant gates
 degrade (slower search, no security scan, BDD scenarios unexecuted, tracker
@@ -155,7 +157,7 @@ For the full walkthrough see [docs/user-guide/03-workflow-usage.md](docs/user-gu
 
 ## Skills
 
-99 skills under `.agents/skills/`, flat (one directory per skill, grouped by role in this catalog only). Stages load general skills — a capability is not duplicated as a stage.
+101 skills under `.agents/skills/`, flat (one directory per skill, grouped by role in this catalog only). Stages load general skills — a capability is not duplicated as a stage.
 
 ### Entry / router
 | Skill | Use when |
@@ -225,7 +227,7 @@ The shape is **enforced, not just documented**: `task skill-check` (→ `scripts
 
 ```
 .agents/
-└── skills/            # the 99 skills, flat + _shared/ (conventions, references)
+└── skills/            # the 101 skills, flat + _shared/ (conventions, references)
 hooks/                 # guard implementations (zone, protected-ref, stop, gate-*)
 git-hooks/             # thin shims over hooks/ (exec ../hooks/...)
 plugins/               # agent capture-bridge plugins (opencode, kilo, cursor)
