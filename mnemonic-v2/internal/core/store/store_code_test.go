@@ -294,14 +294,17 @@ func TestDoorCheckCodeIndexWritesAndSearches(t *testing.T) {
 		t.Fatalf("retrieval_trails row not written")
 	}
 
-	// the DDL seam (T21 — the KB's table-adding surface; multi-statement)
+	// the DDL seam (T21 — the KB's table-adding surface; multi-statement).
+	// The fixture table is kb_ddl_pages: migration 200 already creates
+	// kb_pages on a migrated store, and the name here is incidental to the
+	// seam under test.
 	if err := st.ExecDDL(ctx, []string{
-		"CREATE TABLE kb_pages (id INTEGER PRIMARY KEY, title TEXT)",
-		"CREATE INDEX idx_kb_pages_title ON kb_pages(title)",
+		"CREATE TABLE kb_ddl_pages (id INTEGER PRIMARY KEY, title TEXT)",
+		"CREATE INDEX idx_kb_ddl_pages_title ON kb_ddl_pages(title)",
 	}); err != nil {
 		t.Fatalf("exec ddl: %v", err)
 	}
-	if !rawTableExists(t, st, "kb_pages") {
+	if !rawTableExists(t, st, "kb_ddl_pages") {
 		t.Fatalf("ExecDDL did not create the table")
 	}
 

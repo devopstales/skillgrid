@@ -30,9 +30,14 @@ func TestFtsUnitReusable(t *testing.T) {
 	if !strings.Contains(ddls[0], "fts5(") || !strings.Contains(ddls[0], "content='kb_pages'") {
 		t.Fatalf("virtual-table DDL must be external-content FTS5: %s", ddls[0])
 	}
-	// executable against a real store (the KB's content table fixture)
+	// executable against a real store (the KB's content table fixture).
+	// Migration 200 already creates kb_pages + kb_pages_fts on a migrated
+	// store — drop them first so the self-contained fixture re-creates the
+	// canonical KB shape regardless of schema state.
 	st := openTestStore(t)
 	if err := st.ExecDDL(ctx, []string{
+		"DROP TABLE IF EXISTS kb_pages_fts",
+		"DROP TABLE IF EXISTS kb_pages",
 		"CREATE TABLE kb_pages (id INTEGER PRIMARY KEY, title TEXT, body TEXT, type TEXT, rel_path TEXT)",
 	}); err != nil {
 		t.Fatalf("create content table: %v", err)
