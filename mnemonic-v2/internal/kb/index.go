@@ -91,7 +91,7 @@ func collectPages(root string) ([]Page, error) {
 			RelPath:  rel,
 			Body:     string(body),
 			BodyHash: hashBody(string(body)),
-			Title:    frontmatterTitle(string(body)),
+			Title:    pageTitle(string(body)),
 			Type:     frontmatterType(string(body)),
 			Status:   frontmatterStatus(string(body)),
 		})
@@ -106,6 +106,21 @@ func collectPages(root string) ([]Page, error) {
 func frontmatterTitle(b string) string  { return frontmatterField(b, "title") }
 func frontmatterType(b string) string   { return frontmatterField(b, "type") }
 func frontmatterStatus(b string) string { return frontmatterField(b, "status") }
+
+// pageTitle derives the display title: the frontmatter title if present,
+// else the first H1 heading, else "" (lint flags it as missing_title).
+func pageTitle(b string) string {
+	if t := frontmatterTitle(b); t != "" {
+		return t
+	}
+	for _, ln := range strings.Split(b, "\n") {
+		ln = strings.TrimLeft(ln, " \t")
+		if strings.HasPrefix(ln, "# ") {
+			return strings.TrimSpace(strings.TrimPrefix(ln, "# "))
+		}
+	}
+	return ""
+}
 
 func frontmatterField(b, key string) string {
 	content := string(b)

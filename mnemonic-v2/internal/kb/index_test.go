@@ -70,3 +70,18 @@ func TestReindexIncrementalOnlyChanged(t *testing.T) {
 		t.Fatalf("res = %+v, want scanned=1 changed=1", res)
 	}
 }
+
+func TestPageTitleFallback(t *testing.T) {
+	if got := pageTitle("---\ntitle: FM Title\n---\n# H1\n"); got != "FM Title" {
+		t.Fatalf("frontmatter: got %q", got)
+	}
+	if got := pageTitle("# Heading One\n\nbody\n"); got != "Heading One" {
+		t.Fatalf("h1: got %q", got)
+	}
+	if got := pageTitle("---\ntype: Decision\n---\n# H1 Title\n"); got != "H1 Title" {
+		t.Fatalf("h1 after fm: got %q", got)
+	}
+	if got := pageTitle("no heading here\n"); got != "" {
+		t.Fatalf("empty: got %q", got)
+	}
+}

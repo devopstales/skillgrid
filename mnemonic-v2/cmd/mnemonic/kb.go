@@ -147,7 +147,14 @@ func runKbLint(fl config.Flags, cwd string, args []string) int {
 		fmt.Fprintf(errW(), "error: %v\n", err)
 		return 1
 	}
-	fmt.Fprintln(outW(), "kb lint:", len(issues))
+	if len(issues) == 0 {
+		fmt.Fprintln(outW(), "kb lint: clean")
+		return 0
+	}
+	for _, iss := range issues {
+		fmt.Fprintf(outW(), "kb lint: %s %s %s\n", iss.RelPath, iss.Code, iss.Message)
+	}
+	fmt.Fprintf(outW(), "kb lint: %d issues\n", len(issues))
 	return 0
 }
 
