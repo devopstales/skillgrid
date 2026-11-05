@@ -2560,6 +2560,38 @@ func (s *sqliteStore) ExecDDL(ctx context.Context, statements []string) error {
 	return nil
 }
 
+// Exec runs a single statement (the KB's generic exec/query seam).
+func (s *sqliteStore) Exec(ctx context.Context, query string, args ...any) error {
+	_, err := s.db.ExecContext(ctx, query, args...)
+	return err
+}
+
+// Query runs a read-only statement and returns the rows.
+func (s *sqliteStore) Query(ctx context.Context, query string, args ...any) ([][]any, error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out [][]any
+	for rows.Next() {
+		cols, err := rows.Columns()
+		if err != nil {
+			return nil, err
+		}
+		vals := make([]any, len(cols))
+		ptrs := make([]any, len(vals))
+		for i := range vals {
+			ptrs[i] = &vals[i]
+		}
+		if err := rows.Scan(ptrs...); err != nil {
+			return nil, err
+		}
+		out = append(out, vals)
+	}
+	return out, rows.Err()
+}
+
 // Begin opens the per-file transaction (K1 — the idempotency claim rests on
 // it: one file's write all commits or all rolls back).
 func (s *sqliteStore) Begin(ctx context.Context) (Txn, error) {

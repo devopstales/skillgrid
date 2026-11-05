@@ -266,4 +266,3 @@ func TestMigration100FTSMatchesUnit(t *testing.T) {
 		}
 	}
 }
-

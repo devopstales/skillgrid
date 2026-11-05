@@ -130,6 +130,9 @@ type Store interface {
 	// the table-adding seam (T21 — the KB's KBStore adds its kb_* tables
 	// through this without forking the dialect code; multi-statement)
 	ExecDDL(ctx context.Context, statements []string) error
+	// generic exec/query seam (KB kb_query FTS read path; additive).
+	Exec(ctx context.Context, query string, args ...any) error
+	Query(ctx context.Context, query string, args ...any) ([][]any, error)
 	// K1 — the single per-file tx surface: Begin opens the transaction the
 	// driver composes the five per-file writes inside (the idempotency
 	// claim rests on it — one file's write all commits or all rolls back).
