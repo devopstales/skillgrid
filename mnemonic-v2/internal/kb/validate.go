@@ -2,7 +2,10 @@ package kb
 
 import (
 	"context"
-	"strings"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/store"
 )
@@ -14,67 +17,78 @@ type ValidateResult struct {
 	Reason  string
 }
 
-// Validate runs the pin-check for one page: the last recorded pin state
-// (fresh / stale / unresolved) against the current body hash. A grounded page
-// is OK only when its baseline pin is fresh; unknown/unresolved pins fail.
-func Validate(ctx context.Context, st store.Store, relPath, project string) (*ValidateResult, error) {
+// Validate runs the pin-check for one page (011 deliverable 8: file-based —
+// the page's own frontmatter anchors/claims are checked against the live
+// code at root, per 006 §3). The stored-baseline fast path is kept for the
+// no-op proof: a baseline current for the page's source fingerprint and live
+// bytes is itself proof (a baseline is only ever recorded for a page that
+// passed its pin-check), so the re-check is skipped.
+//
+// Reasons: not_found, bad_frontmatter, baseline_current, not_grounded,
+// fresh, stale, unresolved.
+func Validate(ctx context.Context, st store.Store, root, relPath, project string) (*ValidateResult, error) {
 	res := &ValidateResult{RelPath: relPath, OK: false, Reason: "not_found"}
-	rows, err := st.Query(ctx,
-		`SELECT id, rel_path, type, status, body_hash FROM kb_pages WHERE project = ? AND rel_path = ?`,
-		project, relPath)
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relPath)))
 	if err != nil {
-		return nil, err
-	}
-	if len(rows) == 0 {
 		return res, nil
 	}
-	pageID := int64(0)
-	bodyHash := ""
-	if v, ok := rows[0][0].(int64); ok {
-		pageID = v
-	}
-	if h, ok := rows[0][4].(string); ok {
-		bodyHash = h
+	fm, _, err := SplitFrontmatter(string(data))
+	if err != nil {
+		res.Reason = "bad_frontmatter"
+		return res, nil
 	}
 
-	baseRows, err := st.Query(ctx,
-		`SELECT source_fingerprint, page_version FROM kb_page_baselines WHERE project = ? AND rel_path = ?`,
-		project, relPath)
+	// Fast path: a current baseline proves this page (003 §5.2: a page earns
+	// a baseline only when its markdown and its pin-check are mutually
+	// consistent; Current() re-proves both against the live source).
+	fp, err := SourceFingerprint(ctx, st, project, root)
+	if err != nil {
+		return nil, fmt.Errorf("kb: validate %s: %w", relPath, err)
+	}
+	baselines, err := Baselines(ctx, st, project)
 	if err != nil {
 		return nil, err
 	}
-	_, _ = st.Query(ctx, `SELECT subject, literal FROM kb_claims WHERE page_id = ?`, pageID)
-	pin := "unresolved"
-	if len(baseRows) > 0 {
-		if sf, ok := baseRows[0][0].(string); ok && sf == bodyHash {
-			pin = "fresh"
-		}
+	if b, ok := baselines[relPath]; ok && b.Current(fp, hashBody(string(data))) {
+		res.OK = true
+		res.Reason = "baseline_current"
+		return res, nil
 	}
-	if strings.EqualFold(strVal2(rows[0], 2), "decision") || strings.EqualFold(strVal2(rows[0], 2), "invariant") || strings.EqualFold(strVal2(rows[0], 2), "workflow") {
-		switch pin {
-		case "fresh":
-			res.OK = true
-			res.Reason = "fresh"
-		case "stale":
-			res.OK = false
-			res.Reason = "stale"
-		default:
-			res.OK = false
-			res.Reason = "unresolved"
-		}
+
+	// Non-grounded pages carry no pins to check (006 §5: validate scopes to
+	// grounded pages).
+	if !IsGrounded(fm.Type) {
+		res.OK = true
+		res.Reason = "not_grounded"
+		return res, nil
 	}
+
+	pc, err := ValidatePage(ctx, st, root, relPath, fm)
+	if err != nil {
+		return nil, err
+	}
+	res.OK = pc.Status == "fresh"
+	res.Reason = pc.Status
 	return res, nil
 }
 
-func strVal2(r []any, i int) string {
-	if i >= len(r) {
-		return ""
+// GroundedPages lists the vault's grounded pages (sorted rel paths) — the
+// default scope for kb_validate (006 §5: validate checks all grounded pages).
+func GroundedPages(root string) ([]string, error) {
+	pages, err := collectPages(root)
+	if err != nil {
+		return nil, err
 	}
-	switch v := r[i].(type) {
-	case string:
-		return v
-	case []byte:
-		return string(v)
+	var out []string
+	for _, p := range pages {
+		fm, _, err := SplitFrontmatter(p.Body)
+		if err != nil {
+			continue
+		}
+		if IsGrounded(fm.Type) {
+			out = append(out, p.RelPath)
+		}
 	}
-	return ""
+	sort.Strings(out)
+	return out, nil
 }

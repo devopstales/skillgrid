@@ -54,7 +54,8 @@ func reorderArgs(args []string) []string {
 
 // isBoolFlag reports whether a --flag is a bool (no value). The bool
 // flags in the CLI are: --all, --json, --strict, --hard, --off,
-// --include-history, --older-history, --resume, --isolated, --no-capture.
+// --include-history, --older-history, --resume, --isolated, --no-capture,
+// --full, --fix, --grounded-only.
 func isBoolFlag(flag string) bool {
 	name := flag
 	if eq := strings.IndexByte(name, '='); eq > 0 {
@@ -62,7 +63,8 @@ func isBoolFlag(flag string) bool {
 	}
 	switch name {
 	case "--all", "--json", "--strict", "--hard", "--off", "--include-history",
-		"--older-history", "--resume", "--isolated", "--no-capture":
+		"--older-history", "--resume", "--isolated", "--no-capture",
+		"--full", "--fix", "--grounded-only":
 		return true
 	}
 	return false

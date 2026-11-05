@@ -14,7 +14,7 @@ func TestCiteSourceReturnsContent(t *testing.T) {
 	if _, err := Reindex(ctx, st, vault, "proj-a"); err != nil {
 		t.Fatalf("reindex: %v", err)
 	}
-	res, err := CiteSource(ctx, st, "decisions/auth-model.md")
+	res, err := CiteSource(ctx, st, "proj-a", "decisions/auth-model.md")
 	if err != nil {
 		t.Fatalf("cite: %v", err)
 	}

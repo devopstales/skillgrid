@@ -16,11 +16,11 @@ type CiteResult struct {
 
 // CiteSource resolves a source reference to the cited section content.
 // Re-fetch granularity (section-level) is the anchor used here.
-func CiteSource(ctx context.Context, st store.Store, sourceRef string) (*CiteResult, error) {
+func CiteSource(ctx context.Context, st store.Store, project, sourceRef string) (*CiteResult, error) {
 	res := &CiteResult{Source: sourceRef}
 	rows, err := st.Query(ctx,
-		`SELECT id, body FROM kb_pages WHERE project = ? AND rel_path = ?`,
-		"proj-a", sourceRef)
+		`SELECT id, body FROM kb_pages WHERE project = ? AND rel_path = ? AND deleted_at IS NULL`,
+		project, sourceRef)
 	if err != nil {
 		return nil, err
 	}
