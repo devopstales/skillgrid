@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/config"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/project"
@@ -78,7 +79,11 @@ func runKbBootstrap(fl config.Flags, cwd string, args []string) int {
 		fmt.Fprintf(errW(), "error: %v\n", err)
 		return 1
 	}
-	fmt.Fprintln(outW(), "kb bootstrap:", res)
+	if len(res.Created) == 0 {
+		fmt.Fprintf(outW(), "kb bootstrap: vault present at %s (no-op)\n", res.Root)
+	} else {
+		fmt.Fprintf(outW(), "kb bootstrap: created %s at %s\n", strings.Join(res.Created, ", "), res.Root)
+	}
 	return 0
 }
 
