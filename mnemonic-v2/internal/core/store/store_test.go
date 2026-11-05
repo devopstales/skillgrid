@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -69,7 +70,55 @@ func TestStoreOpensPerProjectFile(t *testing.T) {
 	}
 }
 
-// [door-check] WAL open + FTS5 trigram retrieval + the < 3-rune LIKE fallback,
+// [v1-delete-restart] Open detects a v1-era store at the v2 path and deletes
+// it, restarting fresh through the normal migration set (the approved
+// behavior: no v1→v2 automigration).
+func TestOpenDeletesV1StoreAndRestartsFresh(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	v1Path := filepath.Join(dir, "proj-v1.sqlite")
+	db, err := sql.Open("sqlite", v1Path)
+	if err != nil {
+		t.Fatalf("v1 open: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TABLE observations (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, type TEXT NOT NULL, title TEXT NOT NULL, content TEXT NOT NULL, project TEXT, scope TEXT NOT NULL DEFAULT 'project', topic_key TEXT, normalized_hash TEXT, importance_score REAL, created_at TEXT, updated_at TEXT, deleted_at TEXT)`); err != nil {
+		t.Fatalf("v1 observations: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO observations (session_id, type, title, content, project, scope, topic_key, normalized_hash, importance_score, created_at, updated_at, deleted_at) VALUES ('v1s1', 'decision', 'v1row', 'v1content', 'p', 'project', 'p', 'hash', 1.0, datetime('now'), datetime('now'), NULL)`); err != nil {
+		t.Fatalf("v1 insert: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("v1 close: %v", err)
+	}
+	st, err := Open(ctx, dir, "proj-v1", SQLite, "")
+	if err != nil {
+		t.Fatalf("v1 open: %v", err)
+	}
+	defer st.Close()
+	raw, ok := st.(*sqliteStore)
+	if !ok {
+		t.Fatalf("expected *sqliteStore, got %T", st)
+	}
+	if _, err := os.Stat(v1Path); err != nil {
+		t.Fatalf("expected fresh db file after restart: %v", err)
+	}
+	found, err := raw.Probe(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='sync_state'`)
+	if err != nil {
+		t.Fatalf("probe sync_state: %v", err)
+	}
+	if !found {
+		t.Fatal("fresh open must run migrations: sync_state missing")
+	}
+	n, err := raw.ProbeInt(`SELECT COUNT(*) FROM observations`)
+	if err != nil {
+		t.Fatalf("probe observations count: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("v1 rows must not carry into the fresh restart: %d", n)
+	}
+}
+
+// [door-check] WAL open + FTS5 trigram retrieval + the < 3-rune Like fallback,
 // all through the Store interface.
 func TestDoorCheckFTSRoundTrip(t *testing.T) {
 	st := openTestStore(t)

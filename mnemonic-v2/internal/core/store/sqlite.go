@@ -107,6 +107,10 @@ var _ Store = (*sqliteStore)(nil)
 // the same path returns the shared handle (same *sql.DB). Set
 // MNEMONIC_DISABLE_CACHE=1 to bypass the pool.
 //
+// A v1-era store at the v2 path is deleted and restarted fresh (the approved
+// behavior: no v1→v2 automigration — the user does not want the seed; a fresh
+// DB runs the normal migration set from scratch).
+//
 // dsn is reserved for the Postgres dialect; the SQLite dialect derives its DSN
 // from dataDir/project (the WAL pragmas + _txlock) and ignores dsn.
 func Open(ctx context.Context, dataDir, project string, dialect Dialect, dsn string) (Store, error) {
@@ -134,6 +138,17 @@ func Open(ctx context.Context, dataDir, project string, dialect Dialect, dsn str
 	dbPath := filepath.Join(dataDir, project+".sqlite")
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
 		return nil, fmt.Errorf("store.Open: create db dir: %w", err)
+	}
+	if _, statErr := os.Stat(dbPath); statErr == nil {
+		v1, err := isV1EraStore(dbPath)
+		if err != nil {
+			return nil, fmt.Errorf("store.Open: detect v1: %w", err)
+		}
+		if v1 {
+			if err := removeSQLiteFile(dbPath); err != nil {
+				return nil, fmt.Errorf("store.Open: remove v1 store: %w", err)
+			}
+		}
 	}
 	db, err := poolAcquire(dbPath, func() (*sql.DB, error) {
 		return openSQLite(dbPath)
@@ -302,6 +317,19 @@ func openSQLite(dbPath string) (*sql.DB, error) {
 	}
 	db.SetMaxOpenConns(1)
 	return db, nil
+}
+
+// removeSQLiteFile deletes the SQLite database file plus its WAL/SHM sidecars
+// (the v1 delete-and-restart primitive: the handle pool must not keep a stale
+// connection to the deleted file). A missing sidecar is not an error.
+func removeSQLiteFile(dbPath string) error {
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		p := dbPath + suffix
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove %s: %w", p, err)
+		}
+	}
+	return nil
 }
 
 // ── Migrations (ported from v1 store.go:462-494 + the index_meta runner) ──
