@@ -1,8 +1,11 @@
+---
+status: accepted
+supersedes: none (v1 module structure retired, not superseded)
+date: 2026-11-01
+---
+
 # ADR-0040: Mnemonic v2 module extraction
 
-- **status:** accepted
-- **date:** 2026-11-01
-- **supersedes:** (none — v1's module structure is retired, not superseded)
 
 ## Context
 

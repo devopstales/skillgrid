@@ -1,7 +1,13 @@
+---
+status: in-force
+supersedes: none
+date: 2026-11-02
+---
+
 # ADR-0046 — Code-index `Store` interface extension (additive)
 
-- **Status:** in-force (2026-11-02, code-index change T0)
-- **Change:** `2026-10-31-mnemonic-v2-code-index` (spec zone: `adr.md` § ADR-0046)
+
+Change: `2026-10-31-mnemonic-v2-code-index` (spec zone: `adr.md` § ADR-0046)
 
 ## Context
 

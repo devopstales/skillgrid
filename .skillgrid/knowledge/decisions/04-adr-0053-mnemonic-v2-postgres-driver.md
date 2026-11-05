@@ -1,8 +1,11 @@
+---
+status: accepted
+supersedes: none
+date: 2026-11-01
+---
+
 # ADR-0041: Mnemonic v2 Postgres driver — lib/pq
 
-- **status:** accepted
-- **date:** 2026-11-01
-- **supersedes:** (none)
 
 ## Context
 

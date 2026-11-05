@@ -1,7 +1,13 @@
+---
+status: in-force
+supersedes: none
+date: 2026-11-02
+---
+
 # ADR-0044 — Code-index fsnotify dependency (watch loop)
 
-- **Status:** in-force (2026-11-02, code-index change T0)
-- **Change:** `2026-10-31-mnemonic-v2-code-index` (spec zone: `adr.md` § ADR-0044)
+
+Change: `2026-10-31-mnemonic-v2-code-index` (spec zone: `adr.md` § ADR-0044)
 
 ## Context
 

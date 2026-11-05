@@ -1,7 +1,13 @@
+---
+status: in-force (conditional)
+supersedes: none
+date: 2026-11-02
+---
+
 # ADR-0045 — Code-index conditional ONNX dependency (768-dim embedder)
 
-- **Status:** in-force, CONDITIONAL (2026-11-02, code-index change T0)
-- **Change:** `2026-10-31-mnemonic-v2-code-index` (spec zone: `adr.md` § ADR-0045)
+
+Change: `2026-10-31-mnemonic-v2-code-index` (spec zone: `adr.md` § ADR-0045)
 
 ## Context
 
