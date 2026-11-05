@@ -20,7 +20,7 @@ type LintIssue struct {
 // missing title, empty body, stale index (body_hash mismatch).
 func Lint(ctx context.Context, st store.Store, project string) ([]LintIssue, error) {
 	rows, err := st.Query(ctx,
-		`SELECT rel_path, title, type, status, body, body_hash FROM kb_pages WHERE project = ?`,
+		`SELECT rel_path, title, type, status, body, body_hash FROM kb_pages WHERE project = ? AND deleted_at IS NULL`,
 		project)
 	if err != nil {
 		return nil, err
@@ -49,7 +49,7 @@ func Fix(ctx context.Context, st store.Store, project string, relPaths []string)
 	fixed := 0
 	for _, rel := range relPaths {
 		rows, err := st.Query(ctx,
-			`SELECT title FROM kb_pages WHERE project = ? AND rel_path = ?`, project, rel)
+			`SELECT title FROM kb_pages WHERE project = ? AND rel_path = ? AND deleted_at IS NULL`, project, rel)
 		if err != nil {
 			return fixed, err
 		}

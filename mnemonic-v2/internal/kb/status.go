@@ -21,7 +21,7 @@ type StatusResult struct {
 // indexed, the last full-run phase/id, baseline + event counts.
 func Status(ctx context.Context, st store.Store, project string) (*StatusResult, error) {
 	res := &StatusResult{Project: project, Phase: "idle"}
-	rows, err := st.Query(ctx, `SELECT COUNT(*) FROM kb_pages WHERE project = ?`, project)
+	rows, err := st.Query(ctx, `SELECT COUNT(*) FROM kb_pages WHERE project = ? AND deleted_at IS NULL`, project)
 	if err != nil {
 		return nil, err
 	}

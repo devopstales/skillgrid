@@ -40,7 +40,7 @@ func Query(ctx context.Context, st store.Store, query string, f QueryFilters) ([
 	       MAX(bm25(kb_pages_fts, 1.0, 1.0, 1.0, 1.0), 1.0) AS score
 	FROM kb_pages_fts
 	JOIN kb_pages p ON p.id = kb_pages_fts.rowid
-	WHERE kb_pages_fts MATCH ? AND p.project = ?
+	WHERE kb_pages_fts MATCH ? AND p.project = ? AND p.deleted_at IS NULL
 	ORDER BY MAX(bm25(kb_pages_fts, 1.0, 1.0, 1.0, 1.0), 1.0) DESC
 	LIMIT ?`
 	rows, err := st.Query(ctx, sql, query, f.Project, limit)
@@ -54,7 +54,7 @@ func Query(ctx context.Context, st store.Store, query string, f QueryFilters) ([
 			Title:   strVal(r, 1),
 			Type:    strVal(r, 2),
 			Status:  strVal(r, 3),
-			Score:   fltVal(r, 4),
+			Score:   fltVal(r, 5),
 		}
 		res.Grounded = isGrounded(res.Type)
 		res.Pin = pinFor(res)
