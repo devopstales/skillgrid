@@ -21,7 +21,7 @@ brainstorming → [research | prototype | sketch] → writing-blueprints → blu
 | `acceptance-test-authoring` | BDD `acceptance.feature` — valid Cucumber syntax, traceability oracle |
 | `writing-blueprints` | Technical plan → `blueprint.md`; **must** run critic subagent review + user validation before completion |
 | `architectural-decision-records` | Domain model (terms in `glossary/`) + ADR authoring / supersession |
-| `knowledge-base` | Read/maintain the `.skillgrid/` OKF knowledge base — recall before re-deriving; concepts live in `decisions/`/`invariants/`/`workflows/`/`glossary/`/`reference/` with `index.md`+`log.md`+`reverse-index.md` updated in the same edit |
+| `kb` | Read/maintain the `.skillgrid/knowledge/` vault via the `kb` engine (`mnemonic kb ...`) — recall before re-deriving; concepts live in `decisions/`/`invariants/`/`workflows/`/`glossary/`/`reference/` with `index.md`+`log.md`+`reverse-index.md` updated in the same edit |
 | `research` / `code-research` | External fact-finding → `findings.md` (Research section) |
 | `prototype` | Feasibility probe → `findings.md` (Prototype section) |
 | `sketch` | UI/interaction variants → `findings.md` (Sketch section) |
@@ -211,7 +211,7 @@ The **knowledge bundle** (`.skillgrid/knowledge/`, OKF v0.2) holds the product r
 | onboarding | skeleton | `config.yaml`, `state.yaml`, `knowledge/ASSUMPTIONS.md`, `knowledge/ARCHITECTURE.md` (lazy), knowledge bundle zone (`knowledge/index.md` + `knowledge/reference/06-research-findings`), AGENTS block, `.gitignore` |
 | brainstorming | briefing + state (questioning via agent answer-select tool) | `specs/<topic>/briefing.md`, `specs/<topic>/adr.md`, `knowledge/reference/00-prd.md` (new project, or when scope changes), `knowledge/ASSUMPTIONS.md` (VERIFIED/INFERRED tiers auto-written; LOCKED on user OK), `state.yaml` (`changes.<topic>` entry) |
 | architectural-decision-records | terms + ADRs | `knowledge/glossary/01-business-terms.md`, `knowledge/glossary/02-technical-terms.md`, `knowledge/decisions/04-adr-NNNN-slug.md`, `knowledge/ASSUMPTIONS.md` (§ `LOCKED` ADR index pointer row only) |
-| knowledge-base | concepts + catalogs | `.skillgrid/knowledge/<decisions\|invariants\|workflows\|glossary\|reference>/*.md` + `knowledge/index.md` / `knowledge/log.md` / `knowledge/reverse-index.md` (same-edit rule); ADR numbering stays with `architectural-decision-records` |
+| kb | concepts + catalogs | `.skillgrid/knowledge/<decisions\|invariants\|workflows\|glossary\|reference>/*.md` + `knowledge/index.md` / `knowledge/log.md` / `knowledge/reverse-index.md` (same-edit rule); ADR numbering stays with `architectural-decision-records`; derived index is engine-owned (`kb index` rebuilds) |
 | research | findings | `specs/<topic>/findings.md` (`## Research:` section) + durable findings to `knowledge/reference/06-research-findings.md` |
 | prototype | findings + probe | `prototypes/NNN-name/` (`prototype.md` + throwaway code, permanently retained) + `specs/<topic>/findings.md` (`## Prototype:` section) |
 | sketch | findings | `specs/<topic>/findings.md` (`## Sketch:` section) |

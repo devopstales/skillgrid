@@ -136,7 +136,7 @@ A greenfield project (scaffold, no feature history) skips Step 1.5 — there is 
 
 After Step 1.5 reverse-engineers the conventions, **bootstrap them into the knowledge base as checkable drafts** so a future session inherits them. This is an *addition* — the `skillgrid init --docs` ingest (Step 3 item 10) is unchanged.
 
-1. **Create draft candidates.** For each enrolled convention, create a candidate concept per the `skillgrid:knowledge-base` contract with `status: draft` and `verification.anchors` — stable literals from the code the convention is observed in (`{ path, all_of: [...] }`). A draft without `verification.anchors` cannot be confirmed against the code and must not be written.
+1. **Create draft candidates.** For each enrolled convention, create a candidate concept per the `skillgrid:kb` contract with `status: draft` and `verification.anchors` — stable literals from the code the convention is observed in (`{ path, all_of: [...] }`). A draft without `verification.anchors` cannot be confirmed against the code and must not be written.
 2. **Confirm one at a time.** Present each draft individually — the convention, anchor file(s), quoted literal: "This convention: X, anchored at `path:line`. Confirm?" Only an explicit yes promotes it (`status: stable` + `verified` attestation).
 3. **Drop what isn't confirmed.** An unconfirmed draft is **dropped** — removed, never kept as a `draft` zombie; the default outcome is drop.
 
