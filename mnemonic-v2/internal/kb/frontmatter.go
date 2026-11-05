@@ -145,6 +145,18 @@ func (s Sources) MarshalYAML() (interface{}, error) {
 	return items, nil
 }
 
+// EmitFrontmatter renders the `---`-delimited frontmatter block (the inverse
+// of SplitFrontmatter for the engine-owned writes — cite-source). Field
+// order follows the struct; a round-trip may normalize YAML formatting but
+// never the values.
+func EmitFrontmatter(fm Frontmatter) (string, error) {
+	b, err := yaml.Marshal(fm)
+	if err != nil {
+		return "", fmt.Errorf("kb: emit frontmatter: %w", err)
+	}
+	return "---\n" + string(b) + "---\n", nil
+}
+
 // SplitFrontmatter separates the leading YAML frontmatter block from the body.
 // Content without a terminated `---` block parses as zero-value frontmatter +
 // the whole content as body (lint flags a missing frontmatter).

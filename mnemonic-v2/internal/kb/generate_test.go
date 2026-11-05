@@ -54,7 +54,7 @@ func TestGenerateCreatesNewPageViaFloor(t *testing.T) {
 		t.Fatalf("facts: %d, want 1", len(facts))
 	}
 
-	res, err := Generate(ctx, st, vault, "proj-a", false, nil, facts)
+	res, err := Generate(ctx, st, vault, vault, "proj-a", false, nil, facts)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestGenerateFloorIdempotent(t *testing.T) {
 		t.Fatalf("facts: %v", err)
 	}
 
-	res1, err := Generate(ctx, st, vault, "proj-a", false, nil, facts)
+	res1, err := Generate(ctx, st, vault, vault, "proj-a", false, nil, facts)
 	if err != nil {
 		t.Fatalf("generate 1: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestGenerateFloorIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("facts 2: %v", err)
 	}
-	res2, err := Generate(ctx, st, vault, "proj-a", false, nil, facts2)
+	res2, err := Generate(ctx, st, vault, vault, "proj-a", false, nil, facts2)
 	if err != nil {
 		t.Fatalf("generate 2: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestGenerateProvenNoop(t *testing.T) {
 		t.Fatalf("facts: %v", err)
 	}
 
-	res1, err := Generate(ctx, st, vault, "proj-a", false, nil, facts)
+	res1, err := Generate(ctx, st, vault, vault, "proj-a", false, nil, facts)
 	if err != nil {
 		t.Fatalf("generate 1: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestGenerateProvenNoop(t *testing.T) {
 		t.Fatalf("run 1: %+v, want changed=1", res1)
 	}
 
-	res2, err := Generate(ctx, st, vault, "proj-a", false, nil, facts)
+	res2, err := Generate(ctx, st, vault, vault, "proj-a", false, nil, facts)
 	if err != nil {
 		t.Fatalf("generate 2: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestGenerateLayer1BlocksNoop(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	facts, _ := AllFacts(ctx, st, "proj-a")
-	if _, err := Generate(ctx, st, vault, "proj-a", false, nil, facts); err != nil {
+	if _, err := Generate(ctx, st, vault, vault, "proj-a", false, nil, facts); err != nil {
 		t.Fatalf("generate 1: %v", err)
 	}
 
@@ -220,7 +220,7 @@ func TestGenerateLayer1BlocksNoop(t *testing.T) {
 		t.Fatalf("seed note: %v", err)
 	}
 	facts2, _ := AllFacts(ctx, st, "proj-a")
-	res2, err := Generate(ctx, st, vault, "proj-a", false, nil, facts2)
+	res2, err := Generate(ctx, st, vault, vault, "proj-a", false, nil, facts2)
 	if err != nil {
 		t.Fatalf("generate 2: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestGenerateLayer1BlocksNoop(t *testing.T) {
 	}
 
 	// Once the new fact is processed, the same inputs are a proven no-op.
-	res3, err := Generate(ctx, st, vault, "proj-a", false, nil, facts2)
+	res3, err := Generate(ctx, st, vault, vault, "proj-a", false, nil, facts2)
 	if err != nil {
 		t.Fatalf("generate 3: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestGenerateLayer2BlocksNoop(t *testing.T) {
 	}
 	facts, _ := AllFacts(ctx, st, "proj-a")
 
-	if _, err := Generate(ctx, st, vault, "proj-a", false, nil, facts); err != nil {
+	if _, err := Generate(ctx, st, vault, vault, "proj-a", false, nil, facts); err != nil {
 		t.Fatalf("generate 1: %v", err)
 	}
 	// Layer 3 is satisfied by a manually recorded current baseline, so the
@@ -297,7 +297,7 @@ func TestGenerateLayer2BlocksNoop(t *testing.T) {
 	}
 
 	facts2, _ := AllFacts(ctx, st, "proj-a")
-	res2, err := Generate(ctx, st, vault, "proj-a", false, nil, facts2)
+	res2, err := Generate(ctx, st, vault, vault, "proj-a", false, nil, facts2)
 	if err != nil {
 		t.Fatalf("generate 2: %v", err)
 	}
@@ -327,11 +327,11 @@ func TestGenerateLayer3BlocksNoop(t *testing.T) {
 	}
 	facts, _ := AllFacts(ctx, st, "proj-a")
 
-	if _, err := Generate(ctx, st, vault, "proj-a", false, nil, facts); err != nil {
+	if _, err := Generate(ctx, st, vault, vault, "proj-a", false, nil, facts); err != nil {
 		t.Fatalf("generate 1: %v", err)
 	}
 	facts2, _ := AllFacts(ctx, st, "proj-a")
-	res2, err := Generate(ctx, st, vault, "proj-a", false, nil, facts2)
+	res2, err := Generate(ctx, st, vault, vault, "proj-a", false, nil, facts2)
 	if err != nil {
 		t.Fatalf("generate 2: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestGenerateLayer3BlocksNoop(t *testing.T) {
 		fp, hashBody(string(body)), "test", "test"); err != nil {
 		t.Fatalf("baseline: %v", err)
 	}
-	res3, err := Generate(ctx, st, vault, "proj-a", false, nil, facts2)
+	res3, err := Generate(ctx, st, vault, vault, "proj-a", false, nil, facts2)
 	if err != nil {
 		t.Fatalf("generate 3: %v", err)
 	}
@@ -372,7 +372,7 @@ func TestGenerateLayer4BlocksNoop(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	facts, _ := AllFacts(ctx, st, "proj-a")
-	res1, err := Generate(ctx, st, vault, "proj-a", false, nil, facts)
+	res1, err := Generate(ctx, st, vault, vault, "proj-a", false, nil, facts)
 	if err != nil {
 		t.Fatalf("generate 1: %v", err)
 	}
@@ -386,7 +386,7 @@ func TestGenerateLayer4BlocksNoop(t *testing.T) {
 	t.Cleanup(func() { gitHead = orig })
 	gitHead = func(string) string { n++; return fmt.Sprintf("head-%d", n) }
 
-	res2, err := Generate(ctx, st, vault, "proj-a", false, nil, facts)
+	res2, err := Generate(ctx, st, vault, vault, "proj-a", false, nil, facts)
 	if err != nil {
 		t.Fatalf("generate 2: %v", err)
 	}

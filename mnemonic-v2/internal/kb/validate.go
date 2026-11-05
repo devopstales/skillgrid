@@ -19,16 +19,16 @@ type ValidateResult struct {
 
 // Validate runs the pin-check for one page (011 deliverable 8: file-based —
 // the page's own frontmatter anchors/claims are checked against the live
-// code at root, per 006 §3). The stored-baseline fast path is kept for the
+// code at repoRoot (anchor paths are working-tree-relative, 006 §2), per 006 §3). The stored-baseline fast path is kept for the
 // no-op proof: a baseline current for the page's source fingerprint and live
 // bytes is itself proof (a baseline is only ever recorded for a page that
 // passed its pin-check), so the re-check is skipped.
 //
 // Reasons: not_found, bad_frontmatter, baseline_current, not_grounded,
 // fresh, stale, unresolved.
-func Validate(ctx context.Context, st store.Store, root, relPath, project string) (*ValidateResult, error) {
+func Validate(ctx context.Context, st store.Store, vaultRoot, repoRoot, relPath, project string) (*ValidateResult, error) {
 	res := &ValidateResult{RelPath: relPath, OK: false, Reason: "not_found"}
-	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relPath)))
+	data, err := os.ReadFile(filepath.Join(vaultRoot, filepath.FromSlash(relPath)))
 	if err != nil {
 		return res, nil
 	}
@@ -41,7 +41,7 @@ func Validate(ctx context.Context, st store.Store, root, relPath, project string
 	// Fast path: a current baseline proves this page (003 §5.2: a page earns
 	// a baseline only when its markdown and its pin-check are mutually
 	// consistent; Current() re-proves both against the live source).
-	fp, err := SourceFingerprint(ctx, st, project, root)
+	fp, err := SourceFingerprint(ctx, st, project, repoRoot)
 	if err != nil {
 		return nil, fmt.Errorf("kb: validate %s: %w", relPath, err)
 	}
@@ -63,7 +63,7 @@ func Validate(ctx context.Context, st store.Store, root, relPath, project string
 		return res, nil
 	}
 
-	pc, err := ValidatePage(ctx, st, root, relPath, fm)
+	pc, err := ValidatePage(ctx, st, repoRoot, relPath, fm)
 	if err != nil {
 		return nil, err
 	}

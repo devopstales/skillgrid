@@ -202,10 +202,6 @@ func TestValidatePageSymbolDegraded(t *testing.T) {
 	fixture := t.TempDir()
 	writeVaultPage(t, fixture, "cmd/server/main.go", "package main\n\nfunc main() { NewOAuthClient() }\n")
 
-	realRootOf := repoRootOf
-	defer func() { repoRootOf = realRootOf }()
-	repoRootOf = func(string) string { return fixture }
-
 	fm := Frontmatter{
 		Title: "T", Type: "Decision",
 		Anchors: []Anchor{{Path: "cmd/server/main.go", Symbol: "NewOAuthClient"}},

@@ -10,7 +10,7 @@ import (
 func TestValidateUnknownPageFails(t *testing.T) {
 	ctx := context.Background()
 	st := openKbStore(t)
-	res, err := Validate(ctx, st, t.TempDir(), "decisions/nope.md", "proj-a")
+	res, err := Validate(ctx, st, t.TempDir(), t.TempDir(), "decisions/nope.md", "proj-a")
 	if err != nil {
 		t.Fatalf("validate: %v", err)
 	}
@@ -26,7 +26,7 @@ func TestValidateUnresolvedPinFails(t *testing.T) {
 	writeVaultPage(t, vault, "decisions/auth-model.md",
 		"---\ntitle: Auth Model\ntype: Decision\nstatus: stable\n---\n\nWe use OAuth2 token rotation.")
 	st := openKbStore(t)
-	res, err := Validate(ctx, st, vault, "decisions/auth-model.md", "proj-a")
+	res, err := Validate(ctx, st, vault, vault, "decisions/auth-model.md", "proj-a")
 	if err != nil {
 		t.Fatalf("validate: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestValidateFreshPagePasses(t *testing.T) {
 			"      - const expiry = 15 * 60\n"+
 			"---\n\nWe use OAuth2 token rotation.")
 	st := openKbStore(t)
-	res, err := Validate(ctx, st, vault, "decisions/auth-model.md", "proj-a")
+	res, err := Validate(ctx, st, vault, vault, "decisions/auth-model.md", "proj-a")
 	if err != nil {
 		t.Fatalf("validate: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestValidateStaleClaimFails(t *testing.T) {
 			"    literal: 15 * time.Minute\n"+
 			"---\n\nWe cache for 15 minutes.")
 	st := openKbStore(t)
-	res, err := Validate(ctx, st, vault, "decisions/cache-ttl.md", "proj-a")
+	res, err := Validate(ctx, st, vault, vault, "decisions/cache-ttl.md", "proj-a")
 	if err != nil {
 		t.Fatalf("validate: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestValidateBaselineFastPath(t *testing.T) {
 		t.Fatalf("baseline: %v", err)
 	}
 
-	res, err := Validate(ctx, st, vault, "decisions/auth-model.md", "proj-a")
+	res, err := Validate(ctx, st, vault, vault, "decisions/auth-model.md", "proj-a")
 	if err != nil {
 		t.Fatalf("validate: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestValidateBaselineFastPath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(vault, "decisions", "auth-model.md"), body, 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	res, err = Validate(ctx, st, vault, "decisions/auth-model.md", "proj-a")
+	res, err = Validate(ctx, st, vault, vault, "decisions/auth-model.md", "proj-a")
 	if err != nil {
 		t.Fatalf("validate 2: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestValidateNonGroundedPageSkipsPinCheck(t *testing.T) {
 	writeVaultPage(t, vault, "gotchas/retry-storm.md",
 		"---\ntitle: Retry Storm\ntype: Gotcha\n---\n\nRetrying on 502 amplifies the outage.")
 	st := openKbStore(t)
-	res, err := Validate(ctx, st, vault, "gotchas/retry-storm.md", "proj-a")
+	res, err := Validate(ctx, st, vault, vault, "gotchas/retry-storm.md", "proj-a")
 	if err != nil {
 		t.Fatalf("validate: %v", err)
 	}

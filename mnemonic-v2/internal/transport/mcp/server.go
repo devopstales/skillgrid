@@ -60,6 +60,14 @@ mem_save is the primary write; reuse topic_key to upsert evolving topics.
 Code: use code_status to check index health (4-state freshness); code_search to find code (prefer over grep); code_orient as the navigation entry point (the "find a feature" first verb); code_read to fetch a span after search narrows it.
 All ids the agent sees are sync_id (INV-6); mem_get_observation + code_resolve accept both sync_id and the local id.`
 
+// kbInstructions is the KB routing block (008-transport §3 — appended when
+// the KB tools register): kb_query is the stage-1 entry (wiki-first
+// retrieval), kb_read hydrates a full page, kb_generate is the KB's save
+// equivalent. It is APPENDED to the existing instructions (the KB joins the
+// memory + code families without rewriting them).
+const kbInstructions = `
+KB: use kb_query for stage-1 retrieval (ranked links + 1-line snippets, wiki-first); kb_read to hydrate a full page or section (+ pin-check state for grounded pages); kb_search for the raw FTS power path. kb_generate is the KB's save equivalent (proactive, agent-profile). The KB identity is rel_path (a git-tracked file), not a row id. Degraded runs carry degraded:true + a reason (never a silent floor).`
+
 // Server is an MCP server instance with the profile-filtered mem_* tools
 // registered, ready to be served over stdio.
 type Server struct {
@@ -71,6 +79,16 @@ type Server struct {
 	// nil until RegisterCodeTools is called (the memory-only build still
 	// serves without it). The dispatch consults it for the code_* tools.
 	codeTools *handler.CodeHandler
+	// kbTools is the KB handler (008-transport §3 — the registration seam,
+	// same pattern as codeTools): nil until RegisterKbTools is called.
+	// The dispatch consults it for the kb_* tools.
+	kbTools *handler.KbHandler
+	// kbQueue is the KB write queue (008-transport §4: the KB writes —
+	// kb_generate, kb_cite_source — are serialized on their OWN queue,
+	// distinct from the memory write queue; the KB and memory are
+	// different functions with different write sets — both queued,
+	// neither blocks the other).
+	kbQueue *writeQueue
 	// instructions is the server's routing block (F6 — a field, not a
 	// const): it starts as memoryInstructions (the memory-only build) and
 	// RegisterCodeTools rewrites it to the combined memory + code text. The
@@ -93,6 +111,7 @@ func NewServer(h *handler.Handler, profile Profile) *Server {
 		h:       h,
 		profile: profile,
 		queue:   newWriteQueue(),
+		kbQueue: newWriteQueue(),
 	}
 	// The store's committed-transaction seam (store.SetTxnHook) records
 	// the transaction order: the write queue's serialization is proven by
@@ -143,6 +162,33 @@ func (s *Server) RegisterCodeTools(ch *handler.CodeHandler) {
 	for _, tool := range s.codeToolSet() {
 		s.mcp.AddTool(tool.def, s.mcpToolHandler(tool.name))
 	}
+}
+
+// RegisterKbTools adds the kb_* tool family to the server (008-transport
+// §3 — the registration seam, same pattern as RegisterCodeTools): it
+// extends the dispatch with the profile-filtered kb_* tools (the agent
+// profile drops the admin tools), registers the tool definitions with
+// mcp-go, and appends the KB routing block to the instructions. It is
+// ADDITIVE — the memory(+code)-only build still serves without it
+// (kbTools is nil until this is called).
+func (s *Server) RegisterKbTools(kh *handler.KbHandler) {
+	s.kbTools = kh
+	// The KB routing block is APPENDED (the KB joins the existing
+	// memory/code instructions without rewriting them).
+	s.instructions = s.instructions + kbInstructions
+	for name, fn := range s.kbToolDispatch() {
+		s.calls[name] = fn
+	}
+	for _, tool := range s.kbToolSet() {
+		s.mcp.AddTool(tool.def, s.mcpToolHandler(tool.name))
+	}
+}
+
+// KbWritesSerialized reports whether the KB write queue serialized at least
+// one write (the test hook: a KB write that ran on the memory queue — or
+// bypassed a queue — would leave this false).
+func (s *Server) KbWritesSerialized() bool {
+	return s.kbQueue.WritesSerialized()
 }
 
 // codeToolDispatch returns the code_* tool name → dispatch fn map (the
@@ -350,10 +396,16 @@ func (s *Server) CallTool(ctx context.Context, name string, args map[string]any)
 		return b
 	}
 	isWrite := s.isWriteTool(name)
+	// 008-transport §4: the KB writes run on their own queue (the memory
+	// queue is untouched — neither blocks the other).
+	q := s.queue
+	if s.isKbWriteTool(name) {
+		q = s.kbQueue
+	}
 	var result any
 	var err error
 	if isWrite {
-		err = s.queue.Submit(ctx, func() {
+		err = q.Submit(ctx, func() {
 			result, err = fn(ctx, args)
 		})
 		if err != nil {
@@ -426,6 +478,7 @@ func (s *Server) SetDeadlockForTest() {
 func (s *Server) Close() {
 	s.h.Service().St().SetTxnHook(func() {})
 	s.queue.Close()
+	s.kbQueue.Close()
 	if s.codeTools != nil {
 		s.codeTools.StopWatchForTest()
 	}
@@ -451,6 +504,18 @@ func (s *Server) isWriteTool(name string) bool {
 	case "mem_save", "mem_update", "mem_delete", "mem_judge", "mem_judge_many", "mem_consolidate", "mem_pin", "mem_unpin":
 		return true
 	case "code_index", "code_rename", "code_watch":
+		return true
+	case "kb_generate", "kb_cite_source":
+		return true
+	}
+	return false
+}
+
+// isKbWriteTool reports whether a tool is a KB write (008-transport §4:
+// routed to the KB write queue, distinct from the memory write queue).
+func (s *Server) isKbWriteTool(name string) bool {
+	switch name {
+	case "kb_generate", "kb_cite_source":
 		return true
 	}
 	return false

@@ -185,8 +185,8 @@ type GenerateResult struct {
 // the vault from all facts (ignoring the processed set); the default run
 // honors it (layer 1). A clean run returns a proven no-op (changed 0, Noop
 // true) — the four layers of 003 §3 all passed.
-func Generate(ctx context.Context, st store.Store, root, project string, full bool, syn Synthesizer, facts []Fact) (*GenerateResult, error) {
-	fp, err := SourceFingerprint(ctx, st, project, root)
+func Generate(ctx context.Context, st store.Store, root, repoRoot, project string, full bool, syn Synthesizer, facts []Fact) (*GenerateResult, error) {
+	fp, err := SourceFingerprint(ctx, st, project, repoRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +201,7 @@ func Generate(ctx context.Context, st store.Store, root, project string, full bo
 
 	// Layer 4, first re-take: the run's own metadata writes (the Begin
 	// projection) must not have perturbed the source identity.
-	fpRe, err := SourceFingerprint(ctx, st, project, root)
+	fpRe, err := SourceFingerprint(ctx, st, project, repoRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +237,7 @@ func Generate(ctx context.Context, st store.Store, root, project string, full bo
 		if !IsGrounded(fm.Type) {
 			continue
 		}
-		pc, err := ValidatePage(ctx, st, root, rel, fm)
+		pc, err := ValidatePage(ctx, st, repoRoot, rel, fm)
 		if err != nil {
 			layer2 = false
 			break
@@ -303,7 +303,7 @@ func Generate(ctx context.Context, st store.Store, root, project string, full bo
 	now := time.Now().UTC()
 	res := &GenerateResult{RunID: rs.RunID}
 	for _, job := range jobs {
-		written, degraded, changed, err := generatePage(ctx, st, root, project, job.RelPath, fp, now, syn, facts)
+		written, degraded, changed, err := generatePage(ctx, st, root, repoRoot, project, job.RelPath, fp, now, syn, facts)
 		if err != nil {
 			return nil, err
 		}
@@ -388,7 +388,7 @@ func planTargets(ctx context.Context, st store.Store, project string, facts []Fa
 // generatePage works one planned job: synthesize (LLM or the append-only
 // floor), write, pin-check, record the baseline (only when consistent),
 // emit the page-write event. Returns (written, degraded, changed, err).
-func generatePage(ctx context.Context, st store.Store, root, project, relPath, fp string, now time.Time, syn Synthesizer, facts []Fact) (bool, bool, bool, error) {
+func generatePage(ctx context.Context, st store.Store, root, repoRoot, project, relPath, fp string, now time.Time, syn Synthesizer, facts []Fact) (bool, bool, bool, error) {
 	fullPath := filepath.Join(root, filepath.FromSlash(relPath))
 	oldBody, _ := os.ReadFile(fullPath)
 	page := string(oldBody)
@@ -440,7 +440,7 @@ func generatePage(ctx context.Context, st store.Store, root, project, relPath, f
 	// consistent (003 §5.2: a page earns a baseline only when it has proven).
 	fm, _, _ := SplitFrontmatter(page)
 	if IsGrounded(fm.Type) {
-		pc, err := ValidatePage(ctx, st, root, relPath, fm)
+		pc, err := ValidatePage(ctx, st, repoRoot, relPath, fm)
 		if err != nil {
 			return true, degraded, true, err
 		}

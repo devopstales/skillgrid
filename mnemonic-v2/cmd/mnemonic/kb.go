@@ -1,6 +1,9 @@
-// kb.go — the kb command group (the KB engine's CLI surface, 011
-// deliverable 9 / KB-T6). Exit codes: 0 ok · 1 drift under --strict ·
-// 2 usage/operational.
+// kb.go — the kb command group (008-transport §6, the 011 openwiki port):
+// a thin wrapper over the shared KbHandler (the same wiring the MCP server
+// uses — the CLI and MCP never diverge, the K6 byte-identical seam).
+// Exit codes: 0 ok · 1 drift under --strict · 2 usage/operational.
+//
+// kb_eval is CLI-only (a harness command — not in the 12-tool D1 surface).
 package main
 
 import (
@@ -16,36 +19,43 @@ import (
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/store"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/kb"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/transport/envelope"
+	"github.com/devopstales/skillgrid/mnemonic-v2/internal/transport/handler"
 )
 
 func runKb(fl config.Flags, cwd string, args []string) int {
 	if len(args) == 0 {
-		return errExit("kb: a subcommand is required (generate|index|reindex|validate|query|status|bootstrap|lint|cite-source|eval)")
+		return errExit("kb: a subcommand is required (query|read|search|generate|validate|lint|status|cite-source|index|reindex|bootstrap|rebuild-meta|eval)")
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
+	case "query":
+		return kbQuery(fl, cwd, rest)
+	case "read":
+		return kbRead(fl, cwd, rest)
+	case "search":
+		return kbSearch(fl, cwd, rest)
 	case "generate":
 		return kbGenerate(fl, cwd, rest)
+	case "validate":
+		return kbValidate(fl, cwd, rest)
+	case "lint":
+		return kbLint(fl, cwd, rest)
+	case "status":
+		return kbStatus(fl, cwd, rest)
+	case "cite-source", "cite":
+		return kbCiteSource(fl, cwd, rest)
 	case "index":
 		return kbIndex(fl, cwd, rest)
 	case "reindex":
 		return kbReindex(fl, cwd, rest)
-	case "validate":
-		return kbValidate(fl, cwd, rest)
-	case "query":
-		return kbQuery(fl, cwd, rest)
-	case "status":
-		return kbStatus(fl, cwd, rest)
 	case "bootstrap":
 		return kbBootstrap(fl, cwd, rest)
-	case "lint":
-		return kbLint(fl, cwd, rest)
-	case "cite-source":
-		return kbCiteSource(fl, cwd, rest)
+	case "rebuild-meta":
+		return kbRebuildMeta(fl, cwd, rest)
 	case "eval":
 		return kbEval(fl, cwd, rest)
 	default:
-		return errExit("kb: unknown subcommand %q (generate|index|reindex|validate|query|status|bootstrap|lint|cite-source|eval)", sub)
+		return errExit("kb: unknown subcommand %q (query|read|search|generate|validate|lint|status|cite-source|index|reindex|bootstrap|rebuild-meta|eval)", sub)
 	}
 }
 
@@ -70,31 +80,42 @@ func kbJSON(res any) int {
 	return exitOK
 }
 
-// kbStore opens the store for the resolved project (explicit --project
-// beats the detector chain).
-func kbStore(cwd string, fl config.Flags, explicit string) (store.Store, string, error) {
-	cfg, err := config.Load(cwd, fl)
-	if err != nil {
-		return nil, "", err
-	}
-	det := project.Detector{EnvVar: cfg.Project.EnvVar}
-	p, err := det.Resolve(cwd, explicit, gitToplevel)
-	if err != nil {
-		return nil, "", err
-	}
-	cfg.Project.Name = p
-	st, err := storeFor(cfg, p)
-	if err != nil {
-		return nil, "", err
-	}
-	return st, p, nil
-}
-
 // kbRoot returns the knowledge vault root for this project (spec
 // 001-structure: the vault lives under a single sentinel dir,
 // .skillgrid/knowledge/).
 func kbRoot(cwd string) string {
 	return filepath.Join(cwd, ".skillgrid", "knowledge")
+}
+
+// kbHandler opens the store for the resolved project and builds the shared
+// KbHandler over it (008-transport §6: the CLI is a thin wrapper over the
+// same handlers — the K6 seam). The roots are set per call (006 §2: the
+// anchor paths are working-tree-relative, so the repo root is the git
+// toplevel of cwd, the vault root the sentinel dir under it). The resolved
+// project is returned for the callers that assert it (the write tools'
+// expected_project).
+func kbHandler(cwd string, fl config.Flags, explicit string) (store.Store, *handler.KbHandler, string, error) {
+	cfg, err := config.Load(cwd, fl)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	det := project.Detector{EnvVar: cfg.Project.EnvVar}
+	p, err := det.Resolve(cwd, explicit, gitToplevel)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	cfg.Project.Name = p
+	st, err := storeFor(cfg, p)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	repo := cwd
+	if gitRoot, err := gitToplevel(cwd); err == nil && gitRoot != "" {
+		repo = gitRoot
+	}
+	kh := handler.NewKbHandler(st, cfg, &gitDetector{det: det})
+	kh.SetRoots(kbRoot(cwd), repo)
+	return st, kh, p, nil
 }
 
 // kbProjectFlag registers the project selector on fs. Read pf.project only
@@ -106,28 +127,147 @@ func kbProjectFlag(fs *flag.FlagSet) *projectFlag {
 	return &pf
 }
 
-func kbGenerate(fl config.Flags, cwd string, args []string) int {
-	fs := flag.NewFlagSet("kb generate", flag.ContinueOnError)
+// kbParsePrelim parses the shared flags (project selector + --json) and
+// enforces the --all guard (the cross-project store is pending).
+func kbParsePrelim(name string, args []string, fs *flag.FlagSet) (*projectFlag, *bool, error) {
 	fs.SetOutput(os.Stderr)
 	pf := kbProjectFlag(fs)
 	jsonOut := jsonFlag(fs)
-	full := fs.Bool("full", false, "full re-derive (ignore the processed set)")
 	if err := fs.Parse(reorderArgs(args)); err != nil {
-		return exitUsage
+		return nil, nil, fmt.Errorf("kb %s: %w", name, err)
 	}
 	if pf.all {
-		return errExit("kb: --all fan-out is not yet wired (the cross-project store is pending); use --project <name>")
+		return nil, nil, fmt.Errorf("kb %s: --all fan-out is not yet wired (the cross-project store is pending); use --project <name>", name)
 	}
-	st, p, err := kbStore(cwd, fl, pf.project)
+	return pf, jsonOut, nil
+}
+
+func kbQuery(fl config.Flags, cwd string, args []string) int {
+	fs := flag.NewFlagSet("kb query", flag.ContinueOnError)
+	var typ, matchMode string
+	var limit int
+	groundedOnly := fs.Bool("grounded-only", false, "restrict to grounded pages")
+	fs.StringVar(&typ, "type", "", "filter by page type")
+	fs.StringVar(&matchMode, "match-mode", "", "term matching: any|all")
+	fs.IntVar(&limit, "limit", 10, "max hits")
+	pf, jsonOut, err := kbParsePrelim("query", args, fs)
+	if err != nil {
+		return kbOpError("%v", err)
+	}
+	query := strings.TrimSpace(strings.Join(fs.Args(), " "))
+	if query == "" {
+		return errExit("kb query: a query is required")
+	}
+	st, kh, p, err := kbHandler(cwd, fl, pf.project)
 	if err != nil {
 		return kbOpError("%v", err)
 	}
 	defer st.Close()
-	facts, err := kb.AllFacts(context.Background(), st, p)
+	res, err := kh.Query(context.Background(), cwd, p, handler.QueryRequest{
+		Query: query, Type: typ, Limit: limit, MatchMode: matchMode, GroundedOnly: *groundedOnly,
+	})
 	if err != nil {
 		return kbOpError("%v", err)
 	}
-	res, err := kb.Generate(context.Background(), st, kbRoot(cwd), p, *full, nil, facts)
+	if *jsonOut {
+		return kbJSON(res)
+	}
+	for _, hit := range res.Results {
+		fmt.Fprintf(outW(), "%s | %s | %s (score %.3f)\n", hit.RelPath, hit.Title, hit.Type, hit.Score)
+	}
+	fmt.Fprintf(outW(), "kb query: %d hit(s)\n", res.Count)
+	return exitOK
+}
+
+func kbRead(fl config.Flags, cwd string, args []string) int {
+	fs := flag.NewFlagSet("kb read", flag.ContinueOnError)
+	var relPath, section string
+	backlinks := fs.Bool("backlinks", false, "list the pages that link here")
+	fs.StringVar(&relPath, "path", "", "the page rel_path")
+	fs.StringVar(&section, "section", "", "a single ## section name (empty = full body)")
+	pf, jsonOut, err := kbParsePrelim("read", args, fs)
+	if err != nil {
+		return kbOpError("%v", err)
+	}
+	if relPath == "" {
+		return errExit("kb read: --path <rel_path> is required")
+	}
+	st, kh, p, err := kbHandler(cwd, fl, pf.project)
+	if err != nil {
+		return kbOpError("%v", err)
+	}
+	defer st.Close()
+	res, err := kh.Read(context.Background(), cwd, relPath, section, p, *backlinks)
+	if err != nil {
+		return kbOpError("%v", err)
+	}
+	if *jsonOut {
+		return kbJSON(res)
+	}
+	fmt.Fprintf(outW(), "%s (%s%s)\n", res.Title, res.Type, pinCheckLabel(res))
+	fmt.Fprintln(outW(), res.Body)
+	if *backlinks && len(res.Backlinks) > 0 {
+		fmt.Fprintf(outW(), "backlinks:\n")
+		for _, bl := range res.Backlinks {
+			fmt.Fprintf(outW(), "  %s\n", bl)
+		}
+	}
+	return exitOK
+}
+
+// pinCheckLabel renders the pin-check state for grounded pages ("" for
+// non-grounded).
+func pinCheckLabel(res *kb.ReadResult) string {
+	if res.PinCheck == nil {
+		return ""
+	}
+	return ", pin: " + res.PinCheck.Status
+}
+
+func kbSearch(fl config.Flags, cwd string, args []string) int {
+	fs := flag.NewFlagSet("kb search", flag.ContinueOnError)
+	var limit int
+	fs.IntVar(&limit, "limit", 25, "max hits")
+	pf, jsonOut, err := kbParsePrelim("search", args, fs)
+	if err != nil {
+		return kbOpError("%v", err)
+	}
+	query := strings.TrimSpace(strings.Join(fs.Args(), " "))
+	if query == "" {
+		return errExit("kb search: a query is required")
+	}
+	st, kh, p, err := kbHandler(cwd, fl, pf.project)
+	if err != nil {
+		return kbOpError("%v", err)
+	}
+	defer st.Close()
+	res, err := kh.Search(context.Background(), cwd, query, p, limit)
+	if err != nil {
+		return kbOpError("%v", err)
+	}
+	if *jsonOut {
+		return kbJSON(res)
+	}
+	for _, hit := range res.Results {
+		fmt.Fprintf(outW(), "%s | %s | %s\n", hit.RelPath, hit.Title, hit.Snippet)
+	}
+	fmt.Fprintf(outW(), "kb search: %d hit(s)\n", res.Count)
+	return exitOK
+}
+
+func kbGenerate(fl config.Flags, cwd string, args []string) int {
+	fs := flag.NewFlagSet("kb generate", flag.ContinueOnError)
+	full := fs.Bool("full", false, "full re-derive (ignore the processed set)")
+	pf, jsonOut, err := kbParsePrelim("generate", args, fs)
+	if err != nil {
+		return kbOpError("%v", err)
+	}
+	st, kh, p, err := kbHandler(cwd, fl, pf.project)
+	if err != nil {
+		return kbOpError("%v", err)
+	}
+	defer st.Close()
+	res, err := kh.Generate(context.Background(), cwd, pf.project, p, *full)
 	if err != nil {
 		return kbOpError("%v", err)
 	}
@@ -142,23 +282,149 @@ func kbGenerate(fl config.Flags, cwd string, args []string) int {
 	return exitOK
 }
 
-func kbIndex(fl config.Flags, cwd string, args []string) int {
-	fs := flag.NewFlagSet("kb index", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	pf := kbProjectFlag(fs)
-	jsonOut := jsonFlag(fs)
-	if err := fs.Parse(reorderArgs(args)); err != nil {
-		return exitUsage
+func kbValidate(fl config.Flags, cwd string, args []string) int {
+	fs := flag.NewFlagSet("kb validate", flag.ContinueOnError)
+	strict := fs.Bool("strict", false, "fail (exit 1) on any drifted page")
+	pf, jsonOut, err := kbParsePrelim("validate", args, fs)
+	if err != nil {
+		return kbOpError("%v", err)
 	}
-	if pf.all {
-		return errExit("kb: --all fan-out is not yet wired (the cross-project store is pending); use --project <name>")
-	}
-	st, p, err := kbStore(cwd, fl, pf.project)
+	rels := fs.Args()
+	st, kh, p, err := kbHandler(cwd, fl, pf.project)
 	if err != nil {
 		return kbOpError("%v", err)
 	}
 	defer st.Close()
-	res, err := kb.Index(context.Background(), st, kbRoot(cwd), p)
+	res, err := kh.Validate(context.Background(), cwd, p, rels, *strict)
+	if err != nil {
+		return kbOpError("%v", err)
+	}
+	if *jsonOut {
+		return kbJSON(res)
+	}
+	for _, v := range res.Results {
+		fmt.Fprintf(outW(), "kb validate: %s %s (%s)\n", v.RelPath, map[bool]string{true: "ok", false: "drift"}[v.OK], v.Reason)
+	}
+	if res.Checked > 1 {
+		fmt.Fprintf(outW(), "kb validate: %d checked, %d drifted\n", res.Checked, res.Drifted)
+	}
+	if *strict && !res.OK {
+		return exitErr
+	}
+	return exitOK
+}
+
+func kbLint(fl config.Flags, cwd string, args []string) int {
+	fs := flag.NewFlagSet("kb lint", flag.ContinueOnError)
+	fix := fs.Bool("fix", false, "auto-repair the safe findings (missing titles)")
+	strict := fs.Bool("strict", false, "fail (exit 1) when issues remain")
+	pf, jsonOut, err := kbParsePrelim("lint", args, fs)
+	if err != nil {
+		return kbOpError("%v", err)
+	}
+	st, kh, p, err := kbHandler(cwd, fl, pf.project)
+	if err != nil {
+		return kbOpError("%v", err)
+	}
+	defer st.Close()
+	res, err := kh.Lint(context.Background(), cwd, p, *fix)
+	if err != nil {
+		return kbOpError("%v", err)
+	}
+	if *jsonOut {
+		return kbJSON(res)
+	}
+	if len(res.Issues) == 0 {
+		fmt.Fprintln(outW(), "kb lint: clean")
+	} else {
+		for _, iss := range res.Issues {
+			fmt.Fprintf(outW(), "kb lint: %s %s %s\n", iss.RelPath, iss.Code, iss.Message)
+		}
+		fmt.Fprintf(outW(), "kb lint: %d issue(s)", res.Count)
+		if res.Fixed > 0 {
+			fmt.Fprintf(outW(), " (fixed %d)", res.Fixed)
+		}
+		fmt.Fprintln(outW())
+	}
+	if *strict && len(res.Issues) > 0 {
+		return exitErr
+	}
+	return exitOK
+}
+
+func kbStatus(fl config.Flags, cwd string, args []string) int {
+	fs := flag.NewFlagSet("kb status", flag.ContinueOnError)
+	pf, jsonOut, err := kbParsePrelim("status", args, fs)
+	if err != nil {
+		return kbOpError("%v", err)
+	}
+	st, kh, p, err := kbHandler(cwd, fl, pf.project)
+	if err != nil {
+		return kbOpError("%v", err)
+	}
+	defer st.Close()
+	res, err := kh.Status(context.Background(), cwd, p)
+	if err != nil {
+		return kbOpError("%v", err)
+	}
+	if *jsonOut {
+		return kbJSON(res)
+	}
+	fmt.Fprintf(outW(), "kb status: project=%s indexed=%d phase=%s baselines=%d events=%d\n",
+		res.Project, res.Indexed, res.Phase, res.Baselines, res.Events)
+	return exitOK
+}
+
+func kbCiteSource(fl config.Flags, cwd string, args []string) int {
+	fs := flag.NewFlagSet("kb cite-source", flag.ContinueOnError)
+	var name, version, url, commit string
+	fs.StringVar(&name, "name", "", "the external source name (required)")
+	fs.StringVar(&version, "cite-version", "", "the cited version/tag (--version is the global version flag)")
+	fs.StringVar(&url, "url", "", "the source URL")
+	fs.StringVar(&commit, "commit", "", "the source commit (when known)")
+	pf, jsonOut, err := kbParsePrelim("cite-source", args, fs)
+	if err != nil {
+		return kbOpError("%v", err)
+	}
+	relPath := fs.Arg(0)
+	if relPath == "" {
+		return errExit("kb cite-source: a page rel_path is required")
+	}
+	if name == "" {
+		return errExit("kb cite-source: --name <external name> is required")
+	}
+	st, kh, p, err := kbHandler(cwd, fl, pf.project)
+	if err != nil {
+		return kbOpError("%v", err)
+	}
+	defer st.Close()
+	res, err := kh.CiteSource(context.Background(), cwd, pf.project, p, relPath, name, version, url, commit)
+	if err != nil {
+		return kbOpError("%v", err)
+	}
+	if *jsonOut {
+		return kbJSON(res)
+	}
+	if res.AlreadyCited {
+		fmt.Fprintf(outW(), "kb cite-source: %s already cited on %s\n", res.Source, relPath)
+	} else {
+		fmt.Fprintf(outW(), "kb cite-source: %s recorded on %s (fingerprint %s)\n", res.Source, relPath, res.BuildFingerprint)
+	}
+	return exitOK
+}
+
+func kbIndex(fl config.Flags, cwd string, args []string) int {
+	fs := flag.NewFlagSet("kb index", flag.ContinueOnError)
+	pf, jsonOut, err := kbParsePrelim("index", args, fs)
+	if err != nil {
+		return kbOpError("%v", err)
+	}
+	st, kh, p, err := kbHandler(cwd, fl, pf.project)
+	if err != nil {
+		return kbOpError("%v", err)
+	}
+	defer st.Close()
+	res, err := kh.Index(context.Background(), cwd, p)
 	if err != nil {
 		return kbOpError("%v", err)
 	}
@@ -171,21 +437,16 @@ func kbIndex(fl config.Flags, cwd string, args []string) int {
 
 func kbReindex(fl config.Flags, cwd string, args []string) int {
 	fs := flag.NewFlagSet("kb reindex", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	pf := kbProjectFlag(fs)
-	jsonOut := jsonFlag(fs)
-	if err := fs.Parse(reorderArgs(args)); err != nil {
-		return exitUsage
+	pf, jsonOut, err := kbParsePrelim("reindex", args, fs)
+	if err != nil {
+		return kbOpError("%v", err)
 	}
-	if pf.all {
-		return errExit("kb: --all fan-out is not yet wired (the cross-project store is pending); use --project <name>")
-	}
-	st, p, err := kbStore(cwd, fl, pf.project)
+	st, kh, p, err := kbHandler(cwd, fl, pf.project)
 	if err != nil {
 		return kbOpError("%v", err)
 	}
 	defer st.Close()
-	res, err := kb.Reindex(context.Background(), st, kbRoot(cwd), p)
+	res, err := kh.Reindex(context.Background(), cwd, p)
 	if err != nil {
 		return kbOpError("%v", err)
 	}
@@ -196,145 +457,18 @@ func kbReindex(fl config.Flags, cwd string, args []string) int {
 	return exitOK
 }
 
-func kbValidate(fl config.Flags, cwd string, args []string) int {
-	fs := flag.NewFlagSet("kb validate", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	pf := kbProjectFlag(fs)
-	jsonOut := jsonFlag(fs)
-	strict := fs.Bool("strict", false, "fail (exit 1) on any drifted page")
-	if err := fs.Parse(reorderArgs(args)); err != nil {
-		return exitUsage
-	}
-	if pf.all {
-		return errExit("kb: --all fan-out is not yet wired (the cross-project store is pending); use --project <name>")
-	}
-	st, p, err := kbStore(cwd, fl, pf.project)
-	if err != nil {
-		return kbOpError("%v", err)
-	}
-	defer st.Close()
-	root := kbRoot(cwd)
-	rels := fs.Args()
-	if len(rels) == 0 {
-		// Default scope: every grounded page in the vault (006 §5).
-		rels, err = kb.GroundedPages(root)
-		if err != nil {
-			return kbOpError("%v", err)
-		}
-	}
-	ctx := context.Background()
-	results := make([]*kb.ValidateResult, 0, len(rels))
-	drifted := 0
-	for _, rel := range rels {
-		res, err := kb.Validate(ctx, st, root, rel, p)
-		if err != nil {
-			return kbOpError("%v", err)
-		}
-		if !res.OK {
-			drifted++
-		}
-		results = append(results, res)
-	}
-	if *jsonOut {
-		return kbJSON(map[string]any{"results": results, "checked": len(results), "drifted": drifted})
-	}
-	for _, res := range results {
-		fmt.Fprintf(outW(), "kb validate: %s %s (%s)\n", res.RelPath, map[bool]string{true: "ok", false: "drift"}[res.OK], res.Reason)
-	}
-	if len(results) > 1 {
-		fmt.Fprintf(outW(), "kb validate: %d checked, %d drifted\n", len(results), drifted)
-	}
-	if *strict && drifted > 0 {
-		return exitErr
-	}
-	return exitOK
-}
-
-func kbQuery(fl config.Flags, cwd string, args []string) int {
-	fs := flag.NewFlagSet("kb query", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	pf := kbProjectFlag(fs)
-	jsonOut := jsonFlag(fs)
-	var typ string
-	var limit int
-	groundedOnly := fs.Bool("grounded-only", false, "restrict to grounded pages")
-	fs.StringVar(&typ, "type", "", "filter by page type")
-	fs.IntVar(&limit, "limit", 10, "max hits")
-	if err := fs.Parse(reorderArgs(args)); err != nil {
-		return exitUsage
-	}
-	if pf.all {
-		return errExit("kb: --all fan-out is not yet wired (the cross-project store is pending); use --project <name>")
-	}
-	query := strings.TrimSpace(strings.Join(fs.Args(), " "))
-	if query == "" {
-		return errExit("kb query: a query is required")
-	}
-	st, p, err := kbStore(cwd, fl, pf.project)
-	if err != nil {
-		return kbOpError("%v", err)
-	}
-	defer st.Close()
-	res, err := kb.Query(context.Background(), st, query, kb.QueryFilters{
-		Project: p, Type: typ, Limit: limit, GroundedOnly: *groundedOnly,
-	})
-	if err != nil {
-		return kbOpError("%v", err)
-	}
-	if *jsonOut {
-		return kbJSON(map[string]any{"results": res, "count": len(res)})
-	}
-	for _, hit := range res {
-		fmt.Fprintf(outW(), "%s | %s | %s (score %.3f)\n", hit.RelPath, hit.Title, hit.Type, hit.Score)
-	}
-	fmt.Fprintf(outW(), "kb query: %d hit(s)\n", len(res))
-	return exitOK
-}
-
-func kbStatus(fl config.Flags, cwd string, args []string) int {
-	fs := flag.NewFlagSet("kb status", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	pf := kbProjectFlag(fs)
-	jsonOut := jsonFlag(fs)
-	if err := fs.Parse(reorderArgs(args)); err != nil {
-		return exitUsage
-	}
-	if pf.all {
-		return errExit("kb: --all fan-out is not yet wired (the cross-project store is pending); use --project <name>")
-	}
-	st, p, err := kbStore(cwd, fl, pf.project)
-	if err != nil {
-		return kbOpError("%v", err)
-	}
-	defer st.Close()
-	res, err := kb.Status(context.Background(), st, p)
-	if err != nil {
-		return kbOpError("%v", err)
-	}
-	if *jsonOut {
-		return kbJSON(res)
-	}
-	fmt.Fprintf(outW(), "kb status: project=%s indexed=%d phase=%s baselines=%d events=%d\n",
-		res.Project, res.Indexed, res.Phase, res.Baselines, res.Events)
-	return exitOK
-}
-
 func kbBootstrap(fl config.Flags, cwd string, args []string) int {
 	fs := flag.NewFlagSet("kb bootstrap", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	pf := kbProjectFlag(fs)
-	if err := fs.Parse(reorderArgs(args)); err != nil {
-		return exitUsage
+	pf, _, err := kbParsePrelim("bootstrap", args, fs)
+	if err != nil {
+		return kbOpError("%v", err)
 	}
-	if pf.all {
-		return errExit("kb: --all fan-out is not yet wired (the cross-project store is pending); use --project <name>")
-	}
-	st, p, err := kbStore(cwd, fl, pf.project)
+	st, kh, p, err := kbHandler(cwd, fl, pf.project)
 	if err != nil {
 		return kbOpError("%v", err)
 	}
 	defer st.Close()
-	res, err := kb.Bootstrap(context.Background(), st, kbRoot(cwd), kb.Options{Project: p})
+	res, err := kh.Bootstrap(context.Background(), cwd, p)
 	if err != nil {
 		return kbOpError("%v", err)
 	}
@@ -346,120 +480,37 @@ func kbBootstrap(fl config.Flags, cwd string, args []string) int {
 	return exitOK
 }
 
-func kbLint(fl config.Flags, cwd string, args []string) int {
-	fs := flag.NewFlagSet("kb lint", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	pf := kbProjectFlag(fs)
-	jsonOut := jsonFlag(fs)
-	fix := fs.Bool("fix", false, "auto-repair the safe findings (missing titles)")
-	strict := fs.Bool("strict", false, "fail (exit 1) when issues remain")
-	if err := fs.Parse(reorderArgs(args)); err != nil {
-		return exitUsage
+func kbRebuildMeta(fl config.Flags, cwd string, args []string) int {
+	fs := flag.NewFlagSet("kb rebuild-meta", flag.ContinueOnError)
+	pf, jsonOut, err := kbParsePrelim("rebuild-meta", args, fs)
+	if err != nil {
+		return kbOpError("%v", err)
 	}
-	if pf.all {
-		return errExit("kb: --all fan-out is not yet wired (the cross-project store is pending); use --project <name>")
-	}
-	st, p, err := kbStore(cwd, fl, pf.project)
+	st, kh, p, err := kbHandler(cwd, fl, pf.project)
 	if err != nil {
 		return kbOpError("%v", err)
 	}
 	defer st.Close()
-	ctx := context.Background()
-	// Sync the index first: lint is store-level (it never reads the vault),
-	// so the findings reflect the current vault only after the index caught
-	// up. The sync runs before any fix so a body drift cannot clobber the
-	// backfilled titles afterward.
-	if _, err := kb.Index(ctx, st, kbRoot(cwd), p); err != nil {
-		return kbOpError("%v", err)
-	}
-	issues, err := kb.Lint(ctx, st, p)
-	if err != nil {
-		return kbOpError("%v", err)
-	}
-	if *fix {
-		// The safe fix set is the missing_title finding (Fix backfills the
-		// kb_pages title from the rel_path; it never touches the file).
-		var rels []string
-		for _, iss := range issues {
-			if iss.Code == "missing_title" {
-				rels = append(rels, iss.RelPath)
-			}
-		}
-		if len(rels) > 0 {
-			if _, err := kb.Fix(ctx, st, p, rels); err != nil {
-				return kbOpError("%v", err)
-			}
-			issues, err = kb.Lint(ctx, st, p)
-			if err != nil {
-				return kbOpError("%v", err)
-			}
-		}
-	}
-	if *jsonOut {
-		return kbJSON(map[string]any{"issues": issues, "count": len(issues)})
-	}
-	if len(issues) == 0 {
-		fmt.Fprintln(outW(), "kb lint: clean")
-	} else {
-		for _, iss := range issues {
-			fmt.Fprintf(outW(), "kb lint: %s %s %s\n", iss.RelPath, iss.Code, iss.Message)
-		}
-		fmt.Fprintf(outW(), "kb lint: %d issue(s)\n", len(issues))
-	}
-	if *strict && len(issues) > 0 {
-		return exitErr
-	}
-	return exitOK
-}
-
-func kbCiteSource(fl config.Flags, cwd string, args []string) int {
-	fs := flag.NewFlagSet("kb cite-source", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	pf := kbProjectFlag(fs)
-	jsonOut := jsonFlag(fs)
-	if err := fs.Parse(reorderArgs(args)); err != nil {
-		return exitUsage
-	}
-	if pf.all {
-		return errExit("kb: --all fan-out is not yet wired (the cross-project store is pending); use --project <name>")
-	}
-	ref := fs.Arg(0)
-	if ref == "" {
-		return errExit("kb cite-source: a page rel_path is required")
-	}
-	st, p, err := kbStore(cwd, fl, pf.project)
-	if err != nil {
-		return kbOpError("%v", err)
-	}
-	defer st.Close()
-	res, err := kb.CiteSource(context.Background(), st, p, ref)
+	res, err := kh.RebuildMeta(context.Background(), cwd, p)
 	if err != nil {
 		return kbOpError("%v", err)
 	}
 	if *jsonOut {
 		return kbJSON(res)
 	}
-	fmt.Fprintf(outW(), "kb cite-source: %s\n", res.Source)
-	if res.Content != "" {
-		fmt.Fprintln(outW(), res.Content)
-	}
+	fmt.Fprintf(outW(), "kb rebuild-meta: pages=%d phase=%s run=%s\n", res.Pages, res.RunPhase, res.RunID)
 	return exitOK
 }
 
 func kbEval(fl config.Flags, cwd string, args []string) int {
 	fs := flag.NewFlagSet("kb eval", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	pf := kbProjectFlag(fs)
-	jsonOut := jsonFlag(fs)
-	if err := fs.Parse(reorderArgs(args)); err != nil {
-		return exitUsage
-	}
-	if pf.all {
-		return errExit("kb: --all fan-out is not yet wired (the cross-project store is pending); use --project <name>")
+	pf, jsonOut, err := kbParsePrelim("eval", args, fs)
+	if err != nil {
+		return kbOpError("%v", err)
 	}
 	// The store is opened per project (storeFor(cfg, p)); Eval reads the
 	// opened store directly.
-	st, _, err := kbStore(cwd, fl, pf.project)
+	st, _, _, err := kbHandler(cwd, fl, pf.project)
 	if err != nil {
 		return kbOpError("%v", err)
 	}

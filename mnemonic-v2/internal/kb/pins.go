@@ -313,7 +313,7 @@ func ValidatePage(ctx context.Context, st store.Store, repoRoot, relPath string,
 			}
 			set(c)
 		case "symbol":
-			set(symbolCheck(ctx, st, a))
+			set(symbolCheck(ctx, st, repoRoot, a))
 		default:
 			set(Check{Kind: "span", Path: a.Path, Result: SpanUnresolved, Note: "anchor has no selector"})
 		}
@@ -378,7 +378,7 @@ func ValidatePage(ctx context.Context, st store.Store, repoRoot, relPath string,
 
 // symbolCheck resolves a symbol anchor through the code graph (006 §2). Graph
 // absent (no indexed files) → ripgrep-degraded occurrence check, degraded:true.
-func symbolCheck(ctx context.Context, st store.Store, a Anchor) Check {
+func symbolCheck(ctx context.Context, st store.Store, repoRoot string, a Anchor) Check {
 	c := Check{Kind: "symbol", Symbol: a.Symbol, Result: SpanOK}
 	n, _ := st.Query(ctx, `SELECT COUNT(*) FROM files`)
 	var total int64
@@ -393,7 +393,7 @@ func symbolCheck(ctx context.Context, st store.Store, a Anchor) Check {
 			sites = []string{a.Path}
 		}
 		for _, p := range sites {
-			if b, err := os.ReadFile(filepath.Join(repoRootOf(p), filepath.FromSlash(p))); err == nil &&
+			if b, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(p))); err == nil &&
 				strings.Contains(string(b), a.Symbol) {
 				return c
 			}
@@ -442,10 +442,6 @@ func symbolCheck(ctx context.Context, st store.Store, a Anchor) Check {
 	}
 	return c
 }
-
-// repoRootOf is a package var so tests can point the degraded occurrence
-// check at a fixture tree (production: the CLI passes the repo root).
-var repoRootOf = func(p string) string { return "." }
 
 func anchorList(m map[string]bool) []string {
 	out := make([]string, 0, len(m))
