@@ -293,3 +293,17 @@ fixed. Open items (defaults recorded, not blocking — resolved at the KB slice)
 - **SK-O5 (two-stage recall threshold):** when a vault is "large enough" to require
   stage 1 before stage 2 — **defaulted to "always use stage 1 (`kb_query`) before
   `kb_read`"** (the cheap, safe default), refined in the review.
+
+---
+
+## 6. The `kb` management skill (TICKET-09 amendment)
+
+The `kb` management skill ships as five files plus this amendment:
+
+- `SKILL.md` — modes (read/maintain), commands, rules.
+- `CONVENTIONS.md` — conventions.
+- `PAGES.md` — page-format conventions.
+- `CLAIMS.md` — claims authoring contract.
+- `MERMAID.md` — diagram conventions.
+
+Amendment: the engine verbs (`kb bootstrap`/`index`/`query`/`validate`/`lint`/`status`/`cite-source`/`eval`) are now implemented in `mnemonic-v2/internal/kb`; the skill text above is the authoring-side discipline and remains authoritative for how agents write/validate pages.
