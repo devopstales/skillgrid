@@ -1078,8 +1078,6 @@ mcp: []
 	if _, err := os.Stat(filepath.Join(opencodeDir, "opencode.jsonc")); err != nil {
 		t.Errorf("opencode.jsonc missing after Run: %v", err)
 	}
-	_ = mu
-	_ = commands
 }
 
 func TestParallelInstallErrorAggregation(t *testing.T) {
