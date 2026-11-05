@@ -3,7 +3,7 @@
 > Copy this template to `.skillgrid/specs/2026-11-04-mnemonic-v2-memory-plugins/blueprint.md`.
 > **Role:** this is the *how* — the implementation plan: concrete steps, files to touch, code, tests, and verification. The companion `briefing.md` is the *what* (requirements & intent). The filename pair is load-bearing: `brainstorming` and `resume` key phase state off these exact filenames — never rename.
 
-**Status:** APPROVED (2026-11-05, user approval "look good"; amended 2026-11-05: 3-family split per user direction)
+**Status:** APPROVED (2026-11-05, user approval "look good"; amended 2026-11-05: 3-family split per user direction; amended 2026-11-05: pi-research fold R6 — all 7 folds into the memory + code-index plugins on both hosts, excluded from the knowledge-base plugin per user direction)
 
 **Tier:** T2
 
@@ -29,6 +29,7 @@ None — no new domain terms introduced by this plan beyond the spec's.
 - The OpenCode + Pi **knowledge-base plugins** expose the `kb_*` surface (12 tools per KB spec 008), gated on the KB function's ship.
 - The ported memory plugin behaviors preserve engram reliability semantics (redaction, retries, self-heal, fail-open for capture/lifecycle, fail-closed for writes, compaction recovery, passive capture, session wiring); all families share the fail-open seam.
 - The memory save pipeline emits a SaveEvent consumed by the brain-side wiki.
+- The memory + code-index plugins (both hosts) hold the pi-research fold (R6): capability-gated tool surface (admin `mem_*` hidden by default; `code_*` gated on the server capability probe — no restart), MCP-child lifecycle (bounded drain + force-exit watchdog, shutdown-reason branching), compaction recovery on the named compaction events, described-OFF embedder degradation (one sentence across surfaces, disabled-not-unhealthy), subagent read guard, consumer queue discipline, and the skill + CLI distribution with the exit-code protocol. The knowledge-base plugin is excluded from this fold (user direction).
 
 **Artifacts** (files that must exist with real implementation, not stubs):
 - `plugins/pi/mnemonic/api.js` — shared MCP-stdio client / redaction / TypeBox helpers (memory family; reused shape for the other Pi packages).
@@ -144,6 +145,79 @@ other families (KB spec 008 §1); reads synchronous, writes async (`run_id` +
 status poll, `409` on double-start); degradation envelope (`degraded: true` +
 reason) surfaced, never silently floored.
 
+## pi-research fold (R6, 2026-11-05)
+
+Source: `github.com/Lincoln504/pi-research` (Pi extension + knowledge store,
+v1.7.24). User direction: all seven folds land on the **separate OpenCode + Pi
+plugins** (memory + code-index families); the knowledge-base plugin is
+**not** modified by this fold. Task assignments:
+
+- **PR-1 Capability-gated tool surface** → Tasks 1, 2, 5. Pi: register the
+  family's tools unconditionally, re-register with `exposure: 'hidden'` when
+  the capability is absent (`pi` has no unregister API; re-registration is
+  the documented withdrawal, and a later re-register back to `direct`
+  re-activates like a new tool). Gate on the LIVE seam capability probe, not
+  on startup registration — a capability change takes effect next
+  `session_start` without a restart. OpenCode: no exposure API →
+  registration-time gate + self-guarding "unavailable" response envelope.
+  Admin `mem_*` (6): hidden by default, exposed via the `all` profile.
+  `code_*`: hidden/self-guarding until the server reports the code-index
+  family registered.
+- **PR-2 Lifecycle discipline** → Tasks 1, 2, 3. MCP stdio child on
+  `session_shutdown`: branch on `event.reason` — `quit` → bounded drain
+  (≤5s) + force-exit watchdog (`forceExitAfter` ~30s; teardown of ONNX/store
+  can hang); reload/resume/fork → drain without exit. Timers `unref()`'d so a
+  short host run isn't held open. Compaction recovery: hook the named
+  `session_before_compact` / `session_compact` events (not only
+  before_agent_start inference).
+- **PR-3 Described-OFF degradation** → Task 5 (plugin-visible half). When the
+  semantic leg is unavailable (embedder package missing / model failed),
+  `code_search` / `code_semantic` / `code_status` responses AND the health
+  surface carry ONE identical sentence naming the missing dependency + the
+  repair command; the run still serves FTS-leg results; the condition is
+  reported as *disabled, not unhealthy* so it never blocks a run.
+  Availability probed by resolution, memoized per process, fail-fast (no
+  retry storm).
+- **PR-4 Consumer queue discipline** → Task 4. Per-observation in-flight
+  lock map (TOCTOU on the same fact), bounded drain with a shared teardown
+  budget, drop-count surfaced (metrics/response), no unbounded queue growth.
+- **PR-5 Subagent read guard** → Task 5. `code_read` from subagent/sandbox
+  contexts: confine to the project root (realpath-resolved, symlink-aware) +
+  secret-file denylist (`.env*`, `id_*`, `*.pem`, `*.tfstate`, shell
+  history, credentials files); denial returns `read denied: <reason>` — a
+  prompt injection on read content cannot exfiltrate a credential.
+- **PR-6 Skill + CLI dual distribution** → Task 1 (packaging; post-ship
+  step, spec-locked now). `agent-skill/` in the pi-mnemonic package:
+  SKILL.md with "Use for X / Not for Y" description discipline,
+  per-command timeouts with queue headroom, single-background-mechanism
+  rule; zero-dep `run.mjs` launcher with ordered engine resolution and exit
+  codes (78 = engine/config/model missing — prints the repair + config file
+  locations); manifest-tracked installer (install / uninstall / status;
+  symlink into detected agents; never clobber a foreign skill; uninstall
+  removes exactly what it created; stale links GC'd). Host-agnostic: the
+  OpenCode plugin (Task 2) does not duplicate it.
+- **PR-7 Prompt-cache steering (forward-looking, no task)** → note for future
+  squad/research features: steering goes into the *user* message (keeps the
+  system-prompt cacheable prefix byte-identical across parallel subagent
+  sessions); "CRITICAL: NO SUBAGENTS" prompt discipline when a tool
+  orchestrates internally.
+
+### Cross-change folds (owned elsewhere — not tickets of this change)
+
+- **Code-index change at ship** (`2026-10-31-mnemonic-v2-code-index`,
+  fix-loop-green): PR-3 server-side half — NaN/Inf vector gate before vec0
+  insert (a correct-width NaN vector breaks ANN ordering and passes length
+  checks; guard shared by the normal path and any re-embed migration);
+  embedder model change → `backup` (default) / `drop` / `re-embed`
+  migration with re-embed falling back to backup on failure — data is never
+  dropped without explicit `drop`.
+- **KB change** (`2026-10-31-mnemonic-v2-knowledge-base`, advisory):
+  scope-as-column (one physical store, scope columns filtered at query time,
+  not separate folders), TTL eviction at open within the current scope,
+  per-model chunk config (chunk size / pooling / prefixes defined by the
+  model, schema built around it).
+- **Squad/research (future)**: PR-7.
+
 ## Execution waves
 
 - **Wave 1 — memory family (both hosts):** Tasks 1–4. Tracer: engram port.
@@ -167,6 +241,20 @@ reason) surfaced, never silently floored.
 
 **SATISFIES:** `happy path — agent saves a new memory through the plugin tool`; `edge case — agent looks up an unknown topic through the plugin tool`
 
+**Fold (R6):** PR-1 — the 6 admin `mem_*` tools are registered but
+`exposure: 'hidden'` by default; enabling the `all` profile re-registers
+them `direct` (session_start + live config), no pi restart. PR-2 — the MCP
+stdio child gets the shutdown-reason lifecycle (bounded drain ≤5s +
+force-exit watchdog on `quit`; drain-without-exit on reload/resume/fork),
+unref'd timers; the seam exposes the server capability probe (families
+present per `tools/list`) that PR-1 gating reads. PR-6 — package ships
+`agent-skill/` (SKILL.md discipline: "Use for / Not for" description,
+per-command timeouts, single-background-mechanism rule), zero-dep `run.mjs`
+launcher (ordered engine resolution; exit 78 = engine/config missing with
+repair + config paths), manifest-tracked installer (install/uninstall/
+status; never clobbers a foreign skill; stale links GC'd). Post-ship
+packaging step, spec-locked here.
+
 - [ ] **Step 1: Write the failing test**
 - [ ] **Step 2: Run test to verify it fails**
 - [ ] **Step 3: Write minimal implementation**
@@ -189,6 +277,13 @@ Critic F2 resolution (user decision): split capture-fails-open vs write-fails-cl
 
 **SATISFIES:** `failure state — memory server unreachable through the plugin`; `failure state — retry and self-heal after transient failure`
 
+**Fold (R6, OpenCode equivalents):** PR-1 — no exposure API on OpenCode:
+registration-time gate + self-guarding "unavailable" response envelope for
+gated tools (admin `mem_*` on the same profile rule as Pi). PR-2 — the host
+lifecycle hooks drive the same bounded drain + force-exit watchdog for the
+shared stdio child. PR-6 is host-agnostic and shipped once by Task 1 — this
+task does not duplicate the skill.
+
 - [ ] **Step 1: Write the failing test**
 - [ ] **Step 2: Run test to verify it fails**
 - [ ] **Step 3: Write minimal implementation**
@@ -208,6 +303,11 @@ Critic F2 resolution (user decision): split capture-fails-open vs write-fails-cl
 - Adapters: ≥2.
 
 **SATISFIES:** `happy path — compaction recovery persists prior work`; `edge case — passive capture redaction`
+
+**Fold (R6):** PR-2 — compaction recovery is additionally triggered from the
+named `session_before_compact` / `session_compact` events (deterministic
+trigger, not only before_agent_start inference); the recovery persists prior
+work in both trigger paths.
 
 - [ ] **Step 1: Write the failing test**
 - [ ] **Step 2: Run test to verify it fails**
@@ -233,6 +333,11 @@ Critic F3 resolution (user decision): rewrite Task 4 around the server-side even
 
 **SATISFIES:** `happy path — save emits a SaveEvent for the wiki`; `edge case — wiki vault not initialized`; `failure state — wiki ingestion failure does not lose the memory save`
 
+**Fold (R6):** PR-4 — the plugin-side consumer wiring uses a per-observation
+in-flight lock map (TOCTOU when the same fact is re-emitted), bounded drain
+with a shared teardown budget (≤5s; the un-drained remainder is counted, not
+hung), and drop-count surfacing — the queue never grows unbounded.
+
 - [ ] **Step 1: Write the failing test**
 - [ ] **Step 2: Run test to verify it fails**
 - [ ] **Step 3: Write minimal implementation**
@@ -256,6 +361,19 @@ Critic F3 resolution (user decision): rewrite Task 4 around the server-side even
 - Adapters: ≥2.
 
 **SATISFIES:** `happy path — agent searches code through the code-index plugin`; `edge case — stale index refresh workflow`; `failure state — memory server unreachable through the code-index plugin`
+
+**Fold (R6, both hosts):** PR-1 — the 25 `code_*` tools are registered but
+hidden (Pi `exposure`) / self-guarding (OpenCode) until the seam capability
+probe reports the code-index family registered; re-evaluated at
+session_start. PR-3 — described-OFF: when the semantic leg is unavailable,
+`code_search` / `code_semantic` / `code_status` responses AND the health
+surface carry one identical sentence naming the missing embedder + the
+repair; FTS-leg results still served; reported as disabled, not unhealthy
+(availability probed by resolution, memoized, fail-fast). PR-5 — subagent/
+sandbox-context `code_read` is confined to the project root
+(realpath-resolved) with a secret-file denylist (`.env*`, `id_*`, `*.pem`,
+`*.tfstate`, shell history, credentials files); denial =
+`read denied: <reason>`.
 
 - [ ] **Step 1: Write the failing parity test (plugin set == registered set, both hosts)**
 - [ ] **Step 2: Run test to verify it fails**

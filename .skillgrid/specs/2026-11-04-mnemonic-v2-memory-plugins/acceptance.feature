@@ -7,9 +7,13 @@
 #host — memory (mem_*), code-index (code_*), knowledge (kb_*, gated on the
 #KB function ship). Parity source of truth: the v2 module's registered tool
 #sets; the v1 module surface (HTTP :7438, fact_*) is legacy, out of parity.
+#Amended 2026-11-05: pi-research fold R6 (capability gating, lifecycle,
+#described degradation, consumer queue, read guard, skill+CLI distribution) —
+#memory + code-index families, both hosts; the knowledge-base plugin is
+#excluded (user direction).
 #
 #Source: .skillgrid/specs/2026-11-04-mnemonic-v2-memory-plugins/briefing.md
-#Trace: briefing.md Requirements R1-R5; blueprint tasks SATISFIES lines.
+#Trace: briefing.md Requirements R1-R6; blueprint tasks SATISFIES lines.
 #
 # Format rules:
 # - Steps in the ```gherkin fence are indented 6 spaces (verbatim — the extractor does NOT re-indent)
@@ -251,8 +255,86 @@ OpenCode and Pi knowledge-base plugins.
 # EVIDENCE: pending (gated on 2026-10-31-mnemonic-v2-knowledge-base ship)
 ````
 
+### Requirement: Plugin engineering — capability gating, lifecycle, described degradation (pi-research fold)
+
+Validated by pi-research (2026-11-05). User direction: all folds land on the
+**memory + code-index plugins, both hosts** — the knowledge-base plugin is
+excluded from this requirement.
+
+#### Scenario: Happy path — admin memory tools gated by profile without restart
+
+```gherkin
+      Given a Pi agent with the memory plugin enabled on the default agent profile
+      When the six admin mem_* tools are inspected
+      Then they are registered but hidden from the model
+      And enabling the all profile re-exposes them without a pi restart
+```
+
+#### Scenario: Edge case — code-index tools absent on the server self-guard
+
+```gherkin
+      Given an agent with the code-index plugin enabled
+      And the server capability probe reports no code-index family
+      When a code_* tool is invoked
+      Then the tools are hidden on Pi or return the self-guard unavailable envelope on OpenCode
+      And the agent continues without a tool error
+```
+
+#### Scenario: Happy path — session shutdown drains the MCP child within budget
+
+```gherkin
+      Given a plugin session with a live mnemonic mcp child process
+      When the host session shuts down with reason quit
+      Then the child is drained within the bounded teardown budget
+      And a hung drain trips the force-exit watchdog leaving no orphaned child
+```
+
+#### Scenario: Happy path — compaction recovery fires from the named compaction events
+
+```gherkin
+      Given a Pi session that triggers compaction
+      When the session_before_compact and session_compact events fire
+      Then the recovery path persists prior work through the session summary tool
+```
+
+#### Scenario: Edge case — subagent read of a secret path is denied
+
+```gherkin
+      Given a subagent context invoking the code read tool
+      When the read targets a secret file or a path outside the project root
+      Then the read is denied with a read-denied reason
+      And an in-project read resolves normally
+```
+
+#### Scenario: Failure state — embedder unavailable degrades with a described reason
+
+```gherkin
+      Given a project whose index has the semantic leg unavailable
+      When the agent calls the code search tool
+      Then the search returns FTS-leg hits without failing
+      And the response and the health surface name the missing embedder with its repair
+      And the degradation is reported as disabled, not unhealthy
+```
+
+#### Gates
+````
+# G11: capability gating + self-guard + read guard hold (both hosts)
+# CHECK: cd plugins/pi/mnemonic && npm test && cd plugins/opencode && npm test
+# EXPECT: ok
+# EVIDENCE: pending
+````
+````
+# G12: shutdown drain/watchdog + compaction events + described-OFF hold (both hosts)
+# CHECK: cd plugins/pi/mnemonic && npm test && cd plugins/pi/codeindex && npm test && cd plugins/opencode && npm test
+# EXPECT: ok
+# EVIDENCE: pending (codeindex half gated on 2026-10-31-mnemonic-v2-code-index ship)
+````
+
 ## Traceability
 
-- Requirements R1-R5 map to scenarios above; blueprint tasks carry `SATISFIES` lines.
+- Requirements R1-R6 map to scenarios above; blueprint tasks carry `SATISFIES` lines.
 - Design approval recorded 2026-11-04 ("look good"); 2026-11-05 amendment
-  (3-family split, KB plugin gated on the brain function) per user direction.
+  (3-family split, KB plugin gated on the brain function) per user direction;
+  2026-11-05 amendment (pi-research fold R6 — scoped to the memory +
+  code-index families on both hosts, knowledge-base plugin excluded) per user
+  direction.

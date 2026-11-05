@@ -202,6 +202,67 @@ OpenCode and Pi knowledge-base plugins.
   from KB spec 008, both hosts); KB route contract green (KB change's
   contract owner).
 
+### Requirement: Plugin engineering — capability gating, lifecycle, described degradation (pi-research fold)
+
+Validated by pi-research (2026-11-05, `github.com/Lincoln504/pi-research`): the
+system SHALL apply the pi-research-proven plugin-engineering patterns to the
+**memory + code-index families on both hosts** (user direction: all folds land
+on the separate OpenCode + Pi plugins — **not** the knowledge-base plugin):
+
+- **PR-1 Capability-gated tool surface.** Tool families that depend on a
+  server-side capability are registered but hidden while the capability is
+  absent, and re-exposed without restart when it appears. Pi: the
+  `exposure: 'direct' | 'hidden'` re-registration pattern (pi has no
+  unregister API). OpenCode: registration-time gate + self-guarding
+  "unavailable" response. Admin `mem_*` (6) hidden by default, exposed via
+  the `all` profile; `code_*` gated on the seam's server capability probe.
+- **PR-2 Lifecycle discipline.** MCP stdio child: bounded drain on session
+  shutdown with reason branching (`quit` → drain + force-exit watchdog;
+  reload/resume/fork → drain without exit), unref'd timers, no orphaned
+  child. Compaction recovery wired to the named
+  `session_before_compact` / `session_compact` events.
+- **PR-3 Described-OFF degradation.** When the embedder is unavailable,
+  semantic-dependent tools (`code_search` / `code_semantic`) still serve
+  FTS-leg results and name the missing dependency + repair in the response
+  AND the health surface — one identical sentence across all surfaces,
+  reported as *disabled, not unhealthy* (never drags overall health down or
+  blocks a run).
+- **PR-4 Consumer queue discipline.** SaveEvent → wiki consumer wiring uses a
+  per-observation in-flight lock map (TOCTOU), bounded drain with a shared
+  teardown budget, and drop-count surfacing (no unbounded queue).
+- **PR-5 Subagent read guard.** File reads from subagent/sandbox contexts are
+  confined to the project root (realpath-resolved) with a secret-file
+  denylist (`.env*`, key files, shell history); denial returns
+  `read denied: <reason>`.
+- **PR-6 Skill + CLI dual distribution.** The pi-mnemonic package ships
+  `agent-skill/` (SKILL.md with "Use for X / Not for Y" description
+  discipline, per-command timeouts with queue headroom,
+  single-background-mechanism rule) + a zero-dep launcher (ordered engine
+  resolution; exit 78 = engine/config missing, printing the repair + config
+  paths) + a manifest-tracked installer (`install` / `uninstall` /
+  `status`; symlinks into detected agents; never clobbers a foreign skill;
+  uninstall removes exactly what it created; stale links GC'd).
+- **PR-7 Prompt-cache steering (forward-looking, no ticket).** Steering
+  messages go into the *user* message so parallel subagent sessions keep a
+  byte-identical system-prompt prefix (prompt cache); "NO SUBAGENTS" prompt
+  discipline when a tool orchestrates internally. Recorded for future
+  squad/research features.
+
+Server-side PR-3 counterparts (NaN/Inf vector gate before vec0 insert;
+embedder model change → backup/re-embed migration, data never dropped
+without explicit `drop`) are a **cross-change fold owned by the code-index
+change at ship** — not tickets of this change. KB-side patterns (scope-as-column
+vs folder, TTL eviction at open, per-model chunk config) are advisory notes
+to the KB change; the knowledge-base plugin tickets (R5) are unchanged.
+
+- **Current:** no capability gating, no shutdown watchdog, no described-OFF
+  embedder degradation, no skill distribution for the memory function.
+- **Target:** PR-1..PR-6 hold on both hosts across the memory + code-index
+  plugin families.
+- **Acceptance:** the R6 scenarios in `acceptance.feature` green on both
+  hosts (gating, self-guard, drain/watchdog, compaction events, read guard,
+  described-OFF); launcher exit-code protocol verified.
+
 ## Implementation Decisions
 
 - **Modules to build/modify:**
@@ -283,6 +344,10 @@ Open Questions & Assumptions.
   criteria finalize the verifiable success criteria above.
 - **Assumption:** R5 (knowledge-base plugin) scenarios are gated on the KB
   function's ship; wave 3 of execution lands after it.
+- **Assumption (2026-11-05, user direction):** the pi-research fold (R6,
+  PR-1..PR-7) is scoped to the memory + code-index plugin families on both
+  hosts; the knowledge-base plugin is explicitly excluded. PR-7 is
+  forward-looking (future squad/research features) and carries no ticket.
 
 ## Decisions (ADR)
 
