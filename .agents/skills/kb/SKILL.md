@@ -22,13 +22,13 @@ Manage the project's durable knowledge: an OKF vault at `.skillgrid/knowledge/` 
   config.json                # sentinel: this dir is a KB (engine scaffold)
   KNOWLEDGE_SCHEMA.md        # operating manual for this vault
   .knowledgeignore           # read boundary for the indexer
-  index.md / log.md / reverse-index.md  # catalog / journal / path→concept map
   decisions/   # TechnicalDecision — why a construct exists
   invariants/ # InvariantContract — must-hold tokens, requires claims[]
   workflows/   # BusinessWorkflow — thin cross-package flows
   glossary/    # Reference — terms
   reference/   # PRD, research, roadmaps
-  index/       # run checkpoint (derived, rebuildable)
+  index/       # derived (rebuilt, never hand-edited): catalog.md / log.md /
+               #   reverse-index.md / events.jsonl — the engine's human mirror
 ```
 
 - **You own the pages.** Author and revise markdown in the page-type folders; cross-link between concepts.
@@ -59,7 +59,7 @@ Manage the project's durable knowledge: an OKF vault at `.skillgrid/knowledge/` 
 
 Do not enumerate or preload the vault at task start. Retrieve, then stop once grounded:
 
-1. **Orient cheap:** `index.md` (one-line catalog) + the tail of `log.md`. This tells you *whether* relevant knowledge exists.
+1. **Orient cheap:** `index/catalog.md` (one-line catalog) + the tail of `index/log.md` — both engine-generated (never hand-edited). This tells you *whether* relevant knowledge exists.
 2. **Stage 1 — scan the links:** `kb query "<terms>"` returns a ranked list with snippets (links-first, context-protected). Pick the few that matter.
 3. **Stage 2 — expand on demand:** open the chosen page. Do not assume the snippet is the whole page.
 4. **Verify load-bearing details** against current source. Engine down? Degrade to direct Markdown reads and declare `Degraded: kb`.
@@ -67,9 +67,9 @@ Do not enumerate or preload the vault at task start. Retrieve, then stop once gr
 ## Maintain the knowledge base
 
 1. **Locate the home first.** Decision → `decisions/`; must-hold token → `invariants/`; flow → `workflows/`; term → `glossary/`; report/roadmap → `reference/`. New writes of the four authored types outside their folders are rejected at review.
-2. **Check what exists** (`index.md` + `kb query`) before writing — a growing base beats a pile of duplicates.
+2. **Check what exists** (`index/catalog.md` + `kb query`) before writing — a growing base beats a pile of duplicates.
 3. **Write or revise** per the Page contract below. On revise: state only what changed (confirm / revise-same-id / retract); carry unaffected content forward untouched.
-4. **Same-edit rule:** every write updates `index.md` (catalog entry) + `log.md` (`## YYYY-MM-DD` entry) + `reverse-index.md` in the same commit. Concept + indexes ship together or the change is incomplete.
+4. **Same-edit rule:** every page write is followed by `kb index` — the engine rewrites the derived projections (`index/catalog.md` + `index/log.md` + `index/reverse-index.md`) from the markdown. You never hand-edit them (KB-INV-3). Page + reindex ship together or the change is incomplete.
 5. **Decisions go through `skillgrid:architectural-decision-records`** (numbering, IRON RULE, LOCKED row) — this skill never mints ADR numbers itself.
 6. **Gate before shipping:** `kb index` (rebuild) → `kb validate` (pin-check) → `kb lint` (health). `kb lint: clean` is the target.
 
@@ -87,7 +87,7 @@ claims: [{ subject, literal }]         # REQUIRED for InvariantContract
 ---
 ```
 
-Body is the why in structural Markdown (headings, lists, tables). Prefer stable anchor tokens (literals, error strings, enum values, thresholds); never marker-only anchors. Unanchored pages are valid knowledge (reports, retrospectives) — they load, they just don't arm the pin check. `index.md`/`log.md` are reserved, never concepts. Soft-delete via `kb_pages.deleted_at`; deprecate via `status: deprecated`.
+Body is the why in structural Markdown (headings, lists, tables). Prefer stable anchor tokens (literals, error strings, enum values, thresholds); never marker-only anchors. Unanchored pages are valid knowledge (reports, retrospectives) — they load, they just don't arm the pin check. `index/**` is reserved (derived — the engine rewrites it), never concepts. Soft-delete via `kb_pages.deleted_at`; deprecate via `status: deprecated`.
 
 ## Pin contract
 
@@ -135,7 +135,7 @@ Diagrams are part of high-quality generation, not decoration. Where a flow, life
 ## Red Flags
 
 - A decision, invariant, or non-obvious discovery landed with no concept.
-- A concept was written but `index.md`/`log.md`/`reverse-index.md` were not updated in the same commit.
+- A concept was written but `kb index` was not run after it (the derived `index/catalog.md`/`log.md`/`reverse-index.md` lag the page — the projections are engine-rewritten, never hand-edited).
 - An accepted ADR file edited in place; a new `decisions/` file with no LOCKED row.
 - An `InvariantContract` with no `claims[]`, or a claim literal no longer in its anchor region.
 - Recall re-read whole directories instead of index → query → open.
@@ -156,9 +156,9 @@ Diagrams are part of high-quality generation, not decoration. Where a flow, life
 
 ## Verification
 
-- [ ] `index.md` / `kb query` was consulted before re-deriving durable knowledge.
+- [ ] `index/catalog.md` / `kb query` was consulted before re-deriving durable knowledge.
 - [ ] Every new/changed concept lives under its type folder with valid frontmatter (`type`, `status`, `claims[]` on invariants).
-- [ ] `index.md` + `log.md` + `reverse-index.md` updated in the same commit (no dangling entries, no orphans).
+- [ ] `kb index` was run after all page writes; the `index/` projections (`catalog.md`/`log.md`/`reverse-index.md`) match the page (no dangling entries, no orphans).
 - [ ] No accepted ADR mutated; no ADR numbers minted outside the ADR skill.
 - [ ] `kb index` → `kb validate` → `kb lint: clean` after the change.
 - [ ] Every external claim has `sources[]` + a stable citation id.
