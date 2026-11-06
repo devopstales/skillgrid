@@ -7,7 +7,7 @@ import (
 )
 
 // TestWriteReadRawRoundtrip covers raw scanner output persistence under
-// <dataDir>/.skillgrid/cache/scans/<id>.json (0644) and byte-identical read
+// <dataDir>/.skillgrid/meta/.cache/scans/<id>.json (0644) and byte-identical read
 // back.
 //
 // SATISFIES: `happy path trivy scan ingests findings with stable hash` (raw leg)
@@ -23,8 +23,8 @@ func TestWriteReadRawRoundtrip(t *testing.T) {
 	if p != want {
 		t.Fatalf("raw path = %q, want %q", p, want)
 	}
-	if !strings.Contains(p, ".skillgrid/cache/scans/"+id+".json") {
-		t.Fatalf("raw path %q does not contain .skillgrid/cache/scans/<id>.json", p)
+	if !strings.Contains(p, ".skillgrid/meta/.cache/scans/"+id+".json") {
+		t.Fatalf("raw path %q does not contain .skillgrid/meta/.cache/scans/<id>.json", p)
 	}
 	got, err := ReadRaw(dataDir, id)
 	if err != nil {

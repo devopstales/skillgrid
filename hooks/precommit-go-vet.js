@@ -74,7 +74,16 @@ for (const [root, dirs] of byModule) {
     .map((p) => `./${p.split(path.sep).join('/')}/...`);
   if (patterns.length === 0) patterns.push('./...');
   const args = ['vet', ...patterns];
-  const r = spawnSync('go', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], cwd: root });
+  let r = spawnSync('go', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], cwd: root });
+  if (r.status !== 0 && /does not contain modules listed in go\.work/.test(r.stderr || '')) {
+    // A standalone module that is not a member of an ancestor go.work
+    // cannot be vetted in workspace mode. Retry with GOWORK=off so it is
+    // vetted against its own go.mod (this guard's per-module intent).
+    r = spawnSync('go', args, {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], cwd: root,
+      env: { ...process.env, GOWORK: 'off' },
+    });
+  }
   if (r.status === 0) continue;
 
   const out = `${(r.stderr || '').trim()}\n${(r.stdout || '').trim()}`.replace(/\n{2,}/g, '\n').trim();

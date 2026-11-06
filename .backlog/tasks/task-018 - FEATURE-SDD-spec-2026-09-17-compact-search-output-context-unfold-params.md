@@ -10,15 +10,15 @@ labels: []
 dependencies:
   - TASK-016
 references:
-  - .skillgrid/specs/2026-09-17-compact-search-output/tasks.md
-  - .skillgrid/specs/2026-09-17-compact-search-output/briefing.md
-  - .skillgrid/specs/2026-09-17-compact-search-output/acceptance.feature
+  - .skillgrid/change-specs/2026-09-17-compact-search-output/tasks.md
+  - .skillgrid/change-specs/2026-09-17-compact-search-output/briefing.md
+  - .skillgrid/change-specs/2026-09-17-compact-search-output/acceptance.feature
   - skillgrid-cli/internal/mnemonic/hybrid/
   - skillgrid-cli/internal/mnemonic/mcp/tools_code_hybrid.go
   - skillgrid-cli/internal/mnemonic/mcp/tools_code_search.go
 documentation:
-  - .skillgrid/specs/2026-09-17-compact-search-output/blueprint.md
-  - .skillgrid/specs/2026-09-17-sqlite-ai-code-indexing/findings.md
+  - .skillgrid/change-specs/2026-09-17-compact-search-output/blueprint.md
+  - .skillgrid/change-specs/2026-09-17-sqlite-ai-code-indexing/findings.md
 priority: medium
 ---
 

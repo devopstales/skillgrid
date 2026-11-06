@@ -92,14 +92,14 @@ commands:
 # --- Artifact layout (standard .skillgrid/ zones) ---
 conventions:
   artifacts_root: .skillgrid
-  scratch_dir: .skillgrid/sdd
-  specs_dir: .skillgrid/specs
-  archive_dir: .skillgrid/xarchive
+  scratch_dir: .skillgrid/meta/.sdd
+  specs_dir: .skillgrid/change-specs
+  archive_dir: .skillgrid/change-archive
   # Durable project knowledge (PRD, architecture, terms, ADRs, constraints, research).
   # Replaces the former docs/PRD.md, docs/ARCHITECTURE.md, .skillgrid/glossary/, .skillgrid/adr/.
   artifacts: .skillgrid
   # Dynamic project state (phase, current change, progress). Updated by pipeline skills.
-  state_file: .skillgrid/state.yaml
+  state_file: .skillgrid/meta/state.yaml
   registry: docs/skillgrid/agents/skill-registry.md # optional; never a workflow gate
 
 # --- Phase rules (preserved from the old skillgrid-sdd/v1 config) ---
@@ -186,13 +186,13 @@ rules:
 # --- BDD / Acceptance Testing ---
 # Always on — BDD is non-negotiable in Skillgrid (like TDD). The
 # skillgrid:acceptance-test-authoring skill and the acceptance-tests/ runner are
-# always active: brainstorming writes .skillgrid/specs/<id>/acceptance.feature
+# always active: brainstorming writes .skillgrid/change-specs/<id>/acceptance.feature
 # and execution enforces the spec zone rule (commit specs before code).
 # stack: javascript (cucumber-js) — python/behave is a follow-up.
 bdd:
   enabled: true
   stack: javascript
-  specs_dir: .skillgrid/specs
+  specs_dir: .skillgrid/change-specs
   runner_dir: acceptance-tests
   lint: gherkin
 
@@ -227,7 +227,7 @@ mnemonic:
 
 # --- Research ---
 # Investigate a question against primary sources into a cited `## Research:`
-# section at .skillgrid/specs/YYYY-MM-DD-<topic>/findings.md. Three skills:
+# section at .skillgrid/change-specs/YYYY-MM-DD-<topic>/findings.md. Three skills:
 # research (single inline pass), code-research (parallel fan-out + verify +
 # red-team, for wide/high-stakes informational questions), and deep-research
 # (long-horizon experimental research: hypothesis → experiment → measure loops
@@ -236,7 +236,7 @@ mnemonic:
 # the findings.
 research:
   default: research              # research | code-research
-  output_dir: .skillgrid/specs
+  output_dir: .skillgrid/change-specs
   code_research_preset: standard # quick | standard | deep
 
 # --- Prototype (feasibility probe) ---
@@ -247,8 +247,8 @@ research:
 # findings.md, which writing-blueprints reads.
 prototype:
   enabled: true
-  findings: .skillgrid/specs/{topic}/findings.md   # consolidated per-topic file
-  module_dir: .skillgrid/specs/{topic}/modules     # liftable pure modules (if any)
+  findings: .skillgrid/change-specs/{topic}/findings.md   # consolidated per-topic file
+  module_dir: .skillgrid/change-specs/{topic}/modules     # liftable pure modules (if any)
 
 # --- Sketch (UI/interaction variant mockup) ---
 # skillgrid:sketch builds 2-3 dramatic-difference interactive mockups for a design
@@ -256,5 +256,5 @@ prototype:
 # winner + build constraints are appended to the topic's consolidated findings.md.
 sketch:
   enabled: true
-  findings: .skillgrid/specs/{topic}/findings.md   # consolidated per-topic file
-  dir: .skillgrid/specs/{topic}/sketches           # HTML mockups + themes/
+  findings: .skillgrid/change-specs/{topic}/findings.md   # consolidated per-topic file
+  dir: .skillgrid/change-specs/{topic}/sketches           # HTML mockups + themes/

@@ -11,7 +11,7 @@ milestone: m-9
 dependencies:
   - TASK-070.01
 references:
-  - .skillgrid/specs/2026-10-06-second-brain-learnings/blueprint.md
+  - .skillgrid/change-specs/2026-10-06-second-brain-learnings/blueprint.md
 parent_task_id: TASK-070
 ---
 

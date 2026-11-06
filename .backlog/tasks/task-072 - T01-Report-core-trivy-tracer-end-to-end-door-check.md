@@ -10,12 +10,12 @@ labels:
 milestone: m-10
 dependencies: []
 references:
-  - .skillgrid/specs/2026-10-17-quality-report/briefing.md
-  - .skillgrid/specs/2026-10-17-quality-report/blueprint.md
-  - .skillgrid/specs/2026-10-17-quality-report/tasks.md
-  - .skillgrid/specs/2026-10-17-quality-report/acceptance.feature
+  - .skillgrid/change-specs/2026-10-17-quality-report/briefing.md
+  - .skillgrid/change-specs/2026-10-17-quality-report/blueprint.md
+  - .skillgrid/change-specs/2026-10-17-quality-report/tasks.md
+  - .skillgrid/change-specs/2026-10-17-quality-report/acceptance.feature
 documentation:
-  - .skillgrid/specs/2026-10-17-quality-report/blueprint.md
+  - .skillgrid/change-specs/2026-10-17-quality-report/blueprint.md
   - .skillgrid/artifacts/04-adr-0038-unified-quality-report.md
 priority: medium
 type: feature

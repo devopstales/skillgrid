@@ -35,7 +35,7 @@ Create a Jira issue with `jira issue create` (type per the project's issue workf
 
 ## Ticketing mapping
 
-The `ticketing` skill maps each ticket in `tasks.md` (`.skillgrid/specs/YYYY-MM-DD-<topic>/tasks.md`) → one Jira issue per ticket, all under the change's parent Epic/Story (`-P <EPIC-KEY>`). Blocking relations: prefer a native issue link type (e.g. `Blocks`) where the instance defines one; otherwise a `Blocked by: <KEY>` line at the top of the issue body. Record every issue key back into `tasks.md` for traceability.
+The `ticketing` skill maps each ticket in `tasks.md` (`.skillgrid/change-specs/YYYY-MM-DD-<topic>/tasks.md`) → one Jira issue per ticket, all under the change's parent Epic/Story (`-P <EPIC-KEY>`). Blocking relations: prefer a native issue link type (e.g. `Blocks`) where the instance defines one; otherwise a `Blocked by: <KEY>` line at the top of the issue body. Record every issue key back into `tasks.md` for traceability.
 
 ## Ticket lifecycle (mandatory when a Tracker ID is set)
 

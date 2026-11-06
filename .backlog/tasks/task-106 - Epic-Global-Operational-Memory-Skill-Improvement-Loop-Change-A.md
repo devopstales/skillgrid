@@ -18,10 +18,10 @@ type: feature
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Cross-project fact store in `__global__.sqlite` with AKL importance, char limit, prefetch injection, background distill, write approval, and a skill improvement loop (observe → inspect → amend → evaluate). Change A of the 2026-10-24-global-llm-wiki spec (ADR-0049).
 
-Spec: `.skillgrid/specs/2026-10-24-global-llm-wiki/briefing.md`
-Blueprint: `.skillgrid/specs/2026-10-24-global-llm-wiki/blueprint.md`
-Tasks: `.skillgrid/specs/2026-10-24-global-llm-wiki/tasks.md`
-Acceptance: `.skillgrid/specs/2026-10-24-global-llm-wiki/acceptance.feature`
+Spec: `.skillgrid/change-specs/2026-10-24-global-llm-wiki/briefing.md`
+Blueprint: `.skillgrid/change-specs/2026-10-24-global-llm-wiki/blueprint.md`
+Tasks: `.skillgrid/change-specs/2026-10-24-global-llm-wiki/tasks.md`
+Acceptance: `.skillgrid/change-specs/2026-10-24-global-llm-wiki/acceptance.feature`
 
 Delivery: 4 chained PRs (stacked-to-main), ~1100-1500 lines, 5 waves.
 One-way doors: T01 (migration 072), T07 (migration 073 + execute.go change).

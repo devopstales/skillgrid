@@ -9,10 +9,10 @@ labels: []
 dependencies:
   - TASK-115.04
 references:
-  - .skillgrid/specs/2026-10-24-hermes-integration/blueprint.md
-  - .skillgrid/specs/2026-10-24-hermes-integration/tasks.md
-  - .skillgrid/specs/2026-10-24-hermes-integration/acceptance.feature
-  - .skillgrid/sdd/2026-10-24-hermes-integration/e2e-verification.md
+  - .skillgrid/change-specs/2026-10-24-hermes-integration/blueprint.md
+  - .skillgrid/change-specs/2026-10-24-hermes-integration/tasks.md
+  - .skillgrid/change-specs/2026-10-24-hermes-integration/acceptance.feature
+  - .skillgrid/meta/.sdd/2026-10-24-hermes-integration/e2e-verification.md
 modified_files:
   - mnemonic/internal/setup/hermes.go
   - .agents/skills/_shared/rules/ticketing/hermes-kanban.md
@@ -53,5 +53,5 @@ Verify protocol is injected via system_prompt_block. Add cron job templates (pri
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Verified system_prompt_block protocol (mem_save/mem_search/mem_context present; prefetch empty first turn; sync_turn non-blocking on error). Added informational cron job templates to SetupHermes (verified against hermes cron create --help v0.22.5). Full e2e: memory round-trip PASS (id 182), MCP exclude wire-level PASS (33 mem_* -> 0), skills discovery PASS (555 files), kanban board 'skillgrid' created and listed, go build green x2, setup tests 8/8, skillgrid-cli tests green. Fixed hermes-kanban adapter: --board is top-level on hermes kanban (not on create), --parents -> --parent (repeatable), list --status single-value. Commits: d3e07cf5, 200853be. E2E doc: .skillgrid/sdd/2026-10-24-hermes-integration/e2e-verification.md. Concerns (pre-existing, not this ticket): mnemonic full-suite has 2 env failures (mcp TestUseSkillExecutesAndLogs under parallel load; vectorstore TestObservationsCallerAudit missing archived fixture); installed ~/.local/bin/mnemonic is stale (pre-TICKET-01, lacks mem save/get/update).
+Verified system_prompt_block protocol (mem_save/mem_search/mem_context present; prefetch empty first turn; sync_turn non-blocking on error). Added informational cron job templates to SetupHermes (verified against hermes cron create --help v0.22.5). Full e2e: memory round-trip PASS (id 182), MCP exclude wire-level PASS (33 mem_* -> 0), skills discovery PASS (555 files), kanban board 'skillgrid' created and listed, go build green x2, setup tests 8/8, skillgrid-cli tests green. Fixed hermes-kanban adapter: --board is top-level on hermes kanban (not on create), --parents -> --parent (repeatable), list --status single-value. Commits: d3e07cf5, 200853be. E2E doc: .skillgrid/meta/.sdd/2026-10-24-hermes-integration/e2e-verification.md. Concerns (pre-existing, not this ticket): mnemonic full-suite has 2 env failures (mcp TestUseSkillExecutesAndLogs under parallel load; vectorstore TestObservationsCallerAudit missing archived fixture); installed ~/.local/bin/mnemonic is stale (pre-TICKET-01, lacks mem save/get/update).
 <!-- SECTION:FINAL_SUMMARY:END -->

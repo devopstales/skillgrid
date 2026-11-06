@@ -17,8 +17,8 @@ dependencies:
   - TASK-076
   - TASK-072
 references:
-  - .skillgrid/specs/2026-10-09-skill-pi/tasks.md
-  - .skillgrid/specs/2026-10-09-skill-pi/acceptance.feature
+  - .skillgrid/change-specs/2026-10-09-skill-pi/tasks.md
+  - .skillgrid/change-specs/2026-10-09-skill-pi/acceptance.feature
 modified_files:
   - skill-pi/e2e.test.js
 priority: high

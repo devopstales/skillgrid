@@ -1,4 +1,4 @@
-> Prototype directory: `.skillgrid/prototypes/NNN-name/` — permanently retained (not under the
+> Prototype directory: `.skillgrid/meta/.prototype/NNN-name/` — permanently retained (not under the
 > spec zone). The `topic:` field links this probe back to the spec that motivated it.
 
 ---

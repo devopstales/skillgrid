@@ -19,7 +19,7 @@ date: 2026-10-02
 
 On 2026-09-29 a consolidation was written into `.skillgrid/ASSUMPTIONS.md` under the heading `### ADR-0012`. That number already belonged to `.skillgrid/artifacts/04-adr-0012-sqlite-as-second-brain.md`. The inline text said:
 
-> Consolidate `.skillgrid/artifacts/00-prd.md`, the ADR files (`04-adr-*.md`), `03-adr-index.md`, and `05-locked-constraints.md` into `.skillgrid/ASSUMPTIONS.md`. The ADR records are inlined. The source files are `git mv`'d to `.skillgrid/archive/`.
+> Consolidate `.skillgrid/artifacts/00-prd.md`, the ADR files (`04-adr-*.md`), `03-adr-index.md`, and `05-locked-constraints.md` into `.skillgrid/ASSUMPTIONS.md`. The ADR records are inlined. The source files are `git mv`'d to `.skillgrid/change-archive/`.
 
 The file grew to 52 KB. Every session reads it. The ADR bodies were the growth, and 0001–0012 plus 0016 already existed as files, so the bodies were stored twice. Number 0012 in the in-force table pointed at the consolidation text while the glossary and ADR-0016 cite 0012 as the SQLite store decision.
 

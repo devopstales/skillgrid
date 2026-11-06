@@ -40,7 +40,7 @@ Build Shape section; `skillgrid:slicing` reads this line.)
 argues from the spec, so the spec travels with it; executors read both]
 
 **Findings:** [path to the change's consolidated
-`.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md` if it exists — produced by
+`.skillgrid/change-specs/YYYY-MM-DD-<topic>/findings.md` if it exists — produced by
 `skillgrid:research` / `skillgrid:code-research` (Research sections),
 `skillgrid:prototype` (Prototype sections), or `skillgrid:sketch` (Sketch sections).
 Cite it for every design decision that rests on a research fact, a feasibility
@@ -80,7 +80,7 @@ layout/interaction. Omit if the change ran no research/prototype/sketch.]
 
 **SATISFIES:** [scenario-name]
 (BDD is always on: name the acceptance scenario in
-`.skillgrid/specs/<id>/acceptance.feature` that this task makes green.
+`.skillgrid/change-specs/<id>/acceptance.feature` that this task makes green.
 The RED step in Step 1/2 targets this scenario; TDD Evidence references
 the scenario name.)
 

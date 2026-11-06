@@ -1,6 +1,6 @@
 # Mnemonic scan findings + dependency graph
 #
-# Source: .skillgrid/specs/2026-10-05-mnemonic-scan-findings/
+# Source: .skillgrid/change-specs/2026-10-05-mnemonic-scan-findings/
 # Trace: change briefing ## Definition of Done; blueprint tasks SATISFIES lines.
 #
 # Format rules (acceptance-test-authoring):
@@ -39,7 +39,7 @@ Feature: Mnemonic scan findings + dependency graph
     When I start a trivy scan on target "/repo"
     And I store the findings for the scan
     Then a scans row exists with status "ok"
-    And the raw artifact is written under ".skillgrid/cache/scans/"
+    And the raw artifact is written under ".skillgrid/meta/.cache/scans/"
     And exactly one findings row exists
     And the findings row dedup_hash equals the sha256 of tool, cve, pkg, version, file, line
     And the findings row severity is normalized

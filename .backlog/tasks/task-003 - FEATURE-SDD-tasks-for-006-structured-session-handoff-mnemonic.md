@@ -9,12 +9,12 @@ labels: []
 dependencies:
   - TASK-002
 references:
-  - .skillgrid/archive/2026-09-10-structured-session-handoff/tasks.md
-  - .skillgrid/archive/2026-09-10-structured-session-handoff/briefing.md
-  - .skillgrid/archive/2026-09-10-structured-session-handoff/acceptance.feature
-  - .skillgrid/archive/2026-09-10-structured-session-handoff
+  - .skillgrid/change-archive/2026-09-10-structured-session-handoff/tasks.md
+  - .skillgrid/change-archive/2026-09-10-structured-session-handoff/briefing.md
+  - .skillgrid/change-archive/2026-09-10-structured-session-handoff/acceptance.feature
+  - .skillgrid/change-archive/2026-09-10-structured-session-handoff
 documentation:
-  - .skillgrid/archive/2026-09-10-structured-session-handoff/briefing.md
+  - .skillgrid/change-archive/2026-09-10-structured-session-handoff/briefing.md
   - .agents/skills/_shared/conventions/sdd-structure.md
 priority: medium
 type: feature
@@ -25,7 +25,7 @@ type: feature
 Track the SDD **tasks.md** punch-lists for change **006-structured-session-handoff** (Session Relay steps 01–05). Acceptance features are authored; implementation waits on human choice between `sdd-apply` and `sdd-propose`.
 
 **Current State:**
-- Plan tracked by TASK-002; step folders and `tasks.md` exist under `.skillgrid/archive/2026-09-10-structured-session-handoff/`
+- Plan tracked by TASK-002; step folders and `tasks.md` exist under `.skillgrid/change-archive/2026-09-10-structured-session-handoff/`
 - Per-step `acceptance.feature` written (spec phase); no production Session Relay code yet
 
 **Expected State:**
@@ -69,14 +69,14 @@ Track the SDD **tasks.md** punch-lists for change **006-structured-session-hando
 <!-- COMMENTS:BEGIN -->
 created: 2026-09-21 07:12
 ---
-2026-09-21: marked done — 006-structured-session-handoff was fully applied + verified (16/16 @step-NN scenarios COMPLIANT) and archived to .skillgrid/archive/2026-09-10-structured-session-handoff/ before this ticket was closed. Complements TASK-002 (already done). Stale 'ready-for-agent' from the spec phase.
+2026-09-21: marked done — 006-structured-session-handoff was fully applied + verified (16/16 @step-NN scenarios COMPLIANT) and archived to .skillgrid/change-archive/2026-09-10-structured-session-handoff/ before this ticket was closed. Complements TASK-002 (already done). Stale 'ready-for-agent' from the spec phase.
 ---
 <!-- COMMENTS:END -->
 
 ## Technical Notes
 
 - Steps: `01-relay-schema`, `02-handoff-resume`, `03-status-compact`, `04-session-cli`, `05-handoff-watchdog`
-- Paths: `.skillgrid/archive/2026-09-10-structured-session-handoff/*/tasks.md`
+- Paths: `.skillgrid/change-archive/2026-09-10-structured-session-handoff/*/tasks.md`
 - Spec: Engram `sdd/006-structured-session-handoff/spec`; carry-through plan ticket TASK-002
 - Open: watchdog usage signal (client `%` vs token estimate) decided in step 05
 

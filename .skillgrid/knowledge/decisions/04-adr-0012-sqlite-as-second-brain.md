@@ -15,7 +15,7 @@ Skillgrid planned an "llm-wiki" — an LLM-maintained, interlinked markdown wiki
 
 The open question: do we keep the llm-wiki, and is a markdown wiki faster or more token-efficient than SQLite for agent retrieval?
 
-**Layer clarification (2026-09-30, see `.skillgrid/specs/2026-09-30-second-brain-vs-agent-os/findings.md`):** "second brain" is the ROLE (a durable offloaded knowledge store — tool-agnostic), "agent OS" is the RUNTIME that manages an agent's context/memory/scheduling (MemGPT/AIOS framing), and "Claude Code OS" is a product genre that wires the two together with a markdown memory layer. This ADR decides only the **memory ENGINE** for the second-brain role (SQLite over llm-wiki markdown). It does NOT rule on the role itself, and it is orthogonal to the agent-OS runtime: mnemonic is the persistent-memory subsystem such a runtime would drive (a memory/storage manager), not the OS.
+**Layer clarification (2026-09-30, see `.skillgrid/change-specs/2026-09-30-second-brain-vs-agent-os/findings.md`):** "second brain" is the ROLE (a durable offloaded knowledge store — tool-agnostic), "agent OS" is the RUNTIME that manages an agent's context/memory/scheduling (MemGPT/AIOS framing), and "Claude Code OS" is a product genre that wires the two together with a markdown memory layer. This ADR decides only the **memory ENGINE** for the second-brain role (SQLite over llm-wiki markdown). It does NOT rule on the role itself, and it is orthogonal to the agent-OS runtime: mnemonic is the persistent-memory subsystem such a runtime would drive (a memory/storage manager), not the OS.
 
 ## Considered Options
 

@@ -83,7 +83,7 @@ If `.skillgrid/config.yaml` already exists:
 ## What This Does NOT Do
 
 - Does not install the Skillgrid CLI or skills — that's a machine-level concern
-- Does not create `.skillgrid/specs/` or `.skillgrid/sdd/` directories — they're created on first use
+- Does not create `.skillgrid/change-specs/` or `.skillgrid/meta/.sdd/` directories — they're created on first use
 - Does not write `.skillgrid/config.user.yaml` — there is one config file, committed
 - Does not reset `state.yaml` `pipeline`/`progress` on re-run — those are the live project state, not onboarding outputs
 
@@ -117,7 +117,7 @@ If `.skillgrid/config.yaml` already exists:
 - [ ] Recall is evidenced: on a re-run, the run states what it recalled from `.skillgrid/knowledge/index.md`, the `log.md` tail, and `mem_context`/`mem_search` *before* re-detecting (fresh project: recall skipped with an explicit note)
 - [ ] Step 1.5b bootstrap (brownfield only): every drafted convention candidate carries `status: draft` AND `verification.anchors`; each was confirmed one at a time (→ `stable`), and no unconfirmed draft survives — unconfirmed drafts are dropped, never kept as zombies
 - [ ] `.skillgrid/config.yaml` exists and parses (`yaml` load succeeds); every detected field (stack, testing, commands, ticketing, TDD, commit discipline, BDD) is filled
-- [ ] `.skillgrid/state.yaml` exists, parses, and has `pipeline` + `progress` + `constraints_ref` pointing at `.skillgrid/knowledge/ASSUMPTIONS.md` (existing values preserved on re-run)
+- [ ] `.skillgrid/meta/state.yaml` exists, parses, and has `pipeline` + `progress` + `constraints_ref` pointing at `.skillgrid/knowledge/ASSUMPTIONS.md` (existing values preserved on re-run)
 - [ ] `.skillgrid/knowledge/ASSUMPTIONS.md` exists with the four tiers; `.skillgrid/knowledge/ARCHITECTURE.md` exists, was scaffolded by `skillgrid init` (or copied by hand), and its `<detect>` markers are filled with verified facts for everything that exists (brownfield: all 17 sections addressed; greenfield: only sections with real content filled, the rest honestly left `<detect>` or dropped); every cited `file:line` was re-verified against the code
 - [ ] AGENTS.md (or CLAUDE.md) contains exactly one `<!-- skillgrid:start -->` … `<!-- skillgrid:end -->` block with the correct `{project}`, tracker/memory lines, and a `### Rules` section that is the real source of the operational rules (decisions live in `ASSUMPTIONS.md` § LOCKED, not here)
 - [ ] CRITICAL_INSTRUCTION: when `mnemonic.enabled: true`, the file contains **exactly one** `<CRITICAL_INSTRUCTION>…</CRITICAL_INSTRUCTION>` (multiple → last wins) — the `<!-- mnemonic:start -->` … `<!-- mnemonic:end -->` block after `<!-- skillgrid:end -->`, rendered from `templates/agents-mnemonic.md`, with the Memory + Code Index sections and (when `ticketing.type: backlogmd`) the Backlog.md Workflow section folded in; every code tool it names exists in this session's mounted MCP menu; no stray `BACKLOG.MD GUIDELINES` markers or second tag remain. When disabled, the region is absent

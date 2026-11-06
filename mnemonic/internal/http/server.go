@@ -263,7 +263,7 @@ func (s *Server) registerGraphRoutes() {
 	// Visual companion prototype serve route (sandboxed .skillgrid/prototype/
 	// readers). A distinct subtree from the plural /prototypes (the
 	// feasibility-prototype listing in registerDocsRoutes, which reads
-	// .skillgrid/prototypes/); registered here (before registerUIRoutes) so
+	// .skillgrid/meta/.prototype/); registered here (before registerUIRoutes) so
 	// the SPA fallback can't swallow it.
 	s.mux.HandleFunc("GET /prototype/{id...}", s.handlePrototypeDecision)
 

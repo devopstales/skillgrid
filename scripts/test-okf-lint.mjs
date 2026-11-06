@@ -142,7 +142,7 @@ function countLines(p) {
   return readFileSync(p, "utf8").split("\n").filter(Boolean).length;
 }
 
-// --- Telemetry: default sink is <bundle root>/.skillgrid/okf-metrics.jsonl,
+// --- Telemetry: default sink is <bundle root>/.skillgrid/meta/okf-metrics.jsonl,
 //     auto-created, and the write is the only side effect ---
 
 {

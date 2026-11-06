@@ -20,7 +20,7 @@
  * Ledger path resolution (first wins):
  *   --ledger PATH
  *   $SKILLGRID_CITATION_LEDGER
- *   <project>/.skillgrid/sdd/citations/ledger.json (gitignored scratch)
+ *   <project>/.skillgrid/meta/.sdd/citations/ledger.json (gitignored scratch)
  *
  * Ported from the Hermes grounded-citations skill under MIT (ADR-0015);
  * the Python original is retained as sources.py until this port is proven

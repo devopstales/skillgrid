@@ -11,7 +11,7 @@ labels:
 dependencies:
   - TASK-076
 references:
-  - .skillgrid/specs/2026-10-09-skill-pi/tasks.md
+  - .skillgrid/change-specs/2026-10-09-skill-pi/tasks.md
   - Taskfile.yml
 modified_files:
   - Taskfile.yml

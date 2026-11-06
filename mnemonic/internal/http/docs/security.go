@@ -133,7 +133,7 @@ func runTrivy(ctx context.Context, cwd string) TrivyResult {
 		return TrivyResult{
 			Available: true, DurationMs: duration, Verdict: "ERROR",
 			ErrorMessage: "failed to parse trivy output: " + err.Error(),
-			Findings: []TrivyFinding{},
+			Findings:     []TrivyFinding{},
 		}
 	}
 

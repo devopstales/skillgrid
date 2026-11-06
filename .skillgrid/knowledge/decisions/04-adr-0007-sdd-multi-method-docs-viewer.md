@@ -19,21 +19,21 @@ started in — it reads the repo at its working directory. Each of those SDD
 methods lives at a *different* canonical on-disk location, and not every repo
 uses every method:
 
-- Skillgrid: `.skillgrid/specs/<change>/{briefing,tasks,acceptance}.md`,
+- Skillgrid: `.skillgrid/change-specs/<change>/{briefing,tasks,acceptance}.md`,
   `.skillgrid/adr/*.md`, `.skillgrid/prd/*.md`
 - OpenSpec: `openspec/specs/**`, `openspec/changes/**`
 - SpecKit: `specs/<NNN-feature>/{spec,plan,tasks}.md`, `.specify/memory/constitution.md`
 - Superpowers: `docs/superpowers/plans/**`, `docs/superpowers/specs/**`
 - Backlog.md: `.backlog/tasks/*.md`, `.backlog/docs/**`, `.backlog/decisions/**`
 
-An early implementation hard-coded a single `.skillgrid/specs` root, which broke
+An early implementation hard-coded a single `.skillgrid/change-specs` root, which broke
 the moment the dashboard was pointed at a repo that used SpecKit or Superpowers
 instead. We needed a way to expose whichever methods a repo actually uses,
 without the dashboard knowing the repo in advance.
 
 ## Considered Options
 
-- **Single hard-coded root** — serve only `.skillgrid/specs`. Simple, but the
+- **Single hard-coded root** — serve only `.skillgrid/change-specs`. Simple, but the
   dashboard is useless for a repo that uses any other method.
 - **Per-repo config file** — declare roots in a config the operator writes.
   Explicit, but it adds a config file and "works from anywhere" degrades to

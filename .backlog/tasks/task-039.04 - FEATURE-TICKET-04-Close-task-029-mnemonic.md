@@ -11,7 +11,7 @@ dependencies:
   - TASK-039.02
   - TASK-039.03
 references:
-  - .skillgrid/specs/2026-10-02-mnemonic-llm-provider/tasks.md
+  - .skillgrid/change-specs/2026-10-02-mnemonic-llm-provider/tasks.md
   - >-
     .backlog/tasks/task-029 -
     FOLLOWUP-shared-LLM-client-attach-for-ask-extraction-dedup-seams.md

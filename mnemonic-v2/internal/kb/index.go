@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -65,24 +66,100 @@ func upsertPage(ctx context.Context, st store.Store, p Page, project string) err
 	return nil
 }
 
-// collectPages walks the vault root and returns every markdown page.
+// pageDirs is the index-scope whitelist (001 §7): only the page folders are
+// scanned. Everything else under the vault root — index/ (derived
+// projections), templates/, dot-dirs (.obsidian/), trajectories/, and the
+// vault-root docs — is out of scope by construction.
+var pageDirs = map[string]struct{}{
+	"decisions":    {},
+	"invariants":   {},
+	"workflows":    {},
+	"architecture": {},
+	"gotchas":      {},
+	"glossary":     {},
+	"skills":       {}, // opt-in (012)
+	"cases":        {}, // opt-in (012)
+}
+
+// loadIgnore reads the vault's .knowledgeignore (gitignore-like, 001 §7) and
+// returns a predicate reporting whether a slash-separated vault-relative path
+// (optionally with a trailing "/" for dirs) is excluded from indexing. The
+// ignore file can only narrow the page-folder whitelist, never widen it.
+func loadIgnore(root string) (func(string) bool, error) {
+	data, err := os.ReadFile(filepath.Join(root, VaultIgnoreFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return func(string) bool { return false }, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var pats []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		pats = append(pats, line)
+	}
+	return func(rel string) bool {
+		for _, p := range pats {
+			switch {
+			case strings.HasSuffix(p, "/"):
+				d := strings.TrimSuffix(p, "/")
+				if rel == d || strings.HasPrefix(rel, d+"/") {
+					return true
+				}
+			case rel == p || strings.HasPrefix(rel, p+"/"):
+				return true
+			case strings.ContainsAny(p, "*?"):
+				if ok, _ := filepath.Match(p, filepath.Base(rel)); ok {
+					return true
+				}
+			}
+		}
+		return false
+	}, nil
+}
+
+// collectPages walks the vault root and returns the in-scope markdown pages
+// (the page-folder whitelist of 001 §7, further narrowed by
+// .knowledgeignore).
 func collectPages(root string) ([]Page, error) {
+	ignore, err := loadIgnore(root)
+	if err != nil {
+		return nil, err
+	}
 	var pages []Page
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
+		rel, rerr := filepath.Rel(root, path)
+		if rerr != nil {
+			return rerr
+		}
+		rel = filepath.ToSlash(rel)
 		if d.IsDir() {
+			if rel == "." {
+				return nil
+			}
+			if _, ok := pageDirs[d.Name()]; !ok {
+				return filepath.SkipDir
+			}
+			if ignore(rel + "/") {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !strings.HasSuffix(d.Name(), ".md") {
 			return nil
 		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
+		if !strings.Contains(rel, "/") {
+			return nil // vault-root files (docs, schema) are out of index scope (001 §7)
 		}
-		rel = filepath.ToSlash(rel)
+		if ignore(rel) {
+			return nil
+		}
 		body, err := os.ReadFile(path)
 		if err != nil {
 			return err

@@ -11,12 +11,12 @@ milestone: m-10
 dependencies:
   - TASK-027
 references:
-  - .skillgrid/specs/2026-09-24-bitemporal-audn/briefing.md
-  - .skillgrid/specs/2026-09-24-bitemporal-audn/tasks.md
-  - .skillgrid/specs/2026-09-24-bitemporal-audn/acceptance.feature
+  - .skillgrid/change-specs/2026-09-24-bitemporal-audn/briefing.md
+  - .skillgrid/change-specs/2026-09-24-bitemporal-audn/tasks.md
+  - .skillgrid/change-specs/2026-09-24-bitemporal-audn/acceptance.feature
   - .skillgrid/artifacts/04-adr-0011-observations-are-bitemporal.md
 documentation:
-  - .skillgrid/specs/2026-09-24-bitemporal-audn/blueprint.md
+  - .skillgrid/change-specs/2026-09-24-bitemporal-audn/blueprint.md
 priority: high
 type: feature
 ---

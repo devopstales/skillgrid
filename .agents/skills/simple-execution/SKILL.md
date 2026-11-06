@@ -47,9 +47,9 @@ For each task (or ticket, if sliced):
 3. **Gates first:** before writing code, ensure the `#### Gates` block for this task's requirements in `acceptance.feature` is complete — every happy-path scenario has a `G<n>` (runnable `CHECK:`+`EXPECT:`, or `manual`/`ABANDON` with a reason). Author any missing gate now; an `ABANDON` becomes a handoff you surface, not a pass. (Per `skillgrid:test-driven-verification`.)
 4. **TDD is always on** (`testing.tdd: true` — basic TDD, a failing test before code, is the always-on baseline; the config's `testing.tdd` flag separately selects the strict-TDD branch): for implementation work, follow skillgrid:test-driven-development — write the failing test first, watch it fail, then write the minimal code to pass. Never start implementation without a failing test. **BDD is always on** — the failing test is the task's `SATISFIES` scenario: confirm the acceptance scenario is RED before writing code, and name TDD Evidence after the scenario.
 5. Run verifications as specified
-6. **Zone rule (BDD is always on):** edit `.skillgrid/specs/` *or* code in a single commit — never both uncommitted. Commit spec changes before code changes; the spec is the contract, the code satisfies it. The `pre-commit` zone guard (skillgrid:work-unit-commits) blocks a commit that stages both.
+6. **Zone rule (BDD is always on):** edit `.skillgrid/change-specs/` *or* code in a single commit — never both uncommitted. Commit spec changes before code changes; the spec is the contract, the code satisfies it. The `pre-commit` zone guard (skillgrid:work-unit-commits) blocks a commit that stages both.
 7. **Commit the task's changes** per `skillgrid:work-unit-commits` — conventional subject (no AI-attribution trailer), atomic + independently-revertable, a `[skillgrid-context]` block in the body. Commit *after* the task's gate is green, *before* any long install/build. The git hooks (`pre-commit`, `commit-msg`) enforce the guards; each commit is a checkpoint you can roll back to.
-8. Mark as completed. The run's record is the Execution Ledger under `.skillgrid/sdd/` (ADR-0020). When `mnemonic.enabled: true`, upsert `execution-progress` with the body in `_shared/rules/mnemonic-memory.md`.
+8. Mark as completed. The run's record is the Execution Ledger under `.skillgrid/meta/.sdd/` (ADR-0020). When `mnemonic.enabled: true`, upsert `execution-progress` with the body in `_shared/rules/mnemonic-memory.md`.
 
 ### Step 2.5: QA Gate
 
@@ -112,13 +112,13 @@ After all tasks complete and verified:
 | "The plan is clear enough, skip the critical review" | Step 1 says review critically and raise concerns before starting. A gap caught in review is one line; caught in execution it is a rework of tasks that depended on it. |
 | "I'll run the tests at the end" | `testing.tdd: true` means a failing test exists before code (basic TDD is the always-on baseline; the config's `testing.tdd` flag selects the strict-TDD branch). Verifications are per-task (step 2.5), so a red gate at the end can't tell you which task broke. |
 | "This task is small, no need for a gate" | Step 2.4 requires a `G<n>` gate per requirement before code. Small tasks are where a missing gate silently skips the acceptance scenario. |
-| "I'll fix the commit zone guard later" | The zone rule is one commit each for `.skillgrid/specs/` and code; the `pre-commit` hook blocks a commit that stages both. "Later" means a commit that was already wrong. |
+| "I'll fix the commit zone guard later" | The zone rule is one commit each for `.skillgrid/change-specs/` and code; the `pre-commit` hook blocks a commit that stages both. "Later" means a commit that was already wrong. |
 | "The review found minor issues, ship anyway" | Step 2.6 caps the loop (per `_shared/planning/rigor-tiers.md`, fix loop cap), but a review only closes clean or escalated. Shipping with open findings skips the gate that exists to catch them. |
 
 ## Red Flags
 
 - Implementation started before the acceptance scenario was confirmed RED
-- A commit stages both `.skillgrid/specs/` and code (zone guard violation)
+- A commit stages both `.skillgrid/change-specs/` and code (zone guard violation)
 - Task marked completed with no captured test output or exit code
 - QA gate hit FAIL and the fix was applied without a failing test first
 - Ticket status jumped past `review` to `done` without a clean review

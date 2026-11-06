@@ -56,7 +56,7 @@ experiment cycle has nothing to measure.
 ## Config
 
 Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root`
-(default `.skillgrid/specs`) for the run folder. Bind the run to a folder:
+(default `.skillgrid/change-specs`) for the run folder. Bind the run to a folder:
 `{specs_root}/YYYY-MM-DD-<topic>/` — the same topic always resolves to the same
 folder. If the `mnemonic` block is enabled, `mem_save` durable learnings under
 `skillgrid/{YYYY-MM-DD-<topic>}/deep-research` so later sessions recover them.
@@ -293,7 +293,7 @@ should be able to write the abstract from `findings.md`).
 When the outer loop decides CONCLUDE:
 1. Ensure `findings.md` has a clear, well-supported narrative.
 2. Generate a final comprehensive research presentation in `to_human/`.
-3. Archive the run folder (move to `.skillgrid/xarchive/` per the project
+3. Archive the run folder (move to `.skillgrid/change-archive/` per the project
    conventions) and mark `research-state.yaml` status `concluded`.
 4. If the research produced an architectural decision, route to
    `skillgrid:architectural-decision-records`.

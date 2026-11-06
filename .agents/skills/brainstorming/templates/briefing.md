@@ -2,7 +2,7 @@
 
 > **STATUS:** `draft` (YYYY-MM-DD)
 
-> Copy this template to `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md`.
+> Copy this template to `.skillgrid/change-specs/YYYY-MM-DD-<topic>/briefing.md`.
 > **Role:** this is the *what* — the validated design/spec: problem, intent,
 > requirements, success criteria. The companion `blueprint.md` is the *how*
 > (implementation plan). The filename pair is load-bearing: `brainstorming` and

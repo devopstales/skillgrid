@@ -80,9 +80,9 @@ backlog task create '[FEATURE] Brief description (mnemonic)' \
   --ac 'First criterion' \
   --ac 'Second criterion' \
   --dod 'Change-level Definition of Done in briefing.md fully checked' \
-  --ref .skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md \
-  --ref .skillgrid/specs/YYYY-MM-DD-<topic>/tasks.md \
-  --doc .skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md \
+  --ref .skillgrid/change-specs/YYYY-MM-DD-<topic>/briefing.md \
+  --ref .skillgrid/change-specs/YYYY-MM-DD-<topic>/tasks.md \
+  --doc .skillgrid/change-specs/YYYY-MM-DD-<topic>/briefing.md \
   --plan $'1. Follow briefing.md blueprint\n2. Drive from tasks.md + acceptance.feature\n3. Verify tests on touched packages'
 ```
 
@@ -112,7 +112,7 @@ Run `backlog task view <ID> --plain`. Duplicate-search first with `backlog searc
 
 ## Ticketing mapping
 
-The `ticketing` skill maps each ticket in `tasks.md` (`.skillgrid/specs/YYYY-MM-DD-<topic>/tasks.md`) → one backlog ticket per ticket, parented to a milestone (epic equivalent, via `backlog milestone add`), with dependency notes referencing sibling ticket IDs.
+The `ticketing` skill maps each ticket in `tasks.md` (`.skillgrid/change-specs/YYYY-MM-DD-<topic>/tasks.md`) → one backlog ticket per ticket, parented to a milestone (epic equivalent, via `backlog milestone add`), with dependency notes referencing sibling ticket IDs.
 
 For plan/acceptance tickets (briefing/tasks), still fill Type, References (to the change artifacts), DoD, and an Implementation Plan seeded from the blueprint — not a one-line description stub.
 

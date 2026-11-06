@@ -11,11 +11,11 @@ labels: []
 milestone: m-11
 dependencies: []
 references:
-  - .skillgrid/specs/2026-10-31-mnemonic-v2-memory/blueprint.md
-  - .skillgrid/specs/2026-10-31-mnemonic-v2-memory/tasks.md
-  - .skillgrid/specs/2026-10-31-mnemonic-v2-memory/acceptance.feature
+  - .skillgrid/change-specs/2026-10-31-mnemonic-v2-memory/blueprint.md
+  - .skillgrid/change-specs/2026-10-31-mnemonic-v2-memory/tasks.md
+  - .skillgrid/change-specs/2026-10-31-mnemonic-v2-memory/acceptance.feature
 documentation:
-  - .skillgrid/specs/2026-10-31-mnemonic-v2-memory/blueprint.md
+  - .skillgrid/change-specs/2026-10-31-mnemonic-v2-memory/blueprint.md
 priority: high
 type: feature
 ---

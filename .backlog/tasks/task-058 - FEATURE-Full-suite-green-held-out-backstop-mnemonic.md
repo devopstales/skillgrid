@@ -14,12 +14,12 @@ dependencies:
   - TASK-056
   - TASK-057
 references:
-  - .skillgrid/specs/2026-10-05-mnemonic-scan-findings/briefing.md
-  - .skillgrid/specs/2026-10-05-mnemonic-scan-findings/tasks.md
-  - .skillgrid/specs/2026-10-05-mnemonic-scan-findings/acceptance.feature
+  - .skillgrid/change-specs/2026-10-05-mnemonic-scan-findings/briefing.md
+  - .skillgrid/change-specs/2026-10-05-mnemonic-scan-findings/tasks.md
+  - .skillgrid/change-specs/2026-10-05-mnemonic-scan-findings/acceptance.feature
 documentation:
-  - .skillgrid/specs/2026-10-05-mnemonic-scan-findings/briefing.md
-  - .skillgrid/specs/2026-10-05-mnemonic-scan-findings/acceptance.feature
+  - .skillgrid/change-specs/2026-10-05-mnemonic-scan-findings/briefing.md
+  - .skillgrid/change-specs/2026-10-05-mnemonic-scan-findings/acceptance.feature
 priority: medium
 type: feature
 ---

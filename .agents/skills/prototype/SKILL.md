@@ -37,7 +37,7 @@ throwaway.
 ## Config
 
 Read `.skillgrid/config.yaml` before starting. Prototype directories live under
-`{prototype.dir}` (default `.skillgrid/prototypes`) — numbered `NNN-descriptive-name/`,
+`{prototype.dir}` (default `.skillgrid/meta/.prototype`) — numbered `NNN-descriptive-name/`,
 **permanently retained** (not under the spec zone, so they are not pruned when a change
 ships). The liftable-module location comes from `prototype.module_dir` (default
 `{specs_root}/{topic}/modules`); the consolidated findings file comes from
@@ -98,13 +98,13 @@ does not need a separate approval round — the frame IS the approval.)
 
 ### Step 2: Set up the prototype directory
 
-Create `{prototype.dir}/NNN-descriptive-name/` (default `.skillgrid/prototypes/NNN-name/`). The
+Create `{prototype.dir}/NNN-descriptive-name/` (default `.skillgrid/meta/.prototype/NNN-name/`). The
 `NNN` is the next free number in the prototypes directory (three digits, zero-padded).
 Prototypes are project-scoped and permanently retained — the directory is a checkpoint the
 blueprint cites, and it survives the change that motivated it. The directory holds:
 
 ```
-.skillgrid/prototypes/NNN-name/
+.skillgrid/meta/.prototype/NNN-name/
 ├── prototype.md       # hypothesis, how to run, investigation trail, verdict (the record)
 └── <code>         # the throwaway experiment itself
 ```
@@ -168,7 +168,7 @@ is a checkpoint the blueprint cites.
 
 ### Step 7: Append to the topic's consolidated findings
 
-If the topic has a `.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md` (created by
+If the topic has a `.skillgrid/change-specs/YYYY-MM-DD-<topic>/findings.md` (created by
 `skillgrid:sketch` or a prior prototype), **append** a `## Prototype: NNN-name` section to it.
 If the file does not exist, **create it** with a `# Findings — <topic>` header and the
 first prototype section. The consolidated file is the single downstream contract that

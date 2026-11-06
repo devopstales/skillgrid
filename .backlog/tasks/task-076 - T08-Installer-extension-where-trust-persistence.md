@@ -12,8 +12,8 @@ labels:
 dependencies:
   - TASK-070
 references:
-  - .skillgrid/specs/2026-10-09-skill-pi/tasks.md
-  - .skillgrid/specs/2026-10-09-skill-pi/acceptance.feature
+  - .skillgrid/change-specs/2026-10-09-skill-pi/tasks.md
+  - .skillgrid/change-specs/2026-10-09-skill-pi/acceptance.feature
 modified_files:
   - skillgrid-cli/
   - skill-pi/bin/skill-pi.js

@@ -17,7 +17,7 @@ date: 2026-10-02
 
 ## Context and Problem Statement
 
-Prototype 001 (`.skillgrid/prototypes/001-mnemonic-webui-mockup`) validated a D3 v7 force-directed code graph with node inspector (callers/callees highlight) against live `/mnemonic/graph/data`. The production SPA used Sigma.js + graphology instead. The operator preference is the mockup's D3 graph. Adding `d3` is a new npm dependency and requires an ADR under the locked "no new dependencies without an ADR" constraint; Sigma/graphology/`@react-sigma` can then be removed.
+Prototype 001 (`.skillgrid/meta/.prototype/001-mnemonic-webui-mockup`) validated a D3 v7 force-directed code graph with node inspector (callers/callees highlight) against live `/mnemonic/graph/data`. The production SPA used Sigma.js + graphology instead. The operator preference is the mockup's D3 graph. Adding `d3` is a new npm dependency and requires an ADR under the locked "no new dependencies without an ADR" constraint; Sigma/graphology/`@react-sigma` can then be removed.
 
 ## Considered Options
 

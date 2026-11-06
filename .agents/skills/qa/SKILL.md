@@ -28,7 +28,7 @@ Own the quality gate. Produce a test plan with layer selection, verify the goal 
 - `quality.mutation_min` — minimum mutation score % (0 = disabled, default 80)
 - `quality.p0_pass_rate` — minimum P0 pass rate % (default 100)
 - `quality.p1_pass_rate` — minimum P1 pass rate % (default 95)
-- `conventions.specs_root` (default `.skillgrid/specs/`) — the change's artifacts
+- `conventions.specs_root` (default `.skillgrid/change-specs/`) — the change's artifacts
 - `conventions.artifacts` (default `.skillgrid/`) — vocabulary (terms files under `glossary/`) for findings
 - `ticketing.enabled` — update ticket status at gate transitions
 - `security.trivy.command` — Trivy scan command ("" = disabled, use manual fallback)
@@ -81,7 +81,7 @@ Identify: every scenario name, every ticket, every `SATISFIES` mapping, the stat
 
 ### Step 2: Write the Test Plan
 
-Produce the **Test Plan** section of `.skillgrid/specs/<topic>/report.md` from [templates/report.md](templates/report.md) (the `## Test Plan` section at the top). This is the QA half of the merged report; reflect completes the retro half (from `## Final-State Facts` onward) at archive time.
+Produce the **Test Plan** section of `.skillgrid/change-specs/<topic>/report.md` from [templates/report.md](templates/report.md) (the `## Test Plan` section at the top). This is the QA half of the merged report; reflect completes the retro half (from `## Final-State Facts` onward) at archive time.
 
 **Process:**
 1. List every scenario from `acceptance.feature`.
@@ -97,14 +97,14 @@ Produce the **Test Plan** section of `.skillgrid/specs/<topic>/report.md` from [
 - A `covered` row whose test did not actually run (unregistered, filtered, skipped) counts as `pending`.
 - Out of Scope is explicit: name what is NOT tested and why.
 
-**Commit the test plan** (spec zone rule: commit `.skillgrid/specs/` changes before code — the `pre-commit` zone guard enforces it).
+**Commit the test plan** (spec zone rule: commit `.skillgrid/change-specs/` changes before code — the `pre-commit` zone guard enforces it).
 
 Audit procedure (goal-backward, verification-gap, traceability, TDD evidence, test quality, security, code quality, deterministic checks, scope, floor): [audit-procedure.md](references/audit-procedure.md).
 
 
 ### Step 10: Render the Gate
 
-Complete the QA half of `.skillgrid/specs/<topic>/report.md` (the Test Plan section was already written in Step 2) from [templates/report.md](templates/report.md) — everything through `## Gate Decision` and `## Human Override`. The retro sections (from `## Final-State Facts` onward) stay empty for reflect.
+Complete the QA half of `.skillgrid/change-specs/<topic>/report.md` (the Test Plan section was already written in Step 2) from [templates/report.md](templates/report.md) — everything through `## Gate Decision` and `## Human Override`. The retro sections (from `## Final-State Facts` onward) stay empty for reflect.
 
 **Four-state gate (HARD — thresholds from config):**
 

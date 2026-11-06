@@ -124,7 +124,7 @@ Vague name, tests mock not code
 - Clear name
 - Real code (no mocks unless unavoidable)
 
-**Per-scenario (BDD is always on):** RED is written per acceptance scenario, not just per unit test. Name the unit test after the scenario (`[scenario-name]`) and confirm the scenario's `SATISFIES` target in `.skillgrid/specs/<id>/acceptance.feature` is RED (`npx cucumber-js --dry-run` lists it; the suite run reports it pending/failing). TDD Evidence references the scenario name.
+**Per-scenario (BDD is always on):** RED is written per acceptance scenario, not just per unit test. Name the unit test after the scenario (`[scenario-name]`) and confirm the scenario's `SATISFIES` target in `.skillgrid/change-specs/<id>/acceptance.feature` is RED (`npx cucumber-js --dry-run` lists it; the suite run reports it pending/failing). TDD Evidence references the scenario name.
 
 ### Verify RED - Watch It Fail
 

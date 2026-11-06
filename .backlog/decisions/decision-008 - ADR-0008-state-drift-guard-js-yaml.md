@@ -17,7 +17,7 @@ date: 2026-09-24
 
 ## Context and Problem Statement
 
-`.skillgrid/state.yaml` is the dynamic project state — `pipeline.current_phase`,
+`.skillgrid/meta/state.yaml` is the dynamic project state — `pipeline.current_phase`,
 `pipeline.current_change`, `progress.completed_changes` — hand-edited by ten
 pipeline skills (brainstorming through reflect) at every phase transition. It
 is the resume pointer that `skillgrid:resume` and `skillgrid:using-skillgrid`

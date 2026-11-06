@@ -41,7 +41,7 @@ and the version if absent):
 
 Rules:
 - Drop any section with no entries — do not leave an empty `### Fixed` heading.
-- "Source" is the change topic (the `.skillgrid/specs/YYYY-MM-DD-<topic>` name)
+- "Source" is the change topic (the `.skillgrid/change-specs/YYYY-MM-DD-<topic>` name)
   or ticket ID — the reader's path to the full record. Not a commit hash.
 - User-visible changes only. Internal refactors with no behavior change do not
   get a bullet (they belong in the PR body, not the changelog).

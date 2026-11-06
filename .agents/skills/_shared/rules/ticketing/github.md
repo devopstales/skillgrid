@@ -29,7 +29,7 @@ Create a GitHub issue.
 
 ## Ticketing mapping
 
-The `ticketing` skill maps each ticket in `tasks.md` (`.skillgrid/specs/YYYY-MM-DD-<topic>/tasks.md`) → one GitHub issue per ticket; use GitHub's native issue dependencies for blocking relations where available, otherwise a `Blocked by: #<n>` line at the top of the issue body.
+The `ticketing` skill maps each ticket in `tasks.md` (`.skillgrid/change-specs/YYYY-MM-DD-<topic>/tasks.md`) → one GitHub issue per ticket; use GitHub's native issue dependencies for blocking relations where available, otherwise a `Blocked by: #<n>` line at the top of the issue body.
 
 ## Ticket lifecycle (mandatory when a Tracker ID is set)
 

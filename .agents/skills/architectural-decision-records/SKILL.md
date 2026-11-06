@@ -167,7 +167,7 @@ flipped. The file is never removed.
 ## The per-change ADR Review Manifest
 
 Each change produces a manifest at
-`.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md` — one per change, alongside
+`.skillgrid/change-specs/YYYY-MM-DD-<topic>/adr.md` — one per change, alongside
 `briefing.md` / `blueprint.md` / `tasks.md`. It is the change's ADR completion
 marker and the read source for downstream skills. Template:
 [templates/adr-manifest.md](templates/adr-manifest.md).
@@ -190,7 +190,7 @@ Process (run at the end of the interview, before the blueprint is written):
    If `ticketing.type` is `backlogmd`, copy each new or superseding file into
    `.backlog/decisions/` and refresh the superseded copy's `status` to
    `superseded`.
-4. **Write the manifest** at `.skillgrid/specs/<topic>/adr.md`: state that ADR
+4. **Write the manifest** at `.skillgrid/change-specs/<topic>/adr.md`: state that ADR
    review completed, list the in-force ADRs reviewed, and reference every ADR
    file this change created (pointers to `decisions/04-adr-NNNN-slug.md`).
    Pointers only — never duplicate a file's Context / Decision / Consequences.
@@ -201,7 +201,7 @@ Process (run at the end of the interview, before the blueprint is written):
 ## How it runs
 
 - **Underneath `skillgrid:interviewing`** — its primary driver. The interview *is* the grilling session; this skill runs concurrently, writing terms to `.skillgrid/knowledge/glossary/01-business-terms.md` / `02-technical-terms.md` and offering ADR files (`decisions/04-adr-NNNN-slug.md`, plus a path row in `ASSUMPTIONS.md`) as decisions crystallize, so the paper trail is born in the conversation where the trade-off was actually made.
-- **Underneath `skillgrid:brainstorming`** — during the codebase feasibility check and design presentation, keep the model sharp; at the end of the interview, run the per-change ADR Review Manifest (write `.skillgrid/specs/<topic>/adr.md`) so the blueprint is constrained by a *verified* in-force set.
+- **Underneath `skillgrid:brainstorming`** — during the codebase feasibility check and design presentation, keep the model sharp; at the end of the interview, run the per-change ADR Review Manifest (write `.skillgrid/change-specs/<topic>/adr.md`) so the blueprint is constrained by a *verified* in-force set.
 - **Directly** — when you want the discipline without the full interview.
 - The terms files, the ADR files, and the per-change manifest are then *consumed* by `writing-blueprints`, `slicing`, `subagent-execution`, and `requesting-code-review` (one-line habit: use the vocabulary, and check the work against the in-force ADRs named in the change's `adr.md` manifest).
 
@@ -274,7 +274,7 @@ Rules:
 - [ ] Every new or superseding ADR has a matching pointer row in the `## LOCKED` ADR index, and the "Highest sequence in use" line is updated.
 - [ ] Every new ADR carries `status: accepted` (or `proposed`) and, when replacing a prior decision, a `supersedes` that resolves to a real file.
 - [ ] No accepted ADR file was mutated: `git diff` shows a new file and a new table row, no edits to previously accepted files.
-- [ ] The per-change manifest exists at `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md`, lists the in-force ADRs reviewed, and references every ADR file the change created.
+- [ ] The per-change manifest exists at `.skillgrid/change-specs/YYYY-MM-DD-<topic>/adr.md`, lists the in-force ADRs reviewed, and references every ADR file the change created.
 - [ ] If no decision met the bar, the manifest explicitly says "no major durable architectural decision introduced; no new ADR files created."
 - [ ] The terms files contain vocabulary only — no implementation details, no specs, no scratch.
 - [ ] `ASSUMPTIONS.md` contains the path and not the body.

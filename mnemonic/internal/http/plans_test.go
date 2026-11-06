@@ -13,8 +13,8 @@ import (
 )
 
 // newPhase6PlansServer builds a server whose docsCwd points at a temp repo with
-// a fixture .skillgrid/specs/<slug>/ (briefing + tasks) and
-// .skillgrid/sdd/<slug>/ (progress.md ledger), so /plans + /specs can be tested.
+// a fixture .skillgrid/change-specs/<slug>/ (briefing + tasks) and
+// .skillgrid/meta/.sdd/<slug>/ (progress.md ledger), so /plans + /specs can be tested.
 func newPhase6PlansServer(t *testing.T) http.Handler {
 	t.Helper()
 	repo := t.TempDir()

@@ -229,7 +229,7 @@ The **knowledge bundle** (`.skillgrid/knowledge/`, OKF v0.2) holds the product r
 
 - Create the change folder **before** writing the briefing.
 - READ before UPDATE; never blind overwrite.
-- Commit spec-zone changes (`.skillgrid/specs/`) before code changes — the `pre-commit` zone guard enforces it.
+- Commit spec-zone changes (`.skillgrid/change-specs/`) before code changes — the `pre-commit` zone guard enforces it.
 - ADRs live as `knowledge/decisions/04-adr-NNNN-slug.md` — one file per decision, created lazily, global, not per-change. `knowledge/ASSUMPTIONS.md` § `LOCKED` (the ADR index) stores a short description + the path only; `status`/`supersedes`/`date` live in the file's frontmatter. The per-change `specs/<topic>/adr.md` is a manifest of pointers to those files, never a copy.
 - Terms live in `knowledge/glossary/01-business-terms.md` / `02-technical-terms.md` — a glossary and nothing else.
 - `state.yaml` is updated on every phase transition (see the Artifact File Paths table); it is the dynamic counterparty to the knowledge bundle (the durable knowledge).
@@ -238,7 +238,7 @@ The **knowledge bundle** (`.skillgrid/knowledge/`, OKF v0.2) holds the product r
 ## `state.yaml` drift guard
 
 `.agents/skills/qa/scripts/state-drift-check.mjs` is a **read-only** verifier that compares
-`.skillgrid/state.yaml` against the spec zone (`.skillgrid/specs/`) and
+`.skillgrid/meta/state.yaml` against the spec zone (`.skillgrid/change-specs/`) and
 reports a named drift verdict. It does **not** own the write — pipeline
 skills keep writing `state.yaml` directly at every phase transition; the
 guard owns the verification.
@@ -380,7 +380,7 @@ cheap to fix (before integration).
 On completion, **`ship`** moves the change folder out of the active `specs/` zone into the top-level, immutable `xarchive/` zone:
 
 ```
-.skillgrid/specs/YYYY-MM-DD-<topic>/  ──►  .skillgrid/xarchive/YYYY-MM-DD-<topic>/
+.skillgrid/change-specs/YYYY-MM-DD-<topic>/  ──►  .skillgrid/change-archive/YYYY-MM-DD-<topic>/
 ```
 
 - **`specs/` is active-only.** A folder present in `specs/` is in-flight; a folder in `xarchive/` is closed. The date prefix in the folder name is preserved as the archive key.

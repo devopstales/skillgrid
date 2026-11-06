@@ -71,9 +71,9 @@ Runtime state for a project lives under `.skillgrid/` in the target repo:
 | Path | Role |
 |------|------|
 | `.skillgrid/config.yaml` | Project facts: stack, `testing.runner`, tracker, `bdd.specs_dir`, `worktree_dir` |
-| `.skillgrid/sdd/checkpoint.json` | Derived resume handle (from the last commit's `[skillgrid-context]` block) |
-| `.skillgrid/specs/YYYY-MM-DD-<topic>/` | Active change artifacts (spec zone, committed): `briefing.md`, `acceptance.feature`, `blueprint.md`, `tasks.md`, `findings.md`, `qa-report.md` |
-| `.skillgrid/state.yaml` | Pipeline state: `current_phase`, `current_change`, `completed_changes` |
+| `.skillgrid/meta/.sdd/checkpoint.json` | Derived resume handle (from the last commit's `[skillgrid-context]` block) |
+| `.skillgrid/change-specs/YYYY-MM-DD-<topic>/` | Active change artifacts (spec zone, committed): `briefing.md`, `acceptance.feature`, `blueprint.md`, `tasks.md`, `findings.md`, `qa-report.md` |
+| `.skillgrid/meta/state.yaml` | Pipeline state: `current_phase`, `current_change`, `completed_changes` |
 | `.skillgrid/.lock` | Advisory session lock (JSON: `change`, `session_id`, `acquired_at`) — surfaces concurrent-session conflicts |
 | `.skillgrid/WINDOWS.md` | Cross-change defect register — advisory findings (WARNING/SUGGESTION) not fixed before archive |
 
@@ -81,10 +81,10 @@ Hooks and skills read these at runtime. The `[skillgrid-context]` block in a com
 
 ### Multi-phase changes
 
-When a blueprint covers multiple independent phases (each with its own tasks, deliverables, and execution wave), it splits into **one change folder per phase** as siblings under `.skillgrid/specs/`, plus a parent folder holding the shared blueprint index and shared context. The contract is `.agents/skills/_shared/rules/sdd-structure.md`. A phase folder is a normal change folder: `briefing.md`, not `spec.md`.
+When a blueprint covers multiple independent phases (each with its own tasks, deliverables, and execution wave), it splits into **one change folder per phase** as siblings under `.skillgrid/change-specs/`, plus a parent folder holding the shared blueprint index and shared context. The contract is `.agents/skills/_shared/rules/sdd-structure.md`. A phase folder is a normal change folder: `briefing.md`, not `spec.md`.
 
 ```text
-.skillgrid/specs/
+.skillgrid/change-specs/
   2026-10-01-kubedash-5.0/              ← parent: blueprint index + shared context
     blueprint.md                         ← header (status, tier, goal, architecture,
                                             tech stack, spec ref) + phases table
@@ -113,7 +113,7 @@ Rules:
 - Phase folder naming: `<parent-change-name>-phase-<N>` (e.g. `2026-10-01-kubedash-5.0-phase-1`).
 - Back-links in each phase `briefing.md` use relative paths: `../<parent>/blueprint.md` and `../<parent>/shared/context.md`.
 - The phases table in the parent `blueprint.md` uses relative links: `../<parent>-phase-N/`.
-- Do **not** nest phase folders inside the parent — they must be siblings at the `.skillgrid/specs/` level.
+- Do **not** nest phase folders inside the parent — they must be siblings at the `.skillgrid/change-specs/` level.
 - Each phase is sliced, executed, and shipped independently via its own change folder.
 
 This structure applies when a blueprint is large enough to warrant phase separation (typically 4+ phases or 20+ tasks). For smaller changes, use the standard single-folder layout above.

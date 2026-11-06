@@ -14,7 +14,7 @@ priority: high
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Extend the Store interface (ADR-0046) with code-index write/read + vector methods + trail seam + ExecDDL + Begin/Txn; types_code.go; migrations/100_code_index.sql (7 content + 2 FTS tables); SQLite render; minimal codeindex.Index driver; the door check. See .skillgrid/specs/2026-10-31-mnemonic-v2-code-index/tasks.md TICKET-01.
+Extend the Store interface (ADR-0046) with code-index write/read + vector methods + trail seam + ExecDDL + Begin/Txn; types_code.go; migrations/100_code_index.sql (7 content + 2 FTS tables); SQLite render; minimal codeindex.Index driver; the door check. See .skillgrid/change-specs/2026-10-31-mnemonic-v2-code-index/tasks.md TICKET-01.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Definition of Done

@@ -11,9 +11,9 @@ labels: []
 dependencies:
   - TASK-115.01
 references:
-  - .skillgrid/specs/2026-10-24-hermes-integration/blueprint.md
-  - .skillgrid/specs/2026-10-24-hermes-integration/tasks.md
-  - .skillgrid/specs/2026-10-24-hermes-integration/acceptance.feature
+  - .skillgrid/change-specs/2026-10-24-hermes-integration/blueprint.md
+  - .skillgrid/change-specs/2026-10-24-hermes-integration/tasks.md
+  - .skillgrid/change-specs/2026-10-24-hermes-integration/acceptance.feature
 parent_task_id: TASK-115
 priority: high
 type: feature

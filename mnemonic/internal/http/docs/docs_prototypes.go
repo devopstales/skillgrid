@@ -12,10 +12,10 @@ import (
 )
 
 // prototypesPath is the root directory of feasibility prototypes. Relative to docsCwd.
-const prototypesPath = ".skillgrid/prototypes"
+const prototypesPath = ".skillgrid/meta/.prototype"
 
 // Prototype is one throwaway feasibility experiment. A prototype is a directory under
-// .skillgrid/prototypes/ containing a prototype.md with a verdict.
+// .skillgrid/meta/.prototype/ containing a prototype.md with a verdict.
 type Prototype struct {
 	Name       string   `json:"name"`
 	Date       string   `json:"date,omitempty"`
@@ -26,7 +26,7 @@ type Prototype struct {
 }
 
 // NewPrototypes returns the GET /prototypes handler bound to cwd. It lists the
-// directories under .skillgrid/prototypes/ and extracts a light summary (date,
+// directories under .skillgrid/meta/.prototype/ and extracts a light summary (date,
 // hypothesis, verdict, file list) from each prototype.md so the Prototypes panel can
 // surface the repo's real experiments instead of an empty "no prototypes" state.
 func NewPrototypes(cwd string) http.Handler {
@@ -49,7 +49,7 @@ func NewPrototypes(cwd string) http.Handler {
 }
 
 // NewPrototypeFile serves GET /prototypes/{name}/{file...}: one file under
-// .skillgrid/prototypes/{name}/, sandboxed to that tree. The Prototypes panel
+// .skillgrid/meta/.prototype/{name}/, sandboxed to that tree. The Prototypes panel
 // links index.html here so the preview (and any relative asset it loads)
 // opens in a new tab. Traversal → 400; missing or a directory → 404.
 func NewPrototypeFile(cwd string) http.Handler {
@@ -77,7 +77,7 @@ func NewPrototypeFile(cwd string) http.Handler {
 	})
 }
 
-// prototypeFilePath resolves name/file under .skillgrid/prototypes and rejects
+// prototypeFilePath resolves name/file under .skillgrid/meta/.prototype and rejects
 // anything that escapes that root (absolute ids, "..", a name that is itself
 // a path).
 func prototypeFilePath(cwd, name, file string) (string, bool) {
@@ -111,7 +111,7 @@ var (
 	prototypeVenueRE = regexp.MustCompile(`(?m)^\*{0,2}Type:\*{0,2}\s*(.+)$`)
 )
 
-// ListPrototypes scans .skillgrid/prototypes/ for sub-directories and parses a summary
+// ListPrototypes scans .skillgrid/meta/.prototype/ for sub-directories and parses a summary
 // from each prototype.md. Missing root returns os.ErrNotExist (→ 404). Directories
 // without a prototype.md are still listed (Files still populated) so a WIP prototype is
 // visible rather than silently dropped.
@@ -175,15 +175,15 @@ func cleanMetaValue(v string) string {
 }
 
 // A prototype.md may name its change with **Topic:** / **Change:**, a `topic:`
-// frontmatter line, or a `.skillgrid/specs|archive/<id>/` path.
+// frontmatter line, or a `\.skillgrid/change-specs|change-archive/<id>/` path.
 var (
 	prototypeTopicRE = regexp.MustCompile(`(?m)^\*{0,2}(?:Topic|Change):\*{0,2}\s*(.+)$`)
 	prototypeYAMLRE  = regexp.MustCompile(`(?m)^topic:\s*(\S+)`)
-	changePathRE     = regexp.MustCompile(`\.skillgrid/(?:specs|archive)/(\d{4}-\d{2}-\d{2}-[^/\s` + "`" + `]+)`)
+	changePathRE     = regexp.MustCompile(`\.skillgrid/(?:change-specs|change-archive)/(\d{4}-\d{2}-\d{2}-[^/\s` + "`" + `]+)`)
 )
 
 // prototypeChange reads the change id recorded in prototype.md, when that
-// directory exists under .skillgrid/specs or .skillgrid/archive.
+// directory exists under .skillgrid/change-specs or .skillgrid/change-archive.
 func prototypeChange(cwd, _, content string) string {
 	for _, id := range []string{
 		changeID(prototypeTopicRE, content),
@@ -213,7 +213,7 @@ func changeID(re *regexp.Regexp, content string) string {
 }
 
 func changeExists(cwd, id string) bool {
-	for _, root := range []string{"specs", "archive"} {
+	for _, root := range []string{"change-specs", "change-archive"} {
 		fi, err := os.Stat(filepath.Join(cwd, ".skillgrid", root, id))
 		if err == nil && fi.IsDir() {
 			return true
@@ -222,11 +222,11 @@ func changeExists(cwd, id string) bool {
 	return false
 }
 
-// findChangeCiting returns the newest change (specs before archive) whose
+// findChangeCiting returns the newest change (change-specs before change-archive) whose
 // markdown mentions this prototype directory.
 func findChangeCiting(cwd, name string) string {
-	needles := []string{"prototypes/" + name, "spikes/" + name}
-	for _, root := range []string{"specs", "archive"} {
+	needles := []string{"meta/.prototype/" + name, "prototypes/" + name, "spikes/" + name}
+	for _, root := range []string{"change-specs", "change-archive"} {
 		entries, err := os.ReadDir(filepath.Join(cwd, ".skillgrid", root))
 		if err != nil {
 			continue

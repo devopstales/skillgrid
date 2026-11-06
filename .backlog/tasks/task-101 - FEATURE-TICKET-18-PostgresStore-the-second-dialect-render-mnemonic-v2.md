@@ -11,9 +11,9 @@ dependencies:
   - TASK-084
   - TASK-085
 references:
-  - .skillgrid/specs/2026-10-31-mnemonic-v2-memory//blueprint.md
-  - .skillgrid/specs/2026-10-31-mnemonic-v2-memory//tasks.md
-  - .skillgrid/specs/2026-10-31-mnemonic-v2-memory//acceptance.feature
+  - .skillgrid/change-specs/2026-10-31-mnemonic-v2-memory//blueprint.md
+  - .skillgrid/change-specs/2026-10-31-mnemonic-v2-memory//tasks.md
+  - .skillgrid/change-specs/2026-10-31-mnemonic-v2-memory//acceptance.feature
 priority: high
 type: feature
 ---

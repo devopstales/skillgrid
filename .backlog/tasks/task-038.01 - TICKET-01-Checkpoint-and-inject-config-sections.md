@@ -9,11 +9,11 @@ labels: []
 milestone: 2026-10-02-mnemonic-memory-checkpoint
 dependencies: []
 references:
-  - .skillgrid/specs/2026-10-02-mnemonic-memory-checkpoint/briefing.md
-  - .skillgrid/specs/2026-10-02-mnemonic-memory-checkpoint/tasks.md
-  - .skillgrid/specs/2026-10-02-mnemonic-memory-checkpoint/acceptance.feature
+  - .skillgrid/change-specs/2026-10-02-mnemonic-memory-checkpoint/briefing.md
+  - .skillgrid/change-specs/2026-10-02-mnemonic-memory-checkpoint/tasks.md
+  - .skillgrid/change-specs/2026-10-02-mnemonic-memory-checkpoint/acceptance.feature
 documentation:
-  - .skillgrid/specs/2026-10-02-mnemonic-memory-checkpoint/briefing.md
+  - .skillgrid/change-specs/2026-10-02-mnemonic-memory-checkpoint/briefing.md
 parent_task_id: TASK-038
 priority: high
 type: feature

@@ -10,7 +10,7 @@ milestone: 2026-10-06-mnemonic-standalone
 dependencies:
   - TASK-061
 references:
-  - .skillgrid/specs/2026-10-06-mnemonic-standalone/briefing.md
+  - .skillgrid/change-specs/2026-10-06-mnemonic-standalone/briefing.md
 modified_files:
   - config.d/mcp.yaml
   - plugins/cursor/mcp.json

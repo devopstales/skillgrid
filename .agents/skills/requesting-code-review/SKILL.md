@@ -83,7 +83,7 @@ them for the reviewer. Pass:
 - the diff range (`{BASE_SHA}..{HEAD_SHA}`)
 - the standards sources: the terms files (`.skillgrid/knowledge/glossary/01-business-terms.md` /
   `02-technical-terms.md`, ubiquitous language), the in-force ADRs from the change's ADR Review Manifest
-  (`.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md`, or `conventions.artifacts`), plus
+  (`.skillgrid/change-specs/YYYY-MM-DD-<topic>/adr.md`, or `conventions.artifacts`), plus
   the template's smell baseline. Don't dump the whole ADR folder — only the
   in-force ADRs the manifest names for this change.
 - brief: cite each violated standard (file + rule) and each baseline smell
@@ -95,8 +95,8 @@ them for the reviewer. Pass:
 Does the code implement what was asked? Pass:
 - the diff range
 - the spec sources: the change's `acceptance.feature`
-  (`.skillgrid/specs/<id>/acceptance.feature`), the blueprint
-  (`.skillgrid/specs/YYYY-MM-DD-<topic>/blueprint.md`), and the originating
+  (`.skillgrid/change-specs/<id>/acceptance.feature`), the blueprint
+  (`.skillgrid/change-specs/YYYY-MM-DD-<topic>/blueprint.md`), and the originating
   spec if the blueprint names one
 - brief (BDD is always on): per scenario, does the diff make each `SATISFIES`
   scenario pass? Is TDD Evidence's RED→GREEN real, and did the spec zone rule
@@ -129,7 +129,7 @@ change can be spec-perfect but violate every convention, beautifully written
 but implement the wrong thing, or conventionally clean and spec-complete but
 one SQLi away from a data breach; the three axes are deliberately separate.
 
-Then **write the durable audit record** — `.skillgrid/specs/<topic>/review.md`
+Then **write the durable audit record** — `.skillgrid/change-specs/<topic>/review.md`
 — from [templates/review.md](templates/review.md), next to `report.md` (which
 owns the QA gate; `review.md` owns this review). It records the three axes
 side by side, the explicit "What Important means" threshold, the capped Minor
@@ -226,7 +226,7 @@ Per `_shared/craft/measurement.md`.
 - [ ] Each review is labeled with an independence grade (A/B/C); any Grade C review is reported as diagnostic only, not as independent evidence for ship/merge
 - [ ] The request names the specific risk areas to focus on (violated standards, scenarios that must pass, exploitable security issues) — per the "How to Request" briefs
 - [ ] The three reports were presented under `## Standards`, `## Spec`, and `## Security` headings side by side, NOT merged or reranked
-- [ ] `review.md` was written to `.skillgrid/specs/<topic>/review.md` and committed (spec zone) — the durable audit record with all three axes side by side, the "What Important means" threshold, capped Minor findings, each axis's independence grade, and the floor verdict
+- [ ] `review.md` was written to `.skillgrid/change-specs/<topic>/review.md` and committed (spec zone) — the durable audit record with all three axes side by side, the "What Important means" threshold, capped Minor findings, each axis's independence grade, and the floor verdict
 - [ ] The combined findings were triaged and in-scope issues fixed with tests — not left as "reviewed, good to go"
 - [ ] The review was actually received (a report exists for each axis) before proceeding to the next task or merge
 

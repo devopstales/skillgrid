@@ -14,8 +14,8 @@ dependencies:
   - TASK-086
   - TASK-087
 references:
-  - .skillgrid/specs/2026-10-09-skill-pi/tasks.md
-  - .skillgrid/specs/2026-10-09-skill-pi/acceptance.feature
+  - .skillgrid/change-specs/2026-10-09-skill-pi/tasks.md
+  - .skillgrid/change-specs/2026-10-09-skill-pi/acceptance.feature
 modified_files:
   - skill-pi/extensions/skillgrid-squad.test.ts
   - skill-pi/system/APPEND_SYSTEM.md

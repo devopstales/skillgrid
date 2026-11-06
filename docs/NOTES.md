@@ -15,7 +15,7 @@ You us grep read eza ls rg. Why you didn't use the skillgrid mcp?
 * coding standards, testing, security tests
   * https://github.com/vigolium/vigolium
 * TEAMS
-  * .skillgrid/sdd
+  * .skillgrid/meta/.sdd
   * https://docs.cline.bot/sdk/guides/multi-agent-teams
   * https://dev.to/uenyioha/porting-claude-codes-agent-teams-to-opencode-4hol
   * https://github.com/hueyexe/opencode-ensemble

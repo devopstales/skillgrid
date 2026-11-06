@@ -2141,7 +2141,7 @@ paths:
               example:
                 q: Briefing
                 results:
-                  - path: .skillgrid/specs/009-web-admin-dashboard/briefing.md
+                  - path: .skillgrid/change-specs/009-web-admin-dashboard/briefing.md
                     title: Briefing
                     snippet: "…# Briefing …"
                     root: skillgrid
@@ -2862,9 +2862,9 @@ paths:
     get:
       tags: [plans]
       operationId: listPlans
-      summary: List SDD plans (from .skillgrid/specs)
+      summary: List SDD plans (from .skillgrid/change-specs)
       description: |-
-        One card per .skillgrid/specs/<slug>/ directory: name, status (the
+        One card per .skillgrid/change-specs/<slug>/ directory: name, status (the
         `> **STATUS:**` blockquote line), checklist progress (done/total),
         and whether an SDD ledger exists. Newest date first.
       responses:
@@ -2922,7 +2922,7 @@ paths:
     get:
       tags: [plans]
       operationId: specContent
-      summary: Spec markdown content (sandboxed to .skillgrid/specs)
+      summary: Spec markdown content (sandboxed to .skillgrid/change-specs)
       parameters:
         - name: path
           in: path
@@ -3084,9 +3084,9 @@ paths:
     get:
       tags: [prototypes]
       operationId: prototypesList
-      summary: List feasibility prototypes (.skillgrid/prototypes/)
+      summary: List feasibility prototypes (.skillgrid/meta/.prototype/)
       description: |-
-        Lists the directories under .skillgrid/prototypes/ and extracts a light
+        Lists the directories under .skillgrid/meta/.prototype/ and extracts a light
         summary (date, type, hypothesis, file list) from each prototype.md.
         Directories without a prototype.md (WIP) are still listed so they are
         visible rather than silently dropped. Read-only; sorted by name.
@@ -3118,7 +3118,7 @@ paths:
                           type: array
                           items: { type: string }
               example:
-                source: ".skillgrid/prototypes"
+                source: ".skillgrid/meta/.prototype"
                 count: 1
                 prototypes:
                   - name: "001-cgo-free-vector-db"
@@ -3127,7 +3127,7 @@ paths:
                     hypothesis: "Given a Go module, when we adopt either, then both work."
                     files: ["g.go", "prototype.md"]
         "404":
-          description: No .skillgrid/prototypes/ directory
+          description: No .skillgrid/meta/.prototype/ directory
           content:
             application/json:
               schema: { type: object, properties: { error: { type: string } } }
@@ -3137,7 +3137,7 @@ paths:
       operationId: prototypeFile
       summary: Serve one file from a feasibility prototype
       description: |-
-        Serves one file under .skillgrid/prototypes/{name}/ so a generated
+        Serves one file under .skillgrid/meta/.prototype/{name}/ so a generated
         index.html preview (and the relative assets it loads) can open in a
         new tab. Sandboxed to that directory: traversal or an absolute path
         → 400; a missing file or a directory → 404. Served with nosniff.
@@ -3145,7 +3145,7 @@ paths:
         - name: name
           in: path
           required: true
-          description: Prototype directory name under .skillgrid/prototypes/
+          description: Prototype directory name under .skillgrid/meta/.prototype/
           schema: { type: string }
         - name: file
           in: path
@@ -3178,7 +3178,7 @@ paths:
         Serves the HTML of one visual-companion prototype, sandboxed to
         .skillgrid/prototype/ (a distinct subtree from the plural /prototypes
         above, which lists feasibility prototypes under
-        .skillgrid/prototypes/). Traversal/absolute ids
+        .skillgrid/meta/.prototype/). Traversal/absolute ids
         (.., leading /) → 400; unknown → 404. Served with nosniff; rendered
         client-side in a sandboxed iframe (sandbox="allow-scripts", no
         allow-same-origin) inside the decision card. Throwaway by design —

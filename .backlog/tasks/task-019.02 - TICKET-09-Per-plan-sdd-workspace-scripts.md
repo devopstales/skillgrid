@@ -9,10 +9,10 @@ labels: []
 milestone: 2026-09-21-session-events-layer
 dependencies: []
 references:
-  - .skillgrid/specs/2026-09-21-session-events-layer/briefing.md
-  - .skillgrid/specs/2026-09-21-session-events-layer/blueprint.md
-  - .skillgrid/specs/2026-09-21-session-events-layer/tasks.md
-  - .skillgrid/specs/2026-09-21-session-events-layer/acceptance.feature
+  - .skillgrid/change-specs/2026-09-21-session-events-layer/briefing.md
+  - .skillgrid/change-specs/2026-09-21-session-events-layer/blueprint.md
+  - .skillgrid/change-specs/2026-09-21-session-events-layer/tasks.md
+  - .skillgrid/change-specs/2026-09-21-session-events-layer/acceptance.feature
 parent_task_id: TASK-019
 priority: medium
 type: feature
@@ -21,7 +21,7 @@ type: feature
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Port sdd-workspace, task-brief, review-package (superpowers paths repathed to .skillgrid/sdd) plus test-sdd-workspace.sh.
+Port sdd-workspace, task-brief, review-package (superpowers paths repathed to .skillgrid/meta/.sdd) plus test-sdd-workspace.sh.
 
 Current: no per-plan workspace scripts; sdd layout flat.
 

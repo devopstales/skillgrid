@@ -53,7 +53,7 @@ func sddSpecsDir() string   { return filepath.Join(sddRoot(), ".skillgrid", "spe
 func sddArchiveDir() string { return filepath.Join(sddRoot(), ".skillgrid", "xarchive") }
 
 // changeDir resolves a change id to its spec directory. Live specs win.
-// Archived changes live under .skillgrid/xarchive/<id>.
+// Archived changes live under .skillgrid/change-archive/<id>.
 func changeDir(id string) (string, bool) {
 	if id == "" || strings.Contains(id, "..") || strings.ContainsAny(id, `/\`) {
 		return "", false
@@ -100,7 +100,7 @@ type planStep struct {
 	Status string `json:"status"`
 }
 
-// handlePlans serves GET /plans — aggregates .skillgrid/specs/* into plan cards
+// handlePlans serves GET /plans — aggregates .skillgrid/change-specs/* into plan cards
 // (name, status, checklist progress, whether an SDD ledger exists).
 func (s *Server) handlePlans(w http.ResponseWriter, r *http.Request) {
 	specsDir := sddSpecsDir()
@@ -147,7 +147,7 @@ func (s *Server) handlePlans(w http.ResponseWriter, r *http.Request) {
 
 // handlePlanDetail serves GET /plans/{id} — detail for one spec: status,
 // progress, file inventory, spec markdown, and the linked SDD ledger steps
-// (parsed from .skillgrid/sdd/<id>/progress.md `## Steps` lines). Unknown id →
+// (parsed from .skillgrid/meta/.sdd/<id>/progress.md `## Steps` lines). Unknown id →
 // 404.
 func (s *Server) handlePlanDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -229,7 +229,7 @@ func parseLedgerSteps(progressPath string) []planStep {
 }
 
 // handleSpecs serves GET /specs — a flat list of spec markdown files under
-// .skillgrid/specs (relative paths), so the UI can build a file tree.
+// .skillgrid/change-specs (relative paths), so the UI can build a file tree.
 func (s *Server) handleSpecs(w http.ResponseWriter, r *http.Request) {
 	root := sddSpecsDir()
 	files := []string{}
@@ -249,7 +249,7 @@ func (s *Server) handleSpecs(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSpecContent serves GET /specs/{path...} — the markdown content of one
-// spec file (sandboxed to .skillgrid/specs). Unknown path → 404.
+// spec file (sandboxed to .skillgrid/change-specs). Unknown path → 404.
 func (s *Server) handleSpecContent(w http.ResponseWriter, r *http.Request) {
 	rel := r.PathValue("path")
 	if rel == "" {

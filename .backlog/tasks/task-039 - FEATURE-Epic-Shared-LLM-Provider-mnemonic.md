@@ -9,12 +9,12 @@ labels: []
 milestone: 2026-10-02-mnemonic-llm-provider
 dependencies: []
 references:
-  - .skillgrid/specs/2026-10-02-mnemonic-llm-provider/briefing.md
-  - .skillgrid/specs/2026-10-02-mnemonic-llm-provider/blueprint.md
-  - .skillgrid/specs/2026-10-02-mnemonic-llm-provider/tasks.md
-  - .skillgrid/specs/2026-10-02-mnemonic-llm-provider/acceptance.feature
+  - .skillgrid/change-specs/2026-10-02-mnemonic-llm-provider/briefing.md
+  - .skillgrid/change-specs/2026-10-02-mnemonic-llm-provider/blueprint.md
+  - .skillgrid/change-specs/2026-10-02-mnemonic-llm-provider/tasks.md
+  - .skillgrid/change-specs/2026-10-02-mnemonic-llm-provider/acceptance.feature
 documentation:
-  - .skillgrid/specs/2026-10-02-mnemonic-llm-provider/briefing.md
+  - .skillgrid/change-specs/2026-10-02-mnemonic-llm-provider/briefing.md
 priority: high
 type: feature
 ---
@@ -24,7 +24,7 @@ type: feature
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Ask, dedup, extraction, and dream each lack a production LLM client, so task-029 stays open and install never wires a local or external model. One OpenAI-compatible Completer attaches every seam at boot, and skillgrid install sets up that provider.
 
-Spec: .skillgrid/specs/2026-10-02-mnemonic-llm-provider/
+Spec: .skillgrid/change-specs/2026-10-02-mnemonic-llm-provider/
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria

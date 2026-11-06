@@ -21,7 +21,7 @@ The Claude Academy AI-native SDLC playbook names three coexistence modes for pro
 
 ## Decision Outcome
 
-The repo is the single source of truth for project state: `.skillgrid/ASSUMPTIONS.md` (facts, the in-force ADR index, locked constraints), the ADR records under `.skillgrid/artifacts/04-adr-*.md`, the spec-zone artifacts under `.skillgrid/specs/`, the committed `state.yaml`, and the git history. When an external tracker, a session memory, or a dashboard disagrees with a committed artifact, the committed artifact wins and the other source is reconciled to it. Backlog.md tasks live under `.backlog/` in the repo, so the tracker is already in-repo. The required linkage is Backlog task ID ↔ commit SHA: every commit that closes a task names that task ID in the conventional-commit subject or body (`[skillgrid-context]` block), so the audit chain `task → commit → diff` is recoverable from git alone.
+The repo is the single source of truth for project state: `.skillgrid/ASSUMPTIONS.md` (facts, the in-force ADR index, locked constraints), the ADR records under `.skillgrid/artifacts/04-adr-*.md`, the spec-zone artifacts under `.skillgrid/change-specs/`, the committed `state.yaml`, and the git history. When an external tracker, a session memory, or a dashboard disagrees with a committed artifact, the committed artifact wins and the other source is reconciled to it. Backlog.md tasks live under `.backlog/` in the repo, so the tracker is already in-repo. The required linkage is Backlog task ID ↔ commit SHA: every commit that closes a task names that task ID in the conventional-commit subject or body (`[skillgrid-context]` block), so the audit chain `task → commit → diff` is recoverable from git alone.
 
 ### Consequences
 

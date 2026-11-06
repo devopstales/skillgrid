@@ -8,8 +8,8 @@ updated_date: '2026-10-06 08:35'
 labels:
   - >-
     webui-rewrite --priority high --type feature -p TASK-031 --ref
-    .skillgrid/specs/2026-10-02-mnemonic-webui-rewrite/tasks.md --ref
-    .skillgrid/specs/2026-10-02-mnemonic-webui-rewrite/acceptance.feature
+    .skillgrid/change-specs/2026-10-02-mnemonic-webui-rewrite/tasks.md --ref
+    .skillgrid/change-specs/2026-10-02-mnemonic-webui-rewrite/acceptance.feature
     --plain
 milestone: 2026-10-02-mnemonic-webui-rewrite
 dependencies:
@@ -19,7 +19,7 @@ dependencies:
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-System → Security must fetch GET /security/trivy and Project → Prototypes must fetch a registered JSON path listing .skillgrid/prototypes/NNN-name/. At HEAD both pages exist but neither endpoint is registered (panels render ErrorState). BLOCKED: both halves exist uncommitted in the main working tree (docs.NewTrivy shells out to the trivy CLI — needs its own review; docs.NewPrototypes is part of the spikes→prototypes rename) in a server.go that also carries unrelated routes. Precondition: rename committed and server.go clean. SATISFIES panels-fetch-live-endpoints (Security and Prototypes).
+System → Security must fetch GET /security/trivy and Project → Prototypes must fetch a registered JSON path listing .skillgrid/meta/.prototype/NNN-name/. At HEAD both pages exist but neither endpoint is registered (panels render ErrorState). BLOCKED: both halves exist uncommitted in the main working tree (docs.NewTrivy shells out to the trivy CLI — needs its own review; docs.NewPrototypes is part of the spikes→prototypes rename) in a server.go that also carries unrelated routes. Precondition: rename committed and server.go clean. SATISFIES panels-fetch-live-endpoints (Security and Prototypes).
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria

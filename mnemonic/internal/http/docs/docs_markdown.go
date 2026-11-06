@@ -23,8 +23,8 @@ import (
 //
 // Methods (their canonical artifact locations, researched):
 //   - skillgrid:  .skillgrid/{specs,adr,prd} — the team's own SDD artifacts
-//                (specs/<change>/{briefing,tasks,acceptance}.md, adr/ ADRs, prd/ product docs);
-//                archive/ and other .skillgrid subdirs are hidden
+//     (change-specs/<change>/{briefing,tasks,acceptance}.md, adr/ ADRs, prd/ product docs);
+//     archive/ and other .skillgrid subdirs are hidden
 //   - openspec:   openspec/specs/**, openspec/changes/**
 //   - speckit:    specs/<NNN-feature>/{spec,plan,tasks}.md, .specify/memory/constitution.md
 //   - superpowers: docs/superpowers/plans/**, docs/superpowers/specs/**
@@ -32,7 +32,7 @@ import (
 //   - docs:       docs/** (human docs)
 //   - root:       top-level *.md
 var mdRoots = map[string][]string{
-	"skillgrid":   {".skillgrid/specs", ".skillgrid/adr", ".skillgrid/prd", ".skillgrid"},
+	"skillgrid":   {".skillgrid/change-specs", ".skillgrid/adr", ".skillgrid/prd", ".skillgrid"},
 	"openspec":    {"openspec/specs", "openspec/changes", "openspec"},
 	"speckit":     {"specs", ".specify/memory"},
 	"superpowers": {"docs/superpowers/plans", "docs/superpowers/specs"},
@@ -49,26 +49,26 @@ var mdRootOrder = []string{
 
 // MDNode is one entry in the docs tree.
 type MDNode struct {
-	Dir     bool       `json:"dir"`
-	Name    string     `json:"name"`
-	Path    string     `json:"path"`
-	Title   string     `json:"title,omitempty"`
-	Status  string     `json:"status,omitempty"`
-	Updated string     `json:"updated,omitempty"`
-	Children []MDNode  `json:"children,omitempty"`
+	Dir      bool     `json:"dir"`
+	Name     string   `json:"name"`
+	Path     string   `json:"path"`
+	Title    string   `json:"title,omitempty"`
+	Status   string   `json:"status,omitempty"`
+	Updated  string   `json:"updated,omitempty"`
+	Children []MDNode `json:"children,omitempty"`
 }
 
 // MDContent is a single markdown file served for rendering.
 type MDContent struct {
-	Path          string         `json:"path"`
-	Title         string         `json:"title,omitempty"`
-	Frontmatter   map[string]any `json:"frontmatter,omitempty"`
-	Body          string         `json:"body"`
-	RelatedPlans  []string       `json:"relatedPlans,omitempty"`
-	UpdatedAt     string         `json:"updatedAt,omitempty"`
-	Mermaid       MermaidCfg     `json:"mermaid"`
-	DocType       string         `json:"docType"`        // task|doc|adr|prd|spec|note
-	DecisionStatus string        `json:"decisionStatus,omitempty"` // ADR status (proposed/accepted/...)
+	Path           string         `json:"path"`
+	Title          string         `json:"title,omitempty"`
+	Frontmatter    map[string]any `json:"frontmatter,omitempty"`
+	Body           string         `json:"body"`
+	RelatedPlans   []string       `json:"relatedPlans,omitempty"`
+	UpdatedAt      string         `json:"updatedAt,omitempty"`
+	Mermaid        MermaidCfg     `json:"mermaid"`
+	DocType        string         `json:"docType"`                  // task|doc|adr|prd|spec|note
+	DecisionStatus string         `json:"decisionStatus,omitempty"` // ADR status (proposed/accepted/...)
 }
 
 // Doc types the SPA renders with schema-aware views.
@@ -144,6 +144,7 @@ type SearchHit struct {
 
 // ErrMDBadPath marks a path that fails the sandbox (raw .. / absolute) -> 400.
 var ErrMDBadPath = errMD("bad path")
+
 // ErrMDNotFound marks a clean path that does not exist -> 404.
 var ErrMDNotFound = errMD("not found")
 
@@ -241,8 +242,8 @@ func NewContent(cwd string) http.Handler {
 		data, err := os.ReadFile(abs)
 		servedPath := filepath.ToSlash(raw)
 		if err != nil {
-			// Shipped changes move specs/<name>/ → archive/<name>/. Task doc_refs
-			// often still point at the specs/ path — try the archive twin before 404.
+			// Shipped changes move change-specs/<name>/ → change-archive/<name>/. Task doc_refs
+			// often still point at the change-specs/ path — try the archive twin before 404.
 			if twinRel, twinAbs := archiveTwin(cwd, raw); twinAbs != "" {
 				if data2, err2 := os.ReadFile(twinAbs); err2 == nil {
 					data = data2
@@ -279,11 +280,11 @@ func NewContent(cwd string) http.Handler {
 	})
 }
 
-// archiveTwin maps `.skillgrid/specs/<change>/…` → `.skillgrid/xarchive/<change>/…`
+// archiveTwin maps `.skillgrid/change-specs/<change>/…` → `.skillgrid/change-archive/<change>/…`
 // when the archived file exists. Returns ("","") when no twin applies.
 func archiveTwin(cwd, rel string) (twinRel, twinAbs string) {
 	slash := filepath.ToSlash(strings.TrimSpace(rel))
-	const prefix = ".skillgrid/specs/"
+	const prefix = ".skillgrid/change-specs/"
 	if !strings.HasPrefix(slash, prefix) {
 		return "", ""
 	}
@@ -291,7 +292,7 @@ func archiveTwin(cwd, rel string) (twinRel, twinAbs string) {
 	if rest == "" || strings.Contains(rest, "..") {
 		return "", ""
 	}
-	twinRel = ".skillgrid/xarchive/" + rest
+	twinRel = ".skillgrid/change-archive/" + rest
 	if _, _, err := resolveMDPath(cwd, twinRel); err != nil {
 		return "", ""
 	}
@@ -438,7 +439,7 @@ func relatedPlans(body, cwd string) []string {
 			return r == ' ' || r == '/' || r == ',' || r == '(' || r == ')' || r == '`'
 		}) {
 			if strings.HasPrefix(tok, "0") && strings.Contains(tok, "-") && len(tok) > 6 {
-				dir := filepath.Join(cwd, ".skillgrid", "specs", tok)
+				dir := filepath.Join(cwd, ".skillgrid", "change-specs", tok)
 				if info, err := os.Stat(dir); err == nil && info.IsDir() {
 					if !seen[tok] {
 						seen[tok] = true
@@ -452,13 +453,13 @@ func relatedPlans(body, cwd string) []string {
 }
 
 // skillgridTopDirs is the fixed set of .skillgrid subdirectories the Skillgrid
-// root surfaces; everything else (archive/, glossary/, sdd/, *.yaml) is hidden.
+// root surfaces; everything else (change-archive/, knowledge/, meta/, *.yaml) is hidden.
 var skillgridTopDirs = map[string]bool{
-	"specs": true, "adr": true, "prd": true,
+	"change-specs": true, "adr": true, "prd": true,
 }
 
 // skillgridTopDirOrder is the stable display order for the surfaced skillgrid dirs.
-var skillgridTopDirOrder = []string{"specs", "adr", "prd"}
+var skillgridTopDirOrder = []string{"change-specs", "adr", "prd"}
 
 // skillgridSearchRoots returns the on-disk .skillgrid subdirs to search for the
 // skillgrid selector, limited to skillgridTopDirs (so archive/ etc. are excluded).
@@ -470,7 +471,7 @@ func skillgridSearchRoots(cwd string) []string {
 	return out
 }
 
-// skillgridDirNode walks one surfaced .skillgrid subdir (specs/adr/prd) and
+// skillgridDirNode walks one surfaced .skillgrid subdir (change-specs/adr/prd) and
 // returns the node, or nil if the subdir doesn't exist.
 func skillgridDirNode(ctx context.Context, cwd string, d string) *MDNode {
 	abs, err := filepath.Abs(filepath.Join(cwd, ".skillgrid", d))

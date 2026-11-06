@@ -3,7 +3,7 @@
 ## Hybrid Write (preferred)
 
 Every SDD artifact write does **BOTH**:
-1. **Filesystem** — the primary copy in `.skillgrid/specs/<topic>/`
+1. **Filesystem** — the primary copy in `.skillgrid/change-specs/<topic>/`
 2. **Mnemonic** — `mem_save` under the matching topic_key (see `mnemonic-memory.md`)
 
 Any store-mode token from the orchestrator is honored as `hybrid`.

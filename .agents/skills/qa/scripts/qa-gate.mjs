@@ -74,7 +74,7 @@ function runScript(root, scriptPath, args) {
   };
 }
 
-// Find the active change's slug (newest dir under .skillgrid/specs/).
+// Find the active change's slug (newest dir under .skillgrid/change-specs/).
 function findActiveSlug(root) {
   const specsDir = join(root, ".skillgrid", "specs");
   if (!existsSync(specsDir)) return null;
@@ -85,7 +85,7 @@ function findActiveSlug(root) {
   return dirs.length ? dirs[dirs.length - 1] : null;
 }
 
-// Find the active change's tasks.md (newest dir under .skillgrid/specs/).
+// Find the active change's tasks.md (newest dir under .skillgrid/change-specs/).
 function findTasksPath(root) {
   const slug = findActiveSlug(root);
   if (!slug) return null;

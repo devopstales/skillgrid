@@ -14,7 +14,7 @@ dependencies:
   - TASK-066
   - TASK-067
 references:
-  - .skillgrid/specs/2026-10-06-mnemonic-standalone/briefing.md
+  - .skillgrid/change-specs/2026-10-06-mnemonic-standalone/briefing.md
 priority: high
 type: chore
 ---

@@ -7,8 +7,8 @@ created_date: '2026-09-21 07:14'
 labels: []
 dependencies: []
 references:
-  - .skillgrid/archive/2026-09-18-memfs-code-index/blueprint.md
-  - .skillgrid/archive/2026-09-18-memfs-code-index/acceptance.feature
+  - .skillgrid/change-archive/2026-09-18-memfs-code-index/blueprint.md
+  - .skillgrid/change-archive/2026-09-18-memfs-code-index/acceptance.feature
   - skillgrid-cli/internal/mnemonic/memfs/
   - skillgrid-cli/cmd/skillgrid/mem.go
 priority: medium
@@ -25,7 +25,7 @@ Track the SDD spec **2026-09-18-memfs-code-index**: expose the SQLite code index
 - Blueprint checkboxes were never ticked — completion verified against code on 2026-09-21
 
 **Expected State:**
-- Done. Archived to `.skillgrid/archive/2026-09-18-memfs-code-index/` on 2026-09-21.
+- Done. Archived to `.skillgrid/change-archive/2026-09-18-memfs-code-index/` on 2026-09-21.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria

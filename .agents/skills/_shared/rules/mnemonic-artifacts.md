@@ -4,7 +4,7 @@
 
 NOTE: Critical Mnemonic calls (`mem_search`, `mem_save`, `mem_get_observation`) are inlined directly in each skill's SKILL.md. This document is supplementary reference — sub-agents do NOT need to read it to function.
 
-Applies to every Skillgrid skill. Memory mode is `hybrid` always: the same artifact goes to both Mnemonic and the filesystem (`.skillgrid/specs/YYYY-MM-DD-<topic>/`). Mnemonic is recovery working memory, not the audit trail.
+Applies to every Skillgrid skill. Memory mode is `hybrid` always: the same artifact goes to both Mnemonic and the filesystem (`.skillgrid/change-specs/YYYY-MM-DD-<topic>/`). Mnemonic is recovery working memory, not the audit trail.
 
 ## Mnemonic Tool Mapping
 
@@ -138,7 +138,7 @@ mem_save(
 )
 ```
 
-Upserts: same `topic_key` + `scope` → UPDATE (overwrite), not INSERT. Previous content is lost — Mnemonic is working memory, not an audit trail. For iteration history, the filesystem copy (`.skillgrid/specs/YYYY-MM-DD-<topic>/`) is the source of truth. Reuse `topic_key` for evolving topics instead of creating near-duplicates; never mix different topics under one key.
+Upserts: same `topic_key` + `scope` → UPDATE (overwrite), not INSERT. Previous content is lost — Mnemonic is working memory, not an audit trail. For iteration history, the filesystem copy (`.skillgrid/change-specs/YYYY-MM-DD-<topic>/`) is the source of truth. Reuse `topic_key` for evolving topics instead of creating near-duplicates; never mix different topics under one key.
 
 ## Session Close Protocol
 

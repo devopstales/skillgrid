@@ -7,9 +7,9 @@ created_date: '2026-09-21 07:14'
 labels: []
 dependencies: []
 references:
-  - .skillgrid/archive/2026-09-17-graph-view-upgrade/briefing.md
-  - .skillgrid/archive/2026-09-17-graph-view-upgrade/tasks.md
-  - .skillgrid/archive/2026-09-17-graph-view-upgrade/findings.md
+  - .skillgrid/change-archive/2026-09-17-graph-view-upgrade/briefing.md
+  - .skillgrid/change-archive/2026-09-17-graph-view-upgrade/tasks.md
+  - .skillgrid/change-archive/2026-09-17-graph-view-upgrade/findings.md
 priority: medium
 type: feature
 ---
@@ -24,7 +24,7 @@ Track the SDD spec **2026-09-17-graph-view-upgrade**: progressive (animated + in
 - UI: `skillgrid-ui/src/features/mnemonic/graph/`; backend: `skillgrid-cli/internal/mnemonic/http/`
 
 **Expected State:**
-- Done. Archived to `.skillgrid/archive/2026-09-17-graph-view-upgrade/` on 2026-09-21 (completion verified against code + tasks.md verdicts).
+- Done. Archived to `.skillgrid/change-archive/2026-09-17-graph-view-upgrade/` on 2026-09-21 (completion verified against code + tasks.md verdicts).
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
@@ -46,5 +46,5 @@ Track the SDD spec **2026-09-17-graph-view-upgrade**: progressive (animated + in
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Closed during the 2026-09-21 specs audit: all 4 phases (progressive-layout, fit-zoom-controls, theme-violet, file-explorer-agents) have Verdict PASS with evidence tables in tasks.md. Spec folder archived to .skillgrid/archive/2026-09-17-graph-view-upgrade/. Ticket was missing from the backlog — created retroactively and marked done to keep tracker/spec state in sync.
+Closed during the 2026-09-21 specs audit: all 4 phases (progressive-layout, fit-zoom-controls, theme-violet, file-explorer-agents) have Verdict PASS with evidence tables in tasks.md. Spec folder archived to .skillgrid/change-archive/2026-09-17-graph-view-upgrade/. Ticket was missing from the backlog — created retroactively and marked done to keep tracker/spec state in sync.
 <!-- SECTION:FINAL_SUMMARY:END -->

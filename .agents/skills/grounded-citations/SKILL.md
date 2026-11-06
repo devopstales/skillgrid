@@ -18,7 +18,7 @@ Every claim taken from an outside source gets an inline numbered citation plus a
 
 Covers chat answers, markdown documents, research reports, and wiki pages (`skillgrid:llm-wiki` output cites this way). Feed for `skillgrid:research` / `skillgrid:code-research` / `skillgrid:deep-research` findings — the `## Research:` sections those skills append are where this discipline pays off.
 
-Ported from the Hermes `grounded-citations` skill under MIT (see ADR-0015). Behavioral deltas from upstream: ledger default rehomed to `.skillgrid/sdd/citations/ledger.json` (gitignored scratch; override with `--ledger` or `SKILLGRID_CITATION_LEDGER`); the multi-platform sweep table remapped from Hermes-only skills to skillgrid retrieval surfaces (below); parallel-subagent ledger sharing kept via `--ledger`.
+Ported from the Hermes `grounded-citations` skill under MIT (see ADR-0015). Behavioral deltas from upstream: ledger default rehomed to `.skillgrid/meta/.sdd/citations/ledger.json` (gitignored scratch; override with `--ledger` or `SKILLGRID_CITATION_LEDGER`); the multi-platform sweep table remapped from Hermes-only skills to skillgrid retrieval surfaces (below); parallel-subagent ledger sharing kept via `--ledger`.
 
 ## When to Use
 
@@ -40,7 +40,7 @@ The Python original (`sources.py`) is retained as a fallback; `sources.mjs` is
 the canonical port (plan item J — single deterministic runtime). Same
 subcommands, same ledger format, byte-equivalent output.
 
-Ledger location: `.skillgrid/sdd/citations/ledger.json` (default; gitignored). Override per task with `--ledger <path>` or `SKILLGRID_CITATION_LEDGER`. Parallel subagents merging into one deliverable share one ledger via `--ledger` or the env var — otherwise their ids collide.
+Ledger location: `.skillgrid/meta/.sdd/citations/ledger.json` (default; gitignored). Override per task with `--ledger <path>` or `SKILLGRID_CITATION_LEDGER`. Parallel subagents merging into one deliverable share one ledger via `--ledger` or the env var — otherwise their ids collide.
 
 ## How to Run
 

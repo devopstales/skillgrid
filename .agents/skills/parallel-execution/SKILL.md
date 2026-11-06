@@ -103,7 +103,7 @@ When agents return:
 **Ledger:** summaries returned to your context rot with it — a compaction
 mid-integration loses which agents finished, what they changed, and whether
 the suite was re-run. Keep a fan-out ledger at
-`.skillgrid/sdd/<run-slug>/parallel-ledger.md` (git-ignored, like the
+`.skillgrid/meta/.sdd/<run-slug>/parallel-ledger.md` (git-ignored, like the
 execution workspace): one row per agent — `agent | task | status
 (dispatched|done|failed) | changed files | test result`. Write a row on
 dispatch, update it when the agent returns, and append a wave-summary line

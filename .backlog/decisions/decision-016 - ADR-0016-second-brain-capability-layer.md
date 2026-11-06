@@ -15,7 +15,7 @@ supersedes:
 date: 2026-09-30
 ---
 
-**Related:** `04-adr-0012-sqlite-as-second-brain.md` (locked the *engine* — SQLite as the second-brain store). This ADR builds the **capability layer** on top of it: what makes the store *feel* like a second brain rather than a search API. The spec that implements it is `.skillgrid/specs/2026-09-30-mnemonic-second-brain/` (briefing + acceptance.feature + blueprint). The reference product that motivated the patterns is the deep-dive in `09-claude-os-deep-dive.md` (steal list S1–S7) and the roadmap in `08-second-brain-roadmap.md` (items B, C, D, S4).
+**Related:** `04-adr-0012-sqlite-as-second-brain.md` (locked the *engine* — SQLite as the second-brain store). This ADR builds the **capability layer** on top of it: what makes the store *feel* like a second brain rather than a search API. The spec that implements it is `.skillgrid/change-specs/2026-09-30-mnemonic-second-brain/` (briefing + acceptance.feature + blueprint). The reference product that motivated the patterns is the deep-dive in `09-claude-os-deep-dive.md` (steal list S1–S7) and the roadmap in `08-second-brain-roadmap.md` (items B, C, D, S4).
 
 ## Context and Problem Statement
 

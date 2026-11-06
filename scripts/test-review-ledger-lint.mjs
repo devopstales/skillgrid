@@ -102,7 +102,7 @@ function validLedger(h) {
 // 1. Valid ledger → no findings
 {
   const p = makeRepo();
-  writeLedger(p.root, ".skillgrid/specs/demo/review-ledger.md", validLedger(p.hashes));
+  writeLedger(p.root, ".skillgrid/change-specs/demo/review-ledger.md", validLedger(p.hashes));
   const r = run(p.root, "demo");
   const j = parse(r.stdout);
   assert("valid: exit 0", r.code === 0, `got ${r.code}: ${r.stderr}`);
@@ -135,7 +135,7 @@ function validLedger(h) {
     "",
     "findings-dispositioned",
   ].join("\n");
-  writeLedger(p.root, ".skillgrid/specs/demo/review-ledger.md", led);
+  writeLedger(p.root, ".skillgrid/change-specs/demo/review-ledger.md", led);
   const r = run(p.root, "demo");
   const j = parse(r.stdout);
   assert("missing-disp: has finding", j && j.findings.length > 0, r.stdout);
@@ -149,7 +149,7 @@ function validLedger(h) {
   let led = validLedger(p.hashes);
   led = led.replace(`| fixed | ${p.hashes[1]} | R1-F001`, "| fixed | 0000000000000000000000000000000000000000 | R1-F001");
   led = led.replace(`fixed in \`${p.hashes[1]}\``, "fixed in `0000000000000000000000000000000000000000`");
-  writeLedger(p.root, ".skillgrid/specs/demo/review-ledger.md", led);
+  writeLedger(p.root, ".skillgrid/change-specs/demo/review-ledger.md", led);
   const r = run(p.root, "demo");
   const j = parse(r.stdout);
   assert("bad-commit: has finding", j && j.findings.length > 0, r.stdout);
@@ -161,7 +161,7 @@ function validLedger(h) {
   const p = makeRepo();
   let led = validLedger(p.hashes);
   led = led.replace("- **R1-F002** — parked. Ruling: acceptable risk. paladm.", "- **R1-F002** — parked.");
-  writeLedger(p.root, ".skillgrid/specs/demo/review-ledger.md", led);
+  writeLedger(p.root, ".skillgrid/change-specs/demo/review-ledger.md", led);
   const r = run(p.root, "demo");
   const j = parse(r.stdout);
   assert("parked-no-ruling: has finding", j && j.findings.length > 0, r.stdout);
@@ -172,7 +172,7 @@ function validLedger(h) {
 {
   const p = makeRepo();
   let led = validLedger(p.hashes).replace("## Round 2 — 2026-01-02", "## Round 3 — 2026-01-02");
-  writeLedger(p.root, ".skillgrid/specs/demo/review-ledger.md", led);
+  writeLedger(p.root, ".skillgrid/change-specs/demo/review-ledger.md", led);
   const r = run(p.root, "demo");
   const j = parse(r.stdout);
   assert("gap-rounds: has finding", j && j.findings.some((f) => /round/i.test(f.rule || "")), JSON.stringify(j?.findings));
@@ -184,8 +184,8 @@ function validLedger(h) {
   const p = makeRepo();
   // A valid primary ledger for the active change + an archived change with a
   // parked finding (validLedger's R1-F002 is parked).
-  writeLedger(p.root, ".skillgrid/specs/demo/review-ledger.md", validLedger(p.hashes));
-  writeLedger(p.root, ".skillgrid/xarchive/2026-01-01-old/review-ledger.md", validLedger(p.hashes));
+  writeLedger(p.root, ".skillgrid/change-specs/demo/review-ledger.md", validLedger(p.hashes));
+  writeLedger(p.root, ".skillgrid/change-archive/2026-01-01-old/review-ledger.md", validLedger(p.hashes));
   const r = run(p.root, "demo");
   const j = parse(r.stdout);
   assert("debt: surfaces parked from xarchive", j && j.debt && j.debt.length > 0, JSON.stringify(j?.debt));
@@ -204,7 +204,7 @@ function validLedger(h) {
 // 8. Determinism: run twice identical
 {
   const p = makeRepo();
-  writeLedger(p.root, ".skillgrid/specs/demo/review-ledger.md", validLedger(p.hashes));
+  writeLedger(p.root, ".skillgrid/change-specs/demo/review-ledger.md", validLedger(p.hashes));
   const a = run(p.root, "demo").stdout;
   const b = run(p.root, "demo").stdout;
   assert("determinism: identical", a === b && a.length > 0);

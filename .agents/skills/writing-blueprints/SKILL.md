@@ -19,15 +19,15 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Announce at start:** "I'm using the skillgrid:writing-blueprints skill to create the implementation plan."
 
-**Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for blueprint location. If the file doesn't exist, use the default `.skillgrid/specs/`. Use the terms vocabulary from `conventions.artifacts` (default `.skillgrid/knowledge/glossary/01-business-terms.md` + `02-technical-terms.md`) for names and concepts. Constrain the blueprint by the in-force decisions: read the change's ADR Review Manifest at `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md` (produced by brainstorming; in-force set from the `## LOCKED` ADR index in `.skillgrid/knowledge/ASSUMPTIONS.md`) and respect every in-force ADR it names — a blueprint that contradicts an in-force ADR must either follow it or record a new superseding ADR file.
+**Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for blueprint location. If the file doesn't exist, use the default `.skillgrid/change-specs/`. Use the terms vocabulary from `conventions.artifacts` (default `.skillgrid/knowledge/glossary/01-business-terms.md` + `02-technical-terms.md`) for names and concepts. Constrain the blueprint by the in-force decisions: read the change's ADR Review Manifest at `.skillgrid/change-specs/YYYY-MM-DD-<topic>/adr.md` (produced by brainstorming; in-force set from the `## LOCKED` ADR index in `.skillgrid/knowledge/ASSUMPTIONS.md`) and respect every in-force ADR it names — a blueprint that contradicts an in-force ADR must either follow it or record a new superseding ADR file.
 
 **The blueprint is pure-technical.** It is the *how*: architecture, file layout, tasks, tests, constraints. The product *why* — user value, personas, success metrics — lives in the spec (`briefing.md`) and in `.skillgrid/knowledge/reference/00-prd.md`; the blueprint **cites** those (a `Spec:` line, a `per .skillgrid/knowledge/reference/00-prd.md` or `per .skillgrid/knowledge/decisions/04-adr-NNNN-slug.md` constraint) and does not restate them (per `_shared/craft/cite-dont-restate.md`). Operational rules are cited as `per AGENTS.md § Rules`.
 
-**Read the topic's findings before writing.** If `.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md` exists, read it in full before drafting the blueprint. It is the single consolidated evidence file for the topic — research findings (cited), prototype verdicts + liftable modules, and the sketch's chosen winner + constraints all live there as typed sections. Every design decision in the blueprint that rests on a research fact, a feasibility result, or a chosen layout must cite it (the header's **Findings** line carries the path). If the file is absent, the change ran no research/prototype/sketch — proceed and omit that header line.
+**Read the topic's findings before writing.** If `.skillgrid/change-specs/YYYY-MM-DD-<topic>/findings.md` exists, read it in full before drafting the blueprint. It is the single consolidated evidence file for the topic — research findings (cited), prototype verdicts + liftable modules, and the sketch's chosen winner + constraints all live there as typed sections. Every design decision in the blueprint that rests on a research fact, a feasibility result, or a chosen layout must cite it (the header's **Findings** line carries the path). If the file is absent, the change ran no research/prototype/sketch — proceed and omit that header line.
 
 **Context:** If working in an isolated worktree, it should have been created via the `skillgrid:isolated-workspace` skill at execution time.
 
-**Save plans to:** `.skillgrid/specs/YYYY-MM-DD-<feature-name>/blueprint.md`
+**Save plans to:** `.skillgrid/change-specs/YYYY-MM-DD-<feature-name>/blueprint.md`
 
 **Blueprint validation (after writing, before proceeding) — the critic stage is
 tier-gated; the user-decide loop is always mandatory:**
@@ -90,13 +90,13 @@ If the spec covers multiple independent subsystems, it should have been broken i
 
 ### Per-phase change folders
 
-When a blueprint is large enough to warrant phase separation (typically 4+ phases or 20+ tasks), split it into **one change folder per phase** as siblings under `.skillgrid/specs/`, plus a parent folder holding the shared blueprint index and shared context:
+When a blueprint is large enough to warrant phase separation (typically 4+ phases or 20+ tasks), split it into **one change folder per phase** as siblings under `.skillgrid/change-specs/`, plus a parent folder holding the shared blueprint index and shared context:
 
 - **Parent folder** (`YYYY-MM-DD-<topic>/`) — not a change. Holds `blueprint.md` (status, tier, goal, architecture, tech stack, spec ref, and a phases table linking to each phase) and `shared/context.md` (hypothesis, terms, must-haves, global constraints, file structure shared across all phases).
 - **Phase folders** (`YYYY-MM-DD-<topic>-phase-<N>/`) — each a normal change folder. `briefing.md` holds the phase goal. Later artifacts (`blueprint.md`, `tasks.md`, `review.md`) follow `_shared/rules/sdd-structure.md`.
 - **Naming:** `<parent-change-name>-phase-<N>` (e.g. `2026-10-01-kubedash-5.0-phase-1`).
 - **Back-links:** each phase `briefing.md` links to `../<parent>/blueprint.md` and `../<parent>/shared/context.md`. The parent's phases table links to `../<parent>-phase-N/`.
-- **Do not nest** phase folders inside the parent — they must be siblings at the `.skillgrid/specs/` level.
+- **Do not nest** phase folders inside the parent — they must be siblings at the `.skillgrid/change-specs/` level.
 - Each phase is sliced, executed, and shipped independently.
 
 For smaller changes, use the standard single-folder layout. See the [Multi-phase changes](../../../docs/user-guide/01-layout.md#multi-phase-changes) section in the Layout reference.
@@ -344,7 +344,7 @@ or `skillgrid:reflect`'s report.
      `**Status: PROPOSED**` (the build is still in flight) or
      `**Status: ACCEPTED**` (built and verified). Delete nothing else.
    - **The assumption was wrong.** Write a corrected blueprint (a new
-     `.skillgrid/specs/YYYY-MM-DD-<topic>/blueprint.md` for the same topic),
+     `.skillgrid/change-specs/YYYY-MM-DD-<topic>/blueprint.md` for the same topic),
      mark the old one `**Status: SUPERSEDED by <new blueprint path>**`, and
      tell the user the build rests on a wrong assumption and should be redone
      against the corrected blueprint.
@@ -369,7 +369,7 @@ After the plan review gate passes, check if slicing is needed:
 
 Then offer execution choice:
 
-**"Blueprint written and committed to `.skillgrid/specs/YYYY-MM-DD-<feature-name>/blueprint.md`. Two execution options:**
+**"Blueprint written and committed to `.skillgrid/change-specs/YYYY-MM-DD-<feature-name>/blueprint.md`. Two execution options:**
 
 **1. Subagent-Driven (recommended)** - I dispatch a fresh subagent per task (or per ticket, if sliced), review between tasks, fast iteration
 
@@ -424,7 +424,7 @@ Per `_shared/craft/measurement.md`.
 
 ## Verification
 
-- [ ] The blueprint file exists at `.skillgrid/specs/YYYY-MM-DD-<feature-name>/blueprint.md` and opens with the Plan Document Header (Status, Goal, Architecture, Tech Stack, Spec).
+- [ ] The blueprint file exists at `.skillgrid/change-specs/YYYY-MM-DD-<feature-name>/blueprint.md` and opens with the Plan Document Header (Status, Goal, Architecture, Tech Stack, Spec).
 - [ ] The Owed-Decision Gate (input coverage check) ran: every value the build must produce has a named source, or the blueprint carries a filled `ASSUMED` block (no empty cells).
 - [ ] The Must-Haves (Goal-Backward Verification) section is present and covers every spec requirement with verifiable truths, artifacts, and key links.
 - [ ] A placeholder scan (the No Placeholders patterns) returns zero hits across all tasks.

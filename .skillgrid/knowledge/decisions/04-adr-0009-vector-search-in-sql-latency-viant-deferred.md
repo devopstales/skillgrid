@@ -19,7 +19,7 @@ in-memory brute-force benchmark) as the latency expectation at the migration
 threshold.
 
 Before committing to the revisit path, a comparison prototype
-(`.skillgrid/specs/2026-09-24-mnemonic-vector-db/prototypes/001-cgo-free-vector-db/`)
+(`.skillgrid/change-specs/2026-09-24-mnemonic-vector-db/prototypes/001-cgo-free-vector-db/`)
 tested the two cgo-free non-memory candidates head-to-head at 768-dim /
 100K vectors: **G** (`modernc.org/sqlite/vec`) and **viant**
 (`viant/sqlite-vec`, the only cgo-free non-memory option with a real ANN

@@ -72,7 +72,7 @@ Mermaid diagrams and KaTeX formulas render inline.
 
 ### Plans
 
-The SDD/plans ledger (`.skillgrid/specs/` + `.skillgrid/sdd/`): one card per
+The SDD/plans ledger (`.skillgrid/change-specs/` + `.skillgrid/meta/.sdd/`): one card per
 change with status + task-progress bar, a dependency pipeline, a detail view
 (SDD ledger steps, file inventory), and a spec viewer (renders `briefing.md` /
 `tasks.md` / `findings.md`). Read-only — it reflects what the SDD skills wrote.
@@ -109,7 +109,7 @@ writes). Returns `503` when the served directory is not a git worktree.
 ### Prototypes
 
 The repo's feasibility prototypes — the `NNN-name/` directories under
-`.skillgrid/prototypes/` written by the `prototype` skill. Each card shows the
+`.skillgrid/meta/.prototype/` written by the `prototype` skill. Each card shows the
 name, date, type, hypothesis, and file list parsed from the directory's
 `prototype.md`; WIP directories without a `prototype.md` are still listed.
 Read-only (`GET /prototypes`).

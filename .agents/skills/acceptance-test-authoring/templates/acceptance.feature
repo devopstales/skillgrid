@@ -1,6 +1,6 @@
 # <capability — one H1, becomes Feature:>
 #
-# Source: .skillgrid/specs/<YYYY-MM-DD-topic>/
+# Source: .skillgrid/change-specs/<YYYY-MM-DD-topic>/
 # Trace: change briefing ## Definition of Done; blueprint tasks SATISFIES lines.
 #
 # Format rules:

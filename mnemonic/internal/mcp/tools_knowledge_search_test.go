@@ -19,7 +19,7 @@ const (
 
 	reportFixture = `# Report — CLM
 
-> **Change:** .skillgrid/specs/2026-10-06-clm/
+> **Change:** .skillgrid/change-specs/2026-10-06-clm/
 > **Generated:** 2026-10-09T10:47:30Z (qa)
 > **Gate:** PASS
 
@@ -49,7 +49,7 @@ const (
 ` + knowledgePhrase
 )
 
-// knowledgeSearchFixture indexes a project whose .skillgrid/specs/<change>/ holds
+// knowledgeSearchFixture indexes a project whose .skillgrid/change-specs/<change>/ holds
 // one of each knowledge doc (plus a report.md in archive) and pins the project
 // so the temp-dir fixture resolves to one stable bucket.
 func knowledgeSearchFixture(t *testing.T) (dataDir, root string) {

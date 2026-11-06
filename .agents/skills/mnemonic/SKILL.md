@@ -53,7 +53,7 @@ If `mnemonic.enabled: false`, stop — memory, code index, and web cache are all
 
 **Fallback**: if tools are unexpectedly unavailable, run `skillgrid setup` again and restart the agent. Setup repairs the durable MCP config and permissions allowlist.
 
-**Degradation contract** (per `../_shared/knowledge/hybrid-degradation.md`): if Mnemonic is unavailable mid-session (MCP disconnected, binary missing), do NOT fail silently. Continue with filesystem-only persistence and emit a degradation line in your return envelope: `Degraded: mnemonic — {reason}`. Do not retry more than once per session. The filesystem copy in `.skillgrid/specs/` is the recovery source of truth.
+**Degradation contract** (per `../_shared/knowledge/hybrid-degradation.md`): if Mnemonic is unavailable mid-session (MCP disconnected, binary missing), do NOT fail silently. Continue with filesystem-only persistence and emit a degradation line in your return envelope: `Degraded: mnemonic — {reason}`. Do not retry more than once per session. The filesystem copy in `.skillgrid/change-specs/` is the recovery source of truth.
 
 ## Usage
 
@@ -84,7 +84,7 @@ ls "${SKILLGRID_MNEMONIC_DATA_DIR:-$HOME/.skillgrid/mnemonic}" 2>/dev/null || ec
 
 Facts (verified against `skillgrid-cli/`):
 - Data dir: `~/.skillgrid/mnemonic`, override `SKILLGRID_MNEMONIC_DATA_DIR`. Per-project store `<project>.sqlite`.
-- Daemons: `skillgrid serve` → HTTP API `http://127.0.0.1:7438` (viewer `/`, Swagger `/swagger-ui`); `skillgrid mcp` → stdio server `skillgrid-mnemonic` with `mem_*`, `code_*`, `web_*`, `team_*` tools. SDD execution does not dispatch through `team_*` (ADR-0020). The Execution Ledger in `.skillgrid/sdd/` is the record; `execution-progress` is the index.
+- Daemons: `skillgrid serve` → HTTP API `http://127.0.0.1:7438` (viewer `/`, Swagger `/swagger-ui`); `skillgrid mcp` → stdio server `skillgrid-mnemonic` with `mem_*`, `code_*`, `web_*`, `team_*` tools. SDD execution does not dispatch through `team_*` (ADR-0020). The Execution Ledger in `.skillgrid/meta/.sdd/` is the record; `execution-progress` is the index.
 - Config: `skillgrid-cli/config.d/indexing.yaml` (include go/ts/tsx/md; chunk 80 lines / overlap 10; web-cache cap 256 KB; TTLs context7 720h, exa 168h, deepwiki 336h, fetch 168h).
 - If the binary is missing, say so and stop — do not invent memory contents.
 

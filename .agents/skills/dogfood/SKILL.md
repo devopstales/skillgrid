@@ -31,7 +31,7 @@ Browser tool names are mapped to skillgrid browser tools (table below); output d
 ## Prerequisites
 
 - Browser tooling available (agent-browser `agent-browser_*` or Playwright `playwright-browser_*`). Confirm before Phase 1 — the whole skill is browser-driven.
-- From the user: **target URL**, **scope** (areas/flows, or "full site"), optional **output dir** (default `.skillgrid/sdd/dogfood-output/`, gitignored).
+- From the user: **target URL**, **scope** (areas/flows, or "full site"), optional **output dir** (default `.skillgrid/meta/.sdd/dogfood-output/`, gitignored).
 
 ## Tool mapping
 

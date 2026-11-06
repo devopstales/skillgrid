@@ -11,8 +11,8 @@ labels:
 milestone: 2026-10-03-local-ollama-models
 dependencies: []
 references:
-  - .skillgrid/specs/2026-10-03-local-ollama-models/tasks.md
-  - .skillgrid/specs/2026-10-03-local-ollama-models/blueprint.md
+  - .skillgrid/change-specs/2026-10-03-local-ollama-models/tasks.md
+  - .skillgrid/change-specs/2026-10-03-local-ollama-models/blueprint.md
 priority: high
 type: feature
 ---

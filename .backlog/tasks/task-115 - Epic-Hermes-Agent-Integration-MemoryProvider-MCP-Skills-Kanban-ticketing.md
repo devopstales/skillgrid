@@ -10,10 +10,10 @@ updated_date: '2026-10-25 08:53'
 labels: []
 dependencies: []
 references:
-  - .skillgrid/specs/2026-10-24-hermes-integration/briefing.md
-  - .skillgrid/specs/2026-10-24-hermes-integration/blueprint.md
-  - .skillgrid/specs/2026-10-24-hermes-integration/tasks.md
-  - .skillgrid/specs/2026-10-24-hermes-integration/acceptance.feature
+  - .skillgrid/change-specs/2026-10-24-hermes-integration/briefing.md
+  - .skillgrid/change-specs/2026-10-24-hermes-integration/blueprint.md
+  - .skillgrid/change-specs/2026-10-24-hermes-integration/tasks.md
+  - .skillgrid/change-specs/2026-10-24-hermes-integration/acceptance.feature
 priority: high
 type: feature
 ---

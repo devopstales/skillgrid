@@ -10,11 +10,11 @@ milestone: 2026-10-05-mnemonic-scan-findings
 dependencies:
   - TASK-054
 references:
-  - .skillgrid/specs/2026-10-05-mnemonic-scan-findings/briefing.md
-  - .skillgrid/specs/2026-10-05-mnemonic-scan-findings/blueprint.md
-  - .skillgrid/specs/2026-10-05-mnemonic-scan-findings/tasks.md
+  - .skillgrid/change-specs/2026-10-05-mnemonic-scan-findings/briefing.md
+  - .skillgrid/change-specs/2026-10-05-mnemonic-scan-findings/blueprint.md
+  - .skillgrid/change-specs/2026-10-05-mnemonic-scan-findings/tasks.md
 documentation:
-  - .skillgrid/specs/2026-10-05-mnemonic-scan-findings/briefing.md
+  - .skillgrid/change-specs/2026-10-05-mnemonic-scan-findings/briefing.md
   - .skillgrid/artifacts/04-adr-0030-scan-findings-structured-store.md
 modified_files:
   - mnemonic/internal/dep/service.go

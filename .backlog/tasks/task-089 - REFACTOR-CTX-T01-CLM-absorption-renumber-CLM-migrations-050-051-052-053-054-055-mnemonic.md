@@ -13,12 +13,12 @@ labels:
 milestone: m-10
 dependencies: []
 references:
-  - .skillgrid/specs/2026-10-08-context-orchestrator/briefing.md
-  - .skillgrid/specs/2026-10-08-context-orchestrator/tasks.md
-  - .skillgrid/specs/2026-10-08-context-orchestrator/acceptance.feature
+  - .skillgrid/change-specs/2026-10-08-context-orchestrator/briefing.md
+  - .skillgrid/change-specs/2026-10-08-context-orchestrator/tasks.md
+  - .skillgrid/change-specs/2026-10-08-context-orchestrator/acceptance.feature
 documentation:
-  - .skillgrid/specs/2026-10-08-context-orchestrator/briefing.md
-  - .skillgrid/specs/2026-10-08-context-orchestrator/tasks.md
+  - .skillgrid/change-specs/2026-10-08-context-orchestrator/briefing.md
+  - .skillgrid/change-specs/2026-10-08-context-orchestrator/tasks.md
 priority: high
 type: refactor
 ---

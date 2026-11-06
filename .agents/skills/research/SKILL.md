@@ -43,7 +43,7 @@ move), use `skillgrid:deep-research`.
 ## Config
 
 Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root`
-(default `.skillgrid/specs`) for the findings location. If the `mnemonic` block
+(default `.skillgrid/change-specs`) for the findings location. If the `mnemonic` block
 is enabled, check `web_cache_lookup` for the query before fetching and
 `web_cache_save` after, so repeated research is deduplicated.
 

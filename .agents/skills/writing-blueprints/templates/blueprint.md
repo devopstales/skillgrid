@@ -1,6 +1,6 @@
 # [Feature Name] Implementation Blueprint (steps, files, verification)
 
-> Copy this template to `.skillgrid/specs/YYYY-MM-DD-<feature-name>/blueprint.md`.
+> Copy this template to `.skillgrid/change-specs/YYYY-MM-DD-<feature-name>/blueprint.md`.
 > **Role:** this is the *how* — the implementation plan: concrete steps,
 > files to touch, code, tests, and verification. The companion `briefing.md`
 > is the *what* (requirements & intent). The filename pair is load-bearing:
@@ -25,7 +25,7 @@
 
 **Tech Stack:** [Key technologies/libraries]
 
-**Spec:** [path to the spec this plan implements — the plan argues from the spec, so it travels with it; e.g., `../briefing.md` or `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md`. The product *why* (user value, personas, success) lives in the spec + `.skillgrid/knowledge/reference/00-prd.md`; decisions are `decisions/04-adr-NNNN-slug.md`. This blueprint is pure-technical and cites them rather than restating.]
+**Spec:** [path to the spec this plan implements — the plan argues from the spec, so it travels with it; e.g., `../briefing.md` or `.skillgrid/change-specs/YYYY-MM-DD-<topic>/briefing.md`. The product *why* (user value, personas, success) lives in the spec + `.skillgrid/knowledge/reference/00-prd.md`; decisions are `decisions/04-adr-NNNN-slug.md`. This blueprint is pure-technical and cites them rather than restating.]
 
 ## Terms
 

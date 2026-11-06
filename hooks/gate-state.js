@@ -19,7 +19,7 @@
 //   1. an acceptance.feature touched in the current diff (git diff HEAD)
 //   2. the most-recently-modified acceptance.feature under <specs_root>
 // (checkpoint.json was a superseded session-events artifact; it is no longer read.)
-// specs_root defaults to .skillgrid/specs (overridable via config bdd.specs_dir).
+// specs_root defaults to .skillgrid/change-specs (overridable via config bdd.specs_dir).
 //
 // Output (stdout), one line per gate / requirement, plus a summary:
 //   G1=met   G2=unmet   G3=abandoned   G4=manual   REQ=<req>=missing
@@ -89,7 +89,7 @@ function configSpecsDir() {
 }
 
 if (!SPECS_ROOT) {
-  SPECS_ROOT = configSpecsDir() || '.skillgrid/specs';
+  SPECS_ROOT = configSpecsDir() || '.skillgrid/change-specs';
 }
 
 // ---- spec discovery ----------------------------------------------------------

@@ -67,7 +67,7 @@ const REVIEW_FLOOR_MET = /^(met|met-with-fixes)\b/i;
  * Derive the phase for one change dir.
  * @param {object} opts
  * @param {string} opts.changeDir   abs path to the change dir (specs/<slug> or xarchive/<slug>)
- * @param {string} [opts.sddDir]    abs path to .skillgrid/sdd (for the execution signal)
+ * @param {string} [opts.sddDir]    abs path to .skillgrid/meta/.sdd (for the execution signal)
  * @param {boolean} [opts.archived] true when the dir is under xarchive/
  * @returns {{phase: string, marker: string}} phase ∈
  *   spec|blueprint|slicing|execution|qa|review|reflect|complete|unknown

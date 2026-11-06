@@ -49,7 +49,7 @@ brainstorming → writing-blueprints → slicing → ticketing
 ## The zone rule
 
 Spec-zone changes commit **before** code-zone changes (BDD is always on).
-Spec zone: `.skillgrid/specs/**` and `.skillgrid/xarchive/**` (the archive
+Spec zone: `.skillgrid/change-specs/**` and `.skillgrid/change-archive/**` (the archive
 is the terminal state of spec artifacts). The `pre-commit` zone guard
 fails a commit that stages both in one shot; recovery is always the two
 commits (spec first, code second).

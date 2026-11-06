@@ -15,7 +15,7 @@ Break a blueprint into vertical tracer-bullet tickets that each fit a single fre
 
 **Announce at start:** "I'm using the skillgrid:slicing skill to break the blueprint into executable tickets."
 
-**Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for tasks.md location. If the file doesn't exist, use the default `.skillgrid/specs/`. Ticket titles and scope use the terms vocabulary from `conventions.artifacts` (default `.skillgrid/knowledge/glossary/01-business-terms.md` + `02-technical-terms.md`). A ticket that contradicts an in-force ADR — per the change's ADR Review Manifest at `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md` (in-force set from the `## LOCKED` ADR index in `.skillgrid/knowledge/ASSUMPTIONS.md`) — must call it out, not silently override it.
+**Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for tasks.md location. If the file doesn't exist, use the default `.skillgrid/change-specs/`. Ticket titles and scope use the terms vocabulary from `conventions.artifacts` (default `.skillgrid/knowledge/glossary/01-business-terms.md` + `02-technical-terms.md`). A ticket that contradicts an in-force ADR — per the change's ADR Review Manifest at `.skillgrid/change-specs/YYYY-MM-DD-<topic>/adr.md` (in-force set from the `## LOCKED` ADR index in `.skillgrid/knowledge/ASSUMPTIONS.md`) — must call it out, not silently override it.
 
 ## When to Use
 
@@ -102,7 +102,7 @@ For each ticket, determine:
 
 **Dependency = implemented, not sliced.** Ticket B is blocked by ticket A until A is done, not until A is written down. This matters for execution: the dependency graph drives wave ordering.
 
-**Acceptance-first (BDD is always on):** every ticket carries a `SATISFIES: <scenario-name>` pointing at its acceptance scenario in `.skillgrid/specs/<id>/acceptance.feature`. The scenario's RED state is confirmed before the implementation that turns it green. Order scenario/RED tickets ahead of their implementation tickets in the graph.
+**Acceptance-first (BDD is always on):** every ticket carries a `SATISFIES: <scenario-name>` pointing at its acceptance scenario in `.skillgrid/change-specs/<id>/acceptance.feature`. The scenario's RED state is confirmed before the implementation that turns it green. Order scenario/RED tickets ahead of their implementation tickets in the graph.
 
 ### Step 3.5: Forecast Review Workload
 
@@ -154,7 +154,7 @@ Independent tickets within a wave run in parallel worktrees. A ticket in a later
       not earn (an operational rule or a prior ADR), CITE the source rather than
       restate it (`per AGENTS.md § Rules <x>` / `per .skillgrid/knowledge/decisions/04-adr-NNNN-slug.md`) per
       `_shared/craft/cite-dont-restate.md`.
- 4. Save to `.skillgrid/specs/YYYY-MM-DD-<topic>/tasks.md`
+ 4. Save to `.skillgrid/change-specs/YYYY-MM-DD-<topic>/tasks.md`
 
 ### Ticket Execution Contract (optional fields)
 
@@ -191,7 +191,7 @@ Always invoke `skillgrid:ticketing` after slicing writes `tasks.md`. Slicing nev
 
 Then present the execution choice:
 
-**"Tasks sliced and committed to `.skillgrid/specs/YYYY-MM-DD-<topic>/tasks.md`. N tickets in M waves. [Tickets published to <tracker> as epic <ID>.] Two execution options:**
+**"Tasks sliced and committed to `.skillgrid/change-specs/YYYY-MM-DD-<topic>/tasks.md`. N tickets in M waves. [Tickets published to <tracker> as epic <ID>.] Two execution options:**
 
 **1. Subagent-Driven (recommended)** — I dispatch a fresh subagent per ticket, review between tickets, parallel worktrees within each wave
 
@@ -240,7 +240,7 @@ Per `_shared/craft/measurement.md`.
 
 ## Verification
 
-- [ ] `tasks.md` was produced at `.skillgrid/specs/YYYY-MM-DD-<topic>/tasks.md` with vertical tracer-bullet tickets (title, scope, acceptance, `SATISFIES`, files, blocks/blocked-by)
+- [ ] `tasks.md` was produced at `.skillgrid/change-specs/YYYY-MM-DD-<topic>/tasks.md` with vertical tracer-bullet tickets (title, scope, acceptance, `SATISFIES`, files, blocks/blocked-by)
 - [ ] Every ticket is dependency-ordered — no ticket appears in a wave before its blockers, and each "blocked by" edge is a real implementation dependency
 - [ ] Every ticket is sized for one fresh agent context (implement + test + commit without re-reading the blueprint)
 - [ ] The Fast-Track classification was applied — a `trivial`/`small` waiver record exists in `briefing.md`, or a full `tasks.md` with waves and acceptance criteria was produced

@@ -49,7 +49,7 @@
  * concepts (ADR-0048, TICKET-14).
  *
  * Telemetry (repocodex metrics.jsonl pattern): after the checks, append ONE
- * JSONL event to `.skillgrid/okf-metrics.jsonl` (override with the
+ * JSONL event to `.skillgrid/meta/okf-metrics.jsonl` (override with the
  * OKF_METRICS_SINK env var; parent dir auto-created):
  *   {"event":"lint","at":<iso-utc>,"drift":<n>,"findings":[...],
  *    "false_drift_rate":<0.0-1.0>}
@@ -59,7 +59,7 @@
  *
  * ADR: ASSUMPTIONS.md § LOCKED — ADR-0010 (scope discriminator), ADR-0008
  * (Node + yaml package, read-only verifier); OKF profile per
- * .skillgrid/specs/2026-10-06-second-brain-learnings/okf-wiki-plan.md.
+ * .skillgrid/change-specs/2026-10-06-second-brain-learnings/okf-wiki-plan.md.
  */
 
 import {

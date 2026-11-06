@@ -205,7 +205,7 @@ When the clarity gate passes, you are asked to **approve**. Say yes.
 `writing-blueprints` turns the approved design into a **falsifiable plan** at:
 
 ```text
-.skillgrid/specs/YYYY-MM-DD-health-endpoint/blueprint.md
+.skillgrid/change-specs/YYYY-MM-DD-health-endpoint/blueprint.md
 ```
 
 Open it. The part that matters is the **Must-Haves** section — observable
@@ -222,7 +222,7 @@ agent from silently inventing the load-bearing choice and burying it in code.
 The blueprint is committed to git as a checkpoint alongside the code.
 
 > [!NOTE]
-> This tutorial uses a single-folder change. Multi-phase blueprints (4+ phases or 20+ tasks) split into **one change folder per phase** as siblings under `.skillgrid/specs/`, plus a parent index folder — see [Multi-phase changes](../user-guide/01-layout.md#multi-phase-changes).
+> This tutorial uses a single-folder change. Multi-phase blueprints (4+ phases or 20+ tasks) split into **one change folder per phase** as siblings under `.skillgrid/change-specs/`, plus a parent index folder — see [Multi-phase changes](../user-guide/01-layout.md#multi-phase-changes).
 
 ---
 
@@ -232,7 +232,7 @@ The blueprint is committed to git as a checkpoint alongside the code.
 dependency edges and execution waves, written to:
 
 ```text
-.skillgrid/specs/YYYY-MM-DD-health-endpoint/tasks.md
+.skillgrid/change-specs/YYYY-MM-DD-health-endpoint/tasks.md
 ```
 
 Open it. Each ticket has a scope, acceptance criteria, a **`SATISFIES`**
@@ -272,7 +272,7 @@ a **fresh context window**, one at a time per wave. For each ticket it:
 2. Implements until the test passes.
 3. Commits with the canonical **`[skillgrid-context]`** block via
    `work-unit-commits` — that block is the **durable resume handle**,
-   regenerated into `.skillgrid/sdd/checkpoint.json` from `git log -1`.
+   regenerated into `.skillgrid/meta/.sdd/checkpoint.json` from `git log -1`.
 
 Watch the test go red, then green. That red→green is the evidence the change is
 real, not a claim.
@@ -293,7 +293,7 @@ fresh, audits verification gaps / traceability / TDD evidence, and renders:
 ## Gate Decision: PASS | CONCERNS | FAIL | WAIVED
 ```
 
-Open `.skillgrid/specs/YYYY-MM-DD-health-endpoint/qa-report.md`. If the verdict
+Open `.skillgrid/change-specs/YYYY-MM-DD-health-endpoint/qa-report.md`. If the verdict
 is CONCERNS or FAIL, the findings become new slices and you loop back to
 **execute** — that is the `apply ⇄ qa` loop, and it is intentional.
 
@@ -335,8 +335,8 @@ Move on.
 2. **Mechanically move** the change folder:
 
 ```text
-.skillgrid/specs/YYYY-MM-DD-health-endpoint/
-  → .skillgrid/xarchive/YYYY-MM-DD-health-endpoint/
+.skillgrid/change-specs/YYYY-MM-DD-health-endpoint/
+  → .skillgrid/change-archive/YYYY-MM-DD-health-endpoint/
 ```
 
 with a `git mv` + `diff -r` readback. A folder in `archive/` is **closed** —
@@ -358,7 +358,7 @@ never resumed. `specs/` holds only *active* changes.
 Then it persists the learnings to **Mnemonic** and closes the session with
 `mem_session_summary` + `mem_session_end`.
 
-Open `.skillgrid/xarchive/YYYY-MM-DD-health-endpoint/report.md`. This is the
+Open `.skillgrid/change-archive/YYYY-MM-DD-health-endpoint/report.md`. This is the
 record a future reader consults to learn what shipped and when.
 
 > [!TIP]
@@ -375,10 +375,10 @@ branches. When the current change ships and its folder moves to `archive/`,
 start the next one with a fresh dated folder:
 
 ```text
-.skillgrid/specs/YYYY-MM-DD-<next-topic>/
+.skillgrid/change-specs/YYYY-MM-DD-<next-topic>/
 ```
 
-Lost track of where you are? Open `.skillgrid/state.yaml` (`current_change`,
+Lost track of where you are? Open `.skillgrid/meta/state.yaml` (`current_change`,
 `current_phase`, `status`), or say **resume** — the agent re-orients from
 `checkpoint.json` and the spec-zone artifacts.
 
@@ -391,7 +391,7 @@ Lost track of where you are? Open `.skillgrid/state.yaml` (`current_change`,
 | **Skill** | A verb the agent runs on your codebase, under `.agents/skills/`. |
 | **The router** | `using-skillgrid` — checks config/resume/domain-model, then routes. |
 | **The loop** | Interview → Blueprint → Slice → Execute → Review → QA → Ship → Reflect. |
-| **Change folder** | `.skillgrid/specs/YYYY-MM-DD-<topic>/` — one change's artifacts. |
+| **Change folder** | `.skillgrid/change-specs/YYYY-MM-DD-<topic>/` — one change's artifacts. |
 | **Must-Haves** | Goal-backward observable outcomes the plan must satisfy. |
 | **Owed-Decision Gate** | Mechanically catches an unmade decision; resolves it or records `ASSUMED`. |
 | **Tracer-bullet ticket** | A vertical slice that fits one fresh context window. |
@@ -415,7 +415,7 @@ Lost track of where you are? Open `.skillgrid/state.yaml` (`current_change`,
 | Commit blocked | `pre-commit` zone guard | Spec-zone and code-zone must not mix in one commit. |
 | Commit blocked | `commit-msg` guard | Use conventional commits; no `Co-Authored-By` trailers. |
 | Agent ends turn but gate red | `gate-stop` Stop hook | Fix the red `G<n>` gate; the hook blocks the stop until green. |
-| "Lost track of where I am" | — | Open `.skillgrid/state.yaml` or the latest change folder. |
+| "Lost track of where I am" | — | Open `.skillgrid/meta/state.yaml` or the latest change folder. |
 | Wrong skills dir | Alternate agent config path | Confirm your host loads from `~/.agents/skills/`. |
 
 ---

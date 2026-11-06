@@ -10,7 +10,7 @@ import (
 const (
 	reportHead = `# Report — Context Harness CLM (PR 3)
 
-> **Change:** .skillgrid/specs/2026-10-06-context-harness-clm/
+> **Change:** .skillgrid/change-specs/2026-10-06-context-harness-clm/
 > **Generated:** 2026-10-09T10:47:30Z (qa)
 > **Gate:** PASS
 
@@ -60,7 +60,7 @@ func TestQuoteBlockMetaReport(t *testing.T) {
 	}
 	// The change value is the spec path; the trailing " (qa)" source tag on
 	// Generated is stripped, the path tail is kept.
-	if want := ".skillgrid/specs/2026-10-06-context-harness-clm/"; m["change"] != want {
+	if want := ".skillgrid/change-specs/2026-10-06-context-harness-clm/"; m["change"] != want {
 		t.Errorf("change = %q, want %q", m["change"], want)
 	}
 	if _, ok := m["type"]; ok {
@@ -120,10 +120,10 @@ func TestKnowledgeSearchFiltersByType(t *testing.T) {
 	// which single doc each *_Search returns.
 	phrase := "The CLM mirror fidelity layer is the source of truth for the diff."
 	files := map[string]string{
-		".skillgrid/archive/2026-10-06-ctx/report.md":          phrase + " The gate is PASS.",
-		".skillgrid/specs/2026-10-09-skillpi/briefing.md":      phrase + " This is the briefing.",
-		".skillgrid/specs/2026-10-09-skillpi/blueprint.md":     phrase + " This is the blueprint.",
-		".skillgrid/specs/2026-10-09-skillpi/findings.md":      phrase + " These are the findings.",
+		".skillgrid/change-archive/2026-10-06-ctx/report.md":      phrase + " The gate is PASS.",
+		".skillgrid/change-specs/2026-10-09-skillpi/briefing.md":  phrase + " This is the briefing.",
+		".skillgrid/change-specs/2026-10-09-skillpi/blueprint.md": phrase + " This is the blueprint.",
+		".skillgrid/change-specs/2026-10-09-skillpi/findings.md":  phrase + " These are the findings.",
 	}
 	db := newTestDB(t, files)
 
@@ -136,7 +136,7 @@ func TestKnowledgeSearchFiltersByType(t *testing.T) {
 	if len(hits) != 1 {
 		t.Fatalf("ReportSearch len = %d, want 1; got %v", len(hits), hits)
 	}
-	if hits[0].Path != ".skillgrid/archive/2026-10-06-ctx/report.md" {
+	if hits[0].Path != ".skillgrid/change-archive/2026-10-06-ctx/report.md" {
 		t.Errorf("path = %q, want the report.md", hits[0].Path)
 	}
 
@@ -144,7 +144,7 @@ func TestKnowledgeSearchFiltersByType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BriefingSearch: %v", err)
 	}
-	if len(briefings) != 1 || briefings[0].Path != ".skillgrid/specs/2026-10-09-skillpi/briefing.md" {
+	if len(briefings) != 1 || briefings[0].Path != ".skillgrid/change-specs/2026-10-09-skillpi/briefing.md" {
 		t.Errorf("BriefingSearch = %v", briefings)
 	}
 
@@ -152,7 +152,7 @@ func TestKnowledgeSearchFiltersByType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindingsSearch: %v", err)
 	}
-	if len(findings) != 1 || findings[0].Path != ".skillgrid/specs/2026-10-09-skillpi/findings.md" {
+	if len(findings) != 1 || findings[0].Path != ".skillgrid/change-specs/2026-10-09-skillpi/findings.md" {
 		t.Errorf("FindingsSearch = %v", findings)
 	}
 
@@ -162,14 +162,14 @@ func TestKnowledgeSearchFiltersByType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BlueprintSearch: %v", err)
 	}
-	if len(bps) != 1 || bps[0].Path != ".skillgrid/specs/2026-10-09-skillpi/blueprint.md" {
+	if len(bps) != 1 || bps[0].Path != ".skillgrid/change-specs/2026-10-09-skillpi/blueprint.md" {
 		t.Errorf("BlueprintSearch = %v", bps)
 	}
 }
 
 func TestKnowledgeSearchEmptyQuery(t *testing.T) {
 	db := newTestDB(t, map[string]string{
-		".skillgrid/archive/x/report.md": "some content about the mirror fidelity layer",
+		".skillgrid/change-archive/x/report.md": "some content about the mirror fidelity layer",
 	})
 	hits, err := ReportSearch(db, "  ", 10)
 	if err != nil {
@@ -182,7 +182,7 @@ func TestKnowledgeSearchEmptyQuery(t *testing.T) {
 
 func TestKnowledgeSearchNoMatch(t *testing.T) {
 	db := newTestDB(t, map[string]string{
-		".skillgrid/archive/x/report.md": "the CLM mirror fidelity layer is fail-open",
+		".skillgrid/change-archive/x/report.md": "the CLM mirror fidelity layer is fail-open",
 	})
 	hits, err := ReportSearch(db, "zebra quantum flux", 10)
 	if err != nil {

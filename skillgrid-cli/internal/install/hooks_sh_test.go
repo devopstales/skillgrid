@@ -58,6 +58,7 @@ func newHookRepo(t *testing.T, hooksDir string) (string, string) {
 	}
 	clean := []string{
 		"package main",
+		"",
 		"func main() {}",
 		"",
 	}

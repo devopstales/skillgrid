@@ -9,7 +9,7 @@
 // Change the doc first, then this implementation, then re-verify.
 //
 // Skillgrid C1 model: one complete acceptance.feature per change under
-// .skillgrid/specs/<id>/. There is no source-of-truth corpus and no delta
+// .skillgrid/change-specs/<id>/. There is no source-of-truth corpus and no delta
 // composition — every change's file is the whole executable spec for that
 // change. Discovery anchors to the literal basename acceptance.feature.
 
@@ -170,7 +170,7 @@ function collectSpecSources(specsDir, basename) {
 // dir is wiped first — a stale extraction would keep deleted or renamed
 // capabilities executing.
 function extractAll(specsDir, outDir) {
-  specsDir = specsDir ? path.resolve(specsDir) : path.resolve(process.cwd(), '.skillgrid/specs');
+  specsDir = specsDir ? path.resolve(specsDir) : path.resolve(process.cwd(), '.skillgrid/change-specs');
   outDir = outDir ? path.resolve(outDir) : path.resolve(process.cwd(), 'acceptance-tests/.extracted');
 
   fs.rmSync(outDir, { recursive: true, force: true });

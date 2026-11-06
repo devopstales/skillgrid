@@ -52,7 +52,7 @@ the layout is already obvious — a sketch is for exploring, not confirming.
 ## Config
 
 Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` (default
-`.skillgrid/specs`) as the base. Sketch artifacts live under `sketch.dir` (default
+`.skillgrid/change-specs`) as the base. Sketch artifacts live under `sketch.dir` (default
 `{specs_root}/{topic}/sketches/`); shared themes live under `sketch.dir/themes/`; the
 consolidated findings file comes from `sketch.findings` (default
 `{specs_root}/{topic}/findings.md`). If the `mnemonic` block is enabled, the findings
@@ -71,7 +71,7 @@ decision. Outside the companion flow, keep the default `sketch.dir` — see
 
 ## Ground in Real Data Shapes (if prototypes ran)
 
-If the topic has a `.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md` with prototype
+If the topic has a `.skillgrid/change-specs/YYYY-MM-DD-<topic>/findings.md` with prototype
 sections, **read it first** and ground the mockups in what the prototypes proved: real
 field names, real data shapes, real interaction states (streaming / loading / error /
 empty). A sketch that shows placeholder "lorem ipsum" data when a prototype already proved
@@ -183,7 +183,7 @@ Open the sketch for the user. Ask: **which one feels right, and why?** Then:
 ### Step 6: Write the findings
 
 Append a `## Sketch: NNN-name` section to the topic's
-`.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md` (create it with a
+`.skillgrid/change-specs/YYYY-MM-DD-<topic>/findings.md` (create it with a
 `# Findings — <topic>` header if it does not exist). The section is compact:
 
 ```markdown

@@ -140,7 +140,7 @@ function caseZone() {
 
   // spec-only commit: allow
   newRepo('zone-spec');
-  writeFile('zone-spec', '.skillgrid/specs/t1/acceptance.feature', 'Feature: t1\n');
+  writeFile('zone-spec', '.skillgrid/change-specs/t1/acceptance.feature', 'Feature: t1\n');
   git('zone-spec', 'add', '-A');
   expect('zone: spec-only commit allowed', 0, 'zone-spec', ZONE);
 
@@ -152,21 +152,21 @@ function caseZone() {
 
   // mixed spec + code: block
   newRepo('zone-mixed');
-  writeFile('zone-mixed', '.skillgrid/specs/t1/acceptance.feature', 'Feature: t1\n');
+  writeFile('zone-mixed', '.skillgrid/change-specs/t1/acceptance.feature', 'Feature: t1\n');
   writeFile('zone-mixed', 'src/a.js', 'x=1\n');
   git('zone-mixed', 'add', '-A');
   expect('zone: mixed spec+code commit blocked', 1, 'zone-mixed', ZONE);
 
   // xarchive-only commit: allow (xarchive is the terminal state of spec artifacts)
   newRepo('zone-xarchive');
-  writeFile('zone-xarchive', '.skillgrid/xarchive/t1/acceptance.feature', 'Feature: t1\n');
+  writeFile('zone-xarchive', '.skillgrid/change-archive/t1/acceptance.feature', 'Feature: t1\n');
   git('zone-xarchive', 'add', '-A');
   expect('zone: xarchive-only commit allowed', 0, 'zone-xarchive', ZONE);
 
   // xarchive + specs commit: allow (both spec-zone)
   newRepo('zone-spec-xarchive');
-  writeFile('zone-spec-xarchive', '.skillgrid/specs/t1/tasks.md', 'a\n');
-  writeFile('zone-spec-xarchive', '.skillgrid/xarchive/t1/tasks.md', 'b\n');
+  writeFile('zone-spec-xarchive', '.skillgrid/change-specs/t1/tasks.md', 'a\n');
+  writeFile('zone-spec-xarchive', '.skillgrid/change-archive/t1/tasks.md', 'b\n');
   git('zone-spec-xarchive', 'add', '-A');
   expect('zone: specs+xarchive commit allowed', 0, 'zone-spec-xarchive', ZONE);
 
@@ -252,14 +252,14 @@ function caseLint() {
 
   // a well-formed spec with a gate: lint runs, exit 0 (warnings only)
   newRepo('lint-good');
-  writeFile('lint-good', '.skillgrid/specs/t1/acceptance.feature',
+  writeFile('lint-good', '.skillgrid/change-specs/t1/acceptance.feature',
     ['# Cap: t1', '## Requirement: thing', '### Scenario: happy path', 'G1:',
      '  CHECK: echo 5', '  EXPECT: 5', ''].join('\n'));
   expect('lint: well-formed gate exits 0', 0, 'lint-good', GATE_LINT);
 
   // a malformed gate (CHECK without EXPECT): still exit 0 (advisory), but warns
   newRepo('lint-bad');
-  writeFile('lint-bad', '.skillgrid/specs/t1/acceptance.feature',
+  writeFile('lint-bad', '.skillgrid/change-specs/t1/acceptance.feature',
     ['# Cap: t1', '## Requirement: thing', '### Scenario: happy path', 'G1:',
      '  CHECK: echo 5', ''].join('\n'));
   expect('lint: malformed gate still exits 0 (advisory)', 0, 'lint-bad', GATE_LINT);

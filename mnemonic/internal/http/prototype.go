@@ -10,7 +10,7 @@ import (
 // prototypeRoot returns the .skillgrid/prototype/ directory (under sddRoot,
 // the repo root). This is the on-disk store for the companion's throwaway
 // interactive prototypes (agent-authored HTML), separate from the feasibility
-// prototypes listed by GET /prototypes (.skillgrid/prototypes/).
+// prototypes listed by GET /prototypes (.skillgrid/meta/.prototype/).
 func prototypeRoot() string { return filepath.Join(sddRoot(), ".skillgrid", "prototype") }
 
 // prototypeFile resolves a prototype id to an absolute path sandboxed to

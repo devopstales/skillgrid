@@ -7,7 +7,7 @@ created_date: '2026-09-21 07:15'
 labels: []
 dependencies: []
 references:
-  - .skillgrid/archive/2026-09-16-skillgrid-cli-prd/adr.md
+  - .skillgrid/change-archive/2026-09-16-skillgrid-cli-prd/adr.md
   - .skillgrid/adr/
   - .skillgrid/prd/0001-skillgrid-web-admin-dashboard.md
 priority: low
@@ -20,11 +20,11 @@ type: docs
 Track the SDD spec **2026-09-16-skillgrid-cli-prd**: PRD review for the Skillgrid CLI — scope (whole Hub product, not the binary), engine-first framing, the v1.0 "engine is trustworthy" line, and the 4-component decomposition + MCP-spawn trust boundary.
 
 **Current State:**
-- ADR review manifest (`.skillgrid/archive/2026-09-16-skillgrid-cli-prd/adr.md`) marked `Status: completed` (2026-09-16)
+- ADR review manifest (`.skillgrid/change-archive/2026-09-16-skillgrid-cli-prd/adr.md`) marked `Status: completed` (2026-09-16)
 - 5 durable ADRs in force under `.skillgrid/adr/` (0001 scope, 0002 engine-first, 0003 v1.0 line, 0004 decomposition, 0005 trust boundary)
 
 **Expected State:**
-- Done. Spec folder archived to `.skillgrid/archive/2026-09-16-skillgrid-cli-prd/` on 2026-09-21; the ADRs it produced stay in `.skillgrid/adr/`.
+- Done. Spec folder archived to `.skillgrid/change-archive/2026-09-16-skillgrid-cli-prd/` on 2026-09-21; the ADRs it produced stay in `.skillgrid/adr/`.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria

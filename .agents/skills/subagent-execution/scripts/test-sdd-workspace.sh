@@ -100,14 +100,14 @@ case_workspace() {
   [ "$FILTER" = "workspace" ] || [ -z "$FILTER" ] || return 0
 
   new_repo ws
-  write_plan ws .skillgrid/specs/2026-09-21-alpha/plan-a.md
-  write_plan ws .skillgrid/specs/2026-09-21-beta/plan-b.md
+  write_plan ws .skillgrid/change-specs/2026-09-21-alpha/plan-a.md
+  write_plan ws .skillgrid/change-specs/2026-09-21-beta/plan-b.md
   ( cd "$WORK/ws" && git add -A && git commit -q -m "chore: fixture plans" )
 
   local da db rc
-  da=$(cd "$WORK/ws" && bash "$WORKSPACE" .skillgrid/specs/2026-09-21-alpha/plan-a.md); rc=$?
+  da=$(cd "$WORK/ws" && bash "$WORKSPACE" .skillgrid/change-specs/2026-09-21-alpha/plan-a.md); rc=$?
   expect_rc "workspace: plan A resolves (rc 0)" 0 "$rc"
-  db=$(cd "$WORK/ws" && bash "$WORKSPACE" .skillgrid/specs/2026-09-21-beta/plan-b.md); rc=$?
+  db=$(cd "$WORK/ws" && bash "$WORKSPACE" .skillgrid/change-specs/2026-09-21-beta/plan-b.md); rc=$?
   expect_rc "workspace: plan B resolves (rc 0)" 0 "$rc"
 
   if [ "$da" != "$db" ] && [ -n "$da" ] && [ -n "$db" ]; then
@@ -120,8 +120,8 @@ case_workspace() {
   local top
   top=$(cd "$WORK/ws" && git rev-parse --show-toplevel)
   case "$da" in
-    "$top/.skillgrid/sdd/2026-09-21-alpha") PASS=$((PASS + 1)); RESULTS+=("PASS  workspace: dir is <root>/.skillgrid/sdd/<spec-folder>") ;;
-    *) FAIL=$((FAIL + 1)); RESULTS+=("FAIL  workspace: dir is <root>/.skillgrid/sdd/<spec-folder> (got $da)") ;;
+    "$top/.skillgrid/meta/.sdd/2026-09-21-alpha") PASS=$((PASS + 1)); RESULTS+=("PASS  workspace: dir is <root>/.skillgrid/meta/.sdd/<spec-folder>") ;;
+    *) FAIL=$((FAIL + 1)); RESULTS+=("FAIL  workspace: dir is <root>/.skillgrid/meta/.sdd/<spec-folder> (got $da)") ;;
   esac
 
   if [ -d "$da" ] && [ -d "$db" ]; then
@@ -132,7 +132,7 @@ case_workspace() {
 
   # parent .gitignore keeps git status clean
   local gi
-  gi="$(cat "$WORK/ws/.skillgrid/sdd/.gitignore")"
+  gi="$(cat "$WORK/ws/.skillgrid/meta/.sdd/.gitignore")"
   if [ "$gi" = "*" ]; then
     PASS=$((PASS + 1)); RESULTS+=("PASS  workspace: parent .gitignore contains '*'")
   else
@@ -169,7 +169,7 @@ case_missing() {
   expect_rc "review-package: missing plan file exits 2" 2 "$?"
 
   # no directory may be created on the failure path
-  if [ ! -e "$WORK/miss/.skillgrid/sdd" ]; then
+  if [ ! -e "$WORK/miss/.skillgrid/meta/.sdd" ]; then
     PASS=$((PASS + 1)); RESULTS+=("PASS  workspace: no dir created for missing plan")
   else
     FAIL=$((FAIL + 1)); RESULTS+=("FAIL  workspace: no dir created for missing plan")
@@ -182,34 +182,34 @@ case_brief() {
   [ "$FILTER" = "brief" ] || [ -z "$FILTER" ] || return 0
 
   new_repo brief
-  write_plan brief .skillgrid/specs/2026-09-21-alpha/plan-a.md
-  write_plan brief .skillgrid/specs/2026-09-21-beta/plan-b.md
+  write_plan brief .skillgrid/change-specs/2026-09-21-alpha/plan-a.md
+  write_plan brief .skillgrid/change-specs/2026-09-21-beta/plan-b.md
   ( cd "$WORK/brief" && git add -A && git commit -q -m "chore: fixture plans" )
 
-  ( cd "$WORK/brief" && bash "$BRIEF" .skillgrid/specs/2026-09-21-alpha/plan-a.md 1 >/dev/null 2>&1 )
+  ( cd "$WORK/brief" && bash "$BRIEF" .skillgrid/change-specs/2026-09-21-alpha/plan-a.md 1 >/dev/null 2>&1 )
   expect_rc "task-brief: existing task exits 0" 0 "$?"
   expect_file "task-brief: default outfile lands in plan A's dir" \
-    "$WORK/brief/.skillgrid/sdd/2026-09-21-alpha/task-1-brief.md"
+    "$WORK/brief/.skillgrid/meta/.sdd/2026-09-21-alpha/task-1-brief.md"
 
-  if grep -q "Do the first thing" "$WORK/brief/.skillgrid/sdd/2026-09-21-alpha/task-1-brief.md" \
-    && grep -q "fake heading inside a fence" "$WORK/brief/.skillgrid/sdd/2026-09-21-alpha/task-1-brief.md" \
-    && ! grep -q "Do the second thing" "$WORK/brief/.skillgrid/sdd/2026-09-21-alpha/task-1-brief.md"; then
+  if grep -q "Do the first thing" "$WORK/brief/.skillgrid/meta/.sdd/2026-09-21-alpha/task-1-brief.md" \
+    && grep -q "fake heading inside a fence" "$WORK/brief/.skillgrid/meta/.sdd/2026-09-21-alpha/task-1-brief.md" \
+    && ! grep -q "Do the second thing" "$WORK/brief/.skillgrid/meta/.sdd/2026-09-21-alpha/task-1-brief.md"; then
     PASS=$((PASS + 1)); RESULTS+=("PASS  task-brief: extracts only Task 1, fence-aware")
   else
     FAIL=$((FAIL + 1)); RESULTS+=("FAIL  task-brief: extracts only Task 1, fence-aware")
   fi
 
   # plan B's brief must not leak into plan A's dir
-  ( cd "$WORK/brief" && bash "$BRIEF" .skillgrid/specs/2026-09-21-beta/plan-b.md 2 >/dev/null 2>&1 )
+  ( cd "$WORK/brief" && bash "$BRIEF" .skillgrid/change-specs/2026-09-21-beta/plan-b.md 2 >/dev/null 2>&1 )
   expect_rc "task-brief: plan B task exits 0" 0 "$?"
-  if [ -f "$WORK/brief/.skillgrid/sdd/2026-09-21-beta/task-2-brief.md" ] \
-    && [ ! -f "$WORK/brief/.skillgrid/sdd/2026-09-21-alpha/task-2-brief.md" ]; then
+  if [ -f "$WORK/brief/.skillgrid/meta/.sdd/2026-09-21-beta/task-2-brief.md" ] \
+    && [ ! -f "$WORK/brief/.skillgrid/meta/.sdd/2026-09-21-alpha/task-2-brief.md" ]; then
     PASS=$((PASS + 1)); RESULTS+=("PASS  task-brief: plan B brief stays in plan B dir")
   else
     FAIL=$((FAIL + 1)); RESULTS+=("FAIL  task-brief: plan B brief stays in plan B dir")
   fi
 
-  ( cd "$WORK/brief" && bash "$BRIEF" .skillgrid/specs/2026-09-21-alpha/plan-a.md 99 >/dev/null 2>&1 )
+  ( cd "$WORK/brief" && bash "$BRIEF" .skillgrid/change-specs/2026-09-21-alpha/plan-a.md 99 >/dev/null 2>&1 )
   expect_rc "task-brief: missing task exits 3" 3 "$?"
 }
 
@@ -219,20 +219,20 @@ case_review() {
   [ "$FILTER" = "review" ] || [ -z "$FILTER" ] || return 0
 
   new_repo review
-  write_plan review .skillgrid/specs/2026-09-21-alpha/plan-a.md
+  write_plan review .skillgrid/change-specs/2026-09-21-alpha/plan-a.md
   ( cd "$WORK/review" && git add -A && git commit -q -m "chore: fixture plan" )
   local base head
   base=$(cd "$WORK/review" && git rev-parse HEAD)
   ( cd "$WORK/review" && printf 'v2\n' > feat.txt && git add -A && git commit -q -m "feat(x): add feat" )
   head=$(cd "$WORK/review" && git rev-parse HEAD)
 
-  ( cd "$WORK/review" && bash "$REVIEW" .skillgrid/specs/2026-09-21-alpha/plan-a.md "$base" "$head" >/dev/null 2>&1 )
+  ( cd "$WORK/review" && bash "$REVIEW" .skillgrid/change-specs/2026-09-21-alpha/plan-a.md "$base" "$head" >/dev/null 2>&1 )
   expect_rc "review-package: valid range exits 0" 0 "$?"
 
   local short_base short_head want
   short_base=$(cd "$WORK/review" && git rev-parse --short "$base")
   short_head=$(cd "$WORK/review" && git rev-parse --short "$head")
-  want="$WORK/review/.skillgrid/sdd/2026-09-21-alpha/review-${short_base}..${short_head}.diff"
+  want="$WORK/review/.skillgrid/meta/.sdd/2026-09-21-alpha/review-${short_base}..${short_head}.diff"
   expect_file "review-package: default outfile lands in plan's dir" "$want"
 
   if grep -q "## Commits" "$want" && grep -q "## Files changed" "$want" \
@@ -242,10 +242,10 @@ case_review() {
     FAIL=$((FAIL + 1)); RESULTS+=("FAIL  review-package: bundle holds commits, stat, and diff")
   fi
 
-  ( cd "$WORK/review" && bash "$REVIEW" .skillgrid/specs/2026-09-21-alpha/plan-a.md deadbeef "$head" >/dev/null 2>&1 )
+  ( cd "$WORK/review" && bash "$REVIEW" .skillgrid/change-specs/2026-09-21-alpha/plan-a.md deadbeef "$head" >/dev/null 2>&1 )
   expect_rc "review-package: bad BASE exits 2" 2 "$?"
 
-  ( cd "$WORK/review" && bash "$REVIEW" .skillgrid/specs/2026-09-21-alpha/plan-a.md "$base" deadbeef >/dev/null 2>&1 )
+  ( cd "$WORK/review" && bash "$REVIEW" .skillgrid/change-specs/2026-09-21-alpha/plan-a.md "$base" deadbeef >/dev/null 2>&1 )
   expect_rc "review-package: bad HEAD exits 2" 2 "$?"
 }
 

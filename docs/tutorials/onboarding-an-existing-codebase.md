@@ -151,7 +151,7 @@ agent read your codebase map and glossary, the plan references **your actual
 paths and patterns**:
 
 ```text
-.skillgrid/specs/YYYY-MM-DD-health-endpoint/blueprint.md
+.skillgrid/change-specs/YYYY-MM-DD-health-endpoint/blueprint.md
 ```
 
 Open it. The **Must-Haves** are derived goal-backward from the requirement, and

@@ -68,7 +68,7 @@ backlog → ready → in-progress → review → done
 ### Step 1: Read Input
 
 1. Read `.skillgrid/config.yaml` for `ticketing.enabled` and `ticketing.type`. If `ticketing.enabled: false`, do not create tracker items; record a local-only waiver and let execution read from `tasks.md` directly.
-2. Read `tasks.md` from `.skillgrid/specs/YYYY-MM-DD-<topic>/tasks.md`
+2. Read `tasks.md` from `.skillgrid/change-specs/YYYY-MM-DD-<topic>/tasks.md`
 3. Parse: epic summary, tickets (title, scope, acceptance, files, size, blocks, blocked by), dependency graph, execution order (waves)
 
 ### Step 2: Publish
@@ -87,7 +87,7 @@ backlog → ready → in-progress → review → done
 - Title: `Epic: <epic summary from tasks.md>`
 - Body: epic summary + link to `tasks.md` + dependency graph
 - Status: `backlog`
-- **Milestone name = spec folder name** (e.g. `2026-10-06-mnemonic-standalone`). The milestone must be named after the full spec folder under `.skillgrid/specs/` or `.skillgrid/xarchive/`, never a short slug or numeric ID. This makes the `milestone → spec` mapping 1:1 and recoverable from the tracker alone.
+- **Milestone name = spec folder name** (e.g. `2026-10-06-mnemonic-standalone`). The milestone must be named after the full spec folder under `.skillgrid/change-specs/` or `.skillgrid/change-archive/`, never a short slug or numeric ID. This makes the `milestone → spec` mapping 1:1 and recoverable from the tracker alone.
 
 **Tickets** — one per ticket in tasks.md:
 - Title: per the formatting reference's title convention (e.g. `TICKET-<NN>: <title>` or `[TYPE] description (COMPONENT)`). **ASCII only** — the backlog CLI slugifies titles into filenames; em dashes and other non-ASCII characters produce unquotable filenames. Use ASCII hyphens for separators.

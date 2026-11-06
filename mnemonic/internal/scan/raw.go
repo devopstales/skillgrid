@@ -7,7 +7,7 @@ import (
 )
 
 // RawPath returns the on-disk location of a scan's raw output:
-// <dataDir>/.skillgrid/cache/scans/<id>.json.
+// <dataDir>/.skillgrid/meta/.cache/scans/<id>.json.
 func RawPath(dataDir, scanID string) string {
 	return filepath.Join(dataDir, ".skillgrid", "cache", "scans", scanID+".json")
 }

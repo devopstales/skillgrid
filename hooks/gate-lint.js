@@ -38,7 +38,7 @@ const argv = process.argv.slice(2);
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--spec') SPEC = argv[++i] || '';
 }
-let SPECS_ROOT = '.skillgrid/specs';
+let SPECS_ROOT = '.skillgrid/change-specs';
 const cfg = `${ROOT}/.skillgrid/config.yaml`;
 if (fs.existsSync(cfg)) {
   for (const line of fs.readFileSync(cfg, 'utf8').split('\n')) {

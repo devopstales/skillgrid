@@ -8,11 +8,11 @@
   `00-prd.md`), and
   `.skillgrid/knowledge/ARCHITECTURE.md` from `templates/ARCHITECTURE.md`, filling in every
   section; also copy `templates/briefing.md` →
-  `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md` and fill it in. If
+  `.skillgrid/change-specs/YYYY-MM-DD-<topic>/briefing.md` and fill it in. If
   the global files already exist (a second project in the repo), merge
   rather than overwrite.
 - **New Function:** copy `templates/briefing.md` →
-  `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md` and fill it in. The
+  `.skillgrid/change-specs/YYYY-MM-DD-<topic>/briefing.md` and fill it in. The
   `> **STATUS:** \`draft\` (YYYY-MM-DD)` banner on line 3 is required (see
   `_shared/rules/sdd-structure.md` § STATUS Banner). If
   the feature changes `.skillgrid/knowledge/reference/00-prd.md` (scope, feature, metric), the

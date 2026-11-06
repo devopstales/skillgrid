@@ -23,9 +23,9 @@ func seedMDRepo(t *testing.T) string {
 			t.Fatal(err)
 		}
 	}
-	// sdd root -> .skillgrid/specs/<change>/
-	write(".skillgrid/specs/009-web-admin-dashboard/briefing.md", "# Briefing\n\n## Goal\n\nShip it.\n")
-	write(".skillgrid/specs/009-web-admin-dashboard/tasks.md", "# Tasks\n\n- [x] 01.1 done\n")
+	// sdd root -> .skillgrid/change-specs/<change>/
+	write(".skillgrid/change-specs/009-web-admin-dashboard/briefing.md", "# Briefing\n\n## Goal\n\nShip it.\n")
+	write(".skillgrid/change-specs/009-web-admin-dashboard/tasks.md", "# Tasks\n\n- [x] 01.1 done\n")
 	// skillgrid first-class docs -> .skillgrid/adr/ (numeric ADR) + .skillgrid/prd/ (numeric PRD)
 	write(".skillgrid/adr/0007-sdd-docs.md",
 		"# SDD docs viewer\n\n---\nstatus: \"accepted\"\nsupersedes: none\ndate: 2026-09-17\n---\n\n## Context and Problem Statement\n\nWhy.\n\n## Decision Outcome\n\nExistence-gated roots.\n\n### Consequences\n\nGood.\n")
@@ -34,7 +34,7 @@ func seedMDRepo(t *testing.T) string {
 	// backlog root -> .backlog/tasks/
 	write(".backlog/tasks/TASK-001-something.md", "---\nid: TASK-001\nstatus: in-progress\npriority: high\n---\n\n# Task one\n\nBody.\n")
 	// a hidden .skillgrid subdir (must NOT appear in the skillgrid root tree)
-	write(".skillgrid/xarchive/old-change/briefing.md", "# Old Briefing\n\nArchived.\n")
+	write(".skillgrid/change-archive/old-change/briefing.md", "# Old Briefing\n\nArchived.\n")
 	// docs root -> docs/
 	write("docs/guide.md", "# Guide\n\nSome guide text.\n")
 	// root *.md
@@ -68,7 +68,10 @@ func TestPhase3_Traversal(t *testing.T) {
 	}
 
 	// traversal / unknown -> 400 (raw .. or absolute) or 404 (clean but absent)
-	for _, tc := range []struct{ target string; want int }{
+	for _, tc := range []struct {
+		target string
+		want   int
+	}{
 		{"/docs/content?path=../secret.md", 400},
 		{"/docs/content?path=..%2Fsecret.md", 400},
 		{"/docs/content?path=/etc/passwd", 400},
@@ -107,7 +110,7 @@ func TestPhase3_Traversal(t *testing.T) {
 	}
 }
 
-// Specs→archive twin: kanban doc_refs often keep `.skillgrid/specs/<change>/…`
+// Specs→archive twin: kanban doc_refs often keep `.skillgrid/change-specs/<change>/…`
 // after the change ships to archive/. Content must resolve the twin; the tree
 // must still hide archive/.
 func TestContentFallsBackToArchiveTwin(t *testing.T) {
@@ -118,11 +121,11 @@ func TestContentFallsBackToArchiveTwin(t *testing.T) {
 		return rr.Code, rr.Body.String()
 	}
 
-	code, body := do("/docs/content?path=.skillgrid/specs/old-change/briefing.md")
+	code, body := do("/docs/content?path=.skillgrid/change-specs/old-change/briefing.md")
 	if code != http.StatusOK {
 		t.Fatalf("archive twin: got %d %s", code, body)
 	}
-	if !strings.Contains(body, `"path":".skillgrid/xarchive/old-change/briefing.md"`) {
+	if !strings.Contains(body, `"path":".skillgrid/change-archive/old-change/briefing.md"`) {
 		t.Fatalf("expected served path to be archive twin, got %s", body)
 	}
 	if !strings.Contains(body, "Archived.") {

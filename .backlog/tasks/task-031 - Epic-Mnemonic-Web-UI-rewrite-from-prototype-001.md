@@ -10,10 +10,10 @@ labels:
 milestone: 2026-10-02-mnemonic-webui-rewrite
 dependencies: []
 references:
-  - .skillgrid/specs/2026-10-02-mnemonic-webui-rewrite/briefing.md
-  - .skillgrid/specs/2026-10-02-mnemonic-webui-rewrite/blueprint.md
-  - .skillgrid/specs/2026-10-02-mnemonic-webui-rewrite/tasks.md
-  - .skillgrid/specs/2026-10-02-mnemonic-webui-rewrite/acceptance.feature
+  - .skillgrid/change-specs/2026-10-02-mnemonic-webui-rewrite/briefing.md
+  - .skillgrid/change-specs/2026-10-02-mnemonic-webui-rewrite/blueprint.md
+  - .skillgrid/change-specs/2026-10-02-mnemonic-webui-rewrite/tasks.md
+  - .skillgrid/change-specs/2026-10-02-mnemonic-webui-rewrite/acceptance.feature
   - .skillgrid/artifacts/04-adr-0017-d3-force-graph.md
 priority: high
 type: feature
@@ -22,7 +22,7 @@ type: feature
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Bring skillgrid-ui to prototype 001 IA, indigo tokens, D3 force graph (ADR-0017); panels on live Go endpoints. As-built on release/2 (aa0aa791); this epic verifies it and closes gaps. Tickets: .skillgrid/specs/2026-10-02-mnemonic-webui-rewrite/tasks.md
+Bring skillgrid-ui to prototype 001 IA, indigo tokens, D3 force graph (ADR-0017); panels on live Go endpoints. As-built on release/2 (aa0aa791); this epic verifies it and closes gaps. Tickets: .skillgrid/change-specs/2026-10-02-mnemonic-webui-rewrite/tasks.md
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Definition of Done

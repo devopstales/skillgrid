@@ -36,12 +36,12 @@ When working a change `{YYYY-MM-DD-<topic>}`:
 
 ### Execution progress body
 
-ADR-0020. The Execution Ledger under `.skillgrid/sdd/` is the record. This observation is the index. Upsert it after each completed task or wave. Do not copy the ledger, per-agent rows, or review diffs. Do not spawn or claim SDD work through `team_spawn_task` / `agent_pull_next_task`.
+ADR-0020. The Execution Ledger under `.skillgrid/meta/.sdd/` is the record. This observation is the index. Upsert it after each completed task or wave. Do not copy the ledger, per-agent rows, or review diffs. Do not spawn or claim SDD work through `team_spawn_task` / `agent_pull_next_task`.
 
 ```
 change: {YYYY-MM-DD-<topic>}
-ledger: .skillgrid/sdd/<plan>/progress.md
-wave_ledger: .skillgrid/sdd/<plan>/parallel-ledger.md
+ledger: .skillgrid/meta/.sdd/<plan>/progress.md
+wave_ledger: .skillgrid/meta/.sdd/<plan>/parallel-ledger.md
 tail: {active task or wave, and the last ruling}
 ```
 

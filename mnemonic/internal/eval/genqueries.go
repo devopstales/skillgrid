@@ -19,20 +19,20 @@ type QuerySet struct {
 var CORPUS_EXCLUDES = []string{
 	"/eval/",
 	"internal/mnemonic/eval",
-	".skillgrid/sdd",
+	".skillgrid/meta/.sdd",
 }
 
 var (
-	reMerge   = regexp.MustCompile(`(?i)^\s*merge\b`)
+	reMerge = regexp.MustCompile(`(?i)^\s*merge\b`)
 	// reRevert is anchored to the start: only subjects that BEGIN with a revert
 	// are noise. A position-free `revert\b` over-drops subjects like
 	// "fix: avoid reverting state" (which merely mention reverting).
-	reRevert = regexp.MustCompile(`(?i)^\s*(this\s+)?revert(s|ed)?\b`)
-	reRelease = regexp.MustCompile(`(?i)^\s*(release|v?\d+\.\d+(?:\.\d+)?)\b`)
-	reBump    = regexp.MustCompile(`(?i)\b(bump|bumped|update.*\b(?:version|go\.mod|go\.sum|deps?)\b|tidy\b)\b`)
-	reFormat  = regexp.MustCompile(`(?i)\b(gofmt|format(ting)?|whitespace|reformat)\b`)
+	reRevert        = regexp.MustCompile(`(?i)^\s*(this\s+)?revert(s|ed)?\b`)
+	reRelease       = regexp.MustCompile(`(?i)^\s*(release|v?\d+\.\d+(?:\.\d+)?)\b`)
+	reBump          = regexp.MustCompile(`(?i)\b(bump|bumped|update.*\b(?:version|go\.mod|go\.sum|deps?)\b|tidy\b)\b`)
+	reFormat        = regexp.MustCompile(`(?i)\b(gofmt|format(ting)?|whitespace|reformat)\b`)
 	reChangelogFile = regexp.MustCompile(`(?i)(^|/)changelog\.(md|rst|txt|log)$`)
-	reBenchFile  = regexp.MustCompile(`(?i)(^|/)\w*bench\w*\.go$`)
+	reBenchFile     = regexp.MustCompile(`(?i)(^|/)\w*bench\w*\.go$`)
 )
 
 // ExcludedFromCorpus reports whether path is benchmark scaffolding that must be

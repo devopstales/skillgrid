@@ -10,9 +10,9 @@ import (
 	"time"
 )
 
-const sddPath = ".skillgrid/sdd"
+const sddPath = ".skillgrid/meta/.sdd"
 
-// TeamRun is one execution workspace under .skillgrid/sdd that has a ledger.
+// TeamRun is one execution workspace under .skillgrid/meta/.sdd that has a ledger.
 // ADR-0020: these files are the live team record. This handler only reads them.
 type TeamRun struct {
 	Name       string       `json:"name"`
@@ -44,7 +44,7 @@ var ticketLineRE = regexp.MustCompile(`(?m)^[ \t]*[-*][ \t]*(TICKET-\d+)(?:[ \t]
 
 var progressNeedsRE = regexp.MustCompile(`(?m)^[ \t]*[-*]?[ \t]*Task[ \t]+(\S+):[ \t]*Needs:[ \t]*(.+)$`)
 
-// NewTeamRuns returns GET /sdd/runs. A missing .skillgrid/sdd directory is an
+// NewTeamRuns returns GET /sdd/runs. A missing .skillgrid/meta/.sdd directory is an
 // empty list, so the Teams page can render its empty state.
 func NewTeamRuns(cwd string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +73,7 @@ func TeamRunsPayload(runs []TeamRun) map[string]any {
 	}
 }
 
-// ListTeamRuns reads one level of .skillgrid/sdd and keeps directories that
+// ListTeamRuns reads one level of .skillgrid/meta/.sdd and keeps directories that
 // contain progress.md or parallel-ledger.md. Newest ledger first.
 func ListTeamRuns(ctx context.Context, cwd string) ([]TeamRun, error) {
 	root := filepath.Join(cwd, sddPath)
@@ -105,7 +105,7 @@ func ListTeamRuns(ctx context.Context, cwd string) ([]TeamRun, error) {
 }
 
 // markShipped closes ledger rows once the change has a directory under
-// .skillgrid/archive. The ledger file stays as written; the board shows done.
+// .skillgrid/change-archive. The ledger file stays as written; the board shows done.
 func markShipped(cwd, name string, run *TeamRun) {
 	info, err := os.Stat(filepath.Join(cwd, ".skillgrid", "archive", name))
 	if err != nil || !info.IsDir() {

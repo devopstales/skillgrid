@@ -18,7 +18,7 @@ Shared formatting conventions for `backlog.md`-based workflows. Consumed by the 
 
 Create via `backlog milestone add` (epic equivalent, matching GitHub's milestone pattern). The milestone groups child tasks; each task file references its milestone in the body's `## Related Issues` section.
 
-**Milestone name = spec folder name.** The milestone title must be the full spec folder name from `.skillgrid/specs/` (or `.skillgrid/xarchive/`), e.g. `2026-10-06-mnemonic-standalone`. Do not use short slugs like `mnemonic-standalone-module` or numeric IDs like `m-8`. This makes the `milestone → spec` mapping 1:1 and recoverable from the tracker alone.
+**Milestone name = spec folder name.** The milestone title must be the full spec folder name from `.skillgrid/change-specs/` (or `.skillgrid/change-archive/`), e.g. `2026-10-06-mnemonic-standalone`. Do not use short slugs like `mnemonic-standalone-module` or numeric IDs like `m-8`. This makes the `milestone → spec` mapping 1:1 and recoverable from the tracker alone.
 
 ```markdown
 # {Milestone Title}
@@ -85,10 +85,10 @@ dependencies: []
 priority: medium
 type: feature
 references:
-  - .skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md
+  - .skillgrid/change-specs/YYYY-MM-DD-<topic>/briefing.md
   - path/or/url/related
 documentation:
-  - .skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md
+  - .skillgrid/change-specs/YYYY-MM-DD-<topic>/briefing.md
 ---
 
 ## Description
@@ -232,7 +232,7 @@ backlog task create '[FEATURE] Findings filters - provider and account (UI)' \
   -d $'Current State:\n- …\n\nExpected State:\n- …' \
   --ac 'Filters apply to provider and account' \
   --dod 'Tests pass' \
-  --ref .skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md \
+  --ref .skillgrid/change-specs/YYYY-MM-DD-<topic>/briefing.md \
   --plan $'1. Research filter API\n2. Implement\n3. Verify tests'
 
 backlog task edit TASK-N --dep TASK-M   # blocking

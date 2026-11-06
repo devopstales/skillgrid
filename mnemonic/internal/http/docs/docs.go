@@ -20,7 +20,7 @@ import (
 // roots are the only directories the package reads from, relative to the
 // server's working directory (the repo root, matching the tracker bridge).
 // Overridable via SKILLGRID_DOCS_ROOTS (comma-separated) for projects that
-// store changes in a different layout (e.g. .skillgrid/specs + .skillgrid/archive).
+// store changes in a different layout (e.g. .skillgrid/change-specs + .skillgrid/change-archive).
 var roots = func() []string {
 	if v := strings.TrimSpace(os.Getenv("SKILLGRID_DOCS_ROOTS")); v != "" {
 		parts := strings.Split(v, ",")

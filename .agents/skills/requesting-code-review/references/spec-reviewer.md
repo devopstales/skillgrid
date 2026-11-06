@@ -111,8 +111,8 @@ Subagent (general-purpose):
 **Placeholders:**
 - `[BASE_SHA]` — starting commit
 - `[HEAD_SHA]` — ending commit
-- `[FEATURE_PATH]` — the change's `acceptance.feature` (e.g. `.skillgrid/specs/<id>/acceptance.feature`)
-- `[BLUEPRINT_PATH]` — the blueprint (e.g. `.skillgrid/specs/YYYY-MM-DD-<topic>/blueprint.md`)
+- `[FEATURE_PATH]` — the change's `acceptance.feature` (e.g. `.skillgrid/change-specs/<id>/acceptance.feature`)
+- `[BLUEPRINT_PATH]` — the blueprint (e.g. `.skillgrid/change-specs/YYYY-MM-DD-<topic>/blueprint.md`)
 - `[SPEC_PATH]` — the originating spec the blueprint names, if any (else "none")
 
 **Reviewer returns:** Scenarios (per-scenario PASS/FAIL/MISSING), Missing or Partial, Scope Creep, Wrong Implementation, Assessment

@@ -11,7 +11,7 @@ import (
 
 func TestListTeamRuns_ParsesLedgersAndSkipsEmptyDirs(t *testing.T) {
 	root := t.TempDir()
-	sdd := filepath.Join(root, ".skillgrid", "sdd")
+	sdd := filepath.Join(root, ".skillgrid", "meta", ".sdd")
 
 	wave := filepath.Join(sdd, "2026-10-02-memory")
 	if err := os.MkdirAll(wave, 0o755); err != nil {
@@ -85,7 +85,7 @@ func TestListTeamRuns_ParsesLedgersAndSkipsEmptyDirs(t *testing.T) {
 
 func TestListTeamRuns_ParsesTicketLines(t *testing.T) {
 	root := t.TempDir()
-	dir := filepath.Join(root, ".skillgrid", "sdd", "2026-10-02-webui")
+	dir := filepath.Join(root, ".skillgrid", "meta", ".sdd", "2026-10-02-webui")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestListTeamRuns_ParsesTicketLines(t *testing.T) {
 
 func TestListTeamRuns_TicketLineWithoutTaskID(t *testing.T) {
 	root := t.TempDir()
-	dir := filepath.Join(root, ".skillgrid", "sdd", "bare-ticket")
+	dir := filepath.Join(root, ".skillgrid", "meta", ".sdd", "bare-ticket")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestListTeamRuns_TicketLineWithoutTaskID(t *testing.T) {
 
 func TestListTeamRuns_NeedsBlocksUntilDependencyCompletes(t *testing.T) {
 	root := t.TempDir()
-	dir := filepath.Join(root, ".skillgrid", "sdd", "coupled")
+	dir := filepath.Join(root, ".skillgrid", "meta", ".sdd", "coupled")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestListTeamRuns_NeedsBlocksUntilDependencyCompletes(t *testing.T) {
 
 func TestListTeamRuns_NeedsAllowsDispatchWhenDependencyIsDone(t *testing.T) {
 	root := t.TempDir()
-	dir := filepath.Join(root, ".skillgrid", "sdd", "coupled-done")
+	dir := filepath.Join(root, ".skillgrid", "meta", ".sdd", "coupled-done")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestListTeamRuns_NeedsAllowsDispatchWhenDependencyIsDone(t *testing.T) {
 func TestListTeamRuns_ArchiveMarksMembersDone(t *testing.T) {
 	root := t.TempDir()
 	name := "2026-09-24-mnemonic-memory-improvements"
-	dir := filepath.Join(root, ".skillgrid", "sdd", name)
+	dir := filepath.Join(root, ".skillgrid", "meta", ".sdd", name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,7 @@ func TestListTeamRuns_ArchiveMarksMembersDone(t *testing.T) {
 
 func TestListTeamRuns_OtherArchiveDoesNotCloseRun(t *testing.T) {
 	root := t.TempDir()
-	dir := filepath.Join(root, ".skillgrid", "sdd", "still-open")
+	dir := filepath.Join(root, ".skillgrid", "meta", ".sdd", "still-open")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestTeamRunsHandler_MissingRootIsEmpty(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp.Source != ".skillgrid/sdd" || resp.Count != 0 || len(resp.Runs) != 0 {
+	if resp.Source != ".skillgrid/meta/.sdd" || resp.Count != 0 || len(resp.Runs) != 0 {
 		t.Fatalf("resp = %+v", resp)
 	}
 }

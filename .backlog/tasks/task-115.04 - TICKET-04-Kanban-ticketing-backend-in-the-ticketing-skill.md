@@ -9,9 +9,9 @@ labels: []
 dependencies:
   - TASK-115.03
 references:
-  - .skillgrid/specs/2026-10-24-hermes-integration/blueprint.md
-  - .skillgrid/specs/2026-10-24-hermes-integration/tasks.md
-  - .skillgrid/specs/2026-10-24-hermes-integration/acceptance.feature
+  - .skillgrid/change-specs/2026-10-24-hermes-integration/blueprint.md
+  - .skillgrid/change-specs/2026-10-24-hermes-integration/tasks.md
+  - .skillgrid/change-specs/2026-10-24-hermes-integration/acceptance.feature
   - >-
     Kanban board: skillgrid (board is source of truth; this entry is a mirror —
     see .agents/skills/_shared/rules/ticketing/hermes-kanban.md)

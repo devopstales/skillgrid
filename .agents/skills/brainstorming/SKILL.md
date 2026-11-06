@@ -87,14 +87,14 @@ override it:
     VERIFIED product statement + INFERRED hypotheses + LOCKED in-force table and
     constraints; it links to `00-prd.md`), and the live structure record `.skillgrid/knowledge/ARCHITECTURE.md`
     (repo / program structure, from `templates/ARCHITECTURE.md`), plus the spec
-    `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md` from `templates/briefing.md`.
+    `.skillgrid/change-specs/YYYY-MM-DD-<topic>/briefing.md` from `templates/briefing.md`.
     If the global files already exist (a second project in the repo), merge rather
     than overwrite. Then the skillgrid:writing-blueprints skill.
 - **New Function** — a new feature, endpoint, or capability added to an
    existing project whose architecture is already in place. Follow the
    full process: interview the user (`skillgrid:interviewing` skill — design tree,
    rounds, clarity gate), approaches, sectioned design, then write the
-    spec `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md` from
+    spec `.skillgrid/change-specs/YYYY-MM-DD-<topic>/briefing.md` from
     `templates/briefing.md`. If
      the feature changes `.skillgrid/knowledge/reference/00-prd.md` (scope, feature, metric),
      the global `.skillgrid/knowledge/ASSUMPTIONS.md` (new VERIFIED fact, a new ADR file under

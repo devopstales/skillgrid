@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * state-repair.mjs — explicit, reviewable repair of .skillgrid/state.yaml.
+ * state-repair.mjs — explicit, reviewable repair of .skillgrid/meta/state.yaml.
  *
  * The drift guard (state-drift-check.mjs) is read-only by design (ADR-0008:
  * "the guard owns verification, not the write"). When it reports drift, the

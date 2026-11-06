@@ -29,7 +29,7 @@ Create a GitLab issue with `glab issue create`.
 
 ## Ticketing mapping
 
-The `ticketing` skill maps each ticket in `tasks.md` (`.skillgrid/specs/YYYY-MM-DD-<topic>/tasks.md`) → one GitLab issue per ticket; blocking relations go via GitLab issue `blocked_by` links where the instance supports them, otherwise a `Blocked by: !<n>` line at the top of the body.
+The `ticketing` skill maps each ticket in `tasks.md` (`.skillgrid/change-specs/YYYY-MM-DD-<topic>/tasks.md`) → one GitLab issue per ticket; blocking relations go via GitLab issue `blocked_by` links where the instance supports them, otherwise a `Blocked by: !<n>` line at the top of the body.
 
 ## Ticket lifecycle (mandatory when a Tracker ID is set)
 

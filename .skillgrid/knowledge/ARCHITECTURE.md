@@ -743,7 +743,7 @@ brainstorming ─▶ [research | prototype | sketch] ─▶ writing-blueprints �
 **Gates wired in code** (not just prose):
 - `hooks/gate-state.js` parses `acceptance.feature` `#### Gates` and `--reverify`-runs each CHECK fresh.
 - `git-hooks/gate-stop.js` (Stop hook) blocks turn-end while any G<n> is unmet; loop-guard releases after 6 no-progress blocks.
-- `git-hooks/pre-commit.js` enforces the **spec zone** — a commit may not mix `.skillgrid/specs/**` with code.
+- `git-hooks/pre-commit.js` enforces the **spec zone** — a commit may not mix `.skillgrid/change-specs/**` with code.
 
 ---
 

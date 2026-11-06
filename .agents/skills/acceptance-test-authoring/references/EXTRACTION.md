@@ -4,11 +4,11 @@
 
 ## What extraction does
 
-A spec is `.skillgrid/specs/YYYY-MM-DD-<topic>/acceptance.feature`. It is a standard Skillgrid Markdown spec: the **structure** lives in Markdown headings and only the **Given/When/Then steps** live inside column-0 ` ```gherkin ` fences.
+A spec is `.skillgrid/change-specs/YYYY-MM-DD-<topic>/acceptance.feature`. It is a standard Skillgrid Markdown spec: the **structure** lives in Markdown headings and only the **Given/When/Then steps** live inside column-0 ` ```gherkin ` fences.
 
 Extraction **synthesizes** the Gherkin structure from the headings and copies fenced step lines verbatim, writing each `acceptance.feature` to `acceptance-tests/.extracted/<same-relative-path>/acceptance.feature`.
 
-Discovery covers `.skillgrid/specs/`, anchored to the literal basename `acceptance.feature` — so other files in the change directory are excluded structurally.
+Discovery covers `.skillgrid/change-specs/`, anchored to the literal basename `acceptance.feature` — so other files in the change directory are excluded structurally.
 
 `.extracted/` is **gitignored, wiped and rebuilt on every run, and never edited by hand**. The wipe is an invariant, not an optimization — a stale extraction would keep deleted or renamed capabilities executing.
 
@@ -16,7 +16,7 @@ Discovery covers `.skillgrid/specs/`, anchored to the literal basename `acceptan
 
 Every input line maps to **exactly one** output line, so the extracted file has the IDENTICAL line count and **line N of the `.feature` is line N of the `.md`**.
 
-gherkin-lint messages, runner failure locations and line targeting (`acceptance.feature:27:33`) therefore all point at valid source `acceptance.feature` lines with zero translation. Read `.extracted/<id>/acceptance.feature:N` as `.skillgrid/specs/<id>/acceptance.feature:N`, always.
+gherkin-lint messages, runner failure locations and line targeting (`acceptance.feature:27:33`) therefore all point at valid source `acceptance.feature` lines with zero translation. Read `.extracted/<id>/acceptance.feature:N` as `.skillgrid/change-specs/<id>/acceptance.feature:N`, always.
 
 **Never "improve" the extractor to collapse blank lines.** The whole toolchain leans on this.
 

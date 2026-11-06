@@ -39,7 +39,7 @@ If you haven't run the verification command in this message, you cannot claim it
 The Iron Law checks that you *ran* a command. This rule makes sure the command was
 *authored up front*, so "done" is testable before work starts.
 
-Each requirement in `.skillgrid/specs/.../acceptance.feature` carries a `#### Gates`
+Each requirement in `.skillgrid/change-specs/.../acceptance.feature` carries a `#### Gates`
 block — the runnable shadow of its happy-path and failure scenarios (see
 `skillgrid:acceptance-test-authoring`). Before implementing a task, confirm every
 happy-path scenario for that task's requirements has a `G<n>` entry:

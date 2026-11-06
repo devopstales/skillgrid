@@ -15,16 +15,16 @@ Copy exactly, fill the `{placeholders}`, wrap between the sentinels. Do not add 
 This project is configured with Skillgrid. Project: **{project}**.
 
 Config: `.skillgrid/config.yaml` (static) — read it before running any Skillgrid skill.
-State: `.skillgrid/state.yaml` (dynamic) — where the project is right now (phase, current change, progress).
+State: `.skillgrid/meta/state.yaml` (dynamic) — where the project is right now (phase, current change, progress).
 
 ### Artifacts
 
 | Artifact | Path |
 |----------|------|
 | Project knowledge (PRD, architecture, terms, ADRs, constraints, research) | `.skillgrid/knowledge/decisions/` |
-| Project state (phase, current change, progress) | `.skillgrid/state.yaml` |
-| Specs (briefing, blueprint, tasks) | `.skillgrid/specs/` |
-| Execution ledger | `.skillgrid/sdd/` (gitignored) |
+| Project state (phase, current change, progress) | `.skillgrid/meta/state.yaml` |
+| Specs (briefing, blueprint, tasks) | `.skillgrid/change-specs/` |
+| Execution ledger | `.skillgrid/meta/.sdd/` (gitignored) |
 
 **Domain model:** read the vocabulary + ADRs under `.skillgrid/knowledge/decisions/` (index: `README.md`) before designing or implementing.
 

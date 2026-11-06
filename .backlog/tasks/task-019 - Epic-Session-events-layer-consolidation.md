@@ -9,10 +9,10 @@ labels: []
 milestone: 2026-09-21-session-events-layer
 dependencies: []
 references:
-  - .skillgrid/specs/2026-09-21-session-events-layer/briefing.md
-  - .skillgrid/specs/2026-09-21-session-events-layer/blueprint.md
-  - .skillgrid/specs/2026-09-21-session-events-layer/tasks.md
-  - .skillgrid/specs/2026-09-21-session-events-layer/acceptance.feature
+  - .skillgrid/change-specs/2026-09-21-session-events-layer/briefing.md
+  - .skillgrid/change-specs/2026-09-21-session-events-layer/blueprint.md
+  - .skillgrid/change-specs/2026-09-21-session-events-layer/tasks.md
+  - .skillgrid/change-specs/2026-09-21-session-events-layer/acceptance.feature
 priority: high
 type: feature
 ---

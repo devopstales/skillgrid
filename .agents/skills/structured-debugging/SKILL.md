@@ -33,7 +33,7 @@ A debug session crosses compactions and the hypothesis trail must survive it —
 a compaction between Phase 1 and Phase 3 that loses the trail makes you
 re-investigate what you already ruled out.
 
-- **Write the trail to a state file:** `.skillgrid/sdd/debug/<date>-<slug>/state.md`
+- **Write the trail to a state file:** `.skillgrid/meta/.sdd/debug/<date>-<slug>/state.md`
   (git-ignored scratch, like the execution workspace — a debug session is
   ephemeral, not a committed topic). One entry per iteration:
   `hypothesis | evidence | verdict (confirmed | ruled out | open)`.
@@ -339,7 +339,7 @@ The debug session is complete only when every box below is provable with evidenc
 
 - [ ] **A root cause was identified and stated** — or "No Root Cause" was declared with the evidence for it (what was investigated and why it's environmental/timing/external), per the No Root Cause section.
 - [ ] **The fix addresses the root cause, not the symptom** — the change is at the point the bad value originates, not where it surfaces.
-- [ ] **Debug State was updated at each phase** — `.skillgrid/sdd/debug/<date>-<slug>/state.md` has an entry per iteration (`hypothesis | evidence | verdict`), and no phase was skipped ahead of the one before it.
+- [ ] **Debug State was updated at each phase** — `.skillgrid/meta/.sdd/debug/<date>-<slug>/state.md` has an entry per iteration (`hypothesis | evidence | verdict`), and no phase was skipped ahead of the one before it.
 - [ ] **A failing test case existed before the fix** — the reproduction test was written and failing (or a one-off repro script) BEFORE the change, per Phase 4.1.
 - [ ] **The fix was verified by re-running the original reproduction** — the failing test now passes (green output captured) AND no other tests broke, per Phase 4.3 / `skillgrid:test-driven-verification`.
 - [ ] **No 3+ failed fix attempts were left unresolved** — if 3+ fixes failed, the architecture was questioned with your human partner before any Fix #4, per Phase 4.5.

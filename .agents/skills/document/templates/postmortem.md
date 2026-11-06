@@ -33,7 +33,7 @@ when it was resolved. The notice gap is a finding, not an embarrassment.
 ## Root Cause
 
 [The proven cause, with its evidence. Source: the debug state file
-(.skillgrid/sdd/debug/<date>-<slug>/state.md) if the fix ran
+(.skillgrid/meta/.sdd/debug/<date>-<slug>/state.md) if the fix ran
 skillgrid:structured-debugging, or the ADR / change folder. State the cause,
 then the evidence that confirmed it. If the cause is a decision, not code, say
 so — name the decision and where it is recorded.]

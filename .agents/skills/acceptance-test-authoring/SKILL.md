@@ -15,7 +15,7 @@ metadata:
 
 ## Overview
 
-This skill derives BDD acceptance specs (Gherkin) from a requirement's intent, **before** implementation. Specs live as Markdown `acceptance.feature` files under `.skillgrid/specs/`; the runner extracts them into real `.feature` files and runs them against the running application. BDD is always on (non-negotiable, like TDD) — a green acceptance suite is the gate for archive.
+This skill derives BDD acceptance specs (Gherkin) from a requirement's intent, **before** implementation. Specs live as Markdown `acceptance.feature` files under `.skillgrid/change-specs/`; the runner extracts them into real `.feature` files and runs them against the running application. BDD is always on (non-negotiable, like TDD) — a green acceptance suite is the gate for archive.
 
 ## When to Use
 
@@ -24,9 +24,9 @@ This skill derives BDD acceptance specs (Gherkin) from a requirement's intent, *
 - **Prerequisite:** `blueprint.md` must exist AND have passed two-stage validation (critic subagent + user approval). Never write `acceptance.feature` without a validated blueprint.
 - **Position in artifact order:** Artifact #4 in the permanent sequence (briefing → blueprint → validation → **cucumber test file** → tasks → slices).
 
-**When NOT to use:** For unit tests or integration tests — this is acceptance/BDD only. The Zone Rule keeps `.skillgrid/specs/` (spec zone) separate from code: this skill authors the spec zone, not the code zone.
+**When NOT to use:** For unit tests or integration tests — this is acceptance/BDD only. The Zone Rule keeps `.skillgrid/change-specs/` (spec zone) separate from code: this skill authors the spec zone, not the code zone.
 
-The acceptance suite executes Gherkin specs that live under `.skillgrid/specs/` against the running application. BDD is always on (non-negotiable, like TDD) — `bdd.enabled` is always `true` in `.skillgrid/config.yaml`. Specs are Markdown files named `acceptance.feature`: Markdown headings carry the capability, requirement, and scenario structure, while ` ```gherkin ` fences contain only Given/When/Then steps. The runner extracts them into real `.feature` files on every run, synthesizing `Feature:`/`Rule:`/`Scenario:` from the headings.
+The acceptance suite executes Gherkin specs that live under `.skillgrid/change-specs/` against the running application. BDD is always on (non-negotiable, like TDD) — `bdd.enabled` is always `true` in `.skillgrid/config.yaml`. Specs are Markdown files named `acceptance.feature`: Markdown headings carry the capability, requirement, and scenario structure, while ` ```gherkin ` fences contain only Given/When/Then steps. The runner extracts them into real `.feature` files on every run, synthesizing `Feature:`/`Rule:`/`Scenario:` from the headings.
 
 Everything in this file is stack-agnostic. Tool-specific filenames, dependencies, commands, and examples live in the stack pack.
 
@@ -67,7 +67,7 @@ The Markdown contract is the definition; the JavaScript files are bindings. Chan
 
 ## Spec Format And Extraction
 
-A spec is `.skillgrid/specs/YYYY-MM-DD-<topic>/acceptance.feature`. Structure comes from Markdown headings; fences hold steps only.
+A spec is `.skillgrid/change-specs/YYYY-MM-DD-<topic>/acceptance.feature`. Structure comes from Markdown headings; fences hold steps only.
 
 - `# <capability>` is the single H1 title and becomes `Feature:`.
 - `### Requirement: <name>` becomes `Rule:`. Its SHALL/MUST description remains plain prose.
@@ -108,10 +108,10 @@ When drafting or editing Gherkin, follow these rules (folded from the gherkin-au
 ## Runner Invariants
 
 1. `acceptance-tests/` is an independent test project at the repo root. Its hooks boot the application before the suite and shut it down after, so the suite must run with a single command.
-2. The default run executes every `acceptance.feature` under `.skillgrid/specs/`.
+2. The default run executes every `acceptance.feature` under `.skillgrid/change-specs/`.
 3. A green suite is the gate for archive, and archive must never change suite results.
 4. Every test run generates an HTML report under `acceptance-tests/reports/`.
-5. Verify extraction whenever the runner config, extractor, or `.skillgrid/specs/` tree changes.
+5. Verify extraction whenever the runner config, extractor, or `.skillgrid/change-specs/` tree changes.
 
 ## Linting Specs
 
@@ -124,7 +124,7 @@ Spec linting is shared: gherkin-lint over the extracted output with the pinned `
 Before an `acceptance-tests/` project exists, run the extractor from this skill:
 
 ```sh
-node .agents/skills/acceptance-test-authoring/references/javascript/extract-gherkin.cjs .skillgrid/specs acceptance-tests/.extracted \
+node .agents/skills/acceptance-test-authoring/references/javascript/extract-gherkin.cjs .skillgrid/change-specs acceptance-tests/.extracted \
   && npx gherkin-lint --config .agents/skills/acceptance-test-authoring/references/gherkin-lintrc.json acceptance-tests/.extracted
 ```
 
@@ -145,9 +145,9 @@ Implement one pending step definition at a time: run the suite so the step fails
 
 ## Zone Rule
 
-BDD is always on, so the `.skillgrid/specs/` directory is always the **spec zone** and the rest of the codebase is the **code zone**.
+BDD is always on, so the `.skillgrid/change-specs/` directory is always the **spec zone** and the rest of the codebase is the **code zone**.
 
-- Edit `.skillgrid/specs/` **or** code in a single commit — never both uncommitted. The `pre-commit` zone guard (skillgrid:work-unit-commits) enforces this: a commit staging both a spec and code files is blocked.
+- Edit `.skillgrid/change-specs/` **or** code in a single commit — never both uncommitted. The `pre-commit` zone guard (skillgrid:work-unit-commits) enforces this: a commit staging both a spec and code files is blocked.
 - Commit specs before code: the spec is the contract; the code satisfies it.
 - A reviewer reading a PR must be able to see spec changes and code changes as separate, ordered commits.
 

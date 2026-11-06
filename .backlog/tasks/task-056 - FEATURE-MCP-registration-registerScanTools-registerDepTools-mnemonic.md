@@ -13,11 +13,11 @@ dependencies:
   - TASK-054
   - TASK-055
 references:
-  - .skillgrid/specs/2026-10-05-mnemonic-scan-findings/briefing.md
-  - .skillgrid/specs/2026-10-05-mnemonic-scan-findings/blueprint.md
-  - .skillgrid/specs/2026-10-05-mnemonic-scan-findings/tasks.md
+  - .skillgrid/change-specs/2026-10-05-mnemonic-scan-findings/briefing.md
+  - .skillgrid/change-specs/2026-10-05-mnemonic-scan-findings/blueprint.md
+  - .skillgrid/change-specs/2026-10-05-mnemonic-scan-findings/tasks.md
 documentation:
-  - .skillgrid/specs/2026-10-05-mnemonic-scan-findings/briefing.md
+  - .skillgrid/change-specs/2026-10-05-mnemonic-scan-findings/briefing.md
   - .skillgrid/artifacts/04-adr-0030-scan-findings-structured-store.md
 priority: high
 type: feature
@@ -61,7 +61,7 @@ Current State: mcp/server.go registers mem_*/code_*/web_* surfaces only.\n\nExpe
 <!-- COMMENTS:BEGIN -->
 created: 2026-10-07 13:53
 ---
-Wave 4 dispatch 2026-10-07: brief generated (.skillgrid/sdd/tasks/task-07-brief.md). Path correction: package is mnemonic/internal/mcp (NOT internal/mnemonic/mcp). Service construction via openService() -> h.Store(); scan.New(h.Store(), dataDir), dep.New(h.Store().DB).
+Wave 4 dispatch 2026-10-07: brief generated (.skillgrid/meta/.sdd/tasks/task-07-brief.md). Path correction: package is mnemonic/internal/mcp (NOT internal/mnemonic/mcp). Service construction via openService() -> h.Store(); scan.New(h.Store(), dataDir), dep.New(h.Store().DB).
 ---
 
 created: 2026-10-08 06:21

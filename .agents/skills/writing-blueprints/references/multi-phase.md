@@ -1,9 +1,9 @@
 ## Multi-Phase Change Folders
 
-When a blueprint spans multiple phases (e.g. a 4-phase product rollout), split it into one change folder per phase under `.skillgrid/specs/`. Each phase folder is a normal change folder. The spec-folder tree is in `_shared/rules/sdd-structure.md`. There is no `spec.md`.
+When a blueprint spans multiple phases (e.g. a 4-phase product rollout), split it into one change folder per phase under `.skillgrid/change-specs/`. Each phase folder is a normal change folder. The spec-folder tree is in `_shared/rules/sdd-structure.md`. There is no `spec.md`.
 
 ```
-.skillgrid/specs/
+.skillgrid/change-specs/
   YYYY-MM-DD-<feature>/                ← parent blueprint (index only)
     blueprint.md                       ← header + phases table + shared context link
     shared/context.md                  ← hypothesis, must-haves, global constraints, file structure

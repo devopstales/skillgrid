@@ -18,7 +18,7 @@ Own the persistent review record. Record every review round's findings, disposit
 **Core principle:** A finding without a disposition is open. An open finding without a resolving commit is debt. The ledger makes both visible.
 
 **Config:** Read `.skillgrid/config.yaml` before starting.
-- `conventions.specs_root` (default `.skillgrid/specs/`) — the change's artifacts
+- `conventions.specs_root` (default `.skillgrid/change-specs/`) — the change's artifacts
 
 ## When to Use
 
@@ -49,7 +49,7 @@ Frozen candidate:
 
 ### Step 2: Record the Round
 
-Append a round entry to `.skillgrid/specs/<topic>/review-ledger.md`. Create the file if it does not exist.
+Append a round entry to `.skillgrid/change-specs/<topic>/review-ledger.md`. Create the file if it does not exist.
 
 **Round entry format:**
 
@@ -107,7 +107,7 @@ Commit `review-ledger.md` with the review round. Use the `work-unit-commits` pro
 
 ### Step 5: Surface Review Debt (at QA time)
 
-When `skillgrid:qa` runs for a **new** change, it reads `review-ledger.md` files from **prior archived changes** (`.skillgrid/xarchive/*/review-ledger.md`) and surfaces any findings with disposition `parked`:
+When `skillgrid:qa` runs for a **new** change, it reads `review-ledger.md` files from **prior archived changes** (`.skillgrid/change-archive/*/review-ledger.md`) and surfaces any findings with disposition `parked`:
 
 ```
 Review debt from prior changes:
@@ -157,7 +157,7 @@ Per `_shared/craft/measurement.md`.
 | | Indicator | Data source | Direction |
 |---|-----------|-------------|-----------|
 | Leading | % of review findings dispositioned in the same round (not parked) | `review-ledger.md` | should rise |
-| Lagging | Review debt: count of open parked findings across all archived changes | `.skillgrid/xarchive/*/review-ledger.md` | should fall |
+| Lagging | Review debt: count of open parked findings across all archived changes | `.skillgrid/change-archive/*/review-ledger.md` | should fall |
 
 ## Common Rationalizations
 

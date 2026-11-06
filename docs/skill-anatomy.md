@@ -26,7 +26,7 @@ The `description` is what the harness sees to decide *when* to load the skill. I
 - **Third person, present tense.** "Investigates a question…" not "You should use this…".
 
 Good: `Use when a change has passed qa and review and you need to integrate it to its base branch and close its change folder.`
-Bad: `…verify tests on the integrated tree, merge / open a PR / keep the branch, then mechanically move the change folder to .skillgrid/archive/. No release mechanics, no docs check.` (that's the body, not the trigger).
+Bad: `…verify tests on the integrated tree, merge / open a PR / keep the branch, then mechanically move the change folder to .skillgrid/change-archive/. No release mechanics, no docs check.` (that's the body, not the trigger).
 
 ## Body structure
 

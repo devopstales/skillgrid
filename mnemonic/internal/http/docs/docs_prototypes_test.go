@@ -9,13 +9,13 @@ import (
 	"testing"
 )
 
-// seedPrototypes writes two prototype directories under .skillgrid/prototypes/: one with a
+// seedPrototypes writes two prototype directories under .skillgrid/meta/.prototype/: one with a
 // full prototype.md (date + hypothesis + extra file) and one with no prototype.md
 // (WIP) to confirm it is still listed.
 func seedPrototypes(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	base := filepath.Join(root, ".skillgrid", "prototypes")
+	base := filepath.Join(root, ".skillgrid", "meta", ".prototype")
 
 	a := filepath.Join(base, "001-cgo-free-vector-db")
 	if err := os.MkdirAll(a, 0o755); err != nil {
@@ -64,7 +64,7 @@ func TestListPrototypes(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if resp.Source != ".skillgrid/prototypes" {
+	if resp.Source != ".skillgrid/meta/.prototype" {
 		t.Errorf("source = %q", resp.Source)
 	}
 	if resp.Count != 2 || len(resp.Prototypes) != 2 {
@@ -147,7 +147,7 @@ func TestPrototypeFile(t *testing.T) {
 // exists; otherwise a spec that cites the prototype directory does.
 func TestPrototypeChangeLinks(t *testing.T) {
 	root := t.TempDir()
-	proto := filepath.Join(root, ".skillgrid", "prototypes")
+	proto := filepath.Join(root, ".skillgrid", "meta", ".prototype")
 	explicit := filepath.Join(proto, "002-dashboard-variants")
 	cited := filepath.Join(proto, "001-mockup")
 	if err := os.MkdirAll(explicit, 0o755); err != nil {
@@ -156,10 +156,10 @@ func TestPrototypeChangeLinks(t *testing.T) {
 	if err := os.MkdirAll(cited, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(root, ".skillgrid", "archive", "2026-09-08-web-admin-dashboard"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, ".skillgrid", "change-archive", "2026-09-08-web-admin-dashboard"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	spec := filepath.Join(root, ".skillgrid", "specs", "2026-10-02-mnemonic-webui-rewrite")
+	spec := filepath.Join(root, ".skillgrid", "change-specs", "2026-10-02-mnemonic-webui-rewrite")
 	if err := os.MkdirAll(spec, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestPrototypeChangeLinks(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cited, "prototype.md"), []byte("# Prototype\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(spec, "briefing.md"), []byte("Evidence: `.skillgrid/prototypes/001-mockup/`\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(spec, "briefing.md"), []byte("Evidence: `.skillgrid/meta/.prototype/001-mockup/`\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -197,7 +197,7 @@ func TestPrototypeChangeLinks(t *testing.T) {
 	}
 }
 
-// Missing .skillgrid/prototypes root → 404.
+// Missing .skillgrid/meta/.prototype root → 404.
 func TestListPrototypesMissing(t *testing.T) {
 	h := NewPrototypes(t.TempDir())
 	rr := httptest.NewRecorder()

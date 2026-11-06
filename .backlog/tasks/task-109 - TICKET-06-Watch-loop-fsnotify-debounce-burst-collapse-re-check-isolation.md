@@ -16,7 +16,7 @@ priority: high
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-See .skillgrid/specs/2026-10-31-mnemonic-v2-code-index/tasks.md TICKET-06 for scope/acceptance/ownership.
+See .skillgrid/change-specs/2026-10-31-mnemonic-v2-code-index/tasks.md TICKET-06 for scope/acceptance/ownership.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Definition of Done

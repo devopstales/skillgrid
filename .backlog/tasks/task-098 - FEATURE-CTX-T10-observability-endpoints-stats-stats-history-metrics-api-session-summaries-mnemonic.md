@@ -16,12 +16,12 @@ dependencies:
   - TASK-091
   - TASK-097
 references:
-  - .skillgrid/specs/2026-10-08-context-orchestrator/briefing.md
-  - .skillgrid/specs/2026-10-08-context-orchestrator/tasks.md
-  - .skillgrid/specs/2026-10-08-context-orchestrator/acceptance.feature
+  - .skillgrid/change-specs/2026-10-08-context-orchestrator/briefing.md
+  - .skillgrid/change-specs/2026-10-08-context-orchestrator/tasks.md
+  - .skillgrid/change-specs/2026-10-08-context-orchestrator/acceptance.feature
 documentation:
-  - .skillgrid/specs/2026-10-08-context-orchestrator/briefing.md
-  - .skillgrid/specs/2026-10-08-context-orchestrator/tasks.md
+  - .skillgrid/change-specs/2026-10-08-context-orchestrator/briefing.md
+  - .skillgrid/change-specs/2026-10-08-context-orchestrator/tasks.md
 modified_files:
   - mnemonic/internal/http/ctx.go
   - mnemonic/internal/http/ctx_t10_test.go

@@ -1,6 +1,6 @@
 # ADR Review Manifest
 
-> Copy to `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md` — one per change,
+> Copy to `.skillgrid/change-specs/YYYY-MM-DD-<topic>/adr.md` — one per change,
 > alongside `briefing.md` / `blueprint.md` / `tasks.md`. This is the change's
 > ADR completion marker: it proves the in-force decisions were reviewed and
 > records which new ADR entries (if any) this change introduced. It holds *pointers*

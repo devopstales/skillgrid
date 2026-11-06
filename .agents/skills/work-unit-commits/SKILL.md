@@ -27,7 +27,7 @@ so a fresh session resumes from git log plus the session's events.
 **Announce at start:** "I'm using the skillgrid:work-unit-commits skill for commit discipline."
 
 **Config:** Read `.skillgrid/config.yaml`. Use `conventions.commit_style`
-(`conventional` by default) and `conventions.scratch_dir` (`.skillgrid/sdd`).
+(`conventional` by default) and `conventions.scratch_dir` (`.skillgrid/meta/.sdd`).
 
 **Fully active by default** during `skillgrid:simple-execution` and
 `skillgrid:subagent-execution` — every work-unit commit follows this protocol.
@@ -94,7 +94,7 @@ The `commit-msg` hook rejects a non-conventional subject and any
 - **Independently revertable:** prefer additive changes; do not delete something
   and replace it in the same commit — split into a delete commit and an add
   commit.
-- **Spec before code (zone rule, BDD is always on):** commit `.skillgrid/specs/`
+- **Spec before code (zone rule, BDD is always on):** commit `.skillgrid/change-specs/`
   changes *before* the code that satisfies them. Never leave both uncommitted.
 - **Commit first, then review.** Review diffs `merge-base...HEAD`; an uncommitted
   change is invisible to it. Commit, review, then amend or add a fixup.
@@ -137,7 +137,7 @@ one is a one-line change in `checkpoint-state.js`.
 |------|-------|----------------------|---------|
 | `pre-commit` | **cwd-drift** (precommit-guard.js) | a prior `cd` left the worktree root; sentinel catches it | FATAL + RECOVERY `cd` |
 | `pre-commit` | **protected-ref / detached HEAD** (precommit-guard.js) | never commit on `main`/`master`/`develop`/`trunk`/`release/*` or detached; worktree branch must be per-agent (`agent-*`, `worktree-agent-*`, `worktree-wf_*`) | FATAL + RECOVERY |
-| `pre-commit` | **spec-zone XOR code-zone** (precommit-zone-guard.js) | BDD zone rule — commit `.skillgrid/specs/` before code, never both in one commit (simple-execution, subagent-execution, acceptance-test-authoring, qa, writing-blueprints) | FATAL + split-into-two RECOVERY |
+| `pre-commit` | **spec-zone XOR code-zone** (precommit-zone-guard.js) | BDD zone rule — commit `.skillgrid/change-specs/` before code, never both in one commit (simple-execution, subagent-execution, acceptance-test-authoring, qa, writing-blueprints) | FATAL + split-into-two RECOVERY |
 | `pre-commit` | **generated/scratch not tracked** (precommit-ignore-guard.js) | `acceptance-tests/.extracted/` and the worktree dir stay untracked (acceptance-test-authoring, isolated-workspace) | auto-adds to `.gitignore` + unstages + FATAL |
 | `commit-msg` | **conventional subject + no AI-attribution trailer** | commit format (work-unit-commits, branch-pr convention) | FATAL + RECOVERY |
 | `commit-msg` | **tracker footer format** (ticketing) | a `Refs:`/`Closes:`/`Fixes:`/`Resolves:` footer must carry a parseable Tracker ID (`TASK-069`, `#42`, `PROJ-123`); footers stay optional, absence passes | FATAL + RECOVERY |
@@ -224,7 +224,7 @@ events-first resume flow.
 
 - A commit mixing a feature, a refactor, and a config change.
 - A `Co-Authored-By` or `Generated-By` trailer in a commit message.
-- `.skillgrid/specs/` and code committed in the same commit.
+- `.skillgrid/change-specs/` and code committed in the same commit.
 - Committing on `main`/`master`/`develop`/`trunk`/`release/*` or a detached HEAD.
 - A broken test or mid-edit state committed as a "checkpoint".
 - A work-unit commit with no `[skillgrid-context]` block.

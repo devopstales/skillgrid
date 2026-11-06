@@ -10,8 +10,8 @@ milestone: 2026-10-02-mnemonic-llm-provider
 dependencies:
   - TASK-039.01
 references:
-  - .skillgrid/specs/2026-10-02-mnemonic-llm-provider/blueprint.md
-  - .skillgrid/specs/2026-10-02-mnemonic-llm-provider/acceptance.feature
+  - .skillgrid/change-specs/2026-10-02-mnemonic-llm-provider/blueprint.md
+  - .skillgrid/change-specs/2026-10-02-mnemonic-llm-provider/acceptance.feature
 parent_task_id: TASK-039
 priority: high
 type: feature

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * state-drift-check.mjs — read-only drift guard for .skillgrid/state.yaml.
+ * state-drift-check.mjs — read-only drift guard for .skillgrid/meta/state.yaml.
  *
- * Compares state.yaml against the spec zone (.skillgrid/specs/) and reports
+ * Compares state.yaml against the spec zone (.skillgrid/change-specs/) and reports
  * a named drift verdict. Does NOT own the write — pipeline skills keep
  * writing state.yaml directly; this guard owns the verification.
  *
@@ -254,7 +254,7 @@ function printDrift(drifts, scope) {
   console.log("");
   console.log(`SCOPE: ${scope}`);
   console.log(
-    "Fix: update .skillgrid/state.yaml to match the spec-zone artifacts (changes map in v2)."
+    "Fix: update .skillgrid/meta/state.yaml to match the spec-zone artifacts (changes map in v2)."
   );
 }
 

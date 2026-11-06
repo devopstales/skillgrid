@@ -72,16 +72,16 @@ reference `~/.agents/skills/_shared/rules/sdd-structure.md`
 This project is configured with Skillgrid. Project: **skillgrid-v2**.
 
 Config: `.skillgrid/config.yaml` (static) — read it before running any Skillgrid skill.
-State: `.skillgrid/state.yaml` (dynamic) — where the project is right now (phase, current change, progress).
+State: `.skillgrid/meta/state.yaml` (dynamic) — where the project is right now (phase, current change, progress).
 
 ### Artifacts
 
 | Artifact | Path |
 |----------|------|
-| Project knowledge (PRD, architecture, terms, ADRs, research) | `.skillgrid/` (OKF bundle: `decisions/` `invariants/` `glossary/` `reference/` `workflows/`) |
-| Project state (phase, current change, progress) | `.skillgrid/state.yaml` |
-| Specs (briefing, blueprint, tasks) | `.skillgrid/specs/` |
-| Execution ledger | `.skillgrid/sdd/` (gitignored) |
+| Project knowledge (PRD, architecture, terms, ADRs, research) | `.skillgrid/knowledge/` (OKF bundle: `decisions/` `invariants/` `workflows/` `architecture/` `gotchas/` `glossary/` + derived `index/`) |
+| Project state (phase, current change, progress) | `.skillgrid/meta/state.yaml` |
+| Specs (briefing, blueprint, tasks) | `.skillgrid/change-specs/` |
+| Execution ledger | `.skillgrid/meta/.sdd/` (gitignored) |
 
 **Domain model:** read the vocabulary + ADRs under `.skillgrid/` (`glossary/` + `decisions/`, index: `index.md`) before designing or implementing. The ADR index is `.skillgrid/knowledge/ASSUMPTIONS.md` § `LOCKED`; open the linked file for the full Context / Decision / Consequences.
 

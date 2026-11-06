@@ -170,21 +170,21 @@ The change folder moves from `specs/` (active) to a top-level `xarchive/` (close
 # The snapshot is recursive and MUST be created BEFORE the move.
 snapshot_root="$(mktemp -d "${TMPDIR:-/tmp}/ship.move.XXXXXX")"
 trap 'rm -rf -- "$snapshot_root"' EXIT
-cp -R ".skillgrid/specs/YYYY-MM-DD-<topic>" "$snapshot_root/source"
+cp -R ".skillgrid/change-specs/YYYY-MM-DD-<topic>" "$snapshot_root/source"
 
 # Mechanical move (MANDATORY): git mv when tracked, mv otherwise.
-mkdir -p .skillgrid/xarchive
-if ! git mv ".skillgrid/specs/YYYY-MM-DD-<topic>" ".skillgrid/xarchive/YYYY-MM-DD-<topic>"; then
-  mv ".skillgrid/specs/YYYY-MM-DD-<topic>" ".skillgrid/xarchive/YYYY-MM-DD-<topic>" || exit $?
+mkdir -p .skillgrid/change-archive
+if ! git mv ".skillgrid/change-specs/YYYY-MM-DD-<topic>" ".skillgrid/change-archive/YYYY-MM-DD-<topic>"; then
+  mv ".skillgrid/change-specs/YYYY-MM-DD-<topic>" ".skillgrid/change-archive/YYYY-MM-DD-<topic>" || exit $?
 fi
 
 # The source must be gone before comparing the archived tree to its snapshot.
-if [ -e ".skillgrid/specs/YYYY-MM-DD-<topic>" ] || [ -L ".skillgrid/specs/YYYY-MM-DD-<topic>" ]; then
+if [ -e ".skillgrid/change-specs/YYYY-MM-DD-<topic>" ] || [ -L ".skillgrid/change-specs/YYYY-MM-DD-<topic>" ]; then
   printf 'archive move left the source directory in place\n' >&2; exit 1
 fi
 
 # MANDATORY readback: only an empty diff passes.
-diff -r "$snapshot_root/source" ".skillgrid/xarchive/YYYY-MM-DD-<topic>"
+diff -r "$snapshot_root/source" ".skillgrid/change-archive/YYYY-MM-DD-<topic>"
 diff_status=$?
 [ "$diff_status" -ne 0 ] && exit "$diff_status"
 ```

@@ -58,7 +58,7 @@ Source: Ousterhout, *A Philosophy of Software Design* (2nd ed.) in conversation 
 
 The pipeline is SDD: `onboarding → interviewing → writing-blueprints → slicing → [approval gate] → apply ⇄ qa → ticketing`.
 
-- **Specs are the source of truth**, not the chat. The change's contract lives under `.skillgrid/specs/…` (`briefing.md`, `acceptance.feature`, `blueprint.md`, `tasks.md`) and is what verify/QA trace back to.
+- **Specs are the source of truth**, not the chat. The change's contract lives under `.skillgrid/change-specs/…` (`briefing.md`, `acceptance.feature`, `blueprint.md`, `tasks.md`) and is what verify/QA trace back to.
 - **A written change contract before code.** Blueprint + sliced tasks + Gherkin acceptance exist and are approved *before* implementation starts.
 - **A human approval gate** after spec, never auto-skipped.
 - **Evidence-based verify.** The QA gate runs oracles and traces to scenarios; findings re-enter apply.
@@ -134,7 +134,7 @@ The pipeline's shared "domain model" home. `architectural-decision-records`: "Ac
     └── qa-report.md     # test plan + 4-state gate + evidence
 ```
 
-A change is a single dated folder under `.skillgrid/specs/` that is sliced, executed, QA'd, and shipped as one unit. When a blueprint is large enough to warrant phase separation (4+ phases or 20+ tasks), it splits into one folder per phase as siblings, plus a parent index folder — see [Multi-phase changes](01-layout.md#multi-phase-changes) in the Layout reference.
+A change is a single dated folder under `.skillgrid/change-specs/` that is sliced, executed, QA'd, and shipped as one unit. When a blueprint is large enough to warrant phase separation (4+ phases or 20+ tasks), it splits into one folder per phase as siblings, plus a parent index folder — see [Multi-phase changes](01-layout.md#multi-phase-changes) in the Layout reference.
 
 ### Glossary
 
@@ -342,7 +342,7 @@ Gherkin-in-Markdown: "Markdown headings carry the capability, requirement, and s
 
 **Scenario classification** is by naming prefix, not Gherkin tags: `happy path` / `edge` / `failure`. "Every requirement has ≥1 happy + edge + failure scenario." Priority `@p0`/`@p1` and trace markers `@step-NN` live in the blueprint/tasks `SATISFIES` field, not in the Gherkin.
 
-**Zone rule (recurring):** "BDD is always on (non-negotiable, like TDD) — `bdd.enabled` is always `true`." `.skillgrid/specs/` is always the **spec zone**; the rest is the **code zone**. "Edit `.skillgrid/specs/` or code in a single commit — never both uncommitted. Commit specs before code." Enforced by the `pre-commit` zone guard.
+**Zone rule (recurring):** "BDD is always on (non-negotiable, like TDD) — `bdd.enabled` is always `true`." `.skillgrid/change-specs/` is always the **spec zone**; the rest is the **code zone**. "Edit `.skillgrid/change-specs/` or code in a single commit — never both uncommitted. Commit specs before code." Enforced by the `pre-commit` zone guard.
 
 ## ADRs: styles, immutability, manifest (architectural-decision-records)
 
@@ -436,10 +436,10 @@ Two durable layers, plus the spec-zone artifacts that name the phase:
 
 | Layer | File | Answers | Lifetime |
 |-------|------|---------|----------|
-| **Task** | `.skillgrid/sdd/<plan>/progress.md` | Which task done? What was ruled? | Git-ignored; deleted when review clean |
-| **Code** | `.skillgrid/sdd/checkpoint.json` (derived from git log + `[skillgrid-context]`) | Where in code did the last unit leave off? What task / decisions / remaining? | Derived; always reconstructable |
+| **Task** | `.skillgrid/meta/.sdd/<plan>/progress.md` | Which task done? What was ruled? | Git-ignored; deleted when review clean |
+| **Code** | `.skillgrid/meta/.sdd/checkpoint.json` (derived from git log + `[skillgrid-context]`) | Where in code did the last unit leave off? What task / decisions / remaining? | Derived; always reconstructable |
 
-The **phase** is not a separate file — it is read from which spec-zone artifacts exist in `.skillgrid/specs/YYYY-MM-DD-<topic>/`:
+The **phase** is not a separate file — it is read from which spec-zone artifacts exist in `.skillgrid/change-specs/YYYY-MM-DD-<topic>/`:
 
 | Artifacts present | Phase |
 |---|---|
@@ -461,7 +461,7 @@ Resume: "On resume: locate the in-flight topic, read the layers (ledger + checkp
 3. **Hypothesis and Testing** — "Form a single hypothesis … 'I think X is the root cause because Y.' Test minimally, one variable at a time. Didn't work? Form a NEW hypothesis. DON'T add more fixes on top."
 4. **Implementation** — "Create a failing test case (MUST have before fixing) … Implement a single fix. No 'while I'm here' improvements. Verify the fix with `test-driven-verification`."
 
-**The 3-fix rule:** "If < 3: Return to Phase 1, re-analyze. **If ≥ 3: STOP and question the architecture** — DON'T attempt Fix #4 without architectural discussion." Red flag: **"'One more fix attempt' (when already tried 2+)."** "This is NOT a failed hypothesis — this is a wrong architecture." The debug state trail is written to `.skillgrid/sdd/debug/<date>-<slug>/state.md` (`hypothesis | evidence | verdict`), git-ignored, survives compaction. "On root cause: if the cause is a design decision, record an ADR; if it is a bug, the TDD evidence in the fix commit is the durable record."
+**The 3-fix rule:** "If < 3: Return to Phase 1, re-analyze. **If ≥ 3: STOP and question the architecture** — DON'T attempt Fix #4 without architectural discussion." Red flag: **"'One more fix attempt' (when already tried 2+)."** "This is NOT a failed hypothesis — this is a wrong architecture." The debug state trail is written to `.skillgrid/meta/.sdd/debug/<date>-<slug>/state.md` (`hypothesis | evidence | verdict`), git-ignored, survives compaction. "On root cause: if the cause is a design decision, record an ADR; if it is a bug, the TDD evidence in the fix commit is the durable record."
 
 This "3 rounds then escalate" mirrors the QA fix-loop cap — both cap iteration at 3 and route to a human/architecture question.
 
@@ -479,7 +479,7 @@ This "3 rounds then escalate" mirrors the QA fix-loop cap — both cap iteration
 
 ## `findings.md` — consolidated pre-design evidence
 
-"The consolidated file is the single downstream contract that `writing-blueprints` reads — it carries the research, prototype, and sketch evidence for the topic in one place." At `.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md` (`# Findings — <topic>` header): research / code-research appends `## Research: <question>` (cited findings, source appendix, confidence per claim); prototype appends `## Prototype: NNN-name` (Verdict / What we learned / What's liftable / Constraints for the build); sketch appends `## Sketch: NNN-name` (Winner / Rationale / What's liftable / Constraints / Mode). "Every design decision in the blueprint that rests on a research fact, a feasibility result, or a chosen layout must cite it."
+"The consolidated file is the single downstream contract that `writing-blueprints` reads — it carries the research, prototype, and sketch evidence for the topic in one place." At `.skillgrid/change-specs/YYYY-MM-DD-<topic>/findings.md` (`# Findings — <topic>` header): research / code-research appends `## Research: <question>` (cited findings, source appendix, confidence per claim); prototype appends `## Prototype: NNN-name` (Verdict / What we learned / What's liftable / Constraints for the build); sketch appends `## Sketch: NNN-name` (Winner / Rationale / What's liftable / Constraints / Mode). "Every design decision in the blueprint that rests on a research fact, a feasibility result, or a chosen layout must cite it."
 
 ## Branch finishing
 
@@ -608,7 +608,7 @@ subagent-execution decomposes a plan into **leaves (tasks) under branches (share
 
 **The Page Object Model:** "Step definitions must read as intent; all UI knowledge lives in page objects." Page objects live under `acceptance-tests/support/pages/`, one per screen/flow, encapsulating routes, form field names, selectors, and ids; they expose intent-level methods (`open()`, `submit_signup(...)`, `error_message()`). "Parse responses with the stack's HTML parser, never with regexes over raw HTML" (cucumber-js: `cheerio`). "Step definitions contain no selectors, regexes, or URLs; only page-object calls and assertions."
 
-**The 5 runner invariants:** (1) `acceptance-tests/` is an independent test project; its hooks boot the app before the suite and shut it down after, so the suite runs with a single command. (2) The default run executes every `acceptance.feature` under `.skillgrid/specs/`. (3) "A green suite is the gate for archive, and archive must never change suite results." (4) Every run generates an HTML report under `acceptance-tests/reports/`. (5) Verify extraction whenever the runner config, extractor, or `.skillgrid/specs/` tree changes.
+**The 5 runner invariants:** (1) `acceptance-tests/` is an independent test project; its hooks boot the app before the suite and shut it down after, so the suite runs with a single command. (2) The default run executes every `acceptance.feature` under `.skillgrid/change-specs/`. (3) "A green suite is the gate for archive, and archive must never change suite results." (4) Every run generates an HTML report under `acceptance-tests/reports/`. (5) Verify extraction whenever the runner config, extractor, or `.skillgrid/change-specs/` tree changes.
 
 **Workflow cadence:** "Implement one pending step definition at a time: run the suite so the step fails for the right reason, implement until it passes, then commit. The suite's red scenarios at propose time are the change's work list." "Finish only when every scenario passes with zero pending or undefined steps and the HTML report is generated."
 
@@ -634,7 +634,7 @@ releases. Stale threshold: 2 hours. It warns, never blocks.
 - **A rule asks; a hook guarantees.** When an invariant is non-negotiable, wire a hook — see [Hooks](04-hooks.md).
 - **The smart zone (≤ ~40% context).** Keep the orchestrator under ~40% of the window; offload dumps/reads/research/implementation to subagents, files, Mnemonic. See [Multi-agent work](06-multi-agent-work.md).
 - **Vertical slices over horizontal layers.** Thin end-to-end paths, not "all DB then all API then all UI."
-- **Spec zone XOR code zone.** Commit `.skillgrid/specs/` before the code that satisfies it — never both uncommitted.
+- **Spec zone XOR code zone.** Commit `.skillgrid/change-specs/` before the code that satisfies it — never both uncommitted.
 - **Durable state over chat memory.** Files win over conversation memory, every time.
 - **Never edit the expectation to match the code.** Fix the code.
 

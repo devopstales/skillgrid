@@ -7,7 +7,7 @@ date: 2026-10-02
 ---
 
 # Mnemonic chat LLM is OpenAI-compatible HTTP only; one client attaches all seams
-**Related:** `04-adr-0016-second-brain-capability-layer.md` (fail-open floors and existing Ask/Dedup/Extraction/Dream seams). Spec: `.skillgrid/specs/2026-10-02-mnemonic-llm-provider/`. Roadmap P2 item J in `08-second-brain-roadmap.md`. Closes FOLLOWUP task-029.
+**Related:** `04-adr-0016-second-brain-capability-layer.md` (fail-open floors and existing Ask/Dedup/Extraction/Dream seams). Spec: `.skillgrid/change-specs/2026-10-02-mnemonic-llm-provider/`. Roadmap P2 item J in `08-second-brain-roadmap.md`. Closes FOLLOWUP task-029.
 
 ## Context and Problem Statement
 

@@ -19,7 +19,7 @@ Scanner output (trivy/vuln+sbom, wapiti, nuclei, semgrep) needs a durable home s
 **Option A — structured `scan_*`/`dep_*` tables + dedicated MCP tools.**
 
 - `scans` (one row per invocation), `findings` (+ FTS5) per finding, `dependencies` upserted by `purl`, `dep_edges` for `depends_on`, and the runtime import tree reusing the code index `edges` table (no new extraction pass).
-- Raw artifacts stored as files under `<data_dir>/.skillgrid/cache/scans/<scan_id>.json`, mirroring `webcache`.
+- Raw artifacts stored as files under `<data_dir>/.skillgrid/meta/.cache/scans/<scan_id>.json`, mirroring `webcache`.
 
 ### Why not the alternatives
 

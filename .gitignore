@@ -24,15 +24,16 @@ skillgrid-cli/out/
 .atl/
 .gitworktree/
 .worktrees/
-# .skillgrid: specs/ (active) + archive/ (closed) are committed; only scratch is ignored.
-.skillgrid/sdd/
+# .skillgrid: change-specs/ (active) + change-archive/ (closed) are committed;
+# meta/ holds machine state (.sdd/ and .cache/ are gitignored).
+.skillgrid/meta/.sdd/
 .skillgrid/.cleave/
  .skillgrid/brainstorm/
-.skillgrid/cache/
+.skillgrid/meta/.cache/
 # okf-lint.mjs telemetry sink (repocodex metrics.jsonl pattern); operational
 # artifact, not memory. Repo-root-scoped: the guard itself runs on fixtures,
 # so its default sink lands under <fixture>/.skillgrid/ on manual runs.
-/.skillgrid/okf-metrics.jsonl
+/.skillgrid/meta/okf-metrics.jsonl
 
  ###############################
 # CocoIndex Code (ccc)

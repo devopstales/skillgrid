@@ -50,7 +50,7 @@ costs more than it finds when the question has a single dimension.
 ## Config
 
 Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root`
-(default `.skillgrid/specs`) for the findings location. Use the `research` block
+(default `.skillgrid/change-specs`) for the findings location. Use the `research` block
 when present: `research.code_research_preset` (default `standard`) sets the
 effort. If the `mnemonic` block is enabled, check `web_cache_lookup` before
 fetching and `web_cache_save` after, and `mem_save` the findings under

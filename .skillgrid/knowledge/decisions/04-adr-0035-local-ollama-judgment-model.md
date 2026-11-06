@@ -14,7 +14,7 @@ fast, structured-output model that makes keep / truncate / compress-tier
 decisions on context units. It NEVER deletes and NEVER rewrites prose
 (deletion is a code-level decision; PrefixGuard). The plan named it
 "Jev-class" without pinning the model or the endpoint. The local Ollama catalog
-(verified, `.skillgrid/archive/2026-10-03-local-ollama-models/findings.md`)
+(verified, `.skillgrid/change-archive/2026-10-03-local-ollama-models/findings.md`)
 offers `tev1:0.8b` (decision, 797MB), `clef-flash` (9B), `llama3.2:1b`, and
 `embeddinggemma:300m`.
 

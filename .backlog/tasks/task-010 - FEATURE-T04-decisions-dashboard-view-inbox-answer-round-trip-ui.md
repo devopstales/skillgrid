@@ -11,10 +11,10 @@ dependencies:
   - TASK-008
   - TASK-009
 references:
-  - .skillgrid/specs/2026-09-19-embed-visual-companion/tasks.md
-  - .skillgrid/specs/2026-09-19-embed-visual-companion/briefing.md
+  - .skillgrid/change-specs/2026-09-19-embed-visual-companion/tasks.md
+  - .skillgrid/change-specs/2026-09-19-embed-visual-companion/briefing.md
 documentation:
-  - .skillgrid/specs/2026-09-19-embed-visual-companion/blueprint.md
+  - .skillgrid/change-specs/2026-09-19-embed-visual-companion/blueprint.md
 priority: high
 type: feature
 ---

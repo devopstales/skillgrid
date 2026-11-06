@@ -10,11 +10,11 @@ labels:
 milestone: 2026-09-24-mnemonic-memory-improvements
 dependencies: []
 references:
-  - .skillgrid/specs/2026-09-24-mnemonic-memory-improvements/briefing.md
-  - .skillgrid/specs/2026-09-24-mnemonic-memory-improvements/tasks.md
-  - .skillgrid/specs/2026-09-24-mnemonic-memory-improvements/blueprint.md
+  - .skillgrid/change-specs/2026-09-24-mnemonic-memory-improvements/briefing.md
+  - .skillgrid/change-specs/2026-09-24-mnemonic-memory-improvements/tasks.md
+  - .skillgrid/change-specs/2026-09-24-mnemonic-memory-improvements/blueprint.md
 documentation:
-  - .skillgrid/specs/2026-09-24-mnemonic-memory-improvements/acceptance.feature
+  - .skillgrid/change-specs/2026-09-24-mnemonic-memory-improvements/acceptance.feature
 priority: high
 type: feature
 ---

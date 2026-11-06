@@ -19,7 +19,7 @@
 // SAME resolved gate state and makes no progress, release after MAX_BLOCKS to
 // avoid trapping a session on a genuinely-impossible gate. The guard keys on a
 // hash of the resolved state (met/unmet/abandoned/missing), NOT raw spec bytes —
-// a comment edit must not re-arm it. State lives in .skillgrid/sdd/gate-stop-state.json.
+// a comment edit must not re-arm it. State lives in .skillgrid/meta/.sdd/gate-stop-state.json.
 //
 // This is an AGENT harness hook (Stop event), not a git hook. The harness feeds
 // session JSON on stdin; we read session_id for the guard key. Staged to
@@ -53,7 +53,7 @@ let sessionId = (readStdin().match(/"session_id"\s*:\s*"([^"]+)"/) || [])[1] || 
 
 const ROOT = git('rev-parse', '--show-toplevel').stdout.trim();
 if (!ROOT) process.exit(0);
-const STATE_FILE = `${ROOT}/.skillgrid/sdd/gate-stop-state.json`;
+const STATE_FILE = `${ROOT}/.skillgrid/meta/.sdd/gate-stop-state.json`;
 
 // 24-char sha256, no external dependency.
 function hash24(s) {

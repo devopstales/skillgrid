@@ -1,6 +1,6 @@
 # Report — <feature>
 
-> Change: `.skillgrid/specs/YYYY-MM-DD-<topic>/` (moves to `.skillgrid/xarchive/YYYY-MM-DD-<topic>/` at ship)
+> Change: `.skillgrid/change-specs/YYYY-MM-DD-<topic>/` (moves to `.skillgrid/change-archive/YYYY-MM-DD-<topic>/` at ship)
 > Generated: <ISO 8601 timestamp> (qa)
 > Gate: PASS / CONCERNS / FAIL / WAIVED
 >
@@ -242,7 +242,7 @@
 
 ## State Drift
 
-> `node .agents/skills/qa/scripts/state-drift-check.mjs` — compares `.skillgrid/state.yaml`
+> `node .agents/skills/qa/scripts/state-drift-check.mjs` — compares `.skillgrid/meta/state.yaml`
 > against the spec zone. Read-only; never CRITICAL, never affects the
 > verdict.
 
@@ -421,7 +421,7 @@ MISSING_RED / UNREADABLE, the floor caps the gate accordingly.>
 
 ## Move Evidence (from ship context)
 
-**From:** `.skillgrid/specs/YYYY-MM-DD-<topic>/` → **To:** `.skillgrid/xarchive/YYYY-MM-DD-<topic>/`
+**From:** `.skillgrid/change-specs/YYYY-MM-DD-<topic>/` → **To:** `.skillgrid/change-archive/YYYY-MM-DD-<topic>/`
 **`diff -r` readback:** <empty → PASS | verbatim output → FAIL>
 
 ## Overrides / Waivers / Contradictions

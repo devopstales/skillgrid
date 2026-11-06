@@ -11,10 +11,10 @@ import (
 // benchmark-touching commits.
 func TestQuerySetNoiseDrops(t *testing.T) {
 	cases := []struct {
-		subject   string
-		kept      bool
-		files     []string
-		why       string
+		subject string
+		kept    bool
+		files   []string
+		why     string
 	}{
 		{"fix: correct retry backoff in http client", true, []string{"internal/http/client.go"}, "genuine code change kept"},
 		{"Merge branch 'feat/foo' into main", false, []string{"internal/http/client.go"}, "merge dropped"},
@@ -65,7 +65,7 @@ func TestCorpusExcludes(t *testing.T) {
 		{"skillgrid-cli/internal/mnemonic/eval/metrics_test.go", false},
 		{"internal/mnemonic/hybrid/rank.go", true},
 		{"internal/http/client.go", true},
-		{".skillgrid/sdd/008-mnemonic-community-knowledge-graph/eval/fixture.go", false},
+		{".skillgrid/meta/.sdd/008-mnemonic-community-knowledge-graph/eval/fixture.go", false},
 	}
 	for _, c := range cases {
 		got := !ExcludedFromCorpus(c.path)

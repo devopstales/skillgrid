@@ -27,7 +27,7 @@ func TestPhase7_OpenAPI(t *testing.T) {
 	for _, want := range []string{
 		"/prototypes:",
 		"operationId: prototypesList",
-		".skillgrid/prototypes",
+		".skillgrid/meta/.prototype",
 		"/prototype/{id...}:",
 		"operationId: prototypeDecision",
 		"text/html",

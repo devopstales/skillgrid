@@ -9,9 +9,9 @@ labels: []
 milestone: 2026-09-19-embed-visual-companion
 dependencies: []
 references:
-  - .skillgrid/specs/2026-09-19-embed-visual-companion/tasks.md
-  - .skillgrid/specs/2026-09-19-embed-visual-companion/blueprint.md
-  - .skillgrid/specs/2026-09-19-embed-visual-companion/briefing.md
+  - .skillgrid/change-specs/2026-09-19-embed-visual-companion/tasks.md
+  - .skillgrid/change-specs/2026-09-19-embed-visual-companion/blueprint.md
+  - .skillgrid/change-specs/2026-09-19-embed-visual-companion/briefing.md
 priority: high
 type: feature
 ---

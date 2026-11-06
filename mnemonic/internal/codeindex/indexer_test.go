@@ -280,7 +280,7 @@ func TestScanDocIncludeCarveOut(t *testing.T) {
 	adrDir := filepath.Join(root, ".skillgrid", "decisions")
 	mustWrite(t, filepath.Join(adrDir, "04-adr-0001-decision.md"), "# D\n\nbody\n")
 	// A .skillgrid file outside the DocInclude glob (.yaml): stays excluded.
-	mustWrite(t, filepath.Join(root, ".skillgrid", "state.yaml"), "k: v\n")
+	mustWrite(t, filepath.Join(root, ".skillgrid", "meta", "state.yaml"), "k: v\n")
 	// A normal Go file: indexed via the include.
 	mustWrite(t, filepath.Join(root, "main.go"), "package main\n")
 
@@ -298,7 +298,7 @@ func TestScanDocIncludeCarveOut(t *testing.T) {
 	if !got[".skillgrid/decisions/04-adr-0001-decision.md"] {
 		t.Errorf("DocInclude ADR not indexed: %v", files)
 	}
-	if got[".skillgrid/state.yaml"] {
+	if got[".skillgrid/meta/state.yaml"] {
 		t.Errorf("excluded .yaml under .skillgrid was indexed")
 	}
 	if !got["main.go"] {

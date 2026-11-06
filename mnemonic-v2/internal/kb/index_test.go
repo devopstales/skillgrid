@@ -85,3 +85,35 @@ func TestPageTitleFallback(t *testing.T) {
 		t.Fatalf("empty: got %q", got)
 	}
 }
+
+func TestCollectPagesWhitelistScope(t *testing.T) {
+	vault := t.TempDir()
+	writeVaultPage(t, vault, "decisions/auth-model.md", "body a")
+	writeVaultPage(t, vault, "invariants/grace.md", "body b")
+	writeVaultPage(t, vault, "index/catalog.md", "derived projection")
+	writeVaultPage(t, vault, "templates/decision.md", "a template")
+	writeVaultPage(t, vault, "ARCHITECTURE.md", "vault-root doc")
+	writeVaultPage(t, vault, "KNOWLEDGE_SCHEMA.md", "schema")
+	writeVaultPage(t, vault, "trajectories/TRJ-2026-01-01-001/extracted.md", "packet")
+	writeVaultPage(t, vault, ".obsidian/app.md", "obsidian state")
+	writeVaultPage(t, vault, "gotchas/skipme.md", "ignored by .knowledgeignore")
+	if err := os.WriteFile(filepath.Join(vault, ".knowledgeignore"),
+		[]byte("# boundary\ngotchas/skipme.md\n"), 0o644); err != nil {
+		t.Fatalf("write ignore: %v", err)
+	}
+
+	pages, err := collectPages(vault)
+	if err != nil {
+		t.Fatalf("collectPages: %v", err)
+	}
+	got := map[string]bool{}
+	for _, p := range pages {
+		got[p.RelPath] = true
+	}
+	if len(pages) != 2 {
+		t.Fatalf("collected %d pages, want 2: %v", len(pages), got)
+	}
+	if !got["decisions/auth-model.md"] || !got["invariants/grace.md"] {
+		t.Fatalf("in-scope pages missing: %v", got)
+	}
+}

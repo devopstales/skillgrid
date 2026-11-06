@@ -10,9 +10,9 @@ milestone: 2026-09-21-session-events-layer
 dependencies:
   - TASK-019.01
 references:
-  - .skillgrid/specs/2026-09-21-session-events-layer/blueprint.md
-  - .skillgrid/specs/2026-09-21-session-events-layer/tasks.md
-  - .skillgrid/specs/2026-09-21-session-events-layer/acceptance.feature
+  - .skillgrid/change-specs/2026-09-21-session-events-layer/blueprint.md
+  - .skillgrid/change-specs/2026-09-21-session-events-layer/tasks.md
+  - .skillgrid/change-specs/2026-09-21-session-events-layer/acceptance.feature
 parent_task_id: TASK-019
 priority: medium
 type: feature

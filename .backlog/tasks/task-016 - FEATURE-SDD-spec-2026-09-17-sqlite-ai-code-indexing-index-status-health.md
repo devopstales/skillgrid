@@ -7,8 +7,8 @@ created_date: '2026-09-21 07:15'
 labels: []
 dependencies: []
 references:
-  - .skillgrid/archive/2026-09-17-sqlite-ai-code-indexing/tasks.md
-  - .skillgrid/archive/2026-09-17-sqlite-ai-code-indexing/findings.md
+  - .skillgrid/change-archive/2026-09-17-sqlite-ai-code-indexing/tasks.md
+  - .skillgrid/change-archive/2026-09-17-sqlite-ai-code-indexing/findings.md
   - skillgrid-cli/internal/mnemonic/mcp/tools_code.go
   - skillgrid-cli/internal/mnemonic/mcp/server_test.go
 priority: medium
@@ -26,7 +26,7 @@ Track the SDD spec **2026-09-17-sqlite-ai-code-indexing**: fast index-freshness/
 - The compact-search slice (`context`/`unfold` params) is a separate spec: 2026-09-17-compact-search-output (still stalled)
 
 **Expected State:**
-- Done. Archived to `.skillgrid/archive/2026-09-17-sqlite-ai-code-indexing/` on 2026-09-21.
+- Done. Archived to `.skillgrid/change-archive/2026-09-17-sqlite-ai-code-indexing/` on 2026-09-21.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
@@ -49,5 +49,5 @@ Track the SDD spec **2026-09-17-sqlite-ai-code-indexing**: fast index-freshness/
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Closed during the 2026-09-21 specs audit: both tickets' scope is delivered by the live `code_status` MCP tool (tools_code.go), which reports index state, fingerprint-drift staleness, import cycles, and provider availability — verified present in the registered tool list and server_test.go. Spec folder archived to .skillgrid/archive/2026-09-17-sqlite-ai-code-indexing/. The sibling compact-search-output spec was kept open (stalled) and is NOT covered by this ticket. Ticket was missing from the backlog — created retroactively and marked done.
+Closed during the 2026-09-21 specs audit: both tickets' scope is delivered by the live `code_status` MCP tool (tools_code.go), which reports index state, fingerprint-drift staleness, import cycles, and provider availability — verified present in the registered tool list and server_test.go. Spec folder archived to .skillgrid/change-archive/2026-09-17-sqlite-ai-code-indexing/. The sibling compact-search-output spec was kept open (stalled) and is NOT covered by this ticket. Ticket was missing from the backlog — created retroactively and marked done.
 <!-- SECTION:FINAL_SUMMARY:END -->

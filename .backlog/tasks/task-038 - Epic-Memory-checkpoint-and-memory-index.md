@@ -9,12 +9,12 @@ labels: []
 milestone: 2026-10-02-mnemonic-memory-checkpoint
 dependencies: []
 references:
-  - .skillgrid/specs/2026-10-02-mnemonic-memory-checkpoint/briefing.md
-  - .skillgrid/specs/2026-10-02-mnemonic-memory-checkpoint/tasks.md
-  - .skillgrid/specs/2026-10-02-mnemonic-memory-checkpoint/acceptance.feature
+  - .skillgrid/change-specs/2026-10-02-mnemonic-memory-checkpoint/briefing.md
+  - .skillgrid/change-specs/2026-10-02-mnemonic-memory-checkpoint/tasks.md
+  - .skillgrid/change-specs/2026-10-02-mnemonic-memory-checkpoint/acceptance.feature
   - .skillgrid/artifacts/04-adr-0022-host-agent-memory-checkpoint.md
 documentation:
-  - .skillgrid/specs/2026-10-02-mnemonic-memory-checkpoint/briefing.md
+  - .skillgrid/change-specs/2026-10-02-mnemonic-memory-checkpoint/briefing.md
 priority: high
 type: feature
 ---
@@ -24,7 +24,7 @@ type: feature
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Host agent is the memory observer (ADR-0022). Server-gated checkpoints write typed observations and a summary; prime injects a Memory Index at session start; private spans never persist; Sessions shows observations live.
 
-Tickets: .skillgrid/specs/2026-10-02-mnemonic-memory-checkpoint/tasks.md
+Tickets: .skillgrid/change-specs/2026-10-02-mnemonic-memory-checkpoint/tasks.md
 Parked: prompt-capture hooks; Memories page upgrade.
 <!-- SECTION:DESCRIPTION:END -->
 
