@@ -29,6 +29,12 @@ boundary. Every other spec cites the layout and the page format here.
 ├── architecture/               module map, data flow, boundaries
 ├── gotchas/                    discovered issues / non-obvious behavior
 ├── glossary/                   domain terms
+# ── input packets (engine-owned, immutable, git-tracked — 012) ──
+#    present only when config.json "trajectories" is true (created at bootstrap,
+#    or on first capture)
+├── trajectories/               replayable task packets (TRJ-YYYY-MM-DD-NNN/; 012)
+                                # NOT the raw/ layer (KB-8 is about *external* sources);
+                                # a packet is a KB-generated input, cited as trajectory:TRJ-*
 # ── derived (rebuilt, never hand-edited) ──
 ├── index/                      run checkpoint (resumable, openwiki)
 │   └── last-update.json        # the FTS index is NOT a file here — it is the kb_*
@@ -52,6 +58,8 @@ no `outputs/` layer (KB-9).
 | Path | Owned by | Editable by agent? | Editable by user? |
 |---|---|---|---|
 | `decisions/ invariants/ workflows/ architecture/ gotchas/ glossary/` | the agent (generated) + the user (reviewed) | ✅ | ✅ |
+| `skills/ cases/` (opt-in, 012) | the agent (distilled) + the user (reviewed) | ✅ | ✅ |
+| `trajectories/` (packets, 012) | the engine (captured) | ❌ (immutable — re-capture, never edit) | ❌ |
 | `index/` (checkpoint file) | the engine | ❌ (rebuilt by `kb_index`/`kb_reindex`) | ❌ |
 | the `kb_*` tables (shared DB) | the engine | ❌ | ❌ |
 | `config.json`, `templates/`, `KNOWLEDGE_SCHEMA.md`, `.knowledgeignore` | the user (scaffold) | ❌ (guardrail) | ✅ |
@@ -67,8 +75,9 @@ edit must be followed by `kb_index` (re-index) +, if grounded, `kb_validate` (re
 
 ## 4. The page taxonomy (code-first types)
 
-Six page types. The first three are **grounded** (they pin code and carry `anchors:`);
-the rest are **contextual** (they synthesize but do not pin a specific line of code).
+Six core page types + two opt-in working-memory types (012). The first three are
+**grounded** (they pin code and carry `anchors:`); the rest are **contextual** (they
+synthesize but do not pin a specific line of code).
 
 | Type | Folder | Grounded? | What it captures |
 |---|---|---|---|
@@ -78,6 +87,8 @@ the rest are **contextual** (they synthesize but do not pin a specific line of c
 | `architecture` | `architecture/` | ⬜ | the module map, data flow, boundaries (synthesized) |
 | `gotcha` | `gotchas/` | ⬜ | a discovered issue / non-obvious behavior (cited, not pinned) |
 | `glossary` | `glossary/` | ⬜ | a domain term (cited) |
+| `skill` (opt-in, 012) | `skills/` | ⬜ | a generalized "how I do X", distilled from one or more trajectories (`sources:` cites `trajectory:TRJ-*`) |
+| `case` (opt-in, 012) | `cases/` | ⬜ | one concrete past run (cites its one `trajectory:TRJ-*`; agent-authored `outcome: success \| failure \| partial`) |
 
 **One file per thing** (golden rule): each decision / invariant / workflow gets its own
 `.md`. A page is not a directory of sub-pages; sub-topics are separate pages linked by
@@ -97,7 +108,7 @@ INV-1).
 ```markdown
 ---
 title: Enterprise capture is a generator, not a list
-type: InvariantContract          # one of the six page types (canonical form)
+type: InvariantContract          # one of the eight page types (canonical form; 012)
 project: skillgrid
 aliases: []                       # optional, for wikilink resolution (lint dedups these)
 anchors:                          # repocodex pin targets (grounded pages only)
@@ -142,7 +153,7 @@ The wikilink `[[invariants/enterprise-grace]]` is **relative to the vault root**
 | Field | Required | Notes |
 |---|---|---|
 | `title` | ✅ | human-readable; becomes the page's canonical label |
-| `type` | ✅ | one of the six; canonical case (`Decision`, `InvariantContract`, `BusinessWorkflow`, `Architecture`, `Gotcha`, `GlossaryTerm`) |
+| `type` | ✅ | one of the eight (the six core + the opt-in `Skill`/`Case`, 012); canonical case (`Decision`, `InvariantContract`, `BusinessWorkflow`, `Architecture`, `Gotcha`, `GlossaryTerm`, `Skill`, `Case`) |
 | `project` | ✅ | the owning project (matches the store's project) |
 | `aliases` | ⬜ | alternate wikilink targets; lint flags duplicate aliases across pages |
 | `anchors` | grounded only | the pin targets (§5.2) |
@@ -187,10 +198,15 @@ holds* (the claim).
 
 ### 5.4 `sources:` (the citation format, provenance INV-1)
 
-`sources:` entries are **citations, not stored packets** (KB-8). Three forms:
+`sources:` entries are **citations, not stored packets** (KB-8). Four forms:
 
 - `memory:<sync_id>` — a memory fact (resolved live from the memory store).
 - `code:<path>#L<a>-<b>` — a code span (read live from the working tree / graph).
+- `trajectory:TRJ-YYYY-MM-DD-NNN` — an agent **trajectory packet** (012, opt-in): the
+  replayable tool-call sequence of a completed task. Resolves to
+  `trajectories/TRJ-…/extracted.md` **in the vault** (a packet is a KB-generated
+  input, not an external source — KB-8's cite-don't-store rule is about *external*
+  content). A missing packet is a `broken_citation` lint finding.
 - `external:<name>` + `version:` + `source_url:` + `source_commit:` +
   `build_fingerprint:` — an external source (a lib doc, a spec), cited in the
   **neuledge/context identity form**: `<name>` is the library (e.g. `somelib`),
@@ -243,7 +259,16 @@ The sentinel that marks a valid KB. Minimal fields:
   "project": "skillgrid",
   "page_types": ["decision","invariant","workflow","architecture","gotcha","glossary"],
   "anchor_engine": "auto",            // "auto" | "ripgrep" | "graph" (KB-O1)
-  "strict": false                      // pin-check fails the turn when true (KB-O3)
+  "strict": false,                     // pin-check fails the turn when true (KB-O3)
+  "trajectories": false,               // 012: working-memory (skill/case) opt-in; the
+                                       //   trajectory tools exist only when true (the
+                                       //   skills/ cases/ trajectories/ dirs are created
+                                       //   at bootstrap / first capture)
+  "recall": {                          // 005 §2.3: the stage-1 inline carve-out
+    "inline_types": ["invariant","gotcha","skill","case"],
+    "inline_max": 1600,                // chars; a page body longer is links-only
+    "links_threshold": 50              // page count below → previews inline for all types
+  }
 }
 ```
 

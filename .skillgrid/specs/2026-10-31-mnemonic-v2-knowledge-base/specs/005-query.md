@@ -49,7 +49,8 @@ a grounded page.
   `decisions/auth-model`), `title`, `type`, `status`, `grounded` flag, a **1-line
   snippet** (~120 chars around the best match), and a **`pin`** field (present only for
   grounded pages: `fresh` / `stale` / `unresolved` / `null`). **Never hydrates the full
-  body** at stage 1 (that is stage 2).
+  body** at stage 1 (that is stage 2) — *except the §2.3 inline carve-out* (apply-immediate
+  pages + small vaults).
 - **Excludes** soft-deleted pages (`kb_pages.deleted_at`) **and `deprecated` pages**
   (`kb_pages.status = 'deprecated'`; `draft` pages are included unless the caller
   filters them, `004-index` §3).
@@ -65,6 +66,7 @@ a grounded page.
   "grounded": true,
   "snippet": "…token rotation is pinned invariants/token-rotation…",
   "pin": "fresh",                 // grounded only: fresh | stale | unresolved | null(never validated)
+  "body": "…full short body…",   // OPTIONAL — the §2.3 inline carve-out (apply-immediate types / small vaults)
   "score": 42.7
 }
 ```
@@ -139,6 +141,30 @@ scores). Never a silent "re-rank with nothing" — the flag is explicit (INV-3).
 not re-scan the vault — `010-decision` DE-O2). The `rerank_instruction` + the decision-model
 call sites are owned by `010-decision`; `005-query` only defines that `kb_query` *accepts*
 the optional `rerank_instruction` parameter and surfaces the `reranked` flag.
+
+### 2.3 The stage-1 inline carve-out (012)
+
+Stage 1 is links-first, with **two opt-in inline exceptions** (the `config.json`
+`recall:` block, `001` §8). The reference's discipline: **agents skip bare links** — and
+the *apply-immediate* pages (`invariant`, `gotcha`, and when enabled `skill`/`case`) are
+exactly the pages the agent must be able to *act on* from stage 1 without a second call:
+
+- **Type carve-out.** For a page whose `type` ∈ `recall.inline_types` **and** whose body
+  is ≤ `recall.inline_max` chars, the stage-1 row carries the **full body** in the
+  optional `body` field (the whole page, not a snippet). Longer pages stay links-only
+  (stage 2 as usual). The "snippet is a teaser, not the page" discipline holds for
+  everything *not* inlined — a `body` field is full content, and stage 2 remains the path
+  for `##`-section drill-in, backlinks, and the pin state.
+- **Small-vault mode.** When the page count (an O(1) `kb_pages` `COUNT(*)` — the
+  reference's `registry.json` trick, no page-body I/O) is **below**
+  `recall.links_threshold`, previews are inlined for **all** types. The two-step
+  contract becomes *optional* — a small vault should not pay a `kb_read` round-trip per
+  page.
+
+Both are **config-gated and explicit** (INV-3): `inline_max: 0` disables the type
+carve-out; a large `links_threshold` keeps every vault links-first. The carve-out never
+changes the *ranking* — it only changes how much of a top-ranked page's body stage 1
+returns.
 
 ## 3. Stage 2 — `kb_read` (full page)
 

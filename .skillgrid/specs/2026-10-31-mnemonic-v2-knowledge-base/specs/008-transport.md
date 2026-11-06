@@ -29,7 +29,8 @@ Same two profiles as the memory change:
 - **`all`** — `agent` + admin tools. For ops/CLI.
 
 The KB's `agent` profile is the working set (query, read, generate, validate, lint,
-status, cite). `kb_status` is in `agent` because it is a **read-only view of derived
+status, cite; + the three opt-in trajectory tools when `config.json.trajectories` is
+true, 012). `kb_status` is in `agent` because it is a **read-only view of derived
 state** (page counts, coverage, freshness) the agent needs to decide when to save /
 re-verify — it is *admin-shaped* only in that it reads the derived layer, never writes
 it. The write/admin tools (`kb_index`, `kb_reindex`, `kb_bootstrap`, `kb_rebuild_meta`)
@@ -39,21 +40,27 @@ are in `all`.
 
 | Tool | Profile | Purpose |
 |---|---|---|
-| `kb_query` | agent | **Stage-1 deep retrieval** (wiki-first): ranked links + 1-line snippets; filters `type/project/limit/match_mode/grounded_only`; `thin` flag + `fallback: mem_lookup` hint. |
+| `kb_query` | agent | **Stage-1 deep retrieval** (wiki-first): ranked links + 1-line snippets; filters `type/project/limit/match_mode/grounded_only`; `thin` flag + `fallback: mem_lookup` hint. Optional `body` field on rows per the `005` §2.3 inline carve-out (`config.json` `recall:`). |
 | `kb_read` | agent | **Stage-2:** the full page (or a `##` section); `include_backlinks`; for grounded pages, the pin-check state. |
 | `kb_search` | agent | The raw FTS over `kb_pages_fts` (the power path; more rows, longer snippets). |
-| `kb_generate` | agent | Run generation: `full: bool` (default incremental, entity-targeted from the latest `SaveEvent`). Returns `changed: N`. |
+| `kb_generate` | agent | Run generation: `full: bool` (default incremental, entity-targeted from the latest `SaveEvent`); optional `model` (`provider/id` per-run override, `003` §4 — precedence override > config > session, unknown degrades to the append-only floor). Returns `changed: N`. |
 | `kb_validate` | agent | **The pin-check** (`006-validate`): validate one or all grounded pages against live code. `strict: bool` (fail on drift). Returns per-page `status` + `checks`. |
 | `kb_lint` | agent | **Deterministic health** (`007-lint`): orphans, broken links, dup aliases, coverage, broken citations, ungrounded, stale index. `fix: bool` (auto-repair the safe ones). |
-| `kb_status` | agent | Vault health: page counts by type, coverage, last `kb_generate`/`kb_index`/`kb_lint` times, index freshness, `strict` setting. |
+| `kb_status` | agent | Vault health: page counts by type, coverage, last `kb_generate`/`kb_index`/`kb_lint` times, index freshness, `strict` setting. 012: + stale-page count (`updated_at` vs `stale_after` / 30-day default), 7-day activity by `event_type` (`kb_events`), zero-backlink count — all pure reads, no LLM (the reference's `wiki_dashboard`). |
 | `kb_cite_source` | agent | Record an external citation (`external:<name>` + `version` + `source_url`; computes `source_commit` + `build_fingerprint`) on a page's `sources:`. Does not fetch/store the body. |
+| `kb_capture_trajectory` (opt-in, 012) | agent | **Write.** Capture the completed task's tool-call sequence into an immutable packet (`trajectories/TRJ-YYYY-MM-DD-NNN/`: `manifest.json`, `packet.json`, `extracted.md`) + a `kb_trajectories` row. One lightweight call, no skeleton page; no session tool log → explicit error, never a silent empty packet. Registered only when `config.json.trajectories` is true. |
+| `kb_distill_skills` (opt-in, 012) | agent | **Write.** List undistilled trajectories (`kb_trajectories.distilled_at IS NULL`) for the agent to generalize into `skill`/`case` pages citing `trajectory:TRJ-*`. Distilled promotion is derived: `kb_index` sets `distilled_at` when a citing page is indexed. Registered only when enabled. |
+| `kb_recall_skill` (opt-in, 012) | agent | **Read.** "Have I done this before?" — `kb_query` filtered to `type ∈ {skill, case}` + the `005` §2.3 inline carve-out (short bodies inlined, agents skip bare links). Call at task start. Registered only when enabled. |
 | `kb_reindex` | admin | **Full** rebuild of `kb_pages`/`kb_pages_fts`/`kb_claims` from the markdown (`004-index`). Idempotent. |
 | `kb_index` | admin | **Incremental** reindex (changed pages only); advances the checkpoint. |
 | `kb_bootstrap` | admin | Scaffold a new vault (the sentinel `config.json`, `KNOWLEDGE_SCHEMA.md`, `templates/`, the page folders, `.knowledgeignore`) and write/refresh a `### KnowledgeBase` routing block in the repo root's `AGENTS.md` (marker-delimited; in-place refresh — never duplicated). Idempotent no-op on an existing vault (the AGENTS.md block is still ensured). |
 | `kb_rebuild_meta` | admin | Rebuild the derived metadata that is *not* the FTS index — the `kb_run_state` checkpoint + the backlink in-degree cache. (Distinct from `kb_reindex`, which is the FTS.) |
 
 > The tool list is the final set (the plan's draft is confirmed here, minus
-> `kb_render` — there is no `outputs/` to render, KB-9). `kb_generate` is in the `agent`
+> `kb_render` — there is no `outputs/` to render, KB-9): **12 core tools + 3 opt-in
+> trajectory tools (012, agent profile, registered only when `config.json.trajectories`
+> is true — when off they are absent from `tools/list` entirely: zero prompt cost)**.
+> `kb_generate` is in the `agent`
 > profile because the agent triggers it proactively (session discipline, `009-skill`);
 > it is the KB's "save" equivalent.
 
@@ -62,9 +69,11 @@ are in `all`.
 All of `00-foundation/004-transport-mcp` §4 apply to `kb_*`:
 
 - **Project resolution at tool-call time** (cwd → config → git binding → basename).
-  Write tools (`kb_generate`, `kb_cite_source`) take a mandatory `expected_project`
+  Write tools (`kb_generate`, `kb_cite_source`; + `kb_capture_trajectory`,
+  `kb_distill_skills` when enabled, 012) take a mandatory `expected_project`
   ownership assertion.
-- **Write queue.** KB writes (`kb_generate`, `kb_cite_source`) are serialized through a
+- **Write queue.** KB writes (`kb_generate`, `kb_cite_source`; + the two trajectory
+  writes when enabled, 012) are serialized through a
   shared KB write queue (distinct from the memory write queue — the KB and memory are
   different functions with different write sets; both are queued, neither blocks the
   other).

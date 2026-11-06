@@ -172,6 +172,12 @@ present, valid `type`, `sources:` well-formed, wikilinks resolvable). A malforme
 is rejected and the run degrades (append-only) for that page — it does not write a
 corrupt page.
 
+**Per-run model override (012):** `kb_generate` takes an optional `model` parameter
+(`provider/id`). Precedence: explicit param > configured model > session model. An
+unknown ref degrades gracefully (the run continues on the configured/session model —
+the append-only floor above is unchanged, INV-3). The choice is per-run, never
+persisted into `config.json`.
+
 ## 5. Resumability: the run checkpoint + the per-page baseline manifest
 
 Two durable, derived artifacts cooperate (openwiki's `.run.json` + `.page-manifest.json`

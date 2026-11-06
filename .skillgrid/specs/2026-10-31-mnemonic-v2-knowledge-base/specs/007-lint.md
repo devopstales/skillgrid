@@ -37,6 +37,7 @@ one.
 | **stale index** | a page whose `body_hash` changed but `kb_index` has not re-indexed it (the index lags the files) | warn |
 | **missing `sources:`** | a page with an empty `sources:` — **error** on a grounded page (no provenance), **warn** on a contextual page (architecture/gotcha/glossary) | error / warn |
 | **contradiction markers** | pages carrying a `## Contradiction` marker (from `003-generate` step 4) that are unresolved | warn |
+| **weak cross-reference** (012) | a page with **<2 outgoing** wikilinks — the `001` §6 golden rule ("cross-reference everything"), enforced. Distinct from `orphans` (the *incoming* side) | warn |
 | **orphan citations** | a `sources:` citation to a fact/page that itself is orphaned (transitive staleness) | info |
 
 **Severity model:** `error` findings are blocking in `--strict` mode (and in CI); `warn`
@@ -59,11 +60,20 @@ strict) `kb_lint` reports all three without failing.
   A top-level package with no page is a coverage gap. (This is the "the brain's map is
   incomplete" signal — advisory, not blocking. The unit is the *top-level package*,
   not a sub-package or file.)
+- **weak cross-reference (012):** count each page's **outgoing** `[[…]]` links (as
+  written — alias resolution is the target's concern, not the counter's). A page with
+  <2 is a finding. This is the *outgoing* half of the golden rule; `orphans` is the
+  *incoming* half — a page can have 5 backlinks and zero outgoing, and this check catches
+  exactly that (the "island of authority" page nothing leads *to* from).
 - **broken citations:** for each `sources:` entry, resolve it:
   - `memory:<sync_id>` → the memory store has a live (or soft-deleted) row for it. A
     missing `sync_id` is broken (the fact was hard-deleted or never existed).
   - `code:<path>#L<a>-<b>` → the path exists in the working tree (and the line span is in
     range). A missing path is broken.
+  - `trajectory:TRJ-*` (012) → the packet dir `trajectories/TRJ-*/` exists in the vault
+    (with its `extracted.md`). A packet is never deleted once captured (immutable,
+    engine-owned) — so a missing one is an accident or a manual deletion, and it is
+    broken.
   - `external:<name>` (+`version`, `source_url`, `source_commit`, `build_fingerprint`)
     → the **neuledge staleness gate** (moved client-side from neuledge's publish-side
     `publicationSkipReason`): re-resolve the cited version against `source_url`. If the
@@ -111,7 +121,8 @@ not require judgment:
 
 **Not auto-fixed** (require judgment → reported only): orphans, coverage gaps, broken
 citations, ungrounded grounded-pages, **weak pin**, **past `stale_after`**, contradiction
-markers, missing `sources:`. These need the agent (or a human) to decide the fix — lint
+markers, missing `sources:`, **weak cross-reference** (adding a link is a judgment call —
+lint points at the page, the agent decides what to link). These need the agent (or a human) to decide the fix — lint
 points at them, it does not guess. (Adding a relocating version token to a weak pin
 requires re-deriving the anchor from live code; advancing a `stale_after` requires
 re-verification — both are judgment calls, not mechanical repairs.)
