@@ -8,6 +8,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,6 +71,58 @@ Decide to use OAuth2 for the auth model.
 	s.RegisterKbTools(kh)
 	t.Cleanup(s.Close)
 	return s, st, vault
+}
+
+// initializeInstructions parses the initialize response frame (the
+// HandshakeAndCall's frames[0]) and returns the instructions text mcp-go
+// SERVES over stdio — the surface the agent actually sees. The Server's
+// in-process field alone does not prove delivery (mcp-go captures the
+// instructions at construction).
+func initializeInstructions(t *testing.T, frames [][]byte) string {
+	t.Helper()
+	if len(frames) == 0 {
+		t.Fatal("no frames from the handshake")
+	}
+	var rpc struct {
+		Result struct {
+			Instructions string `json:"instructions"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(frames[0], &rpc); err != nil {
+		t.Fatalf("initialize frame is not JSON: %v (%s)", err, frames[0])
+	}
+	return rpc.Result.Instructions
+}
+
+// TestKbInstructionsServedOverStdio proves the KB instructions reach the
+// wire: the stdio initialize response carries the "### KnowledgeBase"
+// section after RegisterKbTools — and does not before. This is the
+// regression net for the capture-timing flaw (the mcp-go server captured
+// the instructions at construction, so a field rewrite was never served;
+// setInstructions rebuilds the server to deliver the updated text).
+func TestKbInstructionsServedOverStdio(t *testing.T) {
+	s, _, _ := newKbFixture(t, All)
+	frames, err := s.HandshakeAndCall(context.Background(), "kb_status")
+	if err != nil {
+		t.Fatalf("handshake: %v", err)
+	}
+	served := initializeInstructions(t, frames)
+	if !strings.Contains(served, "### KnowledgeBase") {
+		t.Fatalf("the stdio initialize response must carry the KnowledgeBase section, got: %s", served)
+	}
+	if !strings.Contains(served, "kb_query") {
+		t.Fatalf("the KB section must route kb_query (the stage-1 entry), got: %s", served)
+	}
+	// A server without KB registration does not carry the section.
+	memOnly := NewServer(newTestHandler(t), Agent)
+	defer memOnly.Close()
+	frames2, err := memOnly.HandshakeAndCall(context.Background(), "mem_current_project")
+	if err != nil {
+		t.Fatalf("handshake: %v", err)
+	}
+	if served := initializeInstructions(t, frames2); strings.Contains(served, "KnowledgeBase") {
+		t.Fatalf("a server without KB tools must not carry the KB section, got: %s", served)
+	}
 }
 
 // kbAgentTools / kbAdminTools are the 008-transport §2 profile split

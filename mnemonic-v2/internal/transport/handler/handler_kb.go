@@ -18,7 +18,10 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -340,8 +343,20 @@ func (h *KbHandler) Bootstrap(ctx context.Context, cwd, explicit string) (*kb.Sc
 	if err != nil {
 		return nil, err
 	}
-	root, _ := h.Roots()
-	return kb.Bootstrap(ctx, h.st, root, kb.Options{Project: p})
+	root, repo := h.Roots()
+	sc, err := kb.Bootstrap(ctx, h.st, root, kb.Options{Project: p})
+	if err != nil {
+		return nil, err
+	}
+	// The repo-level wiring: write/refresh the "### KnowledgeBase" block in
+	// the repo root's AGENTS.md (idempotent — a no-op vault still gets the
+	// block ensured). Skipped when no repo root is known (no git worktree).
+	if repo != "" {
+		if err := ensureAgentsBlock(repo); err != nil {
+			return nil, fmt.Errorf("kb bootstrap: agents.md block: %w", err)
+		}
+	}
+	return sc, nil
 }
 
 // RebuildMeta runs kb_rebuild_meta (008 §3, admin): the derived metadata
@@ -354,4 +369,93 @@ func (h *KbHandler) RebuildMeta(ctx context.Context, cwd, explicit string) (*kb.
 	}
 	root, repo := h.Roots()
 	return kb.RebuildMeta(ctx, h.st, root, repo, p)
+}
+
+// ── the AGENTS.md KnowledgeBase block (kb_bootstrap's repo-level wiring) ──
+//
+// kb_bootstrap writes a marker-delimited "### KnowledgeBase" block into the
+// repo root's AGENTS.md (the agent's discovery path — the same pattern the
+// OpenWiki run uses for its own block). Idempotent: the block is replaced
+// in place on a repeat bootstrap (a refresh, never a duplicate).
+
+const (
+	agentsKBStartMarker = "<!-- knowledge-base:start -->"
+	agentsKBEndMarker   = "<!-- knowledge-base:end -->"
+)
+
+// kbAgentsBlock is the AGENTS.md block the bootstrap writes: the routing
+// (read/save/verify/maintain verbs) + the two load-bearing invariants.
+func kbAgentsBlock() string {
+	const body = "### KnowledgeBase\n" +
+		"\n" +
+		"This project uses the skillgrid knowledge base (KB): an OKF vault at `.skillgrid/knowledge/` + a derived FTS index, served by the `kb` engine — `mnemonic kb ...` CLI and the `kb_*` MCP tools (the shared KbHandler — CLI and MCP never diverge).\n" +
+		"\n" +
+		"- **Read**: `kb_query` (stage-1 ranked retrieval) → `kb_read` (full page / `##` section + pin-check state) → `kb_search` (raw FTS power path).\n" +
+		"- **Save**: `kb_generate` — the KB's proactive save (run it after significant `mem_save`; incremental by default, `--full` re-derives).\n" +
+		"- **Verify**: grounded pages pin live code (working-tree-relative anchors); `kb validate --strict` is the CI gate (drift → exit 1).\n" +
+		"- **Maintain**: `kb lint [--fix]` · `kb index` (incremental) / `kb reindex` (full) · `kb status` · `kb rebuild-meta` · `kb cite-source`.\n" +
+		"- Vault files are truth (KB-INV-1); `index/**` + the `kb_*` rows are derived — never hand-edit (KB-INV-3).\n"
+	return agentsKBStartMarker + "\n" + body + agentsKBEndMarker
+}
+
+// ensureAgentsBlock writes (or refreshes) the KnowledgeBase block in
+// repoRoot/AGENTS.md. Placement: an existing block is replaced in place;
+// otherwise the block is inserted before the <!-- skillgrid:end --> marker
+// (the end of the Skillgrid section) or appended to the file. A missing
+// AGENTS.md is created with the block.
+func ensureAgentsBlock(repoRoot string) error {
+	path := filepath.Join(repoRoot, "AGENTS.md")
+	block := kbAgentsBlock()
+	existing, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return os.WriteFile(path, []byte(block+"\n"), 0o644)
+	}
+	if err != nil {
+		return err
+	}
+	s := string(existing)
+	start := strings.Index(s, agentsKBStartMarker)
+	end := strings.Index(s, agentsKBEndMarker)
+	if start != -1 && end > start {
+		// Block present: replace in place (a refresh).
+		s = s[:start] + block + s[end+len(agentsKBEndMarker):]
+		return os.WriteFile(path, []byte(s), 0o644)
+	}
+	if i := agentsSkillgridEnd(s); i != -1 {
+		// Inside the Skillgrid section: insert before the end marker.
+		s = s[:i] + block + "\n\n" + s[i:]
+	} else {
+		if !strings.HasSuffix(s, "\n") {
+			s += "\n"
+		}
+		s += "\n" + block + "\n"
+	}
+	return os.WriteFile(path, []byte(s), 0o644)
+}
+
+// agentsSkillgridEnd returns the offset of the standalone
+// `<!-- skillgrid:end -->` line (the end of the Skillgrid section), or -1.
+// The marker may be QUOTED inline in prose (this repo's AGENTS.md quotes
+// both markers in backticks in the intro paragraph) — an inline occurrence
+// is not the section end, so only a marker that occupies its own line
+// (whitespace on either side is fine) anchors the insertion.
+func agentsSkillgridEnd(s string) int {
+	const marker = "<!-- skillgrid:end -->"
+	for i := 0; ; {
+		j := strings.Index(s[i:], marker)
+		if j == -1 {
+			return -1
+		}
+		j += i
+		lineStart := strings.LastIndex(s[:j], "\n") + 1
+		lineEnd := strings.Index(s[j+len(marker):], "\n")
+		tail := s[j+len(marker):]
+		if lineEnd != -1 {
+			tail = s[j+len(marker) : j+len(marker)+lineEnd]
+		}
+		if strings.TrimSpace(s[lineStart:j]) == "" && strings.TrimSpace(tail) == "" {
+			return j
+		}
+		i = j + len(marker)
+	}
 }

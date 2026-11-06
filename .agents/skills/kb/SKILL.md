@@ -145,7 +145,7 @@ Diagrams are part of high-quality generation, not decoration. Where a flow, life
 
 ## Commands
 
-- `kb bootstrap` — scaffold the vault if absent; idempotent (no-op when the sentinel exists).
+- `kb bootstrap` — scaffold the vault if absent; idempotent (no-op when the sentinel exists). Also writes/refreshes the `### KnowledgeBase` routing block in the repo root's `AGENTS.md` (marker-delimited, in-place — the agent's discovery path; ensured even on a no-op bootstrap).
 - `kb index` — full rebuild of the derived FTS (the only "fix" for derived state).
 - `kb query <terms>` — stage-1 ranked links + snippets (links-first).
 - `kb validate <rel_path>` — pin-check (fresh/stale/unresolved) + claims.

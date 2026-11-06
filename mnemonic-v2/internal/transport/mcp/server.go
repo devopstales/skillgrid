@@ -60,13 +60,15 @@ mem_save is the primary write; reuse topic_key to upsert evolving topics.
 Code: use code_status to check index health (4-state freshness); code_search to find code (prefer over grep); code_orient as the navigation entry point (the "find a feature" first verb); code_read to fetch a span after search narrows it.
 All ids the agent sees are sync_id (INV-6); mem_get_observation + code_resolve accept both sync_id and the local id.`
 
-// kbInstructions is the KB routing block (008-transport §3 — appended when
-// the KB tools register): kb_query is the stage-1 entry (wiki-first
-// retrieval), kb_read hydrates a full page, kb_generate is the KB's save
-// equivalent. It is APPENDED to the existing instructions (the KB joins the
-// memory + code families without rewriting them).
+// kbInstructions is the KB routing section (008-transport §3 — appended
+// when the KB tools register): a standalone "### KnowledgeBase" section
+// (the KB joins the existing memory/code instructions without rewriting
+// them). kb_query is the stage-1 entry (wiki-first retrieval), kb_read
+// hydrates a full page, kb_generate is the KB's save equivalent.
 const kbInstructions = `
-KB: use kb_query for stage-1 retrieval (ranked links + 1-line snippets, wiki-first); kb_read to hydrate a full page or section (+ pin-check state for grounded pages); kb_search for the raw FTS power path. kb_generate is the KB's save equivalent (proactive, agent-profile). The KB identity is rel_path (a git-tracked file), not a row id. Degraded runs carry degraded:true + a reason (never a silent floor).`
+
+### KnowledgeBase
+kb_query is the stage-1 entry (wiki-first retrieval: ranked links + 1-line snippets); kb_read hydrates a full page or section (+ pin-check state for grounded pages); kb_search is the raw FTS power path. kb_generate is the KB's save equivalent (proactive; run it after significant mem_saves). kb_validate --strict is the CI gate for grounded pages. The KB identity is rel_path (a git-tracked file), not a row id. Degraded runs carry degraded:true + a reason (never a silent floor).`
 
 // Server is an MCP server instance with the profile-filtered mem_* tools
 // registered, ready to be served over stdio.
@@ -94,6 +96,11 @@ type Server struct {
 	// RegisterCodeTools rewrites it to the combined memory + code text. The
 	// memory-only instructions stay intact when code tools are absent.
 	instructions string
+	// toolDefs is the name → tool-definition registry (every AddTool
+	// records here): setInstructions rebuilds the mcp-go server — which
+	// captures the instructions at construction — and re-adds the full
+	// registered set.
+	toolDefs map[string]mcplib.Tool
 	// calls is the in-process dispatch (the test harness calls CallTool
 	// directly; the stdio path goes through mcp.HandleMessage).
 	calls map[string]func(ctx context.Context, args map[string]any) (any, error)
@@ -128,8 +135,10 @@ func NewServer(h *handler.Handler, profile Profile) *Server {
 	s.instructions = memoryInstructions
 	s.mcp = server.NewMCPServer(serverName, serverVersion, server.WithInstructions(s.instructions))
 	s.calls = s.buildToolDispatch()
+	s.toolDefs = map[string]mcplib.Tool{}
 	for _, tool := range s.toolSet() {
 		s.mcp.AddTool(tool.def, s.mcpToolHandler(tool.name))
+		s.toolDefs[tool.name] = tool.def
 	}
 	return s
 }
@@ -143,15 +152,14 @@ func NewServer(h *handler.Handler, profile Profile) *Server {
 // mechanism, D-PROFILE — not v1's SKILLGRID_MCP_CODE_TOOLS env filter).
 func (s *Server) RegisterCodeTools(ch *handler.CodeHandler) {
 	s.codeTools = ch
-	// F6 — the combined instructions: the RegisterCodeTools seam rewrites
-	// the Server's instructions to the combined memory + code block (the
-	// brief's setInstructions, blueprint M3). The memory-only instructions
-	// stay intact when code tools are absent (the field started as
-	// memoryInstructions in NewServer). The field is the in-process source
-	// of truth (the stdio initialize response's instructions are captured
-	// at server construction — the mcp-go server's instructions field is
-	// unexported; the field here is what the test + the CLI surface read).
-	s.instructions = combinedInstructions
+	// F6 — the combined instructions: the seam rewrites the routing block
+	// to the combined memory + code block. The KB section is re-appended
+	// when the KB family registered first (order-independent).
+	text := combinedInstructions
+	if s.kbTools != nil {
+		text += kbInstructions
+	}
+	s.setInstructions(text)
 	// Extend the in-process dispatch with the code_* tools (the profile
 	// filters the set — the agent profile drops the admin tools).
 	for name, fn := range s.codeToolDispatch() {
@@ -161,6 +169,24 @@ func (s *Server) RegisterCodeTools(ch *handler.CodeHandler) {
 	// (the stdio path: the tools/list response carries them).
 	for _, tool := range s.codeToolSet() {
 		s.mcp.AddTool(tool.def, s.mcpToolHandler(tool.name))
+		s.toolDefs[tool.name] = tool.def
+	}
+}
+
+// setInstructions updates the routing block AND delivers it over stdio:
+// the mcp-go server captures the instructions at construction (a field
+// write alone is never served — the F6 capture-timing flaw), so a change
+// rebuilds the underlying server with the new text + the full registered
+// tool set. The field stays the in-process source of truth (the tests and
+// the CLI surface read it).
+func (s *Server) setInstructions(text string) {
+	if text == s.instructions {
+		return
+	}
+	s.instructions = text
+	s.mcp = server.NewMCPServer(serverName, serverVersion, server.WithInstructions(text))
+	for name, def := range s.toolDefs {
+		s.mcp.AddTool(def, s.mcpToolHandler(name))
 	}
 }
 
@@ -173,14 +199,18 @@ func (s *Server) RegisterCodeTools(ch *handler.CodeHandler) {
 // (kbTools is nil until this is called).
 func (s *Server) RegisterKbTools(kh *handler.KbHandler) {
 	s.kbTools = kh
-	// The KB routing block is APPENDED (the KB joins the existing
-	// memory/code instructions without rewriting them).
-	s.instructions = s.instructions + kbInstructions
+	// The KB routing section is APPENDED (the KB joins the existing
+	// memory/code instructions without rewriting them); setInstructions
+	// delivers the combined text over stdio (the mcp-go server captured
+	// its instructions at construction — a field write alone would not
+	// reach the initialize response).
+	s.setInstructions(s.instructions + kbInstructions)
 	for name, fn := range s.kbToolDispatch() {
 		s.calls[name] = fn
 	}
 	for _, tool := range s.kbToolSet() {
 		s.mcp.AddTool(tool.def, s.mcpToolHandler(tool.name))
+		s.toolDefs[tool.name] = tool.def
 	}
 }
 

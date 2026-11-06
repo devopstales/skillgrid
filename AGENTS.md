@@ -119,6 +119,18 @@ Mnemonic (local SQLite + FTS5): `mem_*`, `code_*`, `web_*` over MCP and HTTP.
 `brainstorming` → `writing-blueprints` → `slicing` → `ticketing` → execution (`subagent-execution` or `simple-execution`) → `qa` → `requesting-code-review` → `receiving-code-review` → `ship` → `reflect`
 
 Run `skillgrid:onboarding` to update config after stack changes.
+<!-- knowledge-base:start -->
+### KnowledgeBase
+
+This project uses the skillgrid knowledge base (KB): an OKF vault at `.skillgrid/knowledge/` + a derived FTS index, served by the `kb` engine — `mnemonic kb ...` CLI and the `kb_*` MCP tools (the shared KbHandler — CLI and MCP never diverge).
+
+- **Read**: `kb_query` (stage-1 ranked retrieval) → `kb_read` (full page / `##` section + pin-check state) → `kb_search` (raw FTS power path).
+- **Save**: `kb_generate` — the KB's proactive save (run it after significant `mem_save`; incremental by default, `--full` re-derives).
+- **Verify**: grounded pages pin live code (working-tree-relative anchors); `kb validate --strict` is the CI gate (drift → exit 1).
+- **Maintain**: `kb lint [--fix]` · `kb index` (incremental) / `kb reindex` (full) · `kb status` · `kb rebuild-meta` · `kb cite-source`.
+- Vault files are truth (KB-INV-1); `index/**` + the `kb_*` rows are derived — never hand-edit (KB-INV-3).
+<!-- knowledge-base:end -->
+
 <!-- skillgrid:end -->
 
 

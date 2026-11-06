@@ -171,6 +171,17 @@ func TestCodeProfileMembership(t *testing.T) {
 	if strings.Contains(memOnly.instructions, "code_search") {
 		t.Fatalf("a memory-only server must keep the memory instructions (no code routing), got: %s", memOnly.instructions)
 	}
+	// F6 + capture-timing fix — the stdio initialize response must carry
+	// the combined text: the mcp-go server captures the instructions at
+	// construction, so the field rewrite above alone never reached the
+	// wire (setInstructions rebuilds the server to serve the updated text).
+	frames, err := allSrv.HandshakeAndCall(context.Background(), "mem_current_project")
+	if err != nil {
+		t.Fatalf("handshake: %v", err)
+	}
+	if served := initializeInstructions(t, frames); !strings.Contains(served, "code_search") {
+		t.Fatalf("the stdio initialize response must carry the combined memory + code instructions, got: %s", served)
+	}
 }
 
 // TestCodeStatusReportsVersionTierCoverage verifies the T-CI-4 fix:
