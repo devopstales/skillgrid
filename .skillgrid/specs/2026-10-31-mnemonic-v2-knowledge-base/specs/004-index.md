@@ -184,8 +184,10 @@ but not the interface, so neither imports the other.
 
 ## 4. Rebuild: `kb_index` / `kb_reindex`
 
-**`kb_reindex`** (full): walks `.skillgrid/knowledge/`, parses every page (frontmatter +
-body), and **rebuilds** `kb_pages` + `kb_pages_fts` + `kb_claims` from scratch. It is the
+**`kb_reindex`** (full): walks the vault's page folders (the 001 §7 whitelist — the
+six core + opt-in `skills/` `cases/`; `index/`, dot-dirs, `templates/`, and the
+vault-root docs are out of scope), parses every page (frontmatter + body), and
+**rebuilds** `kb_pages` + `kb_pages_fts` + `kb_claims` from scratch. It is the
 "delete the index and re-derive" path — guaranteed to converge the index to the
 markdown (KB-INV-1). Idempotent: a second `kb_reindex` on an unchanged vault produces an
 identical index.

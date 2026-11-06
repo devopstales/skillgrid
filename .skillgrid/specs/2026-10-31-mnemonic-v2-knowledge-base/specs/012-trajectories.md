@@ -109,6 +109,12 @@ Surface:
     map), and `index/events.jsonl` (the append-only machine trail). The atomic-unit
     guardrail (never edit a single file inside `index/` — restore or re-run). The
     009 orient contract + the skill's same-edit fix ride with item 12.
+14. The `.skillgrid` reorg landing (001 §2.1/§7) — `change-specs/` +
+    `change-archive/` renames (from `specs/` / `xarchive/`), the `meta/` group
+    (`state.yaml`, `.lock`, `okf-metrics.jsonl`, `.cache/`, `.prototype/`,
+    `.sdd/`), `.obsidian/` + the project docs at the vault root, and the
+    index-scope whitelist walk (`collectPages` brought to the 001 §7 scope;
+    `.knowledgeignore` honored).
 
 ## 4. Tickets
 
@@ -122,6 +128,7 @@ Surface:
 | KB-T13 | 007 lint citation/grounding checks (broken citations + neuledge gate, ungrounded, weak pin, stale_after, missing sources, orphan citations, coverage gaps) | 10b |
 | KB-T14 | 008 `kb_status` dashboard-grade + 003 `kb_generate` model override | 11 |
 | KB-T15 | 001 §2 `index/` human projections (catalog/log/reverse-index/events.jsonl) + 009 orient contract + skill same-edit fix | 12 (skill), 13 |
+| KB-T16 | 001 §2.1/§7 `.skillgrid` reorg landing (change-specs/change-archive, `meta/` group, vault-root `.obsidian/` + project docs) + index-scope whitelist walk + `.knowledgeignore` honored | 14 |
 
 ## 5. Invariants (restated + new)
 

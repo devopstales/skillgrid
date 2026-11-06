@@ -82,7 +82,7 @@ falls back to raw memory (`mem_lookup`) only when the KB is thin/empty on a topi
 
 | Spec | What it defines |
 |---|---|
-| `001-structure` | The on-disk layout (`.skillgrid/knowledge/`), the sentinel + ownership model, the code-first page taxonomy, the OKF page format + frontmatter, `.knowledgeignore`. |
+| `001-structure` | The on-disk layout (the `.skillgrid/` root tiers + the `.skillgrid/knowledge/` vault), the sentinel + ownership model, the code-first page taxonomy, the OKF page format + frontmatter, `.knowledgeignore` + the index-scope whitelist. |
 | `002-sources` | The four source adapters, **all read live, none stored**: memory (SaveEvent → live read), code (graph), git history, external (cited by URL+version, re-fetchable). The `sources:` citation format. |
 | `003-generate` | The generation pipeline: the graduate-rule (which facts → pages), LLM synthesis, **incremental entity-targeted** regeneration (eager-per-save), no-op clean runs, the resumable checkpoint. |
 | `004-index` | The **FTS index** as a derived cache in the **shared project DB** (`kb_pages` + `kb_pages_fts` + `kb_claims`), `kb_index`/`kb_reindex` rebuild-from-markdown, freshness, `degraded` when the index is stale. |

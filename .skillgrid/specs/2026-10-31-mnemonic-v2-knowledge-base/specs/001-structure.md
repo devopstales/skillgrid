@@ -16,11 +16,43 @@ boundary. Every other spec cites the layout and the page format here.
 
 ## 2. The layout
 
+### 2.1 The `.skillgrid/` root (reorg, 2026-11-06)
+
 ```
-.skillgrid/knowledge/
+.skillgrid/
+├── config.yaml            # skillgrid project sentinel + config (read before any skill)
+├── change-specs/          # SDD change folders (active) — formerly `specs/`
+├── change-archive/        # archived changes — formerly `xarchive/`
+├── knowledge/             # the KB vault — §2.2
+└── meta/                  # engine state — machine-written, never hand-edited
+    ├── state.yaml         # dynamic project state (phase, current change)
+    ├── .lock
+    ├── okf-metrics.jsonl
+    ├── .cache/            # mnemonic indexing tmp
+    ├── .prototype/        # prototype tmp
+    └── .sdd/              # agent handover tmp (gitignored)
+```
+
+Three tiers are visible from the tree (the pi-llm-wiki lesson): **`knowledge/`** is
+what the agent + user own (this spec), **`change-specs/` + `change-archive/`** are SDD
+process artifacts, **`meta/`** is engine state. `config.yaml` stays at the root as the
+project sentinel — the same one-file-detect pattern as the vault's `config.json`, one
+level up. The renames (`specs/` → `change-specs/`, `xarchive/` → `change-archive/`)
+follow the domain vocabulary: "change" is the SDD unit (`current change` in
+`state.yaml`, the `change:` field of the `[skillgrid-context]` commit block).
+
+### 2.2 The vault
+
+```
+.skillgrid/knowledge/            the Obsidian vault — .obsidian/ lives at its root
+├── .obsidian/                  Obsidian vault config (per-user view state)
 ├── config.json                 sentinel + vault config (page types, anchor engine, ignore rules)
 ├── KNOWLEDGE_SCHEMA.md         operating manual (human + agent)
 ├── templates/                  page templates (decision, invariant, workflow, …)
+# ── project-level docs (curated at the vault root; out of index scope — §7) ──
+├── ARCHITECTURE.md             live system architecture
+├── ASSUMPTIONS.md              ADR index (§ LOCKED); ADR bodies live in decisions/
+├── WINDOWS.md                  platform ops notes
 # ── the knowledge pages (SOURCE OF TRUTH) ──
 #    page-type folders live DIRECTLY under .skillgrid/knowledge/ (no kb/ wrapper, no raw/ layer)
 ├── decisions/                  why a construct exists (from memory + code)
@@ -78,9 +110,11 @@ no `outputs/` layer (KB-9).
 | `decisions/ invariants/ workflows/ architecture/ gotchas/ glossary/` | the agent (generated) + the user (reviewed) | ✅ | ✅ |
 | `skills/ cases/` (opt-in, 012) | the agent (distilled) + the user (reviewed) | ✅ | ✅ |
 | `trajectories/` (packets, 012) | the engine (captured) | ❌ (immutable — re-capture, never edit) | ❌ |
-| `index/` (checkpoint file) | the engine | ❌ (rebuilt by `kb_index`/`kb_reindex`) | ❌ |
+| `index/` (derived projections) | the engine | ❌ (rebuilt by `kb_index`/`kb_reindex`/`kb_rebuild_meta`) | ❌ |
 | the `kb_*` tables (shared DB) | the engine | ❌ | ❌ |
 | `config.json`, `templates/`, `KNOWLEDGE_SCHEMA.md`, `.knowledgeignore` | the user (scaffold) | ❌ (guardrail) | ✅ |
+| `ARCHITECTURE.md` `ASSUMPTIONS.md` `WINDOWS.md` (vault-root project docs) | the user + the agent (ADR skill, architecture upkeep) | ✅ | ✅ |
+| `.obsidian/` | the user (Obsidian) | ❌ | ✅ (per-user view state) |
 
 **Guardrails** (KB-INV-3): direct agent edits to `index/`, the `kb_*` tables, or the
 scaffold files are blocked. The agent's write path into the **page folders** is
@@ -266,6 +300,18 @@ An openwiki-style `.openwikiignore` adapted: patterns that exclude paths from
 folders; the ignore file controls (a) which external/cited paths are scanned for
 anchors, and (b) which generated/scratch files are skipped. It does **not** control the
 shared DB (that is the store's concern). Syntactically gitignore-like.
+
+**Index scope is a whitelist, not a blacklist.** `kb_index` / `kb_reindex` (004 §4)
+scan exactly the page folders — `decisions/ invariants/ workflows/ architecture/
+gotchas/ glossary/` (+ opt-in `skills/ cases/`, 012) — and nothing else. Everything
+else under the vault root is out of index scope by construction: `index/` (derived
+projections), `templates/`, `.obsidian/` and other dot-dirs, `KNOWLEDGE_SCHEMA.md`,
+and the vault-root project docs (`ARCHITECTURE.md` / `ASSUMPTIONS.md` / `WINDOWS.md`).
+Generated files and dot-dirs can therefore never become pages. (The shipped
+`collectPages` is a bare `WalkDir` over the whole vault and does not honor
+`.knowledgeignore` — it must be brought to this scope; KB-T16.) `.knowledgeignore`
+layers **on top of** the whitelist — per-folder / per-page exclusions *within* scope —
+it never widens it.
 
 ## 8. `config.json` (the sentinel)
 
