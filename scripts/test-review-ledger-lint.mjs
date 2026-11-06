@@ -38,6 +38,7 @@ function makeRepo(files = {}) {
   git(root, "init", "-q");
   git(root, "config", "user.email", "t@t");
   git(root, "config", "user.name", "t");
+  git(root, "config", "core.hooksPath", "/dev/null");
   // A couple of real commits so fix-commit hashes resolve.
   mkdirSync(join(root, "src"), { recursive: true });
   writeFileSync(join(root, "src", "a.go"), "v1");

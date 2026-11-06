@@ -29,15 +29,15 @@ function makeProject({ stateYaml, specs = {}, sdd = {} } = {}) {
   const root = mkdtempSync(join(tmpdir(), "sgdrift-"));
   const sg = join(root, ".skillgrid");
   mkdirSync(sg, { recursive: true });
-  mkdirSync(join(sg, "specs"), { recursive: true });
-  mkdirSync(join(sg, "sdd"), { recursive: true });
+  mkdirSync(join(sg, "change-specs"), { recursive: true });
+  mkdirSync(join(sg, "meta", ".sdd"), { recursive: true });
 
   if (stateYaml !== null) {
-    writeFileSync(join(sg, "state.yaml"), stateYaml);
+    writeFileSync(join(sg, "meta", "state.yaml"), stateYaml);
   }
 
   for (const [dir, files] of Object.entries(specs)) {
-    const d = join(sg, "specs", dir);
+    const d = join(sg, "change-specs", dir);
     mkdirSync(d, { recursive: true });
     for (const [fname, content] of Object.entries(files)) {
       writeFileSync(join(d, fname), content);
@@ -45,7 +45,7 @@ function makeProject({ stateYaml, specs = {}, sdd = {} } = {}) {
   }
 
   for (const [dir, files] of Object.entries(sdd)) {
-    const d = join(sg, "sdd", dir);
+    const d = join(sg, "meta", ".sdd", dir);
     mkdirSync(d, { recursive: true });
     for (const [fname, content] of Object.entries(files)) {
       writeFileSync(join(d, fname), content);
@@ -413,7 +413,7 @@ function run() {
   //      "no active change" answer is a non-answer, not a clean bill.
   {
     const p = makeProject({ stateYaml: STATE_SHIPPED, specs: {} });
-    rmSync(join(p.root, ".skillgrid", "specs"), { recursive: true, force: true });
+    rmSync(join(p.root, ".skillgrid", "change-specs"), { recursive: true, force: true });
     const r = runGuard(p.root);
     assert("specs-missing: exit 0", r.code === 0, `got ${r.code}: ${r.stderr}`);
     assert("specs-missing: SCOPE: UNSCOPED", /^SCOPE: UNSCOPED$/m.test(r.stdout), r.stdout);
@@ -423,7 +423,7 @@ function run() {
   // 12c. state names a change but specs dir is missing → drift + UNSCOPED.
   {
     const p = makeProject({ stateYaml: STATE_CLEAN_SPEC, specs: {} });
-    rmSync(join(p.root, ".skillgrid", "specs"), { recursive: true, force: true });
+    rmSync(join(p.root, ".skillgrid", "change-specs"), { recursive: true, force: true });
     const r = runGuard(p.root);
     assert("specs-missing-drift: exit 1", r.code === 1, `got ${r.code}: ${r.stderr}`);
     assert("specs-missing-drift: names current_change", r.stdout.includes("current_change"), r.stdout);

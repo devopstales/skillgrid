@@ -105,7 +105,7 @@ Fan-out selection, per-file lenses, and the red-team pass all follow `parallel-c
 - **Merge already landed** → `git revert <merge-commit> -m 1` (or `git reset --hard <pre-merge> ` only if nothing else has landed on the base). Verify tests green after the revert.
 - **PR open, not merged** → close the PR; the branch stays until the work lands or is re-based.
 - **Branch kept** → the branch is the rollback (it never left the repo).
-- **Folder already moved to `xarchive/`** → the move is the *last* step, so a NO-GO discovered before the move leaves it untouched. A NO-GO discovered *after* the move is corrected in the next change's `reflect`, not by un-archiving.
+- **Folder already moved to `change-archive/`** → the move is the *last* step, so a NO-GO discovered before the move leaves it untouched. A NO-GO discovered *after* the move is corrected in the next change's `reflect`, not by un-archiving.
 
 If the change is **trivial** (per the trivial-skip rule in `_shared/planning/rigor-tiers.md`, review escalation threshold), the rollback plan may be one line: "revert the single commit." The full plan is required otherwise.
 
@@ -223,5 +223,5 @@ Per `_shared/craft/measurement.md`.
 - [`../slicing/SKILL.md`](../slicing/SKILL.md) — upstream; the `## Delivery Strategy` guard lines + work-unit table resolve the base branch.
 - [`../reflect/SKILL.md`](../reflect/SKILL.md) — next; reads the moved folder from `.skillgrid/change-archive/`, completes `report.md`'s retro half in place, owns session close.
 - [`../_shared/planning/fast-track.md`](../_shared/planning/fast-track.md) — the light-variant waiver this phase honors.
-- [`../_shared/rules/sdd-structure.md`](../_shared/rules/sdd-structure.md) — the `specs/` → `xarchive/` layout, phase order, and Mnemonic slots.
+- [`../_shared/rules/sdd-structure.md`](../_shared/rules/sdd-structure.md) — the `specs/` → `change-archive/` layout, phase order, and Mnemonic slots.
 - [`../_shared/rules/mnemonic-memory.md`](../_shared/rules/mnemonic-memory.md) — save shape (`title == topic_key`, `scope: "project"`, active `session_id`).

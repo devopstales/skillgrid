@@ -66,8 +66,8 @@ function main() {
   const write = args.includes("--write");
   const positional = args.filter((a) => !a.startsWith("--"));
   const root = resolve(positional[0] || ".");
-  const statePath = join(root, ".skillgrid", "state.yaml");
-  const specsDir = join(root, ".skillgrid", "specs");
+  const statePath = join(root, ".skillgrid", "meta", "state.yaml");
+  const specsDir = join(root, ".skillgrid", "change-specs");
 
   if (!existsSync(statePath)) {
     console.error(`ERROR: ${statePath} not found`);

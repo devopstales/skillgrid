@@ -38,7 +38,7 @@ import { derivePhase as derivePhaseLib, worstScope as libWorstScope } from "../.
 // The lib's derivePhase returns { phase, marker } and treats "no briefing" as
 // the "unknown" phase; the guard maps that back to null (skip the drift check).
 function derivePhase(changeDir) {
-  const sddDir = join(resolve(changeDir, "..", ".."), "sdd");
+  const sddDir = join(resolve(changeDir, "..", ".."), "meta", ".sdd");
   const { phase } = derivePhaseLib({ changeDir, sddDir });
   return phase === "unknown" ? null : phase;
 }
@@ -100,8 +100,8 @@ function readChangesMap(state) {
 function main() {
   const root = resolve(process.argv[2] || ".");
   const sgDir = join(root, ".skillgrid");
-  const statePath = join(sgDir, "state.yaml");
-  const specsDir = join(sgDir, "specs");
+  const statePath = join(sgDir, "meta", "state.yaml");
+  const specsDir = join(sgDir, "change-specs");
 
   // Parse state.yaml
   if (!existsSync(statePath)) {

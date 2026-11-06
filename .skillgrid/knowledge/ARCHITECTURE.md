@@ -71,7 +71,7 @@ The engine is its own Go module (`mnemonic/`, module `github.com/devopstales/ski
                       └─────────────────────────────────────────────────────┘
  REPO CONTENT (shipped by `skillgrid install`, the "Hub Content")
  .agents/skills/ (SDD pipeline + _shared rules)      .skillgrid/ (config,
- hooks/  git-hooks/  plugins/  config.d/  rules/      state, specs, knowledge bundle)
+ hooks/  git-hooks/  plugins/  config.d/  rules/      change-specs, change-archive, knowledge vault, meta)
 ```
 
 ### Design Decisions
@@ -461,19 +461,26 @@ A second, *human-readable* storage world — the SDD state zone, canonical in `_
 ```
 .skillgrid/
 ├── config.yaml          # REQUIRED static SoT — stack, testing, tracker, rules.*
-├── state.yaml           # DYNAMIC — phase, current change, progress
-├── ASSUMPTIONS.md       # DURABLE — VERIFIED / INFERRED / LOCKED + ADR index
-├── index.md             # root catalog (okf_version) — decisions/invariants/glossary/reference/workflows
-├── decisions/           # ADR files (04-adr-NNNN-slug.md), ADR index note
-├── invariants/          # locked constraints
-├── glossary/            # terms (01-business-terms.md, 02-technical-terms.md)
-├── reference/           # PRD (00-prd.md), research, roadmaps, plans
-├── workflows/           # SDD pipeline + domain flows
-├── specs/               # ACTIVE change folders (YYYY-MM-DD-<topic>/)
+├── knowledge/           # OKF vault (committed) — the wiki
+│   ├── config.json      #   vault sentinel (page types)
+│   ├── ASSUMPTIONS.md   #   DURABLE — VERIFIED / INFERRED / LOCKED + ADR index
+│   ├── ARCHITECTURE.md  #   this file (live system architecture)
+│   ├── index/           #   derived projections (catalog.md, log.md) — engine-owned
+│   ├── decisions/       #   ADR files (04-adr-NNNN-slug.md)
+│   ├── invariants/      #   locked constraints
+│   ├── glossary/        #   terms (01-business-terms.md, 02-technical-terms.md)
+│   ├── workflows/       #   SDD pipeline + domain flows
+│   ├── gotchas/         #   hard-won operational findings
+│   └── architecture/    #   component-level notes
+├── change-specs/        # ACTIVE change folders (YYYY-MM-DD-<topic>/)
 │   └── 2026-10-02-mnemonic-llm-provider/
 │       ├── briefing.md  acceptance.feature  blueprint.md  tasks.md  adr.md
-├── xarchive/            # CLOSED changes (immutable; renamed from archive/, 2026-10-20)
-└── sdd/                 # scratch (gitignored): progress.md, briefs/, reviews/
+├── change-archive/      # CLOSED changes (immutable; renamed from xarchive/, 2026-11-06)
+└── meta/                # engine state (machine-written, never hand-edited)
+    ├── state.yaml       # DYNAMIC — phase, current change, progress
+    ├── .lock            # session lock
+    ├── .prototype/      # feasibility probes (committed, permanently retained)
+    └── .sdd/            # scratch (gitignored): progress.md, briefs/, reviews/
 ```
 
 ---
@@ -722,7 +729,7 @@ brainstorming ─▶ [research | prototype | sketch] ─▶ writing-blueprints �
                                                                           optional gates                mandatory
 ```
 
-### Artifacts per phase (real example: `specs/2026-10-02-mnemonic-llm-provider/`)
+### Artifacts per phase (real example: `change-archive/2026-10-02-mnemonic-llm-provider/`)
 
 | Phase (skill) | Artifact | Content |
 |---------------|----------|---------|
@@ -733,10 +740,10 @@ brainstorming ─▶ [research | prototype | sketch] ─▶ writing-blueprints �
 | brainstorming | `adr.md` | ADR Review Manifest (pointers to `decisions/04-adr-NNNN-slug.md`) |
 | qa | `report.md` `## Gate Decision` | four-state: `PASS / CONCERNS / FAIL / WAIVED` |
 | requesting-code-review | `review.md` | audit record, verdict floor `met` / `met-with-fixes` |
-| ship | folder move | `specs/…` → `xarchive/…` (integration first) |
+| ship | folder move | `change-specs/…` → `change-archive/…` (integration first) |
 | reflect | `report.md` retro half | terminal; completes GO/NO-GO + lessons |
 
-**Tracker mapping** (canonical in `_shared/rules/ticketing/backlogmd-formatting.md`): a Backlog **milestone is named after the full spec folder** (`YYYY-MM-DD-<topic>` from `specs/` or `xarchive/`), never a short slug or numeric ID — the `milestone → spec` mapping is 1:1 and recoverable from the tracker alone.
+**Tracker mapping** (canonical in `_shared/rules/ticketing/backlogmd-formatting.md`): a Backlog **milestone is named after the full spec folder** (`YYYY-MM-DD-<topic>` from `change-specs/` or `change-archive/`), never a short slug or numeric ID — the `milestone → spec` mapping is 1:1 and recoverable from the tracker alone.
 
 **Machine-readable state**: `briefing.md`/`tasks.md` carry a STATUS banner parsed by the `/plans` HTTP endpoint — `> **STATUS:** \`in-progress\` (2026-10-03)`, values `draft → sliced → in-progress → complete → shipped` (+ `stalled/blocked/revised/superseded`).
 

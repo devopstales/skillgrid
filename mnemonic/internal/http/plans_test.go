@@ -19,7 +19,7 @@ func newPhase6PlansServer(t *testing.T) http.Handler {
 	t.Helper()
 	repo := t.TempDir()
 
-	spec := filepath.Join(repo, ".skillgrid", "specs", "2026-01-01-sample-change")
+	spec := filepath.Join(repo, ".skillgrid", "change-specs", "2026-01-01-sample-change")
 	if err := os.MkdirAll(spec, 0o755); err != nil {
 		t.Fatalf("mkdir spec: %v", err)
 	}
@@ -40,7 +40,7 @@ func newPhase6PlansServer(t *testing.T) http.Handler {
 	_ = os.WriteFile(filepath.Join(spec, "findings.md"), []byte("# Findings\nresearch\n"), 0o644)
 
 	// A second spec, archived/done, with 2/2 tasks → 100%.
-	spec2 := filepath.Join(repo, ".skillgrid", "specs", "2025-12-31-done-change")
+	spec2 := filepath.Join(repo, ".skillgrid", "change-specs", "2025-12-31-done-change")
 	if err := os.MkdirAll(spec2, 0o755); err != nil {
 		t.Fatalf("mkdir spec2: %v", err)
 	}
@@ -48,7 +48,7 @@ func newPhase6PlansServer(t *testing.T) http.Handler {
 	_ = os.WriteFile(filepath.Join(spec2, "tasks.md"), []byte("# Tasks: done-change\n\n- [x] 1.1 a\n- [x] 1.2 b\n"), 0o644)
 
 	// SDD ledger for the sample change: a progress.md with step statuses.
-	sdd := filepath.Join(repo, ".skillgrid", "sdd", "2026-01-01-sample-change")
+	sdd := filepath.Join(repo, ".skillgrid", "meta", ".sdd", "2026-01-01-sample-change")
 	if err := os.MkdirAll(sdd, 0o755); err != nil {
 		t.Fatalf("mkdir sdd: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestPhase6_Plans(t *testing.T) {
 
 func TestPlanDetail_ReadsArchivedChange(t *testing.T) {
 	repo := t.TempDir()
-	dir := filepath.Join(repo, ".skillgrid", "xarchive", "2026-09-04-hermes-memory")
+	dir := filepath.Join(repo, ".skillgrid", "change-archive", "2026-09-04-hermes-memory")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir xarchive: %v", err)
 	}

@@ -74,7 +74,7 @@ This hierarchy governs how the report **reports** facts. It does not weaken the 
 
 ### Ship Gate (hard)
 
-- **Folder not in `xarchive/`** → **`blocked`** (reason `not-shipped`). Nothing shipped, nothing to reflect.
+- **Folder not in `change-archive/`** → **`blocked`** (reason `not-shipped`). Nothing shipped, nothing to reflect.
 - **Ship context missing** (no Return Envelope, no mnemonic, no git evidence of a clean move) → **`blocked`** (reason `ship-incomplete`). The folder move was not verified.
 - **Ship context present** + `diff -r` empty → proceed.
 
@@ -302,7 +302,7 @@ The waiver is honored, never silently dropped — note `Fast-track: {trivial|sma
 
 ## Verification
 
-- [ ] All gates passed before any write: Ship Gate (folder in `xarchive/`, ship context present, `diff -r` empty) + QA Gate (`PASS` / `WAIVED` / `CONCERNS`, no unresolved CRITICAL) — or `blocked` returned with no write.
+- [ ] All gates passed before any write: Ship Gate (folder in `change-archive/`, ship context present, `diff -r` empty) + QA Gate (`PASS` / `WAIVED` / `CONCERNS`, no unresolved CRITICAL) — or `blocked` returned with no write.
 - [ ] `report.md` written into the moved folder with every learning sourced (file:line / commit / ticket / scenario) and an acceptance verdict recorded.
 - [ ] `report.md` includes final-state facts, gate results, the `diff -r` reference, and the observation IDs of every artifact read.
 - [ ] Every Lesson/Surprise was triaged process-bug vs one-off: process bugs named the governing skill/`_shared` rule and were recorded as follow-up tickets; one-offs stayed in `report.md` alone.
@@ -315,7 +315,7 @@ The waiver is honored, never silently dropped — note `Fast-track: {trivial|sma
 - [templates/report.md](templates/report.md) — thin pointer to the merged template at [../qa/templates/report.md](../qa/templates/report.md) (the `report.md` artifact shape: qa half + retro half — final-state + sourced learnings + verdict + lineage).
 - [`../ship/SKILL.md`](../ship/SKILL.md) — upstream; moved the folder to `.skillgrid/change-archive/` and produced the ship context (the Ship Gate evidence).
 - [`../qa/SKILL.md`](../qa/SKILL.md) — upstream; it wrote the QA half of `report.md` (through `## Gate Decision`), whose verdict drives the QA Gate and grounds the acceptance verdict.
-- [`../_shared/rules/sdd-structure.md`](../_shared/rules/sdd-structure.md) — the `xarchive/` layout, terminal phase order, and Mnemonic slots.
+- [`../_shared/rules/sdd-structure.md`](../_shared/rules/sdd-structure.md) — the `change-archive/` layout, terminal phase order, and Mnemonic slots.
 - [`../_shared/rules/mnemonic-memory.md`](../_shared/rules/mnemonic-memory.md) — save shape, recovery ladder, session-close structure, and the observation-ID lineage the report must carry.
 - [`../_shared/planning/fast-track.md`](../_shared/planning/fast-track.md) — the light-variant waiver this phase honors.
 - [`../environment-retro/SKILL.md`](../environment-retro/SKILL.md) — the Step 3.6 sub-phase; sweeps the agent environment and appends the `## Environment Retro` section to this same `report.md` before session close.

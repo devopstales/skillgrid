@@ -150,8 +150,8 @@ func TestRecallLatencyBaseline(t *testing.T) {
 // repo-relative from this package dir, plus the absolute checkout path.
 func callerAuditCandidates() []string {
 	return []string{
-		filepath.Join("..", "..", "..", ".skillgrid", "specs", "2026-10-10-obs-split-hnsw", "observations_callers.txt"),
-		filepath.Join("/data", "git", "AI", "skillgrid", ".skillgrid", "specs", "2026-10-10-obs-split-hnsw", "observations_callers.txt"),
+		filepath.Join("..", "..", "..", ".skillgrid", "change-specs", "2026-10-10-obs-split-hnsw", "observations_callers.txt"),
+		filepath.Join("/data", "git", "AI", "skillgrid", ".skillgrid", "change-specs", "2026-10-10-obs-split-hnsw", "observations_callers.txt"),
 	}
 }
 

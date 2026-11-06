@@ -22,7 +22,7 @@ import { join, resolve } from "node:path";
 const STALE_HOURS = 2;
 
 function lockPath(root) {
-  return join(root, ".skillgrid", ".lock");
+  return join(root, ".skillgrid", "meta", ".lock");
 }
 
 function readLock(path) {

@@ -134,7 +134,7 @@ function main() {
   }
   const root = resolve(rootArg || ".");
 
-  const specDir = join(root, ".skillgrid", "specs", slug);
+  const specDir = join(root, ".skillgrid", "change-specs", slug);
   const featurePath = join(specDir, "acceptance.feature");
   if (!pathExists(specDir)) {
     console.error(`ERROR: no spec dir for '${slug}'`);

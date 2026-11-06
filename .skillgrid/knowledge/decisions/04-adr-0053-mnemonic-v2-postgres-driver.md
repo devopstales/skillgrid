@@ -1,4 +1,5 @@
 ---
+type: TechnicalDecision
 status: accepted
 supersedes: none
 date: 2026-11-01

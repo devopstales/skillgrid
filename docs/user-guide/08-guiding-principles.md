@@ -625,7 +625,7 @@ WARNING findings — they surface, never block:
 - **Structure drift** — the actual diff (`base..HEAD`) must fall within the anticipated file set declared in `tasks.md` + `blueprint.md`. Surfaces scope creep while it's still cheap to fix (pre-integration).
 - **Byte budget** — SKILL.md files have per-tier size ceilings (standard 22KB, large 38KB, XL 40KB). Prevents unbounded prompt growth in the skill files that shape every session.
 
-Plus one lifecycle guard: the **session lock** (`.skillgrid/.lock`, advisory)
+Plus one lifecycle guard: the **session lock** (`.skillgrid/meta/.lock`, advisory)
 surfaces concurrent-session conflicts. `brainstorming` acquires, `ship`
 releases. Stale threshold: 2 hours. It warns, never blocks.
 

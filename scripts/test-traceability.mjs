@@ -31,7 +31,7 @@ function assert(name, cond, detail = "") {
 
 function makeSpec(files) {
   const root = mkdtempSync(join(tmpdir(), "sgtrace-"));
-  const dir = join(root, ".skillgrid", "specs", "demo-change");
+  const dir = join(root, ".skillgrid", "change-specs", "demo-change");
   mkdirSync(dir, { recursive: true });
   for (const [f, c] of Object.entries(files)) writeFileSync(join(dir, f), c);
   return { root, dir, cleanup: () => rmSync(root, { recursive: true, force: true }) };

@@ -37,7 +37,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ARTIFACTS = path.join(ROOT, ".skillgrid", "knowledge", "decisions");
-const SPECS = path.join(ROOT, ".skillgrid", "specs");
+const SPECS = path.join(ROOT, ".skillgrid", "change-specs");
 const ASSUMPTIONS = path.join(ROOT, ".skillgrid", "knowledge", "ASSUMPTIONS.md");
 const jsonFlag = process.argv.includes("--json");
 

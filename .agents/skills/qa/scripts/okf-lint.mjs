@@ -44,9 +44,12 @@
  * root catalog). Neither found => SCOPE: UNSCOPED (exit 0, non-answer).
  *
  * The bundle-root walk skips the non-concept zones of the `.skillgrid/`
- * tree (specs/, xarchive/, sdd/, cache/, prototypes/, okf-metrics.jsonl,
- * WINDOWS.md, config.d/): working-state and SDD artifacts, not OKF
- * concepts (ADR-0048, TICKET-14).
+ * tree (change-specs/, change-archive/, meta/ (state.yaml, .sdd/, .cache/,
+ * .prototype/), config.d/, brainstorm/, the vault's derived index/
+ * projections, okf-metrics.jsonl, WINDOWS.md): working-state and SDD
+ * artifacts, not OKF concepts (ADR-0048, TICKET-14). In the knowledge/
+ * layout the concept scope is a WHITELIST — the vault's page-type folders
+ * (config.json `page_types`) only; vault-root docs are out of scope.
  *
  * Telemetry (repocodex metrics.jsonl pattern): after the checks, append ONE
  * JSONL event to `.skillgrid/meta/okf-metrics.jsonl` (override with the
@@ -107,17 +110,25 @@ function isDir(p) {
   }
 }
 
-// Non-concept zones of the .skillgrid/ tree: working state (sdd/, cache/,
-// specs/), shipped changes (xarchive/), throwaway work (prototypes/),
-// machine-local config (config.d/), the defect register (WINDOWS.md —
-// advisory, not a concept), and the telemetry sink.
+// Non-concept zones of the .skillgrid/ tree: working state (meta/ —
+// state.yaml, .sdd/, .cache/, .prototype/), shipped/active changes
+// (change-archive/, change-specs/), throwaway work (prototypes/ — pre-reorg
+// name, kept for fixtures), machine-local config (config.d/), the
+// visual-companion state (brainstorm/), and the vault's derived index/
+// projections. The defect register (WINDOWS.md — advisory, not a concept)
+// and the telemetry sink are non-concept files.
 const NON_CONCEPT_ZONES = new Set([
   "specs",
+  "change-specs",
   "xarchive",
+  "change-archive",
   "sdd",
+  "meta",
   "cache",
   "prototypes",
   "config.d",
+  "brainstorm",
+  "index",
 ]);
 const NON_CONCEPT_FILES = new Set(["WINDOWS.md", "okf-metrics.jsonl"]);
 
@@ -399,6 +410,24 @@ function main() {
   }
 
   // --- Load concepts + reserved files ---
+  // Concept scope (001 §7): in the knowledge/ layout the index scope is a
+  // WHITELIST — page-type folders only (from the vault's config.json).
+  // Vault-root docs, index/ projections, and dot-dirs are out of scope by
+  // construction. Fixture/bundle-root layouts keep the walk-all behavior.
+  let pageFolders = null;
+  if (layout === "knowledge/") {
+    try {
+      const cfg = JSON.parse(readFileSync(join(bundleRoot, "config.json"), "utf8"));
+      pageFolders = new Set(Array.isArray(cfg.page_types) ? cfg.page_types : []);
+    } catch {
+      pageFolders = null; // unreadable sentinel: fall back to walk-all
+    }
+  }
+  const inScope = (rel) => {
+    if (pageFolders === null) return true;
+    const top = rel.split("/")[0];
+    return rel.includes("/") && pageFolders.has(top);
+  };
   const concepts = [];
   const reserved = []; // { rel, content }
   for (const f of mdFiles) {
@@ -411,6 +440,7 @@ function main() {
       reserved.push({ rel, content: readBodyFile(f) });
       continue;
     }
+    if (!inScope(rel)) continue;
     const loaded = readConceptFile(f);
     concepts.push({
       abs: f,
@@ -420,7 +450,7 @@ function main() {
       body: loaded.body,
       rawBody: loaded.body,
       parseError: loaded.parseError,
-      isDirCatalog: rel.endsWith("index.md"),
+      isDirCatalog: base === "index.md" && rel.includes("/"),
     });
   }
   // Root catalog: index.md (post-R6 / bundle-root) or README.md (pre-R6).
@@ -482,14 +512,19 @@ function main() {
   const conceptRels = new Set(
     concepts.filter((c) => !c.isDirCatalog).map((c) => c.rel),
   );
-  for (const c of concepts) {
-    if (c.isDirCatalog) continue;
-    if (!entrySet.has(c.rel)) {
-      find(
-        "index-incomplete",
-        c.rel,
-        "concept not listed in index.md or its directory catalog",
-      );
+  // In the engine-driven knowledge/ layout the index is a derived
+  // projection (index/catalog.md) — with no hand- or engine-written catalog
+  // present, the "every concept is listed" half is vacuous, not a failure.
+  if (catalogs.length > 0) {
+    for (const c of concepts) {
+      if (c.isDirCatalog) continue;
+      if (!entrySet.has(c.rel)) {
+        find(
+          "index-incomplete",
+          c.rel,
+          "concept not listed in index.md or its directory catalog",
+        );
+      }
     }
   }
   for (const entry of [...entrySet].sort()) {

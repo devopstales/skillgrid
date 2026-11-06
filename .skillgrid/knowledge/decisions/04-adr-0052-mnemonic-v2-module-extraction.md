@@ -1,4 +1,5 @@
 ---
+type: TechnicalDecision
 status: accepted
 supersedes: none (v1 module structure retired, not superseded)
 date: 2026-11-01

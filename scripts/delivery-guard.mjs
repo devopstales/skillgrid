@@ -89,7 +89,7 @@ function main() {
     process.exit(2);
   }
   const root = resolve(rootArg);
-  const tasksPath = join(root, ".skillgrid", "specs", slug, "tasks.md");
+  const tasksPath = join(root, ".skillgrid", "change-specs", slug, "tasks.md");
   if (!existsSync(tasksPath)) {
     console.error(`ERROR: no tasks.md for '${slug}'`);
     process.exit(2);

@@ -33,10 +33,10 @@ function assert(name, cond, detail = "") {
 function makeRoot({ state, specs = {} }) {
   const root = mkdtempSync(join(tmpdir(), "sgrep-"));
   const sg = join(root, ".skillgrid");
-  mkdirSync(sg, { recursive: true });
-  writeFileSync(join(sg, "state.yaml"), state);
+  mkdirSync(join(sg, "meta"), { recursive: true });
+  writeFileSync(join(sg, "meta", "state.yaml"), state);
   for (const [slug, files] of Object.entries(specs)) {
-    const dir = join(sg, "specs", slug);
+    const dir = join(sg, "change-specs", slug);
     mkdirSync(dir, { recursive: true });
     for (const [f, c] of Object.entries(files)) writeFileSync(join(dir, f), c);
   }
@@ -73,7 +73,7 @@ const FEATURE = "# Cap\n\n### Requirement: r\n\n#### Scenario: s\n";
   assert("phase-drift: reported a phase patch", j && j.patches.some((pt) => pt.field === "changes.demo.phase"), JSON.stringify(j?.patches));
   assert("phase-drift: new phase != spec", j && j.patches.find((pt) => pt.field === "changes.demo.phase")?.to !== "spec", JSON.stringify(j?.patches));
   // The file was actually rewritten.
-  const after = readFileSync(join(p.root, ".skillgrid", "state.yaml"), "utf8");
+  const after = readFileSync(join(p.root, ".skillgrid", "meta", "state.yaml"), "utf8");
   assert("phase-drift: file no longer says phase: spec", !/phase: spec/.test(after), after);
   assert("phase-drift: file still has the other change fields", after.includes("schema: skillgrid/state/v2"), after);
   p.cleanup();
@@ -93,7 +93,7 @@ const FEATURE = "# Cap\n\n### Requirement: r\n\n#### Scenario: s\n";
   const j = parse(r.stdout);
   assert("missing-entry: exit 0", r.code === 0, `got ${r.code}: ${r.stderr}`);
   assert("missing-entry: reported add changes.demo", j && j.patches.some((pt) => pt.field === "changes.demo"), JSON.stringify(j?.patches));
-  const after = readFileSync(join(p.root, ".skillgrid", "state.yaml"), "utf8");
+  const after = readFileSync(join(p.root, ".skillgrid", "meta", "state.yaml"), "utf8");
   assert("missing-entry: file now has demo", after.includes("demo:"), after);
   assert("missing-entry: other entry preserved", after.includes("other:"), after);
   p.cleanup();
@@ -104,12 +104,12 @@ const FEATURE = "# Cap\n\n### Requirement: r\n\n#### Scenario: s\n";
   // A dir with only a briefing derives "spec"; state says spec → no drift.
   const state = `schema: skillgrid/state/v2\nchanges:\n  demo:\n    phase: spec\n    status: in-progress\nprogress:\n  completed_changes: 0\n`;
   const p = makeRoot({ state, specs: { demo: { "briefing.md": BRIEFING } } });
-  const before = readFileSync(join(p.root, ".skillgrid", "state.yaml"), "utf8");
+  const before = readFileSync(join(p.root, ".skillgrid", "meta", "state.yaml"), "utf8");
   const r = run(p.root, "--write");
   const j = parse(r.stdout);
   assert("nodrift: exit 0", r.code === 0, `got ${r.code}: ${r.stderr}`);
   assert("nodrift: 0 patches", j && j.patches.length === 0, JSON.stringify(j?.patches));
-  const after = readFileSync(join(p.root, ".skillgrid", "state.yaml"), "utf8");
+  const after = readFileSync(join(p.root, ".skillgrid", "meta", "state.yaml"), "utf8");
   assert("nodrift: file unchanged", before === after, "file changed with no drift");
   p.cleanup();
 }
@@ -120,13 +120,13 @@ const FEATURE = "# Cap\n\n### Requirement: r\n\n#### Scenario: s\n";
     state: `schema: skillgrid/state/v2\nchanges:\n  demo:\n    phase: spec\n    status: in-progress\nprogress:\n  completed_changes: 0\n`,
     specs: { demo: { "briefing.md": BRIEFING, "blueprint.md": BLUEPRINT, "acceptance.feature": FEATURE } },
   });
-  const before = readFileSync(join(p.root, ".skillgrid", "state.yaml"), "utf8");
+  const before = readFileSync(join(p.root, ".skillgrid", "meta", "state.yaml"), "utf8");
   const r = run(p.root); // no --write
   const j = parse(r.stdout);
   assert("dryrun: exit 0", r.code === 0, `got ${r.code}: ${r.stderr}`);
   assert("dryrun: would patch", j && j.patches.length > 0, JSON.stringify(j?.patches));
   assert("dryrun: wrote=false", j && j.wrote === false, JSON.stringify(j));
-  const after = readFileSync(join(p.root, ".skillgrid", "state.yaml"), "utf8");
+  const after = readFileSync(join(p.root, ".skillgrid", "meta", "state.yaml"), "utf8");
   assert("dryrun: file unchanged", before === after, "file changed in dry-run");
   p.cleanup();
 }
@@ -159,7 +159,7 @@ const FEATURE = "# Cap\n\n### Requirement: r\n\n#### Scenario: s\n";
     },
   });
   run(p.root, "--write");
-  const after = readFileSync(join(p.root, ".skillgrid", "state.yaml"), "utf8");
+  const after = readFileSync(join(p.root, ".skillgrid", "meta", "state.yaml"), "utf8");
   assert("comments: top comment preserved", after.includes("# v2: the map IS the resume pointer."), after);
   assert("comments: archived-comment preserved", after.includes("# 2026-01-01-old: shipped, archived"), after);
   assert("comments: demo phase updated", /phase: (slicing|blueprint)/.test(after), after);

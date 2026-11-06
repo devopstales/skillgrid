@@ -82,7 +82,7 @@ function projectRoot() {
 }
 
 function projectScratch() {
-  return join(projectRoot(), ".skillgrid", "sdd");
+  return join(projectRoot(), ".skillgrid", "meta", ".sdd");
 }
 
 function resolveLedgerPath(explicit) {

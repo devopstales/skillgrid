@@ -53,22 +53,22 @@ function locateChange(root, arg) {
   const sg = join(root, ".skillgrid");
   if (isAbsolute(arg)) {
     const base = resolve(arg).split("/").pop();
-    const inSpecs = pathExists(join(root, ".skillgrid", "specs", base));
-    const inArchive = pathExists(join(root, ".skillgrid", "xarchive", base));
-    if (inSpecs) return { dir: join(root, ".skillgrid", "specs", base), slug: base, archived: false };
-    if (inArchive) return { dir: join(root, ".skillgrid", "xarchive", base), slug: base, archived: true };
+    const inSpecs = pathExists(join(root, ".skillgrid", "change-specs", base));
+    const inArchive = pathExists(join(root, ".skillgrid", "change-archive", base));
+    if (inSpecs) return { dir: join(root, ".skillgrid", "change-specs", base), slug: base, archived: false };
+    if (inArchive) return { dir: join(root, ".skillgrid", "change-archive", base), slug: base, archived: true };
     if (pathExists(arg)) return { dir: resolve(arg), slug: base, archived: false };
     return null;
   }
-  const inSpecs = pathExists(join(sg, "specs", arg));
-  const inArchive = pathExists(join(sg, "xarchive", arg));
-  if (inSpecs) return { dir: join(sg, "specs", arg), slug: arg, archived: false };
-  if (inArchive) return { dir: join(sg, "xarchive", arg), slug: arg, archived: true };
+  const inSpecs = pathExists(join(sg, "change-specs", arg));
+  const inArchive = pathExists(join(sg, "change-archive", arg));
+  if (inSpecs) return { dir: join(sg, "change-specs", arg), slug: arg, archived: false };
+  if (inArchive) return { dir: join(sg, "change-archive", arg), slug: arg, archived: true };
   return null;
 }
 
 function readState(root) {
-  const p = join(root, ".skillgrid", "state.yaml");
+  const p = join(root, ".skillgrid", "meta", "state.yaml");
   const text = read(p);
   if (text === null) return null;
   try {
@@ -81,7 +81,7 @@ function readState(root) {
 /** Route one change dir → the JSON record. */
 function routeChange(root, located, state) {
   const { dir, slug, archived } = located;
-  const sddDir = join(root, ".skillgrid", "sdd");
+  const sddDir = join(root, ".skillgrid", "meta", ".sdd");
   const { phase, marker } = derivePhase({ changeDir: dir, sddDir, archived });
 
   // Execution-ledger position (only meaningful in the execution phase, but
@@ -151,15 +151,15 @@ function main() {
   const root = resolve(args[1] || ".");
 
   const sg = join(root, ".skillgrid");
-  if (!pathExists(sg) || !pathExists(join(sg, "specs"))) {
-    console.error(`ERROR: ${sg}/specs not found (not a skillgrid project?)`);
+  if (!pathExists(sg) || !pathExists(join(sg, "change-specs"))) {
+    console.error(`ERROR: ${sg}/change-specs not found (not a skillgrid project?)`);
     process.exit(2);
   }
 
   const state = readState(root);
 
   if (arg === "all") {
-    const specsDir = join(sg, "specs");
+    const specsDir = join(sg, "change-specs");
     const slugs = readdirSync(specsDir, { withFileTypes: true })
       .filter((e) => e.isDirectory())
       .map((e) => e.name)

@@ -48,7 +48,7 @@ const VALUE_PHASES = {
 };
 
 function listSpecs(root) {
-  const specsDir = join(root, ".skillgrid", "specs");
+  const specsDir = join(root, ".skillgrid", "change-specs");
   if (!pathExists(specsDir)) return [];
   return readdirSync(specsDir, { withFileTypes: true })
     .filter((e) => e.isDirectory())
@@ -66,9 +66,9 @@ function read(p) {
 
 /** Check one change dir. Returns a findings array (empty = clean). */
 function checkChange(root, slug) {
-  const dir = join(root, ".skillgrid", "specs", slug);
+  const dir = join(root, ".skillgrid", "change-specs", slug);
   const findings = [];
-  const sddDir = join(root, ".skillgrid", "sdd");
+  const sddDir = join(root, ".skillgrid", "meta", ".sdd");
   const { phase } = derivePhase({ changeDir: dir, sddDir });
 
   const briefing = read(join(dir, "briefing.md"));
@@ -169,12 +169,12 @@ function main() {
     console.error("Usage: status-banner.mjs write <slug> [project-root]");
     process.exit(2);
   }
-  const dir = join(root, ".skillgrid", "specs", slugArg);
+  const dir = join(root, ".skillgrid", "change-specs", slugArg);
   if (!pathExists(dir)) {
     console.error(`ERROR: no spec dir for '${slugArg}'`);
     process.exit(2);
   }
-  const sddDir = join(root, ".skillgrid", "sdd");
+  const sddDir = join(root, ".skillgrid", "meta", ".sdd");
   const { phase } = derivePhase({ changeDir: dir, sddDir });
   const value = bannerValueForPhase(phase);
   const date = new Date().toISOString().slice(0, 10);

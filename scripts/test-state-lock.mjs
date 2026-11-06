@@ -22,8 +22,8 @@ const failures = [];
 function makeProject() {
   const root = mkdtempSync(join(tmpdir(), "sglock-"));
   const sg = join(root, ".skillgrid");
-  mkdirSync(sg, { recursive: true });
-  return { root, lockPath: join(sg, ".lock"), cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  mkdirSync(join(sg, "meta"), { recursive: true });
+  return { root, lockPath: join(sg, "meta", ".lock"), cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
 function runLock(args) {

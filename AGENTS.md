@@ -78,12 +78,12 @@ State: `.skillgrid/meta/state.yaml` (dynamic) — where the project is right now
 
 | Artifact | Path |
 |----------|------|
-| Project knowledge (PRD, architecture, terms, ADRs, research) | `.skillgrid/knowledge/` (OKF bundle: `decisions/` `invariants/` `workflows/` `architecture/` `gotchas/` `glossary/` + derived `index/`) |
+| Project knowledge (product understanding, architecture, terms, ADRs, findings) | `.skillgrid/knowledge/` (OKF bundle: `decisions/` `invariants/` `workflows/` `architecture/` `gotchas/` `glossary/` + derived `index/`) |
 | Project state (phase, current change, progress) | `.skillgrid/meta/state.yaml` |
 | Specs (briefing, blueprint, tasks) | `.skillgrid/change-specs/` |
 | Execution ledger | `.skillgrid/meta/.sdd/` (gitignored) |
 
-**Domain model:** read the vocabulary + ADRs under `.skillgrid/` (`glossary/` + `decisions/`, index: `index.md`) before designing or implementing. The ADR index is `.skillgrid/knowledge/ASSUMPTIONS.md` § `LOCKED`; open the linked file for the full Context / Decision / Consequences.
+**Domain model:** read the vocabulary + ADRs under `.skillgrid/` (`glossary/` + `decisions/`, index: `knowledge/index/`) before designing or implementing. The ADR index is `.skillgrid/knowledge/ASSUMPTIONS.md` § `LOCKED`; open the linked file for the full Context / Decision / Consequences.
 
 **Rules & standards:** the operational rules live under `### Rules` below. Shared standards are referenced, never inlined — each loads via the skills that apply it.
 

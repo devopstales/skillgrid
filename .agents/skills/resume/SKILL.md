@@ -59,8 +59,8 @@ from the project root. It returns `{phase, next, marker, drift, ledger, blocked,
 | `report.md` (verdict not yet filled) | `qa` | `requesting-code-review` |
 | `report.md` verdict filled + `review.md` floor not met | `qa` | `requesting-code-review` |
 | `report.md` verdict filled + `review.md` floor met (`met`/`met-with-fixes`), still in `specs/` | `review` | `receiving-code-review` |
-| folder in `xarchive/`, retro sections EMPTY | `reflect` | `reflect` |
-| folder in `xarchive/` AND retro sections filled | `complete` | none |
+| folder in `change-archive/`, retro sections EMPTY | `reflect` | `reflect` |
+| folder in `change-archive/` AND retro sections filled | `complete` | none |
 
 The router's `ledger` field (done/in-flight/next task from the plan's `progress.md`) and `blocked` field (any `blocked(...)` reasons) are part of the same read — use them instead of re-grepping the ledger. If the router reports `drift` (state.yaml disagrees with the spec zone), reconcile per Step 2.5 — the spec zone is the deeper truth.
 

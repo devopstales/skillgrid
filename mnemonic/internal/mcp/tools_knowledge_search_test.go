@@ -62,7 +62,7 @@ func knowledgeSearchFixture(t *testing.T) (dataDir, root string) {
 	}
 	root = abs
 
-	specs := filepath.Join(root, ".skillgrid", "specs", "2026-10-06-clm")
+	specs := filepath.Join(root, ".skillgrid", "change-specs", "2026-10-06-clm")
 	if err := os.MkdirAll(specs, 0o755); err != nil {
 		t.Fatalf("mkdir specs: %v", err)
 	}

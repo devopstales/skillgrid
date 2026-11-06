@@ -36,7 +36,8 @@ function makeRepo(files, commits = []) {
   git(root, "init", "-q");
   git(root, "config", "user.email", "t@t");
   git(root, "config", "user.name", "t");
-  const specDir = join(root, ".skillgrid", "specs", "demo-change");
+  git(root, "config", "core.hooksPath", "/dev/null");
+  const specDir = join(root, ".skillgrid", "change-specs", "demo-change");
   mkdirSync(specDir, { recursive: true });
   for (const [f, c] of Object.entries(files)) {
     const p = isAbsolute(f) ? f : join(root, f);
@@ -77,7 +78,7 @@ const REPORT_OK = `# Report
 {
   const p = makeRepo({ "report.md": REPORT_OK, "test_a.go": "x", "test_b.go": "x" }, ["red1", "green1", "red2", "green2"]);
   const report = REPORT_OK.replace("{RED}", p.hashes[0]).replace("{GREEN}", p.hashes[1]).replace("{RED}", p.hashes[2]).replace("{GREEN}", p.hashes[3]);
-  writeFileSync(join(p.root, ".skillgrid", "specs", "demo-change", "report.md"), report);
+  writeFileSync(join(p.root, ".skillgrid", "change-specs", "demo-change", "report.md"), report);
   git(p.root, "add", "-A"); git(p.root, "commit", "-q", "-m", "report");
   const r = run(p.root, "demo-change");
   const j = parse(r.stdout);
@@ -92,7 +93,7 @@ const REPORT_OK = `# Report
 {
   const p = makeRepo({ "test_a.go": "x" }, ["g"]);
   const report = `## TDD Evidence\n\n| Ticket | RED commit | GREEN commit | Test file |\n|---|---|---|---|\n| T1 | deadbeef000000000000000000000000000000000 | ${p.hashes[0]} | test_a.go |\n`;
-  writeFileSync(join(p.root, ".skillgrid", "specs", "demo-change", "report.md"), report);
+  writeFileSync(join(p.root, ".skillgrid", "change-specs", "demo-change", "report.md"), report);
   git(p.root, "add", "-A"); git(p.root, "commit", "-q", "-m", "report");
   const r = run(p.root, "demo-change");
   const j = parse(r.stdout);
@@ -105,7 +106,7 @@ const REPORT_OK = `# Report
 {
   const p = makeRepo({ "report.md": "" }, ["r", "g"]);
   const report = `## TDD Evidence\n\n| Ticket | RED commit | GREEN commit | Test file |\n|---|---|---|---|\n| T1 | ${p.hashes[0]} | ${p.hashes[1]} | missing_test.go |\n`;
-  writeFileSync(join(p.root, ".skillgrid", "specs", "demo-change", "report.md"), report);
+  writeFileSync(join(p.root, ".skillgrid", "change-specs", "demo-change", "report.md"), report);
   git(p.root, "add", "-A"); git(p.root, "commit", "-q", "-m", "report");
   const r = run(p.root, "demo-change");
   const j = parse(r.stdout);
@@ -118,7 +119,7 @@ const REPORT_OK = `# Report
 {
   const p = makeRepo({ "report.md": "" }, ["g"]);
   const report = `## TDD Evidence\n\n| Ticket | RED commit | GREEN commit | Test file |\n|---|---|---|---|\n| T1 | N/A (Python, no test framework) | ${p.hashes[0]} | provider.py |\n`;
-  writeFileSync(join(p.root, ".skillgrid", "specs", "demo-change", "report.md"), report);
+  writeFileSync(join(p.root, ".skillgrid", "change-specs", "demo-change", "report.md"), report);
   writeFileSync(join(p.root, "provider.py"), "x");
   git(p.root, "add", "-A"); git(p.root, "commit", "-q", "-m", "report");
   const r = run(p.root, "demo-change");
@@ -141,7 +142,7 @@ const REPORT_OK = `# Report
 {
   const p = makeRepo({ "t.go": "x" }, ["r", "g"]);
   const report = `## TDD Evidence\n\n| Ticket | RED commit | GREEN commit | Test file |\n|---|---|---|---|\n| T1 | ${p.hashes[0]} | ${p.hashes[1]} | t.go |\n`;
-  writeFileSync(join(p.root, ".skillgrid", "specs", "demo-change", "report.md"), report);
+  writeFileSync(join(p.root, ".skillgrid", "change-specs", "demo-change", "report.md"), report);
   git(p.root, "add", "-A"); git(p.root, "commit", "-q", "-m", "report");
 
   // PASS: a command that exits 0.
@@ -168,7 +169,7 @@ const REPORT_OK = `# Report
 {
   const p = makeRepo({ "report.md": "" }, ["r", "g"]);
   const report = `## TDD Evidence\n\n| Ticket | RED commit | GREEN commit | Test file |\n|---|---|---|---|\n| T1 | ${p.hashes[0]} | ${p.hashes[1]} | t.go |\n`;
-  writeFileSync(join(p.root, ".skillgrid", "specs", "demo-change", "report.md"), report);
+  writeFileSync(join(p.root, ".skillgrid", "change-specs", "demo-change", "report.md"), report);
   writeFileSync(join(p.root, "t.go"), "x");
   git(p.root, "add", "-A"); git(p.root, "commit", "-q", "-m", "report");
   const a = run(p.root, "demo-change").stdout;
@@ -178,7 +179,7 @@ const REPORT_OK = `# Report
 }
 
 function readReport(root) {
-  return readFileSync(join(root, ".skillgrid", "specs", "demo-change", "report.md"), "utf8");
+  return readFileSync(join(root, ".skillgrid", "change-specs", "demo-change", "report.md"), "utf8");
 }
 
 console.log(`\n${passed + failed} tests: ${passed} passed, ${failed} failed`);

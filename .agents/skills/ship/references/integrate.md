@@ -163,7 +163,7 @@ step — the events already hold every committed unit.
 
 ### Step 7: Mechanical Move to Archive (LAST step)
 
-The change folder moves from `specs/` (active) to a top-level `xarchive/` (closed historical record). This is a **mechanical filesystem operation** — file content MUST NEVER pass through the model's Read/Write path. The only acceptable move is a native shell command (`git mv` / `mv`), verified by a structural `diff -r` readback.
+The change folder moves from `change-specs/` (active) to a top-level `change-archive/` (closed historical record). This is a **mechanical filesystem operation** — file content MUST NEVER pass through the model's Read/Write path. The only acceptable move is a native shell command (`git mv` / `mv`), verified by a structural `diff -r` readback.
 
 ```bash
 # Run as ONE shell transaction so the EXIT trap stays active.

@@ -49,8 +49,8 @@ func sddRoot() string {
 	return "."
 }
 
-func sddSpecsDir() string   { return filepath.Join(sddRoot(), ".skillgrid", "specs") }
-func sddArchiveDir() string { return filepath.Join(sddRoot(), ".skillgrid", "xarchive") }
+func sddSpecsDir() string   { return filepath.Join(sddRoot(), ".skillgrid", "change-specs") }
+func sddArchiveDir() string { return filepath.Join(sddRoot(), ".skillgrid", "change-archive") }
 
 // changeDir resolves a change id to its spec directory. Live specs win.
 // Archived changes live under .skillgrid/change-archive/<id>.
@@ -68,7 +68,7 @@ func changeDir(id string) (string, bool) {
 	return "", false
 }
 
-func sddLedgerDir() string { return filepath.Join(sddRoot(), ".skillgrid", "sdd") }
+func sddLedgerDir() string { return filepath.Join(sddRoot(), ".skillgrid", "meta", ".sdd") }
 
 // planSummary is one entry in the /plans list.
 type planSummary struct {

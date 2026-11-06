@@ -14,7 +14,7 @@ import (
 
 func TestTeamRuns_JoinsLedgerRowToSession(t *testing.T) {
 	repo := t.TempDir()
-	wave := filepath.Join(repo, ".skillgrid", "sdd", "2026-09-24-mem")
+	wave := filepath.Join(repo, ".skillgrid", "meta", ".sdd", "2026-09-24-mem")
 	if err := os.MkdirAll(wave, 0o755); err != nil {
 		t.Fatal(err)
 	}

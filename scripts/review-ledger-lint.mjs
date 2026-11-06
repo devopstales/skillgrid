@@ -80,7 +80,7 @@ function main() {
   const root = resolve(rootArg);
   const inGit = !noGit && isGitRepo(root);
 
-  const ledgerPath = join(root, ".skillgrid", "specs", slug, "review-ledger.md");
+  const ledgerPath = join(root, ".skillgrid", "change-specs", slug, "review-ledger.md");
   if (!pathExists(ledgerPath)) {
     console.error(`ERROR: no review-ledger.md for '${slug}'`);
     process.exit(2);
@@ -170,7 +170,7 @@ function main() {
 
   // Review debt: parked findings in prior archived changes' ledgers.
   const debt = [];
-  const xarchive = join(root, ".skillgrid", "xarchive");
+  const xarchive = join(root, ".skillgrid", "change-archive");
   if (pathExists(xarchive)) {
     let dirs = [];
     try { dirs = readdirSync(xarchive, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort(); } catch {}

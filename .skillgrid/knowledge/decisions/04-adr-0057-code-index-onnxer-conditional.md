@@ -1,4 +1,5 @@
 ---
+type: TechnicalDecision
 status: in-force (conditional)
 supersedes: none
 date: 2026-11-02

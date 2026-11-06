@@ -32,10 +32,10 @@ function assert(name, cond, detail = "") {
 
 function makeProject({ specs = {} } = {}) {
   const root = mkdtempSync(join(tmpdir(), "sgbanner-"));
-  mkdirSync(join(root, ".skillgrid", "specs"), { recursive: true });
-  mkdirSync(join(root, ".skillgrid", "sdd"), { recursive: true });
+  mkdirSync(join(root, ".skillgrid", "change-specs"), { recursive: true });
+  mkdirSync(join(root, ".skillgrid", "meta", ".sdd"), { recursive: true });
   for (const [dir, files] of Object.entries(specs)) {
-    const d = join(root, ".skillgrid", "specs", dir);
+    const d = join(root, ".skillgrid", "change-specs", dir);
     mkdirSync(d, { recursive: true });
     for (const [f, c] of Object.entries(files)) writeFileSync(join(d, f), c);
   }
@@ -104,7 +104,7 @@ const BANNER_SLICED = "> **STATUS:** `sliced` (2026-01-01)";
   const p = makeProject({ specs: { "c1": { "briefing.md": `# T\n\n> **STATUS:** \`stale\` (2020-01-01)\n` } } });
   const r = run(p.root, "write", "c1");
   assert("write: exit 0", r.code === 0, `got ${r.code}: ${r.stderr}`);
-  const after = readFileSync(join(p.root, ".skillgrid", "specs", "c1", "briefing.md"), "utf8");
+  const after = readFileSync(join(p.root, ".skillgrid", "change-specs", "c1", "briefing.md"), "utf8");
   assert("write: banner now draft", /\*\*STATUS:\*\* `draft`/.test(after), after);
   p.cleanup();
 }
@@ -114,11 +114,11 @@ const BANNER_SLICED = "> **STATUS:** `sliced` (2026-01-01)";
   const p = makeProject({
     specs: { "c1": { "briefing.md": `# T\n`, "blueprint.md": `# B\n`, "tasks.md": `# Tasks\n\n- [x] t1\n` } },
   });
-  mkdirSync(join(p.root, ".skillgrid", "sdd", "c1"), { recursive: true });
-  writeFileSync(join(p.root, ".skillgrid", "sdd", "c1", "progress.md"), "- [x] t1\n");
+  mkdirSync(join(p.root, ".skillgrid", "meta", ".sdd", "c1"), { recursive: true });
+  writeFileSync(join(p.root, ".skillgrid", "meta", ".sdd", "c1", "progress.md"), "- [x] t1\n");
   const r = run(p.root, "write", "c1");
   assert("write-exec: exit 0", r.code === 0, `got ${r.code}: ${r.stderr}`);
-  const after = readFileSync(join(p.root, ".skillgrid", "specs", "c1", "tasks.md"), "utf8");
+  const after = readFileSync(join(p.root, ".skillgrid", "change-specs", "c1", "tasks.md"), "utf8");
   assert("write-exec: tasks banner in-progress", /\*\*STATUS:\*\* `in-progress`/.test(after), after);
   p.cleanup();
 }

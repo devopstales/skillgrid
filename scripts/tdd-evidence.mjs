@@ -139,7 +139,7 @@ function main() {
   const runTestArg = flags.find((f) => f.startsWith("--run-test="));
   const retestCmd = runTestArg ? runTestArg.slice("--run-test=".length) : null;
 
-  const specDir = join(root, ".skillgrid", "specs", slug);
+  const specDir = join(root, ".skillgrid", "change-specs", slug);
   const reportPath = join(specDir, "report.md");
   if (!pathExists(specDir)) {
     console.error(`ERROR: no spec dir for '${slug}'`);

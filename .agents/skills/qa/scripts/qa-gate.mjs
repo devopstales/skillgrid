@@ -76,7 +76,7 @@ function runScript(root, scriptPath, args) {
 
 // Find the active change's slug (newest dir under .skillgrid/change-specs/).
 function findActiveSlug(root) {
-  const specsDir = join(root, ".skillgrid", "specs");
+  const specsDir = join(root, ".skillgrid", "change-specs");
   if (!existsSync(specsDir)) return null;
   const dirs = readdirSync(specsDir, { withFileTypes: true })
     .filter((e) => e.isDirectory())
@@ -89,7 +89,7 @@ function findActiveSlug(root) {
 function findTasksPath(root) {
   const slug = findActiveSlug(root);
   if (!slug) return null;
-  const p = join(root, ".skillgrid", "specs", slug, "tasks.md");
+  const p = join(root, ".skillgrid", "change-specs", slug, "tasks.md");
   return existsSync(p) ? p : null;
 }
 

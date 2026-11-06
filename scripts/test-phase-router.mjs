@@ -37,16 +37,16 @@ function assert(name, cond, detail = "") {
 function makeProject({ stateYaml = null, specs = {}, sdd = {} } = {}) {
   const root = mkdtempSync(join(tmpdir(), "sgphase-"));
   const sg = join(root, ".skillgrid");
-  mkdirSync(join(sg, "specs"), { recursive: true });
-  mkdirSync(join(sg, "sdd"), { recursive: true });
-  if (stateYaml !== null) writeFileSync(join(sg, "state.yaml"), stateYaml);
+  mkdirSync(join(sg, "change-specs"), { recursive: true });
+  mkdirSync(join(sg, "meta", ".sdd"), { recursive: true });
+  if (stateYaml !== null) writeFileSync(join(sg, "meta", "state.yaml"), stateYaml);
   for (const [dir, files] of Object.entries(specs)) {
-    const d = join(sg, "specs", dir);
+    const d = join(sg, "change-specs", dir);
     mkdirSync(d, { recursive: true });
     for (const [f, c] of Object.entries(files)) writeFileSync(join(d, f), c);
   }
   for (const [dir, files] of Object.entries(sdd)) {
-    const d = join(sg, "sdd", dir);
+    const d = join(sg, "meta", ".sdd", dir);
     mkdirSync(d, { recursive: true });
     for (const [f, c] of Object.entries(files)) writeFileSync(join(d, f), c);
   }
