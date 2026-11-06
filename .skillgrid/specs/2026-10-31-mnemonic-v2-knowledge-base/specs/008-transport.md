@@ -54,7 +54,7 @@ are in `all`.
 | `kb_reindex` | admin | **Full** rebuild of `kb_pages`/`kb_pages_fts`/`kb_claims` from the markdown (`004-index`). Idempotent. |
 | `kb_index` | admin | **Incremental** reindex (changed pages only); advances the checkpoint. |
 | `kb_bootstrap` | admin | Scaffold a new vault (the sentinel `config.json`, `KNOWLEDGE_SCHEMA.md`, `templates/`, the page folders, `.knowledgeignore`) and write/refresh a `### KnowledgeBase` routing block in the repo root's `AGENTS.md` (marker-delimited; in-place refresh — never duplicated). Idempotent no-op on an existing vault (the AGENTS.md block is still ensured). |
-| `kb_rebuild_meta` | admin | Rebuild the derived metadata that is *not* the FTS index — the `kb_run_state` checkpoint + the backlink in-degree cache. (Distinct from `kb_reindex`, which is the FTS.) |
+| `kb_rebuild_meta` | admin | Rebuild the derived metadata that is *not* the FTS index — the `kb_run_state` checkpoint + the backlink in-degree cache + the `index/` human projections (`catalog.md` / `log.md` / `reverse-index.md` / `events.jsonl`, 001 §2 — the reference's `meta/` pattern; also rewritten by `kb_index`/`kb_reindex` as they run). (Distinct from `kb_reindex`, which is the FTS.) |
 
 > The tool list is the final set (the plan's draft is confirmed here, minus
 > `kb_render` — there is no `outputs/` to render, KB-9): **12 core tools + 3 opt-in

@@ -29,10 +29,13 @@ section and the AGENTS.md block document trajectory routing only when enabled).
 
 **Half B — recall/health deltas.** The reference's recall + health behavior, applied
 where the KB already has the substrate: the 005 stage-1 **inline carve-out** (agents
-skip bare links; "apply-immediately" pages inline their short body), the 007 lint
+skip bare links; "apply-immediate" pages inline their short body), the 007 lint
 checks that are **specified but unimplemented** (orphans, broken wikilinks, dup
 aliases, contradiction markers, … — the shipped `lint.go` has 2 of the 12), the 008
-`kb_status` **dashboard-grade** extension, and the 003 **per-run model override**.
+`kb_status` **dashboard-grade** extension, the 003 **per-run model override**, and the
+**`index/` human projections** (catalog/log/reverse-index/events.jsonl — the
+reference's `meta/` pattern: the kb skill's orient step finally has files to read, and
+its hand-kept same-edit rule becomes engine-driven).
 
 ## 2. Design map (pi-llm-wiki → kb)
 
@@ -100,6 +103,12 @@ Surface:
 12. kb `SKILL.md` — a **Working Memory** section (capture at task end, distill in a
     batch, `kb_recall_skill` at task start; skill vs case; one-packet-per-task) +
     the recall/health doc updates.
+13. `index/` human projections (001 §2) — `kb_index` / `kb_rebuild_meta` rewrites
+    `index/catalog.md` (one line per page: type, status, updated, in-degree),
+    `index/log.md` (the `kb_events` prose), `index/reverse-index.md` (the backlink
+    map), and `index/events.jsonl` (the append-only machine trail). The atomic-unit
+    guardrail (never edit a single file inside `index/` — restore or re-run). The
+    009 orient contract + the skill's same-edit fix ride with item 12.
 
 ## 4. Tickets
 
@@ -112,6 +121,7 @@ Surface:
 | KB-T12 | 007 lint structural checks (orphans, broken wikilinks, dup aliases, weak_cross_reference, contradiction markers, `trajectory:` resolution) | 10a |
 | KB-T13 | 007 lint citation/grounding checks (broken citations + neuledge gate, ungrounded, weak pin, stale_after, missing sources, orphan citations, coverage gaps) | 10b |
 | KB-T14 | 008 `kb_status` dashboard-grade + 003 `kb_generate` model override | 11 |
+| KB-T15 | 001 §2 `index/` human projections (catalog/log/reverse-index/events.jsonl) + 009 orient contract + skill same-edit fix | 12 (skill), 13 |
 
 ## 5. Invariants (restated + new)
 

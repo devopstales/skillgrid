@@ -36,11 +36,29 @@ boundary. Every other spec cites the layout and the page format here.
                                 # NOT the raw/ layer (KB-8 is about *external* sources);
                                 # a packet is a KB-generated input, cited as trajectory:TRJ-*
 # ── derived (rebuilt, never hand-edited) ──
-├── index/                      run checkpoint (resumable, openwiki)
-│   └── last-update.json        # the FTS index is NOT a file here — it is the kb_*
-│                               # tables in the project's shared DB (004-index).
+├── index/                      derived file projections — the shared DB is
+│   │                           # authoritative; these are its human/browsable mirror
+│   ├── last-update.json        # the FTS index is NOT a file here — it is the kb_*
+│   │                           # tables in the project's shared DB (004-index).
+│   ├── .page-manifest.json     # baseline manifest projection (003 §5.2)
+│   ├── catalog.md              # generated one-line-per-page catalog (type, status,
+│   │                           #   updated, in-degree) — the agent's cheap orient view
+│   ├── log.md                  # generated activity log (the kb_events prose projection)
+│   ├── reverse-index.md        # generated backlink map (who links to what)
+│   └── events.jsonl            # append-only machine trail — backup-safe: a copy of
+│                               #   the vault alone loses the DB, this file does not
 └── .knowledgeignore            read boundary (openwiki .openwikiignore)
 ```
+
+**`index/` is the human mirror of DB state** (the reference's `meta/` pattern — its
+`registry.json`/`index.md`/`log.md`/`backlinks.json` projections over the append-only
+`events.jsonl`). The shared DB stays authoritative; the files are rebuildable
+projections rewritten by `kb_index` / `kb_reindex` / `kb_rebuild_meta` (008 §3). Two
+guardrails (the reference's `qmd/` note): treat `index/` as a **unit** — never edit a
+single file inside it (restore the dir or re-run the engine), and keep `events.jsonl`
+in vault backups — the prose `log.md` cannot reconstruct the structured trail. The
+agent's orient step **reads** `index/catalog.md` + the tail of `index/log.md` (009); it
+never hand-maintains them (KB-INV-3).
 
 **Why one dot-dir** (pi-llm-wiki, adopted): all vault content lives under a single
 sentinel dir (`.skillgrid/knowledge/`, sentinel = `config.json`) instead of scattering

@@ -42,7 +42,11 @@ The skill opens with the rules the agent must always hold:
    (`decisions/ invariants/ workflows/ architecture/ gotchas/ glossary/`). The pages are
    the agent's to maintain — not a read-only artifact.
 2. **INDEX IS DERIVED.** Never hand-edit `index/` or the `kb_*` tables. `kb_index` /
-   `kb_reindex` rebuild them from the markdown. If the index looks wrong, re-`kb_index`,
+   `kb_reindex` rebuild them from the markdown — including the human projections
+   (`catalog.md`, `log.md`, `reverse-index.md`, `events.jsonl`, 001 §2). The agent's
+   orient step **reads** `index/catalog.md` + the tail of `index/log.md`; it never
+   hand-maintains them (the former hand-kept same-edit rule is now engine-driven: a page
+   write is followed by `kb_index`, which rewrites the projections). If the index looks wrong, re-`kb_index`,
    don't edit the rows.
 3. **ONE FILE PER THING.** Each decision / invariant / workflow gets its own `.md`.
    Sub-topics are separate pages linked by wikilinks, not sections bolted onto an
