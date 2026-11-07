@@ -284,12 +284,17 @@ it; a paraphrased decision often is).
   deliberate act (a human or the agent confirms the trail's result was correct before
   freezing it) — a bad trail promoted becomes a bad test.
 
-### 8.3 The replay (shares the v1 ablation-harness machinery)
+### 8.3 The replay (fixture-corpus regression net)
 
-`kb_eval` does **not** invent a new scoring rig. It **reuses** the retrieval-eval ablation
-harness the v1 `skillgrid eval` already ships (seeded paired bootstrap 95% CI +
-permutation p-value + the shipped-config gate — `mnemonic_back/internal/eval`), projecting
-the **mem/KB corpus** into it:
+`kb_eval` does **not** invent a new scoring rig. The shipped implementation
+(`mnemonic-v2/internal/kb/eval.go`) is a **fixture-corpus regression net**:
+recall@K / meanRankDist / topScoreBelowOne against the observed baseline
+(baseline = the FTS-only ordering; shipped = the fused ordering) — it measures
+the **ranking delta** of the semantic leg. (Original plan: reuse the v1
+ablation harness — seeded paired bootstrap 95% CI + permutation p-value +
+shipped-config gate, `mnemonic/internal/eval`. v1 was removed before that reuse
+(ADR-0059); the regression net is the shipped form.) The mem/KB corpus is
+projected into it:
 
 - The **corpus** = the KB page set (`rel_path` → page), the mem/KB analogue of the code
   eval's file-path corpus.
