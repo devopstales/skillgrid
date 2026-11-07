@@ -1,10 +1,10 @@
 # 003 — Generate (the pipeline, the graduate-rule, incremental entity-targeted)
 
-**Status:** DRAFT · **Owner:** knowledge-base change
+**Status:** DRAFT · **Owner:** project-wiki change
 **Depends on:** `001-structure` (page format), `002-sources` (the adapters),
-`004-index` (the `kb_run_state` checkpoint + `kb_page_baselines` it advances — note:
+`004-index` (the `projectwiki_run_state` checkpoint + `projectwiki_page_baselines` it advances — note:
 `003` ↔ `004` are co-designed and intentionally circular on the checkpoint; they share
-`kb_run_state`), the memory change (`SaveEvent`, `importance`), `003-intelligence`
+`projectwiki_run_state`), the memory change (`SaveEvent`, `importance`), `003-intelligence`
 (the LLM seam).
 **Reference:** openwiki incremental update (no-op clean runs, resumable checkpoint),
 pi-llm-wiki `wiki_generate`, the eager-per-save handoff (OPEN-11).
@@ -70,7 +70,7 @@ The graduate-rule is the **filter between the raw store and the brain**. It answ
 - **novelty.** A fact that updates an existing page's topic (same `topic_key` / entity)
   does not create a new page — it **updates** the target (step 3). A genuinely new
   entity (new `topic_key` family, no existing page) may create a new page.
-- **soft budget** (KB-O5): the graduate-rule consults `kb_status`'s coverage so that
+- **soft budget** (KB-O5): the graduate-rule consults `projectwiki_status`'s coverage so that
   generation does not unboundedly fan out; it prefers updating over creating.
 
 **The rule is deterministic, the merge is LLM.** The graduate-rule (step 2) is a
@@ -86,7 +86,7 @@ result.
 
 ## 3. Incremental, entity-targeted (the eager property)
 
-The KB does **not** regenerate the whole vault on every save. It regenerates **only the
+The ProjectWiki does **not** regenerate the whole vault on every save. It regenerates **only the
 pages the fact affects**:
 
 - **By entity / topic_key:** the `SaveEvent` carries `entity` + `topic_key`. Pages whose
@@ -100,13 +100,13 @@ pages the fact affects**:
 This is what makes **eager-per-save** (OPEN-11) affordable: a save that touches one
 module regenerates only that module's pages, not the vault.
 
-**A clean run is a no-op (KB-INV-4) — and it is *proven*, not assumed.** A `kb_generate`
+**A clean run is a no-op (PW-INV-4) — and it is *proven*, not assumed.** A `projectwiki_generate`
 (incremental) run skips the LLM synthesis and reports `changed: 0` only when **all four
 layers** hold (openwiki's layered no-op proof, adapted):
 
 1. **Source-clean (already-processed).** The triggering `SaveEvent` fact has not already
    been processed. "Processed" is keyed on **the set of `sync_id`s** (the
-   `kb_run_state.processed` set, §5.1) — *not* on a sequence number, because the memory
+   `projectwiki_run_state.processed` set, §5.1) — *not* on a sequence number, because the memory
    `SaveEvent` carries no `seq` (only `sync_id`/`project`/`scope`/`type`/`topic_key`/
    `entity`/`importance`/`degraded`). For an **upsert** of an existing fact (same
    `sync_id`, new content), "processed" additionally requires the fact's current
@@ -116,14 +116,14 @@ layers** hold (openwiki's layered no-op proof, adapted):
 2. **No claim issues (read-only).** Re-resolve every pinned anchor/claim on the affected
    pages (the `006-validate` pin-check, **read-side**). Zero `stale` / `unresolved`.
    This step is **read-only: it does NOT append a `verified` stamp** (stamping happens
-   only on an explicit `kb_validate` call, §`006-validate` §4). A clean source set
+   only on an explicit `projectwiki_validate` call, §`006-validate` §4). A clean source set
    cannot hide a stale pin — the pin-check runs *before* the no-op decision.
-3. **Full baseline coverage.** Every affected page has a `kb_page_baselines` entry (§5.2)
+3. **Full baseline coverage.** Every affected page has a `projectwiki_page_baselines` entry (§5.2)
    whose `source_fingerprint` matches the **current** source fingerprint (a page with no
    baseline, or a stale baseline, is forced to re-derive, never a no-op).
 4. **Source-fingerprint re-check.** Take the **source fingerprint** (SHA-256 over the
    *source inputs only* — the affected memory facts + code spans; **excluding** the
-   vault's own `index/**` files and `kb_*` rows, so the run's own writes can never
+   vault's own `index/**` files and `projectwiki_*` rows, so the run's own writes can never
    perturb it), run the run's metadata writes (checkpoint, baseline manifest), then
    re-take the source fingerprint **twice**. If the re-taken fingerprint differs from
    the first (a source fact or code span moved concurrently), the no-op is **void**: the
@@ -137,8 +137,8 @@ churned by idle runs, git sees no spurious diffs, and a no-op is never the resul
 run proceeds to synthesis (step 4).
 
 > **Why the source fingerprint excludes the vault's own writes:** the no-op proof must
-> be able to distinguish "the *source* is unchanged" from "the *KB* changed." If the
-> fingerprint covered the KB's own `index/**`/`kb_*` rows, every `kb_generate` that
+> be able to distinguish "the *source* is unchanged" from "the *ProjectWiki* changed." If the
+> fingerprint covered the ProjectWiki's own `index/**`/`projectwiki_*` rows, every `projectwiki_generate` that
 > writes anything would invalidate every page's baseline (making layer 3 vacuous) and
 > the re-check (layer 4) would be trivially flaky. Excluding them keeps the fingerprint
 > a pure *source* identity — the same stance as openwiki, which excludes `openwiki/`
@@ -163,7 +163,7 @@ The LLM returns an **updated page** (body + frontmatter). The contract:
   `superseded_by` relation is cited) — never silently deleted (INV-1, additive).
 - **Flag contradictions.** If the new fact conflicts with existing page content, the LLM
   documents both sides (golden rule 6) and sets a `## Contradiction` marker that
-  `kb_lint` surfaces.
+  `projectwiki_lint` surfaces.
 - **One atomic change per page** (session discipline). A single generation run updates
   a page in one write; it does not emit a stream of partial edits.
 
@@ -172,7 +172,7 @@ present, valid `type`, `sources:` well-formed, wikilinks resolvable). A malforme
 is rejected and the run degrades (append-only) for that page — it does not write a
 corrupt page.
 
-**Per-run model override (012):** `kb_generate` takes an optional `model` parameter
+**Per-run model override (012):** `projectwiki_generate` takes an optional `model` parameter
 (`provider/id`). Precedence: explicit param > configured model > session model. An
 unknown ref degrades gracefully (the run continues on the configured/session model —
 the append-only floor above is unchanged, INV-3). The choice is per-run, never
@@ -181,12 +181,12 @@ persisted into `config.json`.
 ## 5. Resumability: the run checkpoint + the per-page baseline manifest
 
 Two durable, derived artifacts cooperate (openwiki's `.run.json` + `.page-manifest.json`
-model, adapted). Both are under the derived `index/` layer (KB-INV-3) — rebuilt, never
-hand-edited. Neither is the FTS index (that is `kb_pages_fts`, `004-index`).
+model, adapted). Both are under the derived `index/` layer (PW-INV-3) — rebuilt, never
+hand-edited. Neither is the FTS index (that is `projectwiki_pages_fts`, `004-index`).
 
-### 5.1 The run checkpoint (`index/last-update.json` / `kb_run_state`)
+### 5.1 The run checkpoint (`index/last-update.json` / `projectwiki_run_state`)
 
-`kb_generate` and `kb_index` share a **resumable run checkpoint**: it records, per run,
+`projectwiki_generate` and `projectwiki_index` share a **resumable run checkpoint**: it records, per run,
 the `runId`, the phase (`planning`/`generating`), the source fingerprint, **the set of
 processed `sync_id`s** (keyed on `sync_id` + the fact `normalized_hash` at processing
 time — see layer 1, §3; there is no `seq` because the `SaveEvent` carries none), and the
@@ -201,19 +201,19 @@ reprocess already-handled facts).
 - If the **source fingerprint drifted** since the checkpoint (a fact or code span moved
   mid-run), the phase resets to `planning` and the plan is deleted; completed pages stay
   durable. A no-drift resume keeps the plan and reconciles.
-- **On a clean finish the checkpoint row persists** (it is the `kb_status` "last run"
+- **On a clean finish the checkpoint row persists** (it is the `projectwiki_status` "last run"
   record) but its **active plan is cleared** (`phase → idle`, `plan` emptied). On a
-  failure the checkpoint **survives intact** so the next `kb_generate` can reconstruct
+  failure the checkpoint **survives intact** so the next `projectwiki_generate` can reconstruct
   and retry — never discard resumable work. The *active-run* marker (the non-idle
   `phase`) is what is "deleted last"; the row itself is durable history.
 
-> **Single authoritative store: `kb_run_state` (the DB row).** `index/last-update.json`
-> is the **file projection** of the same checkpoint (written by `kb_index`/`kb_generate`
+> **Single authoritative store: `projectwiki_run_state` (the DB row).** `index/last-update.json`
+> is the **file projection** of the same checkpoint (written by `projectwiki_index`/`projectwiki_generate`
 > for git-diff visibility and human inspection). The **DB row is authoritative**; the
 > file is regenerated from it and is never read back to decide a no-op. This removes the
 > dual-copy consistency question — there is one source of truth, one projection.
 
-### 5.2 The per-page baseline manifest (`index/.page-manifest.json` / `kb_page_baselines`)
+### 5.2 The per-page baseline manifest (`index/.page-manifest.json` / `projectwiki_page_baselines`)
 
 Each committed page earns a **baseline entry** recording the exact source it was
 checked against:
@@ -237,7 +237,7 @@ baseline still matches is a **no-op candidate** (layer 3 of the no-op proof, §3
 
 **Fast-forward:** because the baseline `source_fingerprint` covers **only source inputs**
 (memory facts + code spans, §3 layer 4 note), a change to the vault's *own* generated
-state (the `index/**` files, the `kb_*` rows, or the engine-owned frontmatter fields
+state (the `index/**` files, the `projectwiki_*` rows, or the engine-owned frontmatter fields
 `generated`/`verified`/`stale_after`) does **not** change a page's source fingerprint.
 Such a change therefore neither invalidates the baseline nor requires a re-derive — the
 baseline simply remains valid. (This is what keeps KB-only churn from accumulating
@@ -253,18 +253,18 @@ rule.)
 | Mode | Trigger | What it does |
 |---|---|---|
 | **incremental** (default, eager) | a `SaveEvent` | regenerates only the affected pages (steps 2–6, targeted). |
-| **full** (`kb_generate --full`) | explicit (CLI / `kb_generate` with `full: true`) | re-derives the **entire** vault from all sources. Used after a schema change, a manual page edit that desynced the index, or a rebuild. |
+| **full** (`projectwiki_generate --full`) | explicit (CLI / `projectwiki_generate` with `full: true`) | re-derives the **entire** vault from all sources. Used after a schema change, a manual page edit that desynced the index, or a rebuild. |
 
 A **full** run still respects the graduate-rule (it does not create pages for
-non-graduate facts) and is still a no-op if nothing changed (KB-INV-4). It is the
-"resync" path: if a user hand-edited a page and the index drifted, `kb_generate --full`
+non-graduate facts) and is still a no-op if nothing changed (PW-INV-4). It is the
+"resync" path: if a user hand-edited a page and the index drifted, `projectwiki_generate --full`
 reconciles.
 
 ## 7. Invariants
 
 INV-3 (LLM-first, degraded floor), INV-1 (provenance preserved on merge), INV-4 (files
-are truth — generation writes files; the index follows), KB-INV-2 (grounded pages stay
-grounded — synthesis updates `anchors:`/`claims:`), KB-INV-4 (no-op when clean).
+are truth — generation writes files; the index follows), PW-INV-2 (grounded pages stay
+grounded — synthesis updates `anchors:`/`claims:`), PW-INV-4 (no-op when clean).
 
 ## 8. Open items
 

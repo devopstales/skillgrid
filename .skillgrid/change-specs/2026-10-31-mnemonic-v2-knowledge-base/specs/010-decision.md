@@ -1,10 +1,10 @@
 # 010 — Decision Model (the System-1 layer)
 
-**Status:** DRAFT · **Owner:** knowledge-base change
+**Status:** DRAFT · **Owner:** project-wiki change
 **Depends on:** `00-foundation/003-intelligence` (the `Embedder`/`LLM` seam the decision
-model is a third, sibling seam to), `005-query` (§2 `kb_query` rerank — a *consumer*),
+model is a third, sibling seam to), `005-query` (§2 `projectwiki_query` rerank — a *consumer*),
 `006-validate` (§2 pin-check — a *consumer*), `003-generate` (the no-op clean-run the
-router can skip), `008-transport` (the `decision` config + the `kb_*` verbs that route
+router can skip), `008-transport` (the `decision` config + the `projectwiki_*` verbs that route
 through it).
 **Reference:** the "agent RAG / System-1 decision model" pattern (Typescale "Jev" as the
 exemplar): a non-chat model that returns a **decision + confidence**, not prose.
@@ -21,14 +21,14 @@ few numbers. Because the output shape is defined by the *form* (the schema you w
 **cannot hallucinate a new option** — it can make the *wrong* decision, but it never
 invents a category you didn't declare. That is what makes it cheap (you pay for the input
 only; the output is ~free) and fast (no token stream to stream out), and what makes it
-the right tool for the **micro-decisions** inside the KB pipeline: the small, high-volume,
+the right tool for the **micro-decisions** inside the ProjectWiki pipeline: the small, high-volume,
 fuzzy judgments a chat LLM can also make but more slowly and more expensively.
 
 This spec defines the **decision seam** — the third intelligence seam beside `Embedder`
-and `LLM` (`00-foundation/003-intelligence`) — and the **three KB uses** that ride on it:
+and `LLM` (`00-foundation/003-intelligence`) — and the **three ProjectWiki uses** that ride on it:
 the **steerable reranker** (`005-query` §2), the **citation-confidence** check
 (`006-validate` §2.2), and the **router** (skip the expensive synthesis on a clean run,
-§4). The KB does **not** own a decision-model implementation — it owns the *contract* and
+§4). The ProjectWiki does **not** own a decision-model implementation — it owns the *contract* and
 the *call sites*. The model itself is a config-driven seam (local Ollama, an OpenAI-
 compatible endpoint, or a dedicated decision-model API), exactly like the `LLM` seam.
 
@@ -65,7 +65,7 @@ Three question kinds, all answerable in **one** JSON call (a "form" with several
 
 ```go
 // Decision is the System-1 judgment seam. One call = one form (state + N questions),
-// one JSON reply. It is a sibling of LLM (prose) and Embedder (vectors): the KB owns
+// one JSON reply. It is a sibling of LLM (prose) and Embedder (vectors): the ProjectWiki owns
 // the contract + call sites, not the implementation. A nil/absent decision model
 // degrades every consumer to its deterministic floor (INV-3) — never a silent gap.
 type Decision interface {
@@ -92,19 +92,19 @@ type Answer struct {
 > alternative (a chat LLM per chunk, one prose reply each) is exactly the "slow and the
 > costs added up" baseline the reference pattern replaces.
 
-## 3. The three KB uses (consumers)
+## 3. The three ProjectWiki uses (consumers)
 
-The decision seam is **inert until a KB call site consumes it**. Three call sites, each
+The decision seam is **inert until a ProjectWiki call site consumes it**. Three call sites, each
 additive to an existing spec, each with a **deterministic floor** when no decision model
 is configured (INV-3 — explicit degrade, never a silent gap):
 
 ### 3.1 Steerable reranker (`005-query` §2)
 
-**The use:** `kb_query` already fuses FTS + semantic (RRF). The reranker adds a second
+**The use:** `projectwiki_query` already fuses FTS + semantic (RRF). The reranker adds a second
 stage: **search wide** (the 60-candidate pool) → each candidate gets a `new` ("does this
 page directly answer the query?") → sort by confidence → **threshold-drop** (below the
 config cutoff, e.g. 0.20, it never reaches the agent). Only the ~10 that clear the bar
-go to `kb_read` / the answer.
+go to `projectwiki_read` / the answer.
 
 **The *steerable* part (the KB-specific value):** the agent populates a **rerank
 instruction** per-query, so the *ranking criteria* can differ from the *search query*.
@@ -114,14 +114,14 @@ instruction** per-query, so the *ranking criteria* can differ from the *search q
 This is the difference from a non-steerable cross-encoder (Cohere's reranker does the
 cross-encoder part; the *instruction* is what the reference pattern adds).
 
-**The floor (no decision model):** the rerank stage is **skipped** and `kb_query` returns
+**The floor (no decision model):** the rerank stage is **skipped** and `projectwiki_query` returns
 the fused FTS+semantic ordering, with `reranked: false` in the response (the deterministic
 RRF floor holds). The threshold-drop still applies to the fused scores. Never a silent
 "re-rank with nothing" — the `reranked` flag is explicit.
 
 ### 3.2 Citation-confidence (`006-validate` §2.2)
 
-**The use:** `kb_validate`'s pin-check is **code-grounded** (does the page's anchor/claim
+**The use:** `projectwiki_validate`'s pin-check is **code-grounded** (does the page's anchor/claim
 still match *live code*?). The citation-checker is the **same mechanism at a different
 target** — **passage-grounded**: does the *generated answer* match the *cited passage*?
 Add an optional check kind, **`cite`**, that runs a `choice` over the cited chunk:
@@ -131,26 +131,26 @@ at 0.88" — the **degree** of support, not just a stale/fresh boolean, is the s
 
 **The floor (no decision model):** the `cite` check is **skipped** (the deterministic
 pin-check — token/span/symbol/claim vs live code — is unaffected and remains the
-fail-closed gate). `kb_validate` reports `cite: skipped (no decision model)`, explicit
+fail-closed gate). `projectwiki_validate` reports `cite: skipped (no decision model)`, explicit
 per INV-3. The pin-check never *depends* on the decision model; the citation-confidence
 is an *additive* lens.
 
 ### 3.3 The router (skip the expensive synthesis on a clean run)
 
 **The use:** the reference pattern routes *queries* between cheap/expensive chat models.
-The KB is **local-first on one Ollama model** (`llama3.2:1b`) — there is no model *tier*
+The ProjectWiki is **local-first on one Ollama model** (`llama3.2:1b`) — there is no model *tier*
 to route between yet. So the router is reframed to what it actually saves here: **the
-*cost/latency* of the expensive LLM synthesis** (`kb_generate`, the LLM that writes pages),
+*cost/latency* of the expensive LLM synthesis** (`projectwiki_generate`, the LLM that writes pages),
 not a model tier. A `choice` per incoming save-event / turn — *cache hit (no page change
 needed) | minor edit (one page) | full regenerate (many pages)* — decides whether the
-expensive LLM synthesis runs at all. This sharpens KB-INV-4 ("generation is a no-op when
+expensive LLM synthesis runs at all. This sharpens PW-INV-4 ("generation is a no-op when
 clean") from a *deterministic* no-op (no new/changed input) to a *judged* no-op (a
 clean-ish input the decision model scores as "cache hit" → skip the LLM).
 
 **The floor (no decision model):** the router is **bypassed** — every save-event goes to
-the deterministic KB-INV-4 clean-run check (no LLM when no new/changed input, as today).
+the deterministic PW-INV-4 clean-run check (no LLM when no new/changed input, as today).
 The router is a *v2.1* cost/latency optimization, **not a v2 requirement**; it is the
-weakest of the three fits because the KB's single-model architecture removes the
+weakest of the three fits because the ProjectWiki's single-model architecture removes the
 "route between tiers" half of the value.
 
 ## 4. The config + the degrade contract (INV-3)
@@ -172,15 +172,15 @@ decision:
 
 - **`decision.enabled: false`** (the default) → the seam is nil → **every consumer uses
   its deterministic floor** (§3.1 `reranked: false`; §3.2 `cite: skipped`; §3.3 bypassed).
-  The KB is fully functional with *no* decision model configured. The decision model is an
+  The ProjectWiki is fully functional with *no* decision model configured. The decision model is an
   *enhancement*, not a *dependency*.
 - **A runtime error / timeout** → the *call site* fails open to its floor (the rerank
   returns the fused ordering; the `cite` check reports `skipped: <reason>`; the router
   falls back to the deterministic no-op check). The decision model's error never blocks a
-  `kb_query` or `kb_validate`.
+  `projectwiki_query` or `projectwiki_validate`.
 - **`degraded` is surfaced, not logged.** Every response that *could* have used the
   decision model but didn't carries the explicit flag (`reranked: false`,
-  `cite: skipped`), so an agent or a `kb_eval` (§ of `005-query`) sees *why* a result is
+  `cite: skipped`), so an agent or a `projectwiki_eval` (§ of `005-query`) sees *why* a result is
   floor-quality. This is the same explicit-degrade discipline as the `LLM` seam (INV-3).
 
 ## 5. Why a decision model and not the chat LLM
@@ -193,38 +193,38 @@ cheaper, faster, *structured* alternative for exactly the calls that are:
 - **fuzzy** (relevance, degree-of-support, "is this a clean run?"),
 - **bounded** (the answer is one of *declared* options — not free text).
 
-The KB already has the deterministic floors (RRF fusion, the pin-check, the no-op
+The ProjectWiki already has the deterministic floors (RRF fusion, the pin-check, the no-op
 clean-run). The decision model is what makes those floors *query-conditional* (the
 steerable rerank), *degree-aware* (the citation-confidence), and *cheap-to-judge* (the
 router). None of the three is a v2 requirement — all three degrade to the floor.
 
 ## 6. Non-goals (what the decision model is NOT)
 
-- **Not the chat LLM.** It does not synthesize pages (`kb_generate`), does not answer
-  questions (`kb_query`'s answer is the agent's, from `kb_read`), does not write prose.
+- **Not the chat LLM.** It does not synthesize pages (`projectwiki_generate`), does not answer
+  questions (`projectwiki_query`'s answer is the agent's, from `projectwiki_read`), does not write prose.
   It returns *decisions + scores*.
 - **Not the embedder.** It is a judgment (a decision over a state), not a vector. The
-  semantic *leg* of `kb_query` is the `Embedder`; the *rerank* is the decision model.
+  semantic *leg* of `projectwiki_query` is the `Embedder`; the *rerank* is the decision model.
   Different seams, different roles.
 - **Not a new dependency on a specific vendor.** The seam is config-driven (Ollama /
   OpenAI-compatible / dedicated). The reference pattern's "Jev"/Typescale is one
-  implementation the seam can target; the KB does not bind to it.
+  implementation the seam can target; the ProjectWiki does not bind to it.
 - **Not a v2 requirement.** The default is `enabled: false` (every floor holds). The
   decision model is a v2 *option* (the rerank + citation-confidence) and a **v2.1**
-  option (the router). The KB ships without it.
+  option (the router). The ProjectWiki ships without it.
 
 ## 7. Invariants
 
 INV-3 (explicit `degraded` — a consumer that could use the decision model but didn't
 surfaces `reranked: false` / `cite: skipped`, never a silent floor), INV-4 (local truth —
 the decision model judges *local* passages/chunks; it does not reach a remote authority),
-the LLM-seam degrade contract (a decision-model error never blocks a `kb_query` /
-`kb_validate`).
+the LLM-seam degrade contract (a decision-model error never blocks a `projectwiki_query` /
+`projectwiki_validate`).
 
-**KB-INV-6 (added):** **The decision model is an enhancement, not a dependency.** With
+**PW-INV-6 (added):** **The decision model is an enhancement, not a dependency.** With
 `decision.enabled: false` (the default) every consumer uses its deterministic floor and
-the KB is fully functional. No KB read path (`kb_query`), gate (`kb_validate`), or write
-path (`kb_generate`) *requires* the decision model.
+the ProjectWiki is fully functional. No ProjectWiki read path (`projectwiki_query`), gate (`projectwiki_validate`), or write
+path (`projectwiki_generate`) *requires* the decision model.
 
 ## 8. Open items
 

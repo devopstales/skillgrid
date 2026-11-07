@@ -7,14 +7,14 @@
 
 ## Epic Summary
 
-Deliver three plugin families per host (memory / code-index / knowledge-base) for
+Deliver three plugin families per host (memory / code-index / project-wiki) for
 OpenCode and Pi over the v2 engine's MCP stdio surface: full tool-surface parity
-per family (28 `mem_*`, 25 `code_*`, 12 `kb_*`), engram-proven reliability
+per family (28 `mem_*`, 25 `code_*`, 12 `projectwiki_*`), engram-proven reliability
 behavior on the memory plugin, and the SaveEvent → brain-side wiki handoff
-verified. The knowledge family is gated on the KB function shipping. The
+verified. The knowledge family is gated on the ProjectWiki function shipping. The
 pi-research fold (R6: capability gating, lifecycle, described degradation,
 consumer queue, read guard, skill+CLI distribution) applies to the memory +
-code-index families on both hosts; the knowledge-base plugin is excluded
+code-index families on both hosts; the project-wiki plugin is excluded
 (user direction 2026-11-05).
 
 ## Delivery Strategy
@@ -39,7 +39,7 @@ Chain strategy: pending
 |------|------|-----------|----------------------|-----------------|-------------------|
 | 1 | Memory family: MCP stdio seam + 28 mem tools + reliability + compaction + SaveEvent verify (both hosts) | PR 1 | `cd plugins/pi/mnemonic && npm test && cd ../../plugins/opencode && npm test` | Real: plugin tool call against a live `mnemonic mcp` child process (v2 binary) | Revert PR 1 (seam + memory modules; v1-HTTP files untouched) |
 | 2 | Code-index family: `pi-codeindex` package + OpenCode entry, full 25 code tools | PR 2 | code-index parity tests under both plugin packages + `cd plugins/opencode && npm test` | Real: code_search against an indexed fixture repo via the plugin tool | `plugins/pi/codeindex` (new package, deletable) + OpenCode entry file |
-| 3 | Knowledge family: `pi-knowledge` package + OpenCode entry, 12 kb tools | PR 3 | kb parity tests (spec-pinned table until KB tools land) | Real: kb_query against a bootstrapped vault (post-KB-ship; N/A pre-ship — spec-pinned parity only) | `plugins/pi/knowledge` (new package) + OpenCode entry file |
+| 3 | Knowledge family: `pi-knowledge` package + OpenCode entry, 12 projectwiki tools | PR 3 | projectwiki parity tests (spec-pinned table until ProjectWiki tools land) | Real: projectwiki_query against a bootstrapped vault (post-ProjectWiki-ship; N/A pre-ship — spec-pinned parity only) | `plugins/pi/projectwiki` (new package) + OpenCode entry file |
 
 > The four plain-text guard lines above are the **contract** — `skillgrid:subagent-execution` matches them literally. If risk is High, `Chained PRs recommended` MUST be `Yes` and every work unit MUST name a focused test, a runtime harness (or `N/A` + reason), and a rollback boundary.
 
@@ -127,31 +127,31 @@ Chain strategy: pending
 - **Blocked by:** TICKET-01, TICKET-03
 - **Precondition:** `2026-10-31-mnemonic-v2-code-index` shipped per `.skillgrid/meta/state.yaml`
 
-### TICKET-08 — Pi knowledge package with kb tool surface and degradation envelope
+### TICKET-08 — Pi knowledge package with projectwiki tool surface and degradation envelope
 - **Tracker ID:** t_e98a8eaf
 
-- **Scope:** New `@devopstales/pi-knowledge` package registering the `kb_*` surface per KB spec `specs/008-transport.md`: agent-profile tools (kb_query, kb_read, kb_search, kb_generate, kb_validate, kb_lint, kb_status, kb_cite_source) by default, admin tools (kb_reindex, kb_index, kb_bootstrap, kb_rebuild_meta) via `all`; async write semantics (run_id + status poll, 409 on double-start); degradation envelope (`degraded: true` + reason) surfaced to the agent, never silently floored; reads synchronous. Parity test asserts against the KB spec 008 tool table (spec-pinned, 12 tools) and against live registration when the KB tools exist.
-- **Acceptance:** parity test passes (12 == 12 vs spec-pinned table; live comparison when KB tools are registered); a kb_query call returns ranked links + snippets (live, post-KB-ship) or the spec-pinned set check passes (pre-ship); a degraded run returns the envelope flag + reason with no thrown tool error; `cd plugins/pi/knowledge && npm test` green.
-- **SATISFIES:** happy path — agent queries the knowledge base through the plugin; failure state — degraded KB run surfaces the envelope, never fails the agent
-- **Files:** `plugins/pi/knowledge/*` (new: package.json, index.ts, knowledge-tools.ts, test/)
+- **Scope:** New `@devopstales/pi-knowledge` package registering the `projectwiki_*` surface per ProjectWiki spec `specs/008-transport.md`: agent-profile tools (projectwiki_query, projectwiki_read, projectwiki_search, projectwiki_generate, projectwiki_validate, projectwiki_lint, projectwiki_status, projectwiki_cite_source) by default, admin tools (projectwiki_reindex, projectwiki_index, projectwiki_bootstrap, projectwiki_rebuild_meta) via `all`; async write semantics (run_id + status poll, 409 on double-start); degradation envelope (`degraded: true` + reason) surfaced to the agent, never silently floored; reads synchronous. Parity test asserts against the ProjectWiki spec 008 tool table (spec-pinned, 12 tools) and against live registration when the ProjectWiki tools exist.
+- **Acceptance:** parity test passes (12 == 12 vs spec-pinned table; live comparison when ProjectWiki tools are registered); a projectwiki_query call returns ranked links + snippets (live, post-ProjectWiki-ship) or the spec-pinned set check passes (pre-ship); a degraded run returns the envelope flag + reason with no thrown tool error; `cd plugins/pi/projectwiki && npm test` green.
+- **SATISFIES:** happy path — agent queries the project wiki through the plugin; failure state — degraded ProjectWiki run surfaces the envelope, never fails the agent
+- **Files:** `plugins/pi/projectwiki/*` (new: package.json, index.ts, knowledge-tools.ts, test/)
 - **Size:** ~800 (M)
 - **Blocks:** none
 - **Blocked by:** TICKET-01
-- **Precondition:** `2026-10-31-mnemonic-v2-knowledge-base` shipped per `.skillgrid/meta/state.yaml` AND `mnemonic-v2` registers the 12 `kb_*` tools (KB contract test green). If unmet: halt with a checkpoint — the spec-pinned parity half may proceed, the live half does not.
-- **Out of scope (user direction 2026-11-05):** the pi-research fold (R6, PR-1..PR-7) does NOT apply to the knowledge-base plugin; `kb_*` capability gating is owned by the KB plugin design.
+- **Precondition:** `2026-10-31-mnemonic-v2-knowledge-base` shipped per `.skillgrid/meta/state.yaml` AND `mnemonic-v2` registers the 12 `projectwiki_*` tools (ProjectWiki contract test green). If unmet: halt with a checkpoint — the spec-pinned parity half may proceed, the live half does not.
+- **Out of scope (user direction 2026-11-05):** the pi-research fold (R6, PR-1..PR-7) does NOT apply to the project-wiki plugin; `projectwiki_*` capability gating is owned by the ProjectWiki plugin design.
 
-### TICKET-09 — OpenCode knowledge entry with kb tool surface and async write semantics
+### TICKET-09 — OpenCode knowledge entry with projectwiki tool surface and async write semantics
 - **Tracker ID:** t_13d32ee3
 
-- **Scope:** New OpenCode knowledge entry (`mnemonic-knowledge.ts` + `tools/kb_*.ts`) with the 12 `kb_*` tools over the seam; async write behavior (start kb_generate → run_id → poll to completion; repeat start → 409 active-run, no double-start); degradation envelope surfacing; parity per the KB spec 008 table.
-- **Acceptance:** double-start fixture: second kb_generate start is rejected (409/active-run) and the agent polls to completion without a second run; degraded run surfaces the envelope without a tool error; parity test passes (12 == 12 vs spec-pinned table); `cd plugins/opencode && npm test` green.
-- **SATISFIES:** edge case — async KB write does not double-start; failure state — degraded KB run surfaces the envelope, never fails the agent
-- **Files:** `plugins/opencode/mnemonic-knowledge.ts` (new), `plugins/opencode/tools/kb_*.ts` (new), `plugins/opencode/test/*`
+- **Scope:** New OpenCode knowledge entry (`mnemonic-knowledge.ts` + `tools/projectwiki_*.ts`) with the 12 `projectwiki_*` tools over the seam; async write behavior (start projectwiki_generate → run_id → poll to completion; repeat start → 409 active-run, no double-start); degradation envelope surfacing; parity per the ProjectWiki spec 008 table.
+- **Acceptance:** double-start fixture: second projectwiki_generate start is rejected (409/active-run) and the agent polls to completion without a second run; degraded run surfaces the envelope without a tool error; parity test passes (12 == 12 vs spec-pinned table); `cd plugins/opencode && npm test` green.
+- **SATISFIES:** edge case — async ProjectWiki write does not double-start; failure state — degraded ProjectWiki run surfaces the envelope, never fails the agent
+- **Files:** `plugins/opencode/mnemonic-knowledge.ts` (new), `plugins/opencode/tools/projectwiki_*.ts` (new), `plugins/opencode/test/*`
 - **Size:** ~800 (M)
 - **Blocks:** none
 - **Blocked by:** TICKET-01
-- **Precondition:** `2026-10-31-mnemonic-v2-knowledge-base` shipped per `.skillgrid/meta/state.yaml` AND `mnemonic-v2` registers the 12 `kb_*` tools (KB contract test green). If unmet: halt with a checkpoint — the spec-pinned parity half may proceed, the live half does not.
-- **Out of scope (user direction 2026-11-05):** the pi-research fold (R6, PR-1..PR-7) does NOT apply to the knowledge-base plugin; `kb_*` capability gating is owned by the KB plugin design.
+- **Precondition:** `2026-10-31-mnemonic-v2-knowledge-base` shipped per `.skillgrid/meta/state.yaml` AND `mnemonic-v2` registers the 12 `projectwiki_*` tools (ProjectWiki contract test green). If unmet: halt with a checkpoint — the spec-pinned parity half may proceed, the live half does not.
+- **Out of scope (user direction 2026-11-05):** the pi-research fold (R6, PR-1..PR-7) does NOT apply to the project-wiki plugin; `projectwiki_*` capability gating is owned by the ProjectWiki plugin design.
 
 ## Dependency Graph
 
@@ -174,7 +174,7 @@ graph LR
 - **Wave 1:** TICKET-01 (tracer door — de-risks the novel MCP stdio seam before any thickness)
 - **Wave 2 (parallel):** TICKET-02, TICKET-03, TICKET-05
 - **Wave 3 (parallel):** TICKET-04 (after T02), TICKET-06 (after T01+T02; Precondition: code-index function shipped), TICKET-07 (after T01+T03; Precondition: code-index function shipped)
-- **Wave 4 (parallel):** TICKET-08, TICKET-09 (Precondition: KB function shipped — executor halts with a checkpoint if unmet)
+- **Wave 4 (parallel):** TICKET-08, TICKET-09 (Precondition: ProjectWiki function shipped — executor halts with a checkpoint if unmet)
 
 > **Acceptance-first (BDD is always on):** a ticket's failing acceptance
 > scenario (its `SATISFIES` scenario) is written and confirmed RED *before*
@@ -184,9 +184,9 @@ graph LR
 ## Slicing Notes
 
 - **Build shape (tracer thread):** TICKET-01 is the thin end-to-end path through every layer (plugin → MCP stdio → v2 engine → persisted observation). Every later ticket thickens over the proven seam; no ticket re-proves the transport.
-- **Gate preconditions are change-level, not ticket-level:** the code-index function (`2026-10-31-mnemonic-v2-code-index`) must be shipped before T06/T07 run; the KB function (`2026-10-31-mnemonic-v2-knowledge-base`) before T08/T09. The `Precondition:` fields encode this so a fresh executor halts with a checkpoint instead of doing partial work.
+- **Gate preconditions are change-level, not ticket-level:** the code-index function (`2026-10-31-mnemonic-v2-code-index`) must be shipped before T06/T07 run; the ProjectWiki function (`2026-10-31-mnemonic-v2-knowledge-base`) before T08/T09. The `Precondition:` fields encode this so a fresh executor halts with a checkpoint instead of doing partial work.
 - **Merge-order edges:** T02 → T06 (both touch `plugins/pi/mnemonic/index.ts` + package.json during the extraction) and T03 → T07 (both touch `plugins/opencode` incl. the test-script change) are real file-contention dependencies, not convenience ordering.
 - **`tools/fact_*.ts` are v1-legacy (out of parity)** — no ticket touches them; they keep working against the v1 HTTP surface until the v1 sunset.
 - **Scenario coverage (QA oracle):** all 21 scenarios in `acceptance.feature` are claimed: R1 → T01/T02/T03; R2 → T03/T04; R3 → T05; R4 → T06/T07 (both hosts); R5 → T08/T09; R6 → T01/T02/T03/T04/T05/T06/T07.
-- **pi-research fold (R6, 2026-11-05):** all 7 folds (PR-1..PR-7) are scoped into the memory + code-index families on both hosts per user direction; the knowledge-base plugin (T08/T09) is explicitly excluded. PR-7 (prompt-cache steering) is forward-looking and carries no ticket. Server-side PR-3 counterparts (NaN/Inf vector gate, backup/re-embed model migration) are a cross-change fold owned by the code-index change at ship — see blueprint "Cross-change folds".
+- **pi-research fold (R6, 2026-11-05):** all 7 folds (PR-1..PR-7) are scoped into the memory + code-index families on both hosts per user direction; the project-wiki plugin (T08/T09) is explicitly excluded. PR-7 (prompt-cache steering) is forward-looking and carries no ticket. Server-side PR-3 counterparts (NaN/Inf vector gate, backup/re-embed model migration) are a cross-change fold owned by the code-index change at ship — see blueprint "Cross-change folds".
 - **No one-way doors** in the tickets themselves; T06 is `costly` (npm publish) but reversible in-repo.

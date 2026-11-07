@@ -1,6 +1,6 @@
 # 005 — Query (the deep retrieval, wiki-first)
 
-**Status:** DRAFT · **Owner:** knowledge-base change
+**Status:** DRAFT · **Owner:** project-wiki change
 **Depends on:** `004-index` (the FTS cache it searches, the `pin` state it surfaces),
 `001-structure` (the page format it returns), the memory change (`01-memory/005-lookup`
 — the `mem_lookup` fallback it hands off to; the shared retrieval-trail store it records
@@ -12,26 +12,26 @@ wiki-first/memory-fallback decision (OPEN-12).
 
 ## 1. Capability
 
-`kb_query` is the **deep retrieval** half of the retrieval model. Per the memory↔wiki
+`projectwiki_query` is the **deep retrieval** half of the retrieval model. Per the memory↔wiki
 model (`000-architecture` §3), the agent's *understanding* retrieval — "what do we know
-about X" — goes to the KB (wiki-first). `kb_query` answers with **cited markdown
+about X" — goes to the ProjectWiki (wiki-first). `projectwiki_query` answers with **cited markdown
 sections**, not raw facts. The raw-fact half (`mem_lookup` / `mem_search`) is the
-**fallback**, used only when the KB is thin/empty on the topic (OPEN-12).
+**fallback**, used only when the ProjectWiki is thin/empty on the topic (OPEN-12).
 
 The retrieval is **progressive and token-efficient** (pi's two-stage pattern):
 
 ```
-1. kb_query "query"            → stage 1: ranked LINKS + 1-line snippets (protects context)
-2. kb_read "type/slug"         → stage 2: the full page(s) that matter
+1. projectwiki_query "query"            → stage 1: ranked LINKS + 1-line snippets (protects context)
+2. projectwiki_read "type/slug"         → stage 2: the full page(s) that matter
 ```
 
-Plus the two grounding tools: `kb_search` (the raw FTS, for power users) and the
-pin-check gate (`kb_validate`, `006-validate`) that can run before the agent relies on
+Plus the two grounding tools: `projectwiki_search` (the raw FTS, for power users) and the
+pin-check gate (`projectwiki_validate`, `006-validate`) that can run before the agent relies on
 a grounded page.
 
-## 2. Stage 1 — `kb_query` (ranked links + snippets)
+## 2. Stage 1 — `projectwiki_query` (ranked links + snippets)
 
-`kb_query(query, filters)` runs FTS over `kb_pages_fts` (`004-index`) and returns
+`projectwiki_query(query, filters)` runs FTS over `projectwiki_pages_fts` (`004-index`) and returns
 **stage-1 results** — the cheap, context-protecting layer:
 
 - **Filters:** `type` (page type), `project`, `limit` (default 10), `match_mode`
@@ -39,11 +39,11 @@ a grounded page.
 - **Rank:** BM25 over `(title, body, type, rel_path)` with KB-specific boosts:
   - **groundedness +0.15** (grounded pages — decisions/invariants/workflows — rank
     above pure context pages; the "why" is the point),
-  - **freshness** (a small recency weight on `kb_pages.updated_at`),
+  - **freshness** (a small recency weight on `projectwiki_pages.updated_at`),
   - **citation depth +0.05** (a page cited by many other pages — high in-degree backlink
-    count — is more central). The in-degree is read from **`kb_pages.in_degree`** (a
-    cached count rebuilt by `kb_index`, `004-index` §3) — a *count* cache, not a stored
-    backlink *graph* (the listed backlinks in `kb_read` are still computed on the fly,
+    count — is more central). The in-degree is read from **`projectwiki_pages.in_degree`** (a
+    cached count rebuilt by `projectwiki_index`, `004-index` §3) — a *count* cache, not a stored
+    backlink *graph* (the listed backlinks in `projectwiki_read` are still computed on the fly,
     §5).
 - **Projection (stage 1):** per result — `rel_path` (the wikilink target, e.g.
   `decisions/auth-model`), `title`, `type`, `status`, `grounded` flag, a **1-line
@@ -51,8 +51,8 @@ a grounded page.
   grounded pages: `fresh` / `stale` / `unresolved` / `null`). **Never hydrates the full
   body** at stage 1 (that is stage 2) — *except the §2.3 inline carve-out* (apply-immediate
   pages + small vaults).
-- **Excludes** soft-deleted pages (`kb_pages.deleted_at`) **and `deprecated` pages**
-  (`kb_pages.status = 'deprecated'`; `draft` pages are included unless the caller
+- **Excludes** soft-deleted pages (`projectwiki_pages.deleted_at`) **and `deprecated` pages**
+  (`projectwiki_pages.status = 'deprecated'`; `draft` pages are included unless the caller
   filters them, `004-index` §3).
 
 **Stage-1 row shape** (the machine contract; non-grounded pages omit `pin`):
@@ -71,22 +71,22 @@ a grounded page.
 }
 ```
 
-> **The `pin` field's source (the read-time question resolved):** `kb_query` does **not**
+> **The `pin` field's source (the read-time question resolved):** `projectwiki_query` does **not**
 > run the full pin-check per result (that would make query as expensive as validate).
 > Instead it reports the **last recorded** pin state: `fresh`/`stale`/`unresolved` from
-> the page's most recent `kb_validate` (recorded in the `verified:` frontmatter event +
-> `kb_run_state`), or **`null`** if the page has never been validated. A `null` pin means
-> "unknown — run `kb_validate` before relying on it," not "fresh." The management skill
-> (`009-skill`) drives `kb_validate` before edits, so by the time the agent is working the
-> pin is usually recorded; `kb_query` just surfaces the last-known state cheaply.
+> the page's most recent `projectwiki_validate` (recorded in the `verified:` frontmatter event +
+> `projectwiki_run_state`), or **`null`** if the page has never been validated. A `null` pin means
+> "unknown — run `projectwiki_validate` before relying on it," not "fresh." The management skill
+> (`009-skill`) drives `projectwiki_validate` before edits, so by the time the agent is working the
+> pin is usually recorded; `projectwiki_query` just surfaces the last-known state cheaply.
 
 **The snippet is a teaser, not the page** (pi's discipline): the agent must not treat a
 stage-1 snippet as the whole page. It is for *ranking* and *deciding what to open*. The
-agent opens the page (`kb_read`) before relying on its content.
+agent opens the page (`projectwiki_read`) before relying on its content.
 
 ### 2.1 The semantic leg's seam (confirm-and-name; reuses the memory change's embedder)
 
-`kb_query`'s **semantic leg** (when the embedder seam is wired) does **not** define its
+`projectwiki_query`'s **semantic leg** (when the embedder seam is wired) does **not** define its
 own vector store or ranker — it **references the memory change's `Embedder`/ranker seam**
 (`00-foundation/003-intelligence`), the same seam the code-index's semantic leg
 (`02-code-index/006-search`) uses. One retrieval contract across the three functions
@@ -111,7 +111,7 @@ fixed here (the ScopeLab `VectorRanker` design, the injection-point contract):
 
 > **The default is FTS5 (not in-RAM fallback).** Unlike the ScopeLab design (which
 > defaults to an in-RAM MiniSearch and flips to FTS5 via `auto`, because FTS5
-> availability varies by JS adapter), the KB is Go/`modernc.org/sqlite` — FTS5 is always
+> availability varies by JS adapter), the ProjectWiki is Go/`modernc.org/sqlite` — FTS5 is always
 > present, so the **keyword leg defaults to external-content FTS5** (disk-backed,
 > memory-flat). Only the *parity-gate + threshold* lessons transfer (§5.1), not the
 > default.
@@ -122,7 +122,7 @@ The fused FTS+semantic ordering (§2.1) is the **floor**. `010-decision` adds an
 **second stage**: **search wide** (the candidate pool) → each candidate gets a decision
 model's `new` ("does this page directly answer the query?") → sort by confidence →
 **threshold-drop** (below `decision.rerank_threshold`, it never reaches the agent). Only
-the candidates that clear the bar go to `kb_read` / the answer. This is the reference
+the candidates that clear the bar go to `projectwiki_read` / the answer. This is the reference
 pattern's **cross-encoder rerank** — *similarity is not relevance* (a table of contents
 matches many queries but answers none).
 
@@ -134,12 +134,12 @@ pages explicitly titled or described as a legal brief."* A fixed boost (`in_degr
 difference from a non-steerable cross-encoder.
 
 **The floor (no decision model, the default):** the rerank stage is **skipped** and
-`kb_query` returns the fused FTS+semantic ordering with **`reranked: false`** in the
+`projectwiki_query` returns the fused FTS+semantic ordering with **`reranked: false`** in the
 response (the deterministic RRF floor holds; the threshold-drop still applies to the fused
 scores). Never a silent "re-rank with nothing" — the flag is explicit (INV-3). The rerank
 **re-ranks *within* the fused candidate set** (the legs compose; the decision model does
 not re-scan the vault — `010-decision` DE-O2). The `rerank_instruction` + the decision-model
-call sites are owned by `010-decision`; `005-query` only defines that `kb_query` *accepts*
+call sites are owned by `010-decision`; `005-query` only defines that `projectwiki_query` *accepts*
 the optional `rerank_instruction` parameter and surfaces the `reranked` flag.
 
 ### 2.3 The stage-1 inline carve-out (012)
@@ -155,10 +155,10 @@ exactly the pages the agent must be able to *act on* from stage 1 without a seco
   (stage 2 as usual). The "snippet is a teaser, not the page" discipline holds for
   everything *not* inlined — a `body` field is full content, and stage 2 remains the path
   for `##`-section drill-in, backlinks, and the pin state.
-- **Small-vault mode.** When the page count (an O(1) `kb_pages` `COUNT(*)` — the
+- **Small-vault mode.** When the page count (an O(1) `projectwiki_pages` `COUNT(*)` — the
   reference's `registry.json` trick, no page-body I/O) is **below**
   `recall.links_threshold`, previews are inlined for **all** types. The two-step
-  contract becomes *optional* — a small vault should not pay a `kb_read` round-trip per
+  contract becomes *optional* — a small vault should not pay a `projectwiki_read` round-trip per
   page.
 
 Both are **config-gated and explicit** (INV-3): `inline_max: 0` disables the type
@@ -166,39 +166,39 @@ carve-out; a large `links_threshold` keeps every vault links-first. The carve-ou
 changes the *ranking* — it only changes how much of a top-ranked page's body stage 1
 returns.
 
-## 3. Stage 2 — `kb_read` (full page)
+## 3. Stage 2 — `projectwiki_read` (full page)
 
-`kb_read(rel_path, section?)` returns the **full** page:
+`projectwiki_read(rel_path, section?)` returns the **full** page:
 
 - **Whole page:** the frontmatter + the full body (untruncated).
-- **A section:** `kb_read(rel_path, section="Why")` returns just that `##` section — the
+- **A section:** `projectwiki_read(rel_path, section="Why")` returns just that `##` section — the
   token-efficient drill-in for large pages.
-- **With backlinks:** `kb_read(rel_path, include_backlinks=true)` appends the on-the-fly
+- **With backlinks:** `projectwiki_read(rel_path, include_backlinks=true)` appends the on-the-fly
   backlink list (which pages link here) — the "who depends on this" view.
-- **With claims/anchors state:** for grounded pages, `kb_read` appends the pin-check
+- **With claims/anchors state:** for grounded pages, `projectwiki_read` appends the pin-check
   result (`fresh` / `stale` / `unresolved`) so the agent sees whether the page is still valid *before*
   relying on it.
 
 This is the only full-content path (like `mem_get_observation` in the memory change).
 
-## 4. `kb_search` (the raw FTS, power path)
+## 4. `projectwiki_search` (the raw FTS, power path)
 
-`kb_search` is the **raw FTS** over `kb_pages_fts` without the stage-1 projection
+`projectwiki_search` is the **raw FTS** over `projectwiki_pages_fts` without the stage-1 projection
 constraints — for the agent (or a human via CLI) that wants the full ranked list with
 more rows, a `rel_path` filter, or a specific match mode. It returns the same BM25
-ranking as `kb_query` but projects more (a longer snippet, all matched sections). It is
-the "search the wiki" tool, distinct from `kb_query`'s "rank the links" tool. In practice
-the agent uses `kb_query` (stage 1) → `kb_read` (stage 2); `kb_search` is the escape
+ranking as `projectwiki_query` but projects more (a longer snippet, all matched sections). It is
+the "search the wiki" tool, distinct from `projectwiki_query`'s "rank the links" tool. In practice
+the agent uses `projectwiki_query` (stage 1) → `projectwiki_read` (stage 2); `projectwiki_search` is the escape
 hatch.
 
 ## 5. Backlinks (computed on the fly)
 
-Backlinks are **never stored** (KB-INV-1 / `004-index` §6). `kb_query` and `kb_read`
+Backlinks are **never stored** (PW-INV-1 / `004-index` §6). `projectwiki_query` and `projectwiki_read`
 compute them when requested by scanning the vault's markdown for `[[…]]` references to
 the target page. This is a bounded grep (the vault is small — pages, not a corpus), so
 on-the-fly is cheap and always consistent with the files. The in-degree boost in
-`kb_query`'s ranking uses a cached count (rebuilt by `kb_index`) to keep the ranking
-fast, but the *listed* backlinks in `kb_read` are always recomputed (accuracy over
+`projectwiki_query`'s ranking uses a cached count (rebuilt by `projectwiki_index`) to keep the ranking
+fast, but the *listed* backlinks in `projectwiki_read` are always recomputed (accuracy over
 speed for the view).
 
 ## 6. The wiki-first contract + the memory-fallback handoff (OPEN-12)
@@ -207,48 +207,48 @@ The **routing rule** (OPEN-12) is enforced by the agent protocol (the management
 `009-skill`), not the engine:
 
 ```
-"what do we know about X"  →  kb_query        (this spec, the deep retrieval)
-      └─ if kb_query is thin/empty on X  →  mem_lookup / mem_search   (memory, the fallback)
+"what do we know about X"  →  projectwiki_query        (this spec, the deep retrieval)
+      └─ if projectwiki_query is thin/empty on X  →  mem_lookup / mem_search   (memory, the fallback)
 "give me that exact fact / the session where we decided Z"  →  mem_lookup  (raw, precise)
-"explain the design of Y"  →  kb_query → kb_read   (the synthesis, with citations)
+"explain the design of Y"  →  projectwiki_query → projectwiki_read   (the synthesis, with citations)
 ```
 
-**The KB's obligation:** `kb_query` must be **good enough that the fallback is rare.**
-The KB's *quality* (coverage, grounding) determines how often the agent falls back to raw
-memory. The KB cannot fix a thin memory, but it must make the *wiki-first* path the
+**The ProjectWiki's obligation:** `projectwiki_query` must be **good enough that the fallback is rare.**
+The ProjectWiki's *quality* (coverage, grounding) determines how often the agent falls back to raw
+memory. The ProjectWiki cannot fix a thin memory, but it must make the *wiki-first* path the
 default, useful path.
 
-**The handoff is explicit:** when `kb_query` returns `thin: true` (fewer than a
+**The handoff is explicit:** when `projectwiki_query` returns `thin: true` (fewer than a
 threshold of relevant pages on the topic), the result carries a `fallback: mem_lookup`
-hint so the agent knows to go to raw memory. The KB does not *call* `mem_lookup` — the
-agent does (the KB does not import the memory package; the agent is the router).
+hint so the agent knows to go to raw memory. The ProjectWiki does not *call* `mem_lookup` — the
+agent does (the ProjectWiki does not import the memory package; the agent is the router).
 
 ## 7. Retrieval trails (INV-5)
 
-Every `kb_query` / `kb_search` / `kb_read` records a trail: the query, the filters, the
+Every `projectwiki_query` / `projectwiki_search` / `projectwiki_read` records a trail: the query, the filters, the
 rank route (fts / fts+backlink-boost), what was returned (`rel_path`s), and the
 `degraded` status (`stale_index` if the index lagged, `thin` if the result was
 fallback-suggesting). `mnemonic trail recent|show` inspects them (the shared trail
 store, `00-foundation/005-transport-cli`). This is the audit record for "why did the
 agent recall this page."
 
-## 8. Retrieval eval (the measurement leg — `kb_eval`)
+## 8. Retrieval eval (the measurement leg — `projectwiki_eval`)
 
 Every retrieval system needs a way to answer: *"did that change make recall better or
 worse?"* The ranking (§2), the semantic-leg fallback (§2.1), and the `thin` fallback
-handoff (§6) are all **tunable** — and none of them is currently *measured*. `kb_eval`
-is the frozen-query regression harness over the **memory/KB corpus** (the "what do we
+handoff (§6) are all **tunable** — and none of them is currently *measured*. `projectwiki_eval`
+is the frozen-query regression harness over the **memory/ProjectWiki corpus** (the "what do we
 know about X" recall), not the code corpus. It is the RAG-tutorial lesson — *"add evals:
 a set of test questions so you can measure whether a change actually makes the answers
 worse or better"* — applied to this spec's retrieval model.
 
-**Why the mem/KB corpus, not code, is the one that needs it first:** the mem/KB corpus is
+**Why the mem/ProjectWiki corpus, not code, is the one that needs it first:** the mem/ProjectWiki corpus is
 where *paraphrased* recall matters (a decision saved as "commit trailers are banned" must
 surface for "how do we tag AI commits"). It is also the corpus §2.1's `degraded:
 keyword` flag *warns about* — BM25-only recall can miss differently-phrased pages — but
 nothing today *measures* when a query becomes fragile to an embedder outage. The code
 corpus already has a leak-free git-history eval (the v1 `skillgrid eval` precedent,
-commit-subject → changed-files); the mem/KB corpus is the unmeasured half.
+commit-subject → changed-files); the mem/ProjectWiki corpus is the unmeasured half.
 
 ### 8.1 The case
 
@@ -272,11 +272,11 @@ it; a paraphrased decision often is).
 ### 8.2 The two sources (starter set + trail bootstrap)
 
 - **Starter set (committed):** a small hand-authored set of cases under
-  `.skillgrid/knowledge/_eval/cases.yaml` covering the recall shapes that matter —
+  `\.skillgrid/projectwiki/_eval/cases.yaml` covering the recall shapes that matter —
   same-phrasing, paraphrase (the `degraded_ok=false`-critical ones), and a
   cross-page multi-hop ("explain the design of Y" that should surface ≥2 pages). Committed
   so the eval is reproducible and reviewable, not regenerated.
-- **Trail bootstrap:** §7's `retrieval_trails` already log every `kb_query`/`kb_search`
+- **Trail bootstrap:** §7's `retrieval_trails` already log every `projectwiki_query`/`projectwiki_search`
   (the query, the rank route, the returned `rel_path`s, the `degraded` status). A
   **promote** path turns a good, real trail into a case: *"that query returned the right
   pages — pin it so a future ranking change can't silently regress it."* The set grows
@@ -286,20 +286,20 @@ it; a paraphrased decision often is).
 
 ### 8.3 The replay (fixture-corpus regression net)
 
-`kb_eval` does **not** invent a new scoring rig. The shipped implementation
-(`mnemonic-v2/internal/kb/eval.go`) is a **fixture-corpus regression net**:
+`projectwiki_eval` does **not** invent a new scoring rig. The shipped implementation
+(`mnemonic-v2/internal/projectwiki/eval.go`) is a **fixture-corpus regression net**:
 recall@K / meanRankDist / topScoreBelowOne against the observed baseline
 (baseline = the FTS-only ordering; shipped = the fused ordering) — it measures
 the **ranking delta** of the semantic leg. (Original plan: reuse the v1
 ablation harness — seeded paired bootstrap 95% CI + permutation p-value +
 shipped-config gate, `mnemonic/internal/eval`. v1 was removed before that reuse
-(ADR-0059); the regression net is the shipped form.) The mem/KB corpus is
+(ADR-0059); the regression net is the shipped form.) The mem/ProjectWiki corpus is
 projected into it:
 
-- The **corpus** = the KB page set (`rel_path` → page), the mem/KB analogue of the code
+- The **corpus** = the ProjectWiki page set (`rel_path` → page), the mem/ProjectWiki analogue of the code
   eval's file-path corpus.
-- The **ranker** = the *live* `kb_query` fused search (FTS + semantic RRF, §2), the
-  mem/KB analogue of the code eval's `shippedRank` (a lexical projection of
+- The **ranker** = the *live* `projectwiki_query` fused search (FTS + semantic RRF, §2), the
+  mem/ProjectWiki analogue of the code eval's `shippedRank` (a lexical projection of
   `hybrid.RerankTable`). Baseline = the FTS-only ordering; shipped = the fused ordering.
   So the harness measures the **ranking delta** (the semantic leg's value), exactly as the
   code eval measures it — and `degraded_ok` adds the **per-case fragility** dimension the
@@ -308,31 +308,31 @@ projected into it:
   fragility flag, pooled over the starter set + promoted trail cases.
 
 **The live-store boundary:** the harness itself is pure-Go (the ranker is a pure function
-of `(query, corpus)`), but the **mem/KB ranker reads the live store** (the FTS index + the
+of `(query, corpus)`), but the **mem/ProjectWiki ranker reads the live store** (the FTS index + the
 embedder seam). That boundary is tested at the CLI round-trip, the way the code eval's
-`--corpus self` is — `kb_eval` against a real `.skillgrid/knowledge/` + shared store, not
+`--corpus self` is — `projectwiki_eval` against a real `\.skillgrid/projectwiki/` + shared store, not
 an in-RAM fixture.
 
 ### 8.4 The report + the gate
 
-`kb_eval --cases .skillgrid/knowledge/_eval/cases.yaml` prints, per case: pass /
+`projectwiki_eval --cases \.skillgrid/projectwiki/_eval/cases.yaml` prints, per case: pass /
 degraded-pass (matched but `degraded: keyword`) / **fragile** (pass under hybrid, fail
 under keyword) / fail, plus the pooled recall@k and the bootstrap CI + permutation
 p-value of the shipped-vs-baseline delta (does the semantic leg *actually* help recall?).
 It exits non-zero on a **new** failure so it can gate the QA/review step for any change
 that touches `005-query`'s ranking, the `thin` threshold, or the semantic-leg fallback.
 
-### 8.5 Non-goals (what `kb_eval` is NOT)
+### 8.5 Non-goals (what `projectwiki_eval` is NOT)
 
 - **Not answer-quality grading.** It measures **retrieval recall** (did the right pages
-  rank high), deterministically. It does *not* LLM-judge the prose `kb_read`/`kb_query`
+  rank high), deterministically. It does *not* LLM-judge the prose `projectwiki_read`/`projectwiki_query`
   returns — that is unmeasurable by a frozen set and is a separate concern (the
-  `kb_validate` pin-check covers *correctness of the page*, not *recall of the page*).
+  `projectwiki_validate` pin-check covers *correctness of the page*, not *recall of the page*).
 - **Not a new vector store or ranker.** It rides the §2.1 shared retrieval contract
   (the memory change's embedder seam, the single-blend-place service) — it *measures*
   that contract, it does not replace it.
-- **Not the code eval.** The code corpus keeps its git-history leak-free eval. `kb_eval`
-  is the mem/KB half of the same measurement idea, sharing the harness, not the corpus.
+- **Not the code eval.** The code corpus keeps its git-history leak-free eval. `projectwiki_eval`
+  is the mem/ProjectWiki half of the same measurement idea, sharing the harness, not the corpus.
 
 ## 9. Invariants
 
@@ -340,9 +340,9 @@ INV-3 (explicit `degraded: stale_index`), INV-1 (cited sections — every stage-
 carries the page's `sources:`), INV-5 (trails), INV-4 (local truth — the query reads the
 local index, never a remote authority).
 
-**KB-INV-5 (added):** **The retrieval is measured, not just tuned.** Any change to
-`kb_query`'s ranking, the `thin` threshold, or the semantic-leg fallback (§2.1) is
-gated by `kb_eval` — a frozen case set whose recall@k and fragile-case signal must not
+**PW-INV-5 (added):** **The retrieval is measured, not just tuned.** Any change to
+`projectwiki_query`'s ranking, the `thin` threshold, or the semantic-leg fallback (§2.1) is
+gated by `projectwiki_eval` — a frozen case set whose recall@k and fragile-case signal must not
 regress (a new failure fails the gate). A retrieval change that can't be shown
 non-regressive by the eval is a spec violation.
 
@@ -350,10 +350,10 @@ non-regressive by the eval is a spec violation.
 
 | # | Question | Default |
 |---|---|---|
-| KQ-O1 | Where the eval cases live: `.skillgrid/knowledge/_eval/cases.yaml` (in the vault, git-tracked) vs a sidecar `kb_eval_cases` table in the shared store? | **In the vault, git-tracked** (KB-INV-1 — the vault is truth; a case is a durable test fixture, and git-tracking makes promotion + review + rebase auditable). The shared store holds only the *runs*, not the *cases*. |
-| KQ-O2 | Trail-promote: a named `kb_eval promote <trail-id>` engine verb, or an agent-driven convention (the agent writes the case YAML from a trail)? | **Engine verb** (`kb_eval promote`), so the promote is atomic (freezes query + expect + `degraded_ok` from the trail's recorded route) and auditable in the run state. |
-| KQ-O3 | Does `kb_eval` gate the **QA step** (non-zero exit on new failure), or is it advisory-only like Trivy? | **Gating** for changes that touch `005-query`'s ranking / `thin` / semantic fallback; advisory otherwise. (Trivy is advisory because it's a *scanner*; `kb_eval` is a *regression gate* on a change to the thing it measures.) |
-| KQ-O4 | The `thin` threshold's value (how few pages before the §6 fallback hint fires) — and whether `kb_eval` should *tune* it by sweeping the threshold over the case set? | **Sweep it** — `kb_eval` reports recall@k across a small `thin`-threshold grid, so the threshold is *chosen* by measured recall, not asserted. The threshold itself is defaulted in `008-transport` config. |
+| KQ-O1 | Where the eval cases live: `\.skillgrid/projectwiki/_eval/cases.yaml` (in the vault, git-tracked) vs a sidecar `projectwiki_eval_cases` table in the shared store? | **In the vault, git-tracked** (PW-INV-1 — the vault is truth; a case is a durable test fixture, and git-tracking makes promotion + review + rebase auditable). The shared store holds only the *runs*, not the *cases*. |
+| KQ-O2 | Trail-promote: a named `projectwiki_eval promote <trail-id>` engine verb, or an agent-driven convention (the agent writes the case YAML from a trail)? | **Engine verb** (`projectwiki_eval promote`), so the promote is atomic (freezes query + expect + `degraded_ok` from the trail's recorded route) and auditable in the run state. |
+| KQ-O3 | Does `projectwiki_eval` gate the **QA step** (non-zero exit on new failure), or is it advisory-only like Trivy? | **Gating** for changes that touch `005-query`'s ranking / `thin` / semantic fallback; advisory otherwise. (Trivy is advisory because it's a *scanner*; `projectwiki_eval` is a *regression gate* on a change to the thing it measures.) |
+| KQ-O4 | The `thin` threshold's value (how few pages before the §6 fallback hint fires) — and whether `projectwiki_eval` should *tune* it by sweeping the threshold over the case set? | **Sweep it** — `projectwiki_eval` reports recall@k across a small `thin`-threshold grid, so the threshold is *chosen* by measured recall, not asserted. The threshold itself is defaulted in `008-transport` config. |
 
 The two-stage pattern, the ranking, the fallback handoff, and the eval are all fixed. The
 `thin` threshold's value is the one *tunable* — and KQ-O4 makes it a *measured* tunable.

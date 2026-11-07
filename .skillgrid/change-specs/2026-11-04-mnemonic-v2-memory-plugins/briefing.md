@@ -11,7 +11,7 @@
 ## Problem / Intent
 
 The mnemonic-v2 server exposes three tool families — `mem_*`/`fact_*` (memory),
-`code_*` (code-index), `kb_*` (knowledge-base; the KB spec's "one MCP server,
+`code_*` (code-index), `projectwiki_*` (project-wiki; the ProjectWiki spec's "one MCP server,
 three tool families" pattern, `2026-10-31-mnemonic-v2-knowledge-base`
 `specs/008-transport.md` §1) — and the memory function already emits the
 SaveEvent contract consumed by the brain-side wiki
@@ -21,7 +21,7 @@ per host**:
 
 1. **Memory plugin** (engram-based) — `mem_*` + `fact_*` + session/compaction wiring.
 2. **Code-index plugin** — `code_*`.
-3. **Knowledge-base plugin** — `kb_*` (gated on the KB function shipping).
+3. **project-wiki plugin** — `projectwiki_*` (gated on the ProjectWiki function shipping).
 
 The existing skillgrid plugin packages cover only a subset of the registered
 surface in a single grab-bag package per host. This design specifies the
@@ -30,19 +30,19 @@ surface in a single grab-bag package per host. This design specifies the
 ## Purpose & Success Criteria
 
 - **Purpose:** give OpenCode and Pi agents first-class, engram-parity memory
-  tooling plus full code-index and knowledge-base tooling over the
+  tooling plus full code-index and project-wiki tooling over the
   mnemonic/mnemonic-v2 memory function.
 - **Success criteria:**
   1. Plugin↔server contract (`mnemonic-v2/internal/transport/mcp/contract_test.go`
      — the D1-pinned v2 MCP contract) green.
   2. Full agent-facing tool-surface parity per family (memory: engram baseline
      floor ↔ full registered `mem_*`; code-index: full `code_*`;
-     knowledge: `kb_*` per KB spec 008) green for both hosts.
+     knowledge: `projectwiki_*` per ProjectWiki spec 008) green for both hosts.
   3. Engram-proven behavior port verified (fail-open, retries, compaction recovery,
      session wiring) on the memory plugin; fail-open consistency on all families.
   4. Design approved via brainstorming; spec written.
 - **Out of scope:** brain-side wiki implementation (pi-llm-wiki owns it); the
-  KB *function* implementation (owned by `2026-10-31-mnemonic-v2-knowledge-base`);
+  ProjectWiki *function* implementation (owned by `2026-10-31-mnemonic-v2-knowledge-base`);
   server-side behavior changes (R3 verifies the existing v2 SaveEvent emission,
   it does not change it); v1 `fact_*` tools (v1-HTTP legacy, retained, not
   re-targeted at v2); plugin packaging for `web_cache_*`, `scan_*`, `dep_*`,
@@ -56,7 +56,7 @@ surface in a single grab-bag package per host. This design specifies the
   `github.com/devopstales/skillgrid/mnemonic-v2`, go 1.26) — the total rewrite of
   `mnemonic/` per `00-foundation/000-architecture.md` ("Mnemonic v2 is a total
   rewrite of `mnemonic/`. It has five functions: memory, code-index, llm-wiki
-  (the brain, = the knowledge-base change), opencode-plugin, pi-plugin"). The
+  (the brain, = the project-wiki change), opencode-plugin, pi-plugin"). The
   v1 module (`mnemonic/`) is the legacy monolith (its `serve` HTTP API on
   :7438, `fact_*` tools, old `mem_*`/`code_*` surfaces) — still running, but
   not the parity target.
@@ -65,7 +65,7 @@ surface in a single grab-bag package per host. This design specifies the
   the primary agent interface; `mnemonic serve` is a deprecated no-op in v2).
   Registered today: **28 `mem_*`** (22 agent-profile + 6 admin, D1-pinned by
   `mnemonic-v2/internal/transport/mcp/contract_test.go`), **25 `code_*`**
-  (code-index function, ship-pending), **12 `kb_*`** (knowledge-base function,
+  (code-index function, ship-pending), **12 `projectwiki_*`** (project-wiki function,
   DRAFT — not yet registered).
 - **Plugins consume the engine only through the MCP surface** (architecture
   §1): "The two plugins are TypeScript packages under `plugins/`, outside the
@@ -87,14 +87,14 @@ surface in a single grab-bag package per host. This design specifies the
   tools (code_index/search/read/grep/orient/explore/impact/affected/deps/
   dep_impact/path/packages/circles/navigates/rename/resolve/route/status/
   embedding_status/unresolved/watch/sql_schema/docs/explain/configs).
-- **Knowledge-base function:** `2026-10-31-mnemonic-v2-knowledge-base` (DRAFT, queued
+- **ProjectWiki function:** `2026-10-31-mnemonic-v2-knowledge-base` (DRAFT, queued
   behind code-index ship; the "llm-wiki" function in the v2 five-function plan).
-  `specs/008-transport.md` finalizes the `kb_*` surface: **12 tools** — agent
-  profile: `kb_query`, `kb_read`, `kb_search`, `kb_generate`, `kb_validate`,
-  `kb_lint`, `kb_status`, `kb_cite_source`; admin profile: `kb_reindex`,
-  `kb_index`, `kb_bootstrap`, `kb_rebuild_meta`. Writes are async (`run_id` +
+  `specs/008-transport.md` finalizes the `projectwiki_*` surface: **12 tools** — agent
+  profile: `projectwiki_query`, `projectwiki_read`, `projectwiki_search`, `projectwiki_generate`, `projectwiki_validate`,
+  `projectwiki_lint`, `projectwiki_status`, `projectwiki_cite_source`; admin profile: `projectwiki_reindex`,
+  `projectwiki_index`, `projectwiki_bootstrap`, `projectwiki_rebuild_meta`. Writes are async (`run_id` +
   poll, `409` on double-start); reads synchronous; degradation envelope
-  (INV-3) on every tool; KB writes through a dedicated write queue.
+  (INV-3) on every tool; ProjectWiki writes through a dedicated write queue.
 - **fact_* (8 tools) is v1-only** — the v2 surface has no fact family (in v2,
   durable facts are memory observations). The existing fact tools remain
   v1-HTTP legacy, retained but outside this change's parity target.
@@ -110,7 +110,7 @@ surface in a single grab-bag package per host. This design specifies the
    surface, 23-tool agent profile — the v2 design already mirrors it). Port =
    reconcile engram tool names onto the v2 registered set, then reuse the proven
    patterns over the v2 MCP stdio transport. The 3-family split mirrors the
-   server's own tool-family architecture (KB spec 008 §1).
+   server's own tool-family architecture (ProjectWiki spec 008 §1).
 
 ## Approaches Considered
 
@@ -182,24 +182,24 @@ OpenCode and Pi code-index plugins.
 - **Acceptance:** parity mapping test green (plugin-registered set == v2
   registered `code_*` set, both hosts); v2 MCP contract green.
 
-### Requirement: Knowledge-base plugin
+### Requirement: project-wiki plugin
 
-The system SHALL expose the `kb_*` tool surface (12 tools per
+The system SHALL expose the `projectwiki_*` tool surface (12 tools per
 `2026-10-31-mnemonic-v2-knowledge-base` `specs/008-transport.md`) through the
-OpenCode and Pi knowledge-base plugins.
+OpenCode and Pi project-wiki plugins.
 
-- **Gated:** server-side `kb_*` routes ship with the KB function (queued behind
+- **Gated:** server-side `projectwiki_*` routes ship with the ProjectWiki function (queued behind
   code-index ship). This requirement is verifiable — and its scenarios gated —
   once that change lands.
-- **Current:** no `kb_*` plugin exposure; KB function DRAFT.
-- **Target:** agent-profile tools (`kb_query`, `kb_read`, `kb_search`,
-  `kb_generate`, `kb_validate`, `kb_lint`, `kb_status`, `kb_cite_source`)
+- **Current:** no `projectwiki_*` plugin exposure; ProjectWiki function DRAFT.
+- **Target:** agent-profile tools (`projectwiki_query`, `projectwiki_read`, `projectwiki_search`,
+  `projectwiki_generate`, `projectwiki_validate`, `projectwiki_lint`, `projectwiki_status`, `projectwiki_cite_source`)
   exposed on both hosts; admin tools available via the `all` profile/ops path;
   HTTP mirror routes consumed; async write semantics honored (`run_id` + poll,
   `409` on double-start); degradation envelope (`degraded: true` + reason)
   surfaced to the agent, never silently floored.
-- **Acceptance:** parity mapping test green (plugin-registered set == `kb_*` set
-  from KB spec 008, both hosts); KB route contract green (KB change's
+- **Acceptance:** parity mapping test green (plugin-registered set == `projectwiki_*` set
+  from ProjectWiki spec 008, both hosts); ProjectWiki route contract green (ProjectWiki change's
   contract owner).
 
 ### Requirement: Plugin engineering — capability gating, lifecycle, described degradation (pi-research fold)
@@ -207,7 +207,7 @@ OpenCode and Pi knowledge-base plugins.
 Validated by pi-research (2026-11-05, `github.com/Lincoln504/pi-research`): the
 system SHALL apply the pi-research-proven plugin-engineering patterns to the
 **memory + code-index families on both hosts** (user direction: all folds land
-on the separate OpenCode + Pi plugins — **not** the knowledge-base plugin):
+on the separate OpenCode + Pi plugins — **not** the project-wiki plugin):
 
 - **PR-1 Capability-gated tool surface.** Tool families that depend on a
   server-side capability are registered but hidden while the capability is
@@ -251,9 +251,9 @@ on the separate OpenCode + Pi plugins — **not** the knowledge-base plugin):
 Server-side PR-3 counterparts (NaN/Inf vector gate before vec0 insert;
 embedder model change → backup/re-embed migration, data never dropped
 without explicit `drop`) are a **cross-change fold owned by the code-index
-change at ship** — not tickets of this change. KB-side patterns (scope-as-column
+change at ship** — not tickets of this change. ProjectWiki-side patterns (scope-as-column
 vs folder, TTL eviction at open, per-model chunk config) are advisory notes
-to the KB change; the knowledge-base plugin tickets (R5) are unchanged.
+to the ProjectWiki change; the project-wiki plugin tickets (R5) are unchanged.
 
 - **Current:** no capability gating, no shutdown watchdog, no described-OFF
   embedder degradation, no skill distribution for the memory function.
@@ -269,22 +269,22 @@ to the KB change; the knowledge-base plugin tickets (R5) are unchanged.
   - Pi: `plugins/pi/mnemonic/*` (amend — memory family: api.js, index.ts,
     mnemonic-memory.ts, mnemonic-facts.ts (v1-legacy, retained), ctx-sandbox.ts,
     skillgrid-events.ts, skillgrid-sdd-events.ts, skillgrid-compaction.ts);
-    `plugins/pi/codeindex/` (new package); `plugins/pi/knowledge/` (new
+    `plugins/pi/codeindex/` (new package); `plugins/pi/projectwiki/` (new
     package, gated).
   - OpenCode: `plugins/opencode/*` (amend — three entries: mnemonic-memory.ts,
     mnemonic-codeindex.ts, mnemonic-knowledge.ts (new) + `tools/mem_*`,
-    `tools/code_*`, `tools/kb_*`; `tools/fact_*` v1-legacy retained).
+    `tools/code_*`, `tools/projectwiki_*`; `tools/fact_*` v1-legacy retained).
   - Contract owners: `mnemonic-v2/internal/transport/mcp/contract_test.go`
     (D1-pinned `mem_*` contract; code-family contract per the code-index
-    change); KB family pinned by the KB change's contract. The v1
+    change); ProjectWiki family pinned by the ProjectWiki change's contract. The v1
     `mnemonic/internal/http/plugin_route_contract_test.go` is legacy (v1
     HTTP era) — not the parity owner.
 - **Interfaces:** tool names (full per-family sets, v2 registered), MCP stdio
   protocol (engram runtime contract pattern), profiles (agent default; admin
   via `all`).
 - **Data flow:** agent tool call → redact → validate → dispatch (MCP
-  `tools/call`) → persist → SaveEvent → wiki/KB ingestion (KB ingestion is the
-  KB function's subscription, not the plugin's).
+  `tools/call`) → persist → SaveEvent → wiki/ProjectWiki ingestion (ProjectWiki ingestion is the
+  ProjectWiki function's subscription, not the plugin's).
 - **Error handling:** fail-open, retries, self-heal, honest reporting.
 - **Dependencies:** none new (MCP stdio JSON-RPC over a spawned
   `mnemonic mcp` child process — stdio child process + JSON, no extra runtime
@@ -304,10 +304,10 @@ to the KB change; the knowledge-base plugin tickets (R5) are unchanged.
 - None — no product-scope change. (ADR candidate for the plugin-port decision,
   if recorded.)
 
-- `.skillgrid/knowledge/reference/00-prd.md`: None
-- `.skillgrid/knowledge/ASSUMPTIONS.md`: ADR candidate (plugin port decision;
-  3-family split mirrors KB spec 008 §1)
-- `.skillgrid/knowledge/ARCHITECTURE.md`: None
+- `\.skillgrid/projectwiki/reference/00-prd.md`: None
+- `\.skillgrid/projectwiki/ASSUMPTIONS.md`: ADR candidate (plugin port decision;
+  3-family split mirrors ProjectWiki spec 008 §1)
+- `\.skillgrid/projectwiki/ARCHITECTURE.md`: None
 
 ## Clarity Report
 
@@ -333,7 +333,7 @@ Open Questions & Assumptions.
 | 3     | implementation placement| Extend existing skillgrid plugins  |
 | 3     | brain-side source       | /data/git/AI/pi-llm-wiki           |
 | 4 (2026-11-05) | plugin split       | 3 families: memory / code-index / knowledge, both hosts |
-| 4 (2026-11-05) | KB plugin target    | KB function `kb_*` (gated on brain ship) |
+| 4 (2026-11-05) | ProjectWiki plugin target    | ProjectWiki function `projectwiki_*` (gated on brain ship) |
 | 4 (2026-11-05) | spec structure        | One amended spec (3 families × 2 hosts) |
 | 4 (2026-11-05) | parity source of truth | v2 module (`mnemonic-v2/internal/transport/mcp`), MCP stdio; v1 surface + `fact_*` legacy |
 
@@ -342,11 +342,11 @@ Open Questions & Assumptions.
 - **Question:** final acceptance criteria set (authored post design-approval).
 - **Assumption:** design approval ("look good") satisfies the design gate; acceptance
   criteria finalize the verifiable success criteria above.
-- **Assumption:** R5 (knowledge-base plugin) scenarios are gated on the KB
+- **Assumption:** R5 (project-wiki plugin) scenarios are gated on the ProjectWiki
   function's ship; wave 3 of execution lands after it.
 - **Assumption (2026-11-05, user direction):** the pi-research fold (R6,
   PR-1..PR-7) is scoped to the memory + code-index plugin families on both
-  hosts; the knowledge-base plugin is explicitly excluded. PR-7 is
+  hosts; the project-wiki plugin is explicitly excluded. PR-7 is
   forward-looking (future squad/research features) and carries no ticket.
 
 ## Decisions (ADR)

@@ -4,12 +4,12 @@
 #the engram plugin baseline with full tool-surface parity, consumed over the
 #v2 MCP stdio surface; the memory save pipeline emits the SaveEvent consumed
 #by the brain-side llm-wiki. Amended 2026-11-05: three plugin families per
-#host — memory (mem_*), code-index (code_*), knowledge (kb_*, gated on the
-#KB function ship). Parity source of truth: the v2 module's registered tool
+#host — memory (mem_*), code-index (code_*), knowledge (projectwiki_*, gated on the
+#ProjectWiki function ship). Parity source of truth: the v2 module's registered tool
 #sets; the v1 module surface (HTTP :7438, fact_*) is legacy, out of parity.
 #Amended 2026-11-05: pi-research fold R6 (capability gating, lifecycle,
 #described degradation, consumer queue, read guard, skill+CLI distribution) —
-#memory + code-index families, both hosts; the knowledge-base plugin is
+#memory + code-index families, both hosts; the project-wiki plugin is
 #excluded (user direction).
 #
 #Source: .skillgrid/change-specs/2026-11-04-mnemonic-v2-memory-plugins/briefing.md
@@ -204,38 +204,38 @@ OpenCode and Pi code-index plugins.
 # EVIDENCE: pending
 ````
 
-### Requirement: Knowledge-base plugin
+### Requirement: project-wiki plugin
 
-The system SHALL expose the `kb_*` tool surface (12 tools per
+The system SHALL expose the `projectwiki_*` tool surface (12 tools per
 `2026-10-31-mnemonic-v2-knowledge-base` `specs/008-transport.md`) through the
-OpenCode and Pi knowledge-base plugins.
+OpenCode and Pi project-wiki plugins.
 
-> **Gated:** scenarios and gates are verified once the KB function
-> (`2026-10-31-mnemonic-v2-knowledge-base`) ships its `kb_*` routes. Until
+> **Gated:** scenarios and gates are verified once the ProjectWiki function
+> (`2026-10-31-mnemonic-v2-knowledge-base`) ships its `projectwiki_*` routes. Until
 > then, parity is asserted against the spec-pinned tool table.
 
-#### Scenario: Happy path — agent queries the knowledge base through the plugin
+#### Scenario: Happy path — agent queries the project wiki through the plugin
 
 ```gherkin
-      Given an agent with the knowledge-base plugin enabled on a bootstrapped vault
-      When the agent calls the kb_query tool for a question
+      Given an agent with the project-wiki plugin enabled on a bootstrapped vault
+      When the agent calls the projectwiki_query tool for a question
       Then the query returns ranked page links with one-line snippets
-      And the agent reads a full page through the kb_read tool
+      And the agent reads a full page through the projectwiki_read tool
 ```
 
-#### Scenario: Edge case — async KB write does not double-start
+#### Scenario: Edge case — async ProjectWiki write does not double-start
 
 ```gherkin
-      Given an agent that starts a kb_generate run through the plugin
+      Given an agent that starts a projectwiki_generate run through the plugin
       When the run returns a run_id and the agent repeats the start
       Then the repeated start is rejected as an active run
       And the agent polls the run status to completion
 ```
 
-#### Scenario: Failure state — degraded KB run surfaces the envelope, never fails the agent
+#### Scenario: Failure state — degraded ProjectWiki run surfaces the envelope, never fails the agent
 
 ```gherkin
-      Given a kb tool call that runs degraded (LLM or graph absent)
+      Given a projectwiki tool call that runs degraded (LLM or graph absent)
       When the plugin dispatches the call
       Then the response carries the degradation flag with its reason
       And the agent continues without a tool error
@@ -243,13 +243,13 @@ OpenCode and Pi knowledge-base plugins.
 
 #### Gates
 ````
-# G9: kb_* tool-surface parity holds (spec-pinned table until KB tools land; registered set after)
+# G9: projectwiki_* tool-surface parity holds (spec-pinned table until ProjectWiki tools land; registered set after)
 # CHECK: go test ./mnemonic-v2/... -count=1
 # EXPECT: ok
 # EVIDENCE: pending (gated on 2026-10-31-mnemonic-v2-knowledge-base ship)
 ````
 ````
-# G10: degraded KB run surfaces the envelope without failing the agent
+# G10: degraded ProjectWiki run surfaces the envelope without failing the agent
 # CHECK: go test ./mnemonic-v2/... -count=1 && cd plugins/opencode && npm test
 # EXPECT: ok
 # EVIDENCE: pending (gated on 2026-10-31-mnemonic-v2-knowledge-base ship)
@@ -258,7 +258,7 @@ OpenCode and Pi knowledge-base plugins.
 ### Requirement: Plugin engineering — capability gating, lifecycle, described degradation (pi-research fold)
 
 Validated by pi-research (2026-11-05). User direction: all folds land on the
-**memory + code-index plugins, both hosts** — the knowledge-base plugin is
+**memory + code-index plugins, both hosts** — the project-wiki plugin is
 excluded from this requirement.
 
 #### Scenario: Happy path — admin memory tools gated by profile without restart
@@ -334,7 +334,7 @@ excluded from this requirement.
 
 - Requirements R1-R6 map to scenarios above; blueprint tasks carry `SATISFIES` lines.
 - Design approval recorded 2026-11-04 ("look good"); 2026-11-05 amendment
-  (3-family split, KB plugin gated on the brain function) per user direction;
+  (3-family split, ProjectWiki plugin gated on the brain function) per user direction;
   2026-11-05 amendment (pi-research fold R6 — scoped to the memory +
-  code-index families on both hosts, knowledge-base plugin excluded) per user
+  code-index families on both hosts, project-wiki plugin excluded) per user
   direction.

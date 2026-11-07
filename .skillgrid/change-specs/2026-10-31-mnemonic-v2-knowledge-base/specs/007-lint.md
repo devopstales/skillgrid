@@ -1,7 +1,7 @@
 # 007 — Lint (deterministic health)
 
-**Status:** DRAFT · **Owner:** knowledge-base change
-**Depends on:** `001-structure` (the page format it lints), `004-index` (the `kb_pages`
+**Status:** DRAFT · **Owner:** project-wiki change
+**Depends on:** `001-structure` (the page format it lints), `004-index` (the `projectwiki_pages`
 rows it reads), `002-sources` (the `sources:` citations it checks), `006-validate`
 (the pin-check it complements).
 **Reference:** pi-llm-wiki deterministic lint (orphans / broken links / dup aliases /
@@ -11,11 +11,11 @@ coverage gaps), openwiki `.openwikiignore` + incremental health.
 
 ## 1. Capability
 
-`kb_lint` is the **deterministic health check** of the vault. Unlike `kb_validate`
+`projectwiki_lint` is the **deterministic health check** of the vault. Unlike `projectwiki_validate`
 (which checks *grounded* pages against *live code*), lint checks the vault's **internal
 consistency and completeness** — the structural health that does not depend on the
 code. It is fast (no LLM, no graph required for most checks), runs frequently (after
-`kb_generate`, in CI), and reports a **findings list** the agent (or a human) can triage.
+`projectwiki_generate`, in CI), and reports a **findings list** the agent (or a human) can triage.
 
 **Lint is structural; validate is semantic.** Lint says "this page has no backlinks,
 this wikilink is broken, this citation is missing." Validate says "this page's pinned
@@ -34,7 +34,7 @@ one.
 | **ungrounded grounded-page** | a grounded page (decision/invariant/workflow) with no `anchors:` or with `anchors:` that resolve to nothing | error |
 | **weak pin** | a grounded page that pins a span by bare `line:` with no relocating `version:` token (`006-validate` §2.1) — a line-number drift will false-positive | warn |
 | **past `stale_after`** | a page whose OKF `stale_after` date has passed (the *content-may-be-outdated* signal, distinct from a pin being stale) | warn |
-| **stale index** | a page whose `body_hash` changed but `kb_index` has not re-indexed it (the index lags the files) | warn |
+| **stale index** | a page whose `body_hash` changed but `projectwiki_index` has not re-indexed it (the index lags the files) | warn |
 | **missing `sources:`** | a page with an empty `sources:` — **error** on a grounded page (no provenance), **warn** on a contextual page (architecture/gotcha/glossary) | error / warn |
 | **contradiction markers** | pages carrying a `## Contradiction` marker (from `003-generate` step 4) that are unresolved | warn |
 | **weak cross-reference** (012) | a page with **<2 outgoing** wikilinks — the `001` §6 golden rule ("cross-reference everything"), enforced. Distinct from `orphans` (the *incoming* side) | warn |
@@ -42,7 +42,7 @@ one.
 
 **Severity model:** `error` findings are blocking in `--strict` mode (and in CI); `warn`
 findings are reported but non-blocking; `info` findings are advisory. The default (non-
-strict) `kb_lint` reports all three without failing.
+strict) `projectwiki_lint` reports all three without failing.
 
 ## 3. How each check works
 
@@ -85,7 +85,7 @@ strict) `kb_lint` reports all three without failing.
     is "stale" when the source moved, not when a clock expired.
 - **ungrounded grounded-page:** a page with `type` ∈ {decision, invariant, workflow}
   must have `anchors:` that resolve (at least one). No anchors, or all anchors
-  unresolvable, is a finding. (Complements `kb_validate` — lint checks the *presence*
+  unresolvable, is a finding. (Complements `projectwiki_validate` — lint checks the *presence*
   of a pin; validate checks the *truth* of the pin.)
 - **weak pin:** a grounded page that pins a span by bare `line:` with no relocating
   `version:` token (`006-validate` §2.1). A line-number drift will false-positive on
@@ -94,8 +94,8 @@ strict) `kb_lint` reports all three without failing.
 - **past `stale_after`:** a page whose OKF `stale_after` date has passed. This is the
   *content-may-be-outdated* horizon (distinct from a pin being stale — the pin may still
   be `fresh`). Advisory: the agent should re-verify the page. `--fix` does not touch it.
-- **stale index:** compare `kb_pages.body_hash` to the live file hash. A mismatch is a
-  stale-index finding (the agent should run `kb_index`).
+- **stale index:** compare `projectwiki_pages.body_hash` to the live file hash. A mismatch is a
+  stale-index finding (the agent should run `projectwiki_index`).
 - **missing `sources:`:** a page with empty `sources:` is a provenance gap (INV-1).
   **Severity is type-dependent:** `error` on a grounded page (decision/invariant/
   workflow — a grounded page *must* be grounded), `warn` on a contextual page
@@ -106,12 +106,12 @@ strict) `kb_lint` reports all three without failing.
   sources still disagree) is surfaced. The agent must either resolve it (update the page
   / the memory fact) or explicitly mark it resolved.
 
-## 4. `kb_lint --fix` (auto-repair what is safe)
+## 4. `projectwiki_lint --fix` (auto-repair what is safe)
 
-`kb_lint --fix` auto-repairs the **safe, mechanical** findings — only the ones that do
+`projectwiki_lint --fix` auto-repairs the **safe, mechanical** findings — only the ones that do
 not require judgment:
 
-- **stale index** → runs `kb_index` (rebuild the lagging FTS rows). Safe (derived).
+- **stale index** → runs `projectwiki_index` (rebuild the lagging FTS rows). Safe (derived).
 - **broken wikilinks (renamed target)** → if the link's `type/slug` matches a page by
   `aliases` or by a near-match, rewrites the link to the correct target. (Conservative:
   only when the target is unambiguous.)
@@ -129,7 +129,7 @@ re-verification — both are judgment calls, not mechanical repairs.)
 
 ## 5. Output
 
-`kb_lint` returns a structured findings list:
+`projectwiki_lint` returns a structured findings list:
 
 ```json
 {
@@ -156,18 +156,18 @@ without failing.
 ## 6. What lint is NOT
 
 - **Not the pin-check.** Lint does not re-read the code to verify a claim's literal
-  (that is `kb_validate`). Lint checks the *structure* (citations resolve, links
+  (that is `projectwiki_validate`). Lint checks the *structure* (citations resolve, links
   resolve, pins are *present*).
 - **Not a linter for prose.** It does not grade the quality of a page's writing. It
   checks the mechanical health (links, citations, pins, coverage).
-- **Not blocking by default.** Non-strict `kb_lint` is a report. It fails only under
+- **Not blocking by default.** Non-strict `projectwiki_lint` is a report. It fails only under
   `--strict` / CI (and only on `error` findings).
 
 ## 7. Invariants
 
 INV-1 (broken/missing citations are findings — provenance is enforced), INV-5 (a lint
-run is recorded — the last lint time + findings count feed `kb_status`), KB-INV-2
-(grounded pages are grounded — ungrounded grounded-pages are `error`), KB-INV-3 (the
+run is recorded — the last lint time + findings count feed `projectwiki_status`), PW-INV-2
+(grounded pages are grounded — ungrounded grounded-pages are `error`), PW-INV-3 (the
 stale-index check protects the derived layer).
 
 ## 8. Open items

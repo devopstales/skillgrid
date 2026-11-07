@@ -64,7 +64,7 @@ memory; (b) stored `code_ref` pointers (observation → symbol) instead of query
 | **memory** | **A leg, read-only.** The topic hubs and the per-file developer considerations are saved observations (FTS-matched to path/package). No memory method is extended; the read goes through the `RawQuery`/`Probe`/`ProbeInt` seams + `observations_fts`. |
 | **code-index** | **A leg, read-only.** The file/symbol tree, the ranking graph, the hub flag, the blast-radius and temporal kinds all read `files`/`symbols`/`edges`/`index_freshness` through the existing `graph` package methods (`Orient`/`Impact`/`Callees`/`Callers`) + the seam reads. No `Store` method is extended; no table is added. |
 | **repo-map** (this) | The composition. A pure read over the two legs; the ranking engine; the three tiers; the coverage contract; the context envelope; the emitted doc. |
-| **knowledge-base** | No dependency either way. The KB cites the graph; the map orients. The KB change consumes neither this change's output nor its package. |
+| **project-wiki** | No dependency either way. The ProjectWiki cites the graph; the map orients. The ProjectWiki change consumes neither this change's output nor its package. |
 | **opencode-plugin / pi-plugin** | Pass the `repo_map` MCP tool + the session-start hook through (thin wrappers). |
 
 ## 3. The three tiers, one data source

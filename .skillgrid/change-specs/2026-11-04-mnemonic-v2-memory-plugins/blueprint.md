@@ -3,19 +3,19 @@
 > Copy this template to `.skillgrid/change-specs/2026-11-04-mnemonic-v2-memory-plugins/blueprint.md`.
 > **Role:** this is the *how* — the implementation plan: concrete steps, files to touch, code, tests, and verification. The companion `briefing.md` is the *what* (requirements & intent). The filename pair is load-bearing: `brainstorming` and `resume` key phase state off these exact filenames — never rename.
 
-**Status:** APPROVED (2026-11-05, user approval "look good"; amended 2026-11-05: 3-family split per user direction; amended 2026-11-05: pi-research fold R6 — all 7 folds into the memory + code-index plugins on both hosts, excluded from the knowledge-base plugin per user direction)
+**Status:** APPROVED (2026-11-05, user approval "look good"; amended 2026-11-05: 3-family split per user direction; amended 2026-11-05: pi-research fold R6 — all 7 folds into the memory + code-index plugins on both hosts, excluded from the project-wiki plugin per user direction)
 
 **Tier:** T2
 
 **Build shape:** Tracer thread
 
-**Goal:** Port the engram agent-memory plugin architecture onto the mnemonic-v2 engine and extend it into **three plugin families per host** (memory / code-index / knowledge-base) for OpenCode and Pi, delivering full tool-surface parity per family (v2 registered sets: 28 `mem_*`, 25 `code_*`, 12 `kb_*`), engram-proven behavior on the memory plugin, and the save-event handoff to the brain-side wiki. The knowledge-base family is gated on the KB function (`2026-10-31-mnemonic-v2-knowledge-base`) shipping its `kb_*` tools.
+**Goal:** Port the engram agent-memory plugin architecture onto the mnemonic-v2 engine and extend it into **three plugin families per host** (memory / code-index / project-wiki) for OpenCode and Pi, delivering full tool-surface parity per family (v2 registered sets: 28 `mem_*`, 25 `code_*`, 12 `projectwiki_*`), engram-proven behavior on the memory plugin, and the save-event handoff to the brain-side wiki. The project-wiki family is gated on the ProjectWiki function (`2026-10-31-mnemonic-v2-knowledge-base`) shipping its `projectwiki_*` tools.
 
-**Architecture:** Extend the existing `plugins/pi/` and `plugins/opencode/` packages into three families per host. Pi: `@devopstales/pi-mnemonic` (memory family — existing package, codeindex module extracted out), `@devopstales/pi-codeindex` (new), `@devopstales/pi-knowledge` (new, gated). OpenCode: three plugin entries in `@skillgrid/opencode-plugins` (memory / code-index / knowledge). Client plugins consume the v2 engine (`mnemonic-v2/`) through its MCP stdio surface — a spawned `mnemonic mcp` child process per the engram runtime contract pattern (v2 has no HTTP server: `mnemonic serve` is a deprecated no-op; architecture §1: plugins "consume the engine only through the MCP surface"). The existing v1-HTTP wiring (`SKILLGRID_MNEMONIC_HTTP_URL`, :7438) and `fact_*` tools are v1 legacy — retained, not extended. The engram baseline supplies the proven patterns (runtime contract, redaction, retries, self-heal, event wiring, compaction recovery). The memory save pipeline persists, then emits the SaveEvent onto an in-process event bus; the brain-side wiki and the KB function consume it (server-side seam — the plugin is not in the loop).
+**Architecture:** Extend the existing `plugins/pi/` and `plugins/opencode/` packages into three families per host. Pi: `@devopstales/pi-mnemonic` (memory family — existing package, codeindex module extracted out), `@devopstales/pi-codeindex` (new), `@devopstales/pi-knowledge` (new, gated). OpenCode: three plugin entries in `@skillgrid/opencode-plugins` (memory / code-index / knowledge). Client plugins consume the v2 engine (`mnemonic-v2/`) through its MCP stdio surface — a spawned `mnemonic mcp` child process per the engram runtime contract pattern (v2 has no HTTP server: `mnemonic serve` is a deprecated no-op; architecture §1: plugins "consume the engine only through the MCP surface"). The existing v1-HTTP wiring (`SKILLGRID_MNEMONIC_HTTP_URL`, :7438) and `fact_*` tools are v1 legacy — retained, not extended. The engram baseline supplies the proven patterns (runtime contract, redaction, retries, self-heal, event wiring, compaction recovery). The memory save pipeline persists, then emits the SaveEvent onto an in-process event bus; the brain-side wiki and the ProjectWiki function consume it (server-side seam — the plugin is not in the loop).
 
 **Tech Stack:** Go (mnemonic-v2 engine), TypeScript (Pi + OpenCode plugins), MCP stdio, SQLite/Postgres store.
 
-**Spec:** `.skillgrid/change-specs/2026-11-04-mnemonic-v2-memory-plugins/briefing.md` (product *why* lives in the spec and `.skillgrid/knowledge/reference/00-prd.md`; decisions live in `decisions/04-adr-NNNN-slug.md`).
+**Spec:** `.skillgrid/change-specs/2026-11-04-mnemonic-v2-memory-plugins/briefing.md` (product *why* lives in the spec and `\.skillgrid/projectwiki/reference/00-prd.md`; decisions live in `decisions/04-adr-NNNN-slug.md`).
 
 ## Terms
 
@@ -26,10 +26,10 @@ None — no new domain terms introduced by this plan beyond the spec's.
 **Truths** (observable behaviors that must hold):
 - The OpenCode + Pi **memory plugins** expose the full registered v2 `mem_*` surface (28 tools: 22 agent-profile + 6 admin, per `mnemonic-v2/internal/transport/mcp/contract_test.go`; engram baseline as behavior floor) backed by the mnemonic-v2 engine.
 - The OpenCode + Pi **code-index plugins** expose the full v2 `code_*` surface (25 tools).
-- The OpenCode + Pi **knowledge-base plugins** expose the `kb_*` surface (12 tools per KB spec 008), gated on the KB function's ship.
+- The OpenCode + Pi **project-wiki plugins** expose the `projectwiki_*` surface (12 tools per ProjectWiki spec 008), gated on the ProjectWiki function's ship.
 - The ported memory plugin behaviors preserve engram reliability semantics (redaction, retries, self-heal, fail-open for capture/lifecycle, fail-closed for writes, compaction recovery, passive capture, session wiring); all families share the fail-open seam.
 - The memory save pipeline emits a SaveEvent consumed by the brain-side wiki.
-- The memory + code-index plugins (both hosts) hold the pi-research fold (R6): capability-gated tool surface (admin `mem_*` hidden by default; `code_*` gated on the server capability probe — no restart), MCP-child lifecycle (bounded drain + force-exit watchdog, shutdown-reason branching), compaction recovery on the named compaction events, described-OFF embedder degradation (one sentence across surfaces, disabled-not-unhealthy), subagent read guard, consumer queue discipline, and the skill + CLI distribution with the exit-code protocol. The knowledge-base plugin is excluded from this fold (user direction).
+- The memory + code-index plugins (both hosts) hold the pi-research fold (R6): capability-gated tool surface (admin `mem_*` hidden by default; `code_*` gated on the server capability probe — no restart), MCP-child lifecycle (bounded drain + force-exit watchdog, shutdown-reason branching), compaction recovery on the named compaction events, described-OFF embedder degradation (one sentence across surfaces, disabled-not-unhealthy), subagent read guard, consumer queue discipline, and the skill + CLI distribution with the exit-code protocol. The project-wiki plugin is excluded from this fold (user direction).
 
 **Artifacts** (files that must exist with real implementation, not stubs):
 - `plugins/pi/mnemonic/api.js` — shared MCP-stdio client / redaction / TypeBox helpers (memory family; reused shape for the other Pi packages).
@@ -39,15 +39,15 @@ None — no new domain terms introduced by this plan beyond the spec's.
 - `plugins/pi/mnemonic/ctx-sandbox.ts` — ctx_* sandbox.
 - `plugins/pi/mnemonic/skillgrid-events.ts`, `skillgrid-sdd-events.ts`, `skillgrid-compaction.ts` — event/compaction wiring.
 - `plugins/pi/codeindex/package.json`, `index.ts`, `codeindex-tools.ts` — new Pi package, full v2 `code_*` set.
-- `plugins/pi/knowledge/package.json`, `index.ts`, `knowledge-tools.ts` — new Pi package, `kb_*` set (gated).
+- `plugins/pi/projectwiki/package.json`, `index.ts`, `knowledge-tools.ts` — new Pi package, `projectwiki_*` set (gated).
 - `plugins/opencode/mnemonic-memory.ts` — memory entry (mem_* tools).
 - `plugins/opencode/mnemonic-codeindex.ts` — code-index entry (full v2 `code_*` set).
-- `plugins/opencode/mnemonic-knowledge.ts` — knowledge entry (`kb_*` set; gated).
-- `plugins/opencode/tools/mem_*.ts`, `code_*.ts`, `kb_*.ts` — OpenCode tool definitions (`tools/fact_*.ts` v1-legacy, retained).
+- `plugins/opencode/mnemonic-knowledge.ts` — knowledge entry (`projectwiki_*` set; gated).
+- `plugins/opencode/tools/mem_*.ts`, `code_*.ts`, `projectwiki_*.ts` — OpenCode tool definitions (`tools/fact_*.ts` v1-legacy, retained).
 - `plugins/opencode/test/*` — parity + fail-open tests (node --experimental-strip-types; the package `test` script runs all test files).
 - `.skillgrid/change-specs/2026-11-04-mnemonic-v2-memory-plugins/acceptance.feature`.
 
-**Key links:** plugin tool call → redact → validate → dispatch → persist → SaveEvent → wiki/KB ingestion.
+**Key links:** plugin tool call → redact → validate → dispatch → persist → SaveEvent → wiki/ProjectWiki ingestion.
 
 **One-way-door decisions:** None identified.
 
@@ -57,15 +57,15 @@ None — no new domain terms introduced by this plan beyond the spec's.
 - No new dependencies without an ADR.
 - TDD baseline: basic TDD (failing test before code) is the baseline; strict-TDD machinery off by default.
 - Test: `go test ./...` (v2 contract + gates via `go test ./mnemonic-v2/... -count=1`); Build: `go build ./...`; plugin tests: `node --experimental-strip-types` — the OpenCode package `test` script is updated to run ALL test files (currently single-file); the Pi packages get a `test` script on the same runner (defined in Tasks 1/5/6).
-- Serial development: waves run in order; the knowledge family (wave 3) additionally requires the KB function shipped.
+- Serial development: waves run in order; the knowledge family (wave 3) additionally requires the ProjectWiki function shipped.
 
 ## File Structure
 
 - `plugins/pi/mnemonic/*` — Pi memory plugin modules.
 - `plugins/pi/codeindex/*` — Pi code-index plugin (new package).
-- `plugins/pi/knowledge/*` — Pi knowledge-base plugin (new package, gated).
+- `plugins/pi/projectwiki/*` — Pi project-wiki plugin (new package, gated).
 - `plugins/opencode/*` — OpenCode plugin entries + tools (3 families).
-- `mnemonic-v2/internal/transport/mcp/contract_test.go` — D1-pinned v2 MCP tool contract (mem_* family; code/kb family contracts per their changes). The v1 `mnemonic/internal/http/plugin_route_contract_test.go` is legacy (v1 HTTP era) — not the parity owner.
+- `mnemonic-v2/internal/transport/mcp/contract_test.go` — D1-pinned v2 MCP tool contract (mem_* family; code/projectwiki family contracts per their changes). The v1 `mnemonic/internal/http/plugin_route_contract_test.go` is legacy (v1 HTTP era) — not the parity owner.
 
 ## Tool-surface parity mapping
 
@@ -123,25 +123,25 @@ Parity test asserts plugin-registered set == v2-registered `code_*` set (both
 hosts). Staleness workflow preserved: code_status → (stale) code_index →
 code_search → code_read.
 
-### Knowledge family (`kb_*`) — per KB spec `specs/008-transport.md` (gated)
+### Knowledge family (`projectwiki_*`) — per ProjectWiki spec `specs/008-transport.md` (gated)
 
 | Tool | Profile | Purpose |
 |---|---|---|
-| kb_query | agent | Stage-1 deep retrieval (wiki-first) |
-| kb_read | agent | Stage-2 full page / section |
-| kb_search | agent | Raw FTS over kb_pages_fts |
-| kb_generate | agent | Run generation (async: run_id + poll; 409 double-start) |
-| kb_validate | agent | Pin-check against live code |
-| kb_lint | agent | Deterministic health (+ fix) |
-| kb_status | agent | Vault health (read-only derived state) |
-| kb_cite_source | agent | Record external citation (write queue) |
-| kb_reindex | admin | Full FTS rebuild |
-| kb_index | admin | Incremental reindex |
-| kb_bootstrap | admin | Scaffold vault (idempotent) |
-| kb_rebuild_meta | admin | Rebuild checkpoint + backlink cache |
+| projectwiki_query | agent | Stage-1 deep retrieval (wiki-first) |
+| projectwiki_read | agent | Stage-2 full page / section |
+| projectwiki_search | agent | Raw FTS over projectwiki_pages_fts |
+| projectwiki_generate | agent | Run generation (async: run_id + poll; 409 double-start) |
+| projectwiki_validate | agent | Pin-check against live code |
+| projectwiki_lint | agent | Deterministic health (+ fix) |
+| projectwiki_status | agent | Vault health (read-only derived state) |
+| projectwiki_cite_source | agent | Record external citation (write queue) |
+| projectwiki_reindex | admin | Full FTS rebuild |
+| projectwiki_index | admin | Incremental reindex |
+| projectwiki_bootstrap | admin | Scaffold vault (idempotent) |
+| projectwiki_rebuild_meta | admin | Rebuild checkpoint + backlink cache |
 
-Plugins consume the `kb_*` tools through the same MCP stdio server as the
-other families (KB spec 008 §1); reads synchronous, writes async (`run_id` +
+Plugins consume the `projectwiki_*` tools through the same MCP stdio server as the
+other families (ProjectWiki spec 008 §1); reads synchronous, writes async (`run_id` +
 status poll, `409` on double-start); degradation envelope (`degraded: true` +
 reason) surfaced, never silently floored.
 
@@ -149,7 +149,7 @@ reason) surfaced, never silently floored.
 
 Source: `github.com/Lincoln504/pi-research` (Pi extension + knowledge store,
 v1.7.24). User direction: all seven folds land on the **separate OpenCode + Pi
-plugins** (memory + code-index families); the knowledge-base plugin is
+plugins** (memory + code-index families); the project-wiki plugin is
 **not** modified by this fold. Task assignments:
 
 - **PR-1 Capability-gated tool surface** → Tasks 1, 2, 5. Pi: register the
@@ -211,7 +211,7 @@ plugins** (memory + code-index families); the knowledge-base plugin is
   embedder model change → `backup` (default) / `drop` / `re-embed`
   migration with re-embed falling back to backup on failure — data is never
   dropped without explicit `drop`.
-- **KB change** (`2026-10-31-mnemonic-v2-knowledge-base`, advisory):
+- **ProjectWiki change** (`2026-10-31-mnemonic-v2-knowledge-base`, advisory):
   scope-as-column (one physical store, scope columns filtered at query time,
   not separate folders), TTL eviction at open within the current scope,
   per-model chunk config (chunk size / pooling / prefixes defined by the
@@ -224,7 +224,7 @@ plugins** (memory + code-index families); the knowledge-base plugin is
 - **Wave 2 — code-index family (both hosts):** Task 5. Precondition:
   `2026-10-31-mnemonic-v2-code-index` shipped.
 - **Wave 3 — knowledge family (both hosts):** Task 6. Precondition:
-  `2026-10-31-mnemonic-v2-knowledge-base` shipped (`kb_*` routes live).
+  `2026-10-31-mnemonic-v2-knowledge-base` shipped (`projectwiki_*` routes live).
 
 ### Task 1: Port engram memory tool-surface parity into the Pi plugin (full agent-facing set)
 
@@ -381,31 +381,31 @@ sandbox-context `code_read` is confined to the project root
 - [ ] **Step 4: Run test to verify it passes**
 - [ ] **Step 5: Commit**
 
-### Task 6: Port `kb_*` surface into both knowledge plugins (gated on KB function ship)
+### Task 6: Port `projectwiki_*` surface into both knowledge plugins (gated on ProjectWiki function ship)
 
 **Files:**
-- Create: `plugins/pi/knowledge/package.json`, `plugins/pi/knowledge/index.ts`, `plugins/pi/knowledge/knowledge-tools.ts` (new package, gated).
-- Create: `plugins/opencode/mnemonic-knowledge.ts` (new entry), `plugins/opencode/tools/kb_*.ts`.
-- Test: parity mapping against KB spec 008 tool table (both hosts); async write semantics (run_id + poll, 409 double-start); degradation envelope surfacing; read tools synchronous.
+- Create: `plugins/pi/projectwiki/package.json`, `plugins/pi/projectwiki/index.ts`, `plugins/pi/projectwiki/knowledge-tools.ts` (new package, gated).
+- Create: `plugins/opencode/mnemonic-knowledge.ts` (new entry), `plugins/opencode/tools/projectwiki_*.ts`.
+- Test: parity mapping against ProjectWiki spec 008 tool table (both hosts); async write semantics (run_id + poll, 409 double-start); degradation envelope surfacing; read tools synchronous.
 - Packaging: `@devopstales/pi-knowledge` gets `publishConfig` (GitHub npm, same as pi-mnemonic) on first publish.
 
 **Interfaces:**
-- Consumes: the v2 MCP stdio server's `kb_*` tools (pinned by the KB change's contract).
-- Produces: agent-profile `kb_*` tools on both hosts; admin tools via `all` profile/ops path.
+- Consumes: the v2 MCP stdio server's `projectwiki_*` tools (pinned by the ProjectWiki change's contract).
+- Produces: agent-profile `projectwiki_*` tools on both hosts; admin tools via `all` profile/ops path.
 - Seam: plugin tool handler + shared api seam.
 - Deletion test: pass-through.
 - Adapters: ≥2.
 
 **Precondition:** `2026-10-31-mnemonic-v2-knowledge-base` shipped. Until then this task's
-parity test asserts against the KB spec 008 tool table (spec-pinned constants, 12 tools), not a
-live server; the live half runs green only once the `kb_*` tools are registered.
+parity test asserts against the ProjectWiki spec 008 tool table (spec-pinned constants, 12 tools), not a
+live server; the live half runs green only once the `projectwiki_*` tools are registered.
 
-**SATISFIES:** `happy path — agent queries the knowledge base through the plugin`; `edge case — async KB write does not double-start`; `failure state — degraded KB run surfaces the envelope, never fails the agent`
+**SATISFIES:** `happy path — agent queries the project wiki through the plugin`; `edge case — async ProjectWiki write does not double-start`; `failure state — degraded ProjectWiki run surfaces the envelope, never fails the agent`
 
-- [ ] **Step 1: Write the failing parity test (spec-pinned kb_* table, both hosts)**
+- [ ] **Step 1: Write the failing parity test (spec-pinned projectwiki_* table, both hosts)**
 - [ ] **Step 2: Run test to verify it fails**
 - [ ] **Step 3: Write minimal implementation**
-- [ ] **Step 4: Run test to verify it passes (live half when KB routes land)**
+- [ ] **Step 4: Run test to verify it passes (live half when ProjectWiki routes land)**
 - [ ] **Step 5: Commit**
 
 ## Blueprint validation (after writing, before proceeding)

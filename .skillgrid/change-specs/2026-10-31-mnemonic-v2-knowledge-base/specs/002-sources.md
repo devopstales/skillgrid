@@ -1,6 +1,6 @@
 # 002 — Sources (the four adapters, all read live)
 
-**Status:** DRAFT · **Owner:** knowledge-base change
+**Status:** DRAFT · **Owner:** project-wiki change
 **Depends on:** `001-structure` (§5.4 the `sources:` citation format), the memory change
 (`004-transport-mcp` §5 the `SaveEvent`; `002-schema` the memory store), the
 `2026-10-31-mnemonic-v2-code-index` change (the code graph).
@@ -11,14 +11,14 @@ web-cache (mnemonic v1 `web_*`).
 
 ## 1. Capability
 
-The KB is synthesized **from four sources**. This spec defines each adapter and the one
+The ProjectWiki is synthesized **from four sources**. This spec defines each adapter and the one
 rule that binds them: **all four are read live, none are stored as packets** (KB-8).
-The KB does not copy source material into the vault. It **reads** memory, the code
+The ProjectWiki does not copy source material into the vault. It **reads** memory, the code
 graph, and git history from where they already live, and **cites** external sources by
 URL+version in the page frontmatter.
 
 The contrast with v1 is deliberate: v1 had a persistent `web_cache` (a stored packet
-store). v2 drops it (OPEN-3 in the memory change). The KB's "external source" is not a
+store). v2 drops it (OPEN-3 in the memory change). The ProjectWiki's "external source" is not a
 cached body — it is a **citation** the agent can re-fetch on demand.
 
 ## 2. The four adapters
@@ -33,9 +33,9 @@ cached body — it is a **citation** the agent can re-fetch on demand.
 ### 2.1 memory (the eager trigger)
 
 The memory function emits a `SaveEvent` after every committed `mem_save`
-(`004-transport-mcp` §5). The KB **subscribes** to the event bus (it does not import the
+(`004-transport-mcp` §5). The ProjectWiki **subscribes** to the event bus (it does not import the
 memory package — the event bus is the boundary, dependency inversion). On an event, the
-KB **reads the fact live** by `sync_id` (and the related judged relations, conflicts,
+ProjectWiki **reads the fact live** by `sync_id` (and the related judged relations, conflicts,
 supersedes) from the memory store. The event is the *trigger*; the read is *live*.
 
 **The graduate gate:** not every fact graduates to a page. The graduate-rule
@@ -45,19 +45,19 @@ not a page; a high-importance `decision` is.
 
 ### 2.2 code (the graph + working tree)
 
-The KB reads the **code-index graph** (symbols, edges, files — the `02-code-index`
+The ProjectWiki reads the **code-index graph** (symbols, edges, files — the `02-code-index`
 change, cross-referenced) to (a) resolve `code:` citations to real spans, (b) build
 `architecture`/`workflow` pages from the **package map** (`code_packages`,
 `02-code-index/004` §4) and the **call graph** (`code_get_callers`/`code_get_callees`),
 and (c) resolve `symbol:` anchors during the pin-check (`code_resolve`,
 `02-code-index/004` §3, `006-validate` §2). For token-level anchors (`all_of`, `line`)
-the KB reads the **working tree** directly (ripgrep) — no graph needed. **The graph is a
+the ProjectWiki reads the **working tree** directly (ripgrep) — no graph needed. **The graph is a
 first-class but optional dependency** (`02-code-index` CI-7): without it, the `symbol:`
 check degrades to a ripgrep occurrence check (`degraded: no_graph`) and the coverage-gap
 lint falls back to a `go list` package scan — both explicit, never a silent floor.
 
 The code adapter is **live**: it reflects the current working tree, not a snapshot. If
-the code moves, the page's anchors/claims go stale and `kb_validate` catches it.
+the code moves, the page's anchors/claims go stale and `projectwiki_validate` catches it.
 
 ### 2.3 git history (the why-provenance)
 
@@ -66,13 +66,13 @@ to the commit/session that made it, and (b) surface the *why* behind a change (t
 message, the linked session). This feeds `decision` pages: the "why" is often in the
 commit history, not in a memory fact.
 
-**Not stored:** the KB does not snapshot commits. It cites the commit ref in the page
+**Not stored:** the ProjectWiki does not snapshot commits. It cites the commit ref in the page
 body and re-derives from git on demand.
 
 ### 2.4 external (the reborn web-cache, cited not stored)
 
 When a page relies on an external source (a library's docs, a spec, an API reference),
-the KB records a **citation** in `sources:` using the **neuledge/context identity form**
+the ProjectWiki records a **citation** in `sources:` using the **neuledge/context identity form**
 (a versioned, searchable, re-fetchable reference — not a stored packet):
 
 ```yaml
@@ -83,15 +83,15 @@ the KB records a **citation** in `sources:` using the **neuledge/context identit
   build_fingerprint: sha256:ab…  # the staleness token (see below)
 ```
 
-The KB does **not** store the fetched body. The agent (or the LLM during generation)
+The ProjectWiki does **not** store the fetched body. The agent (or the LLM during generation)
 re-fetches the body **on demand**, at **section granularity** (a `##` heading, not a line
 and not a whole page) when it needs it. This is the v2 inversion of neuledge's
 download-once-local model: neuledge downloads a pre-built `.db` once and never re-fetches
-(freshness is a publish-side nightly job); the KB **cites + re-fetches on demand**, and the
-staleness check neuledge runs at *publish* time is moved to the KB's **re-fetch + lint**
+(freshness is a publish-side nightly job); the ProjectWiki **cites + re-fetches on demand**, and the
+staleness check neuledge runs at *publish* time is moved to the ProjectWiki's **re-fetch + lint**
 time.
 
-- **`kb_cite_source`** records a citation: given a library name (+ version + source_url),
+- **`projectwiki_cite_source`** records a citation: given a library name (+ version + source_url),
   it computes the `build_fingerprint` (below) and appends the `external:` citation to a
   page's `sources:` (or a page under construction). It does not fetch or store the body.
 - **Re-fetch (on demand):** when the agent needs the body, it re-fetches the cited
@@ -103,7 +103,7 @@ time.
 - **Staleness = the fingerprint gate, run at re-fetch/lint time (neuledge's
   `publicationSkipReason`, moved client-side).** `build_fingerprint` is a SHA-256 over
   `(name, version, source_url, source_commit, effective source settings, ingestion
-  revision)`. On re-fetch or `kb_lint`:
+  revision)`. On re-fetch or `projectwiki_lint`:
   - if the cited `source_commit` / `build_fingerprint` still matches what's upstream →
     the citation is **fresh** (no work);
   - if the fingerprint changed (the docs moved at the same version) → **stale** (the
@@ -141,8 +141,8 @@ sources:
   `build_fingerprint`). The `build_fingerprint` is what lint checks for drift (a
   changed fingerprint = `stale`; an unresolvable version/URL = `unresolved`). `version`
   and `source_url` are required for a versioned lib; `source_commit` /
-  `build_fingerprint` are computed by `kb_cite_source`.
-- **A grounded page with no `sources:` is a lint finding** (KB-INV-2). A contextual page
+  `build_fingerprint` are computed by `projectwiki_cite_source`.
+- **A grounded page with no `sources:` is a lint finding** (PW-INV-2). A contextual page
   may have fewer, but still should cite what it synthesizes from.
 
 ## 4. What is NOT a source
@@ -152,13 +152,13 @@ sources:
   `[[decisions/auth-model]]` (cross-reference) while citing `memory:obs-…` (provenance)
   independently.
 - **Trajectories / working memory.** pi's agent-trajectory / working-memory tools are
-  out of scope for v2 (not adopted). The KB synthesizes from durable sources, not from a
+  out of scope for v2 (not adopted). The ProjectWiki synthesizes from durable sources, not from a
   session's scratch state.
 
 ## 5. Invariants
 
 INV-1 (every page cites its sources), INV-3 (LLM-first, explicit `degraded` when a
-source read fails), KB-INV-2 (grounded pages are grounded), KB-8-as-invariant (no
+source read fails), PW-INV-2 (grounded pages are grounded), KB-8-as-invariant (no
 packets — sources are read live or cited).
 
 ## 6. Open items

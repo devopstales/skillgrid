@@ -55,7 +55,7 @@ This is the *seam + config + ADR supersession*. It is **not** the full CTX Phase
 - **R5 (config block).** `config.LLMConfig` (or a sibling `config.JudgmentConfig`) gains `JudgmentConfig{Enabled bool, BaseURL, Model, MaxStateTokens int, Timeout time.Duration}`. The home `config.d/indexing.yaml` loader reads `mnemonic.judgment.*` with per-key fallback, defaults `enabled: false`, `model: tev1`. `mnemonic.judgment` is **distinct from** `mnemonic.llm` (two different HTTP shapes, two config blocks).
   - *True when:* the struct exists, the loader reads it, the defaults are correct, and `mnemonic.judgment` and `mnemonic.llm` are independent keys.
   - *False when:* the judgment config is folded into `mnemonic.llm`, the defaults are wrong, or the loader does not fall back per-key.
-- **R6 (ADR supersession).** `.skillgrid/knowledge/decisions/04-adr-0050-local-judgment-model-tev1-4b.md` records: Context (ADR-0035's 0.8b default, the Ollama eval table, the gap), Decision (default `tev1` 4B, fallback `tev1:0.8b`; `/v1/systemone` + fail-open + fingerprint-cache + truncate-only + threshold 0.22 carried forward), Consequences (accuracy gain, 4.4GB pull cost on Local install, the calibration caveat). It has `supersedes: 04-adr-0035-local-ollama-judgment-model`. A pointer row for 0050 is added to `ASSUMPTIONS.md` § LOCKED; the 0035 row is marked superseded.
+- **R6 (ADR supersession).** `\.skillgrid/projectwiki/decisions/04-adr-0050-local-judgment-model-tev1-4b.md` records: Context (ADR-0035's 0.8b default, the Ollama eval table, the gap), Decision (default `tev1` 4B, fallback `tev1:0.8b`; `/v1/systemone` + fail-open + fingerprint-cache + truncate-only + threshold 0.22 carried forward), Consequences (accuracy gain, 4.4GB pull cost on Local install, the calibration caveat). It has `supersedes: 04-adr-0035-local-ollama-judgment-model`. A pointer row for 0050 is added to `ASSUMPTIONS.md` § LOCKED; the 0035 row is marked superseded.
   - *True when:* the file exists with correct frontmatter, the supersession is declared, and the index rows are updated (0050 in force, 0035 superseded).
   - *False when:* 0035 is edited in place (IRON RULE violation), the supersession is not declared, or the index is not updated.
 - **R7 (install provider extension).** The Local provider step in `skillgrid-cli/internal/install` adds `tev1` to the pull set (alongside `llama3.2:3b` + `nomic-embed-text`). The pull is ensure-not-refresh on re-run. `--skip-provider` and `--provider=external` skip it. A test asserts `ollama pull tev1` is invoked on the Local happy path and not on the skip/external paths.
@@ -79,14 +79,14 @@ This is the *seam + config + ADR supersession*. It is **not** the full CTX Phase
 
 - Create: `mnemonic/internal/judge/client.go` (the `DecisionClient` seam) — or `mnemonic/internal/llm/decision.go` if the `llm` package is preferred.
 - Create: `mnemonic/internal/judge/client_test.go` (fail-open, limit enforcement, response parsing for all three question types).
-- Create: `.skillgrid/knowledge/decisions/04-adr-0050-local-judgment-model-tev1-4b.md`.
+- Create: `\.skillgrid/projectwiki/decisions/04-adr-0050-local-judgment-model-tev1-4b.md`.
 - Modify: `mnemonic/internal/mnemonic/config/load.go` (add `JudgmentConfig` to the config struct + loader).
 - Modify: `mnemonic/internal/service/attach_llm.go` (or a sibling `attach_judge.go`) — wire the `DecisionClient` into the service when `mnemonic.judgment.enabled`.
 - Modify: the fused `mem_search` path (ADR-0047 implementation site) — add the optional re-rank step.
 - Modify: `skillgrid-cli/internal/install/install.go` + `provider_test.go` — add `tev1` to the Local pull set.
 - Modify: `mnemonic/go.mod` only if a test helper requires it (expected: no change).
-- Modify: `.skillgrid/knowledge/ASSUMPTIONS.md` § LOCKED (add 0050 row, mark 0035 superseded).
-- Modify: `.skillgrid/knowledge/index.md` (decisions/ catalog row for 0050).
+- Modify: `\.skillgrid/projectwiki/ASSUMPTIONS.md` § LOCKED (add 0050 row, mark 0035 superseded).
+- Modify: `\.skillgrid/projectwiki/index.md` (decisions/ catalog row for 0050).
 - Modify: `AGENTS.md` only if the Rules section references the judgment model (expected: no change; ADR-0035's pointer is in ASSUMPTIONS, not AGENTS).
 
 ## Open Questions
