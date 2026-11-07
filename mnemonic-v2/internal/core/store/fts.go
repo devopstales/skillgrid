@@ -17,7 +17,7 @@ import (
 //
 // The unit is parameterized on (table name, content table, content rowid,
 // content columns, tokenizer) so the code-index's chunks_fts/symbol_fts and
-// the KB's kb_pages_fts all render from it verbatim (CI-INV-1 — the FTS leg
+// the ProjectWiki's projectwiki_pages_fts all render from it verbatim (CI-INV-1 — the FTS leg
 // is derived, rebuildable from the content table). The memory change's
 // observations_fts/prompts_fts share the identical pattern (001_schema.sql)
 // but stay as-is in that migration (minimal diff; the code-index migration
@@ -41,8 +41,8 @@ func FTSDDL(name, contentTable, contentRowID string, cols []string, tokenize str
 
 // RankingWeights renders the BM25 composite-rank expression for the named
 // FTS table with the given per-column weights (T21). The memory store's
-// Search uses this shape (searchRankRelevanceBase in sqlite.go); the KB's
-// kb_pages_fts re-uses it verbatim. The returned SQL fragment is a
+// Search uses this shape (searchRankRelevanceBase in sqlite.go); the ProjectWiki's
+// projectwiki_pages_fts re-uses it verbatim. The returned SQL fragment is a
 // SELECT-able expression: MAX(bm25(<fts>, w1, w2, ..., wN), 1.0) where N is
 // exactly len(weights) — one weight per FTS column, in order. The caller
 // owns the weight count (bm25 takes one weight per column; no padding).

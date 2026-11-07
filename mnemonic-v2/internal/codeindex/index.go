@@ -22,8 +22,8 @@ import (
 )
 
 // excludedDirs are the walk's always-excluded directory names (spec 001
-// §6 / T1: .git / node_modules / vendor / build output / the KB vault —
-// the KB has its own kb_index and is not code).
+// §6 / T1: .git / node_modules / vendor / build output / the ProjectWiki vault —
+// the ProjectWiki has its own projectwiki_index and is not code).
 var excludedDirs = map[string]bool{
 	".git":         true,
 	"node_modules": true,

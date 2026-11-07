@@ -587,7 +587,7 @@ func (s *pgStore) RecordRetrieval(ctx context.Context, t RetrievalTrail) error {
 // ── code-index seams ────────────────────────────────────────────────────────
 
 // ExecDDL executes DDL statements in order (T21 — the table-adding seam the
-// KB's KBStore uses; each statement is split internally so a multi-statement
+// ProjectWiki's ProjectWikiStore uses; each statement is split internally so a multi-statement
 // blob is carried). The PG dialect's splitter is dollar-quote-aware (the
 // trigger bodies). The statements run OUTSIDE an explicit transaction (the
 // SQLite leg's rationale — DDL durability per statement).
@@ -605,7 +605,7 @@ func (s *pgStore) ExecDDL(ctx context.Context, statements []string) error {
 	return nil
 }
 
-// Exec runs a single statement (the KB's generic exec/query seam).
+// Exec runs a single statement (the ProjectWiki's generic exec/query seam).
 func (s *pgStore) Exec(ctx context.Context, query string, args ...any) error {
 	_, err := s.db.ExecContext(ctx, query, args...)
 	return err

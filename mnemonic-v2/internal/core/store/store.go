@@ -127,10 +127,10 @@ type Store interface {
 	// trail (T15/INV-5 — the shared retrieval_trails table, migration 003)
 	RecordRetrieval(ctx context.Context, t RetrievalTrail) error
 	CountRetrievals(ctx context.Context, project string) (int, error)
-	// the table-adding seam (T21 — the KB's KBStore adds its kb_* tables
+	// the table-adding seam (T21 — the ProjectWiki's ProjectWikiStore adds its projectwiki_* tables
 	// through this without forking the dialect code; multi-statement)
 	ExecDDL(ctx context.Context, statements []string) error
-	// generic exec/query seam (KB kb_query FTS read path; additive).
+	// generic exec/query seam (ProjectWiki projectwiki_query FTS read path; additive).
 	Exec(ctx context.Context, query string, args ...any) error
 	Query(ctx context.Context, query string, args ...any) ([][]any, error)
 	// K1 — the single per-file tx surface: Begin opens the transaction the

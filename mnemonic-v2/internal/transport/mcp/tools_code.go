@@ -144,7 +144,7 @@ func codeNeighborTool(name, view string) mcplib.Tool {
 
 func codeResolveTool() mcplib.Tool {
 	return mcplib.NewTool("code_resolve",
-		mcplib.WithDescription("Resolve a symbol: anchor → {exists, file, line, called_from[], ambiguous, candidates[]} (the KB pin-check contract). 0 matches → exists:false; 1 → exists:true; >1 → ambiguous:true + candidates[]."),
+		mcplib.WithDescription("Resolve a symbol: anchor → {exists, file, line, called_from[], ambiguous, candidates[]} (the project wiki pin-check contract). 0 matches → exists:false; 1 → exists:true; >1 → ambiguous:true + candidates[]."),
 		mcplib.WithString("symbol", mcplib.Required(), mcplib.Description("The symbol name to resolve")),
 		mcplib.WithString("called_from", mcplib.Description("The caller's file (the disambiguation hint)")),
 	)
@@ -152,7 +152,7 @@ func codeResolveTool() mcplib.Tool {
 
 func codePackagesTool() mcplib.Tool {
 	return mcplib.NewTool("code_packages",
-		mcplib.WithDescription("Top-level Go package map (path, files, symbols) — the KB coverage-gap contract."),
+		mcplib.WithDescription("Top-level Go package map (path, files, symbols) — the project wiki coverage-gap contract."),
 	)
 }
 

@@ -2540,11 +2540,11 @@ func (s *sqliteStore) RecordRetrieval(ctx context.Context, t RetrievalTrail) err
 }
 
 // ExecDDL executes DDL statements in order (T21 — the table-adding seam the
-// KB's KBStore uses; each statement is split internally so a multi-
+// ProjectWiki's ProjectWikiStore uses; each statement is split internally so a multi-
 // statement blob is carried). The store knows its own dialect (no dialect
 // argument). The statements run OUTSIDE an explicit transaction: SQLite
 // DDL is transactional, and a rolled-back DDL leaves the schema half-built
-// (CREATE TABLE visible, then rolled back) — the KB's table-adding seam
+// (CREATE TABLE visible, then rolled back) — the ProjectWiki's table-adding seam
 // must be durable per statement.
 func (s *sqliteStore) ExecDDL(ctx context.Context, statements []string) error {
 	for _, stmt := range statements {
@@ -2560,7 +2560,7 @@ func (s *sqliteStore) ExecDDL(ctx context.Context, statements []string) error {
 	return nil
 }
 
-// Exec runs a single statement (the KB's generic exec/query seam).
+// Exec runs a single statement (the ProjectWiki's generic exec/query seam).
 func (s *sqliteStore) Exec(ctx context.Context, query string, args ...any) error {
 	_, err := s.db.ExecContext(ctx, query, args...)
 	return err

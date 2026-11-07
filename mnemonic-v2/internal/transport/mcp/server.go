@@ -60,15 +60,15 @@ mem_save is the primary write; reuse topic_key to upsert evolving topics.
 Code: use code_status to check index health (4-state freshness); code_search to find code (prefer over grep); code_orient as the navigation entry point (the "find a feature" first verb); code_read to fetch a span after search narrows it.
 All ids the agent sees are sync_id (INV-6); mem_get_observation + code_resolve accept both sync_id and the local id.`
 
-// kbInstructions is the KB routing section (008-transport §3 — appended
-// when the KB tools register): a standalone "### KnowledgeBase" section
-// (the KB joins the existing memory/code instructions without rewriting
-// them). kb_query is the stage-1 entry (wiki-first retrieval), kb_read
-// hydrates a full page, kb_generate is the KB's save equivalent.
-const kbInstructions = `
+// projectWikiInstructions is the ProjectWiki routing section (008-transport §3 — appended
+// when the ProjectWiki tools register): a standalone "### ProjectWiki" section
+// (the ProjectWiki joins the existing memory/code instructions without rewriting
+// them). projectwiki_query is the stage-1 entry (wiki-first retrieval), projectwiki_read
+// hydrates a full page, projectwiki_generate is the project wiki's save equivalent.
+const projectWikiInstructions = `
 
-### KnowledgeBase
-kb_query is the stage-1 entry (wiki-first retrieval: ranked links + 1-line snippets); kb_read hydrates a full page or section (+ pin-check state for grounded pages); kb_search is the raw FTS power path. kb_generate is the KB's save equivalent (proactive; run it after significant mem_saves). kb_validate --strict is the CI gate for grounded pages. The KB identity is rel_path (a git-tracked file), not a row id. Degraded runs carry degraded:true + a reason (never a silent floor).`
+### ProjectWiki
+projectwiki_query is the stage-1 entry (wiki-first retrieval: ranked links + 1-line snippets); projectwiki_read hydrates a full page or section (+ pin-check state for grounded pages); projectwiki_search is the raw FTS power path. projectwiki_generate is the project wiki's save equivalent (proactive; run it after significant mem_saves). projectwiki_validate --strict is the CI gate for grounded pages. The ProjectWiki identity is rel_path (a git-tracked file), not a row id. Degraded runs carry degraded:true + a reason (never a silent floor).`
 
 // Server is an MCP server instance with the profile-filtered mem_* tools
 // registered, ready to be served over stdio.
@@ -81,16 +81,16 @@ type Server struct {
 	// nil until RegisterCodeTools is called (the memory-only build still
 	// serves without it). The dispatch consults it for the code_* tools.
 	codeTools *handler.CodeHandler
-	// kbTools is the KB handler (008-transport §3 — the registration seam,
-	// same pattern as codeTools): nil until RegisterKbTools is called.
-	// The dispatch consults it for the kb_* tools.
-	kbTools *handler.KbHandler
-	// kbQueue is the KB write queue (008-transport §4: the KB writes —
-	// kb_generate, kb_cite_source — are serialized on their OWN queue,
-	// distinct from the memory write queue; the KB and memory are
+	// projectWikiTools is the ProjectWiki handler (008-transport §3 — the registration seam,
+	// same pattern as codeTools): nil until RegisterProjectWikiTools is called.
+	// The dispatch consults it for the projectwiki_* tools.
+	projectWikiTools *handler.ProjectWikiHandler
+	// projectWikiQueue is the ProjectWiki write queue (008-transport §4: the ProjectWiki writes —
+	// projectwiki_generate, projectwiki_cite_source — are serialized on their OWN queue,
+	// distinct from the memory write queue; the ProjectWiki and memory are
 	// different functions with different write sets — both queued,
 	// neither blocks the other).
-	kbQueue *writeQueue
+	projectWikiQueue *writeQueue
 	// instructions is the server's routing block (F6 — a field, not a
 	// const): it starts as memoryInstructions (the memory-only build) and
 	// RegisterCodeTools rewrites it to the combined memory + code text. The
@@ -115,10 +115,10 @@ type Server struct {
 // 004-transport-mcp §3's literal name sets, R-1).
 func NewServer(h *handler.Handler, profile Profile) *Server {
 	s := &Server{
-		h:       h,
-		profile: profile,
-		queue:   newWriteQueue(),
-		kbQueue: newWriteQueue(),
+		h:                h,
+		profile:          profile,
+		queue:            newWriteQueue(),
+		projectWikiQueue: newWriteQueue(),
 	}
 	// The store's committed-transaction seam (store.SetTxnHook) records
 	// the transaction order: the write queue's serialization is proven by
@@ -153,11 +153,11 @@ func NewServer(h *handler.Handler, profile Profile) *Server {
 func (s *Server) RegisterCodeTools(ch *handler.CodeHandler) {
 	s.codeTools = ch
 	// F6 — the combined instructions: the seam rewrites the routing block
-	// to the combined memory + code block. The KB section is re-appended
-	// when the KB family registered first (order-independent).
+	// to the combined memory + code block. The project wiki'section is re-appended
+	// when the ProjectWiki family registered first (order-independent).
 	text := combinedInstructions
-	if s.kbTools != nil {
-		text += kbInstructions
+	if s.projectWikiTools != nil {
+		text += projectWikiInstructions
 	}
 	s.setInstructions(text)
 	// Extend the in-process dispatch with the code_* tools (the profile
@@ -190,35 +190,35 @@ func (s *Server) setInstructions(text string) {
 	}
 }
 
-// RegisterKbTools adds the kb_* tool family to the server (008-transport
+// RegisterProjectWikiTools adds the projectwiki_* tool family to the server (008-transport
 // §3 — the registration seam, same pattern as RegisterCodeTools): it
-// extends the dispatch with the profile-filtered kb_* tools (the agent
+// extends the dispatch with the profile-filtered projectwiki_* tools (the agent
 // profile drops the admin tools), registers the tool definitions with
-// mcp-go, and appends the KB routing block to the instructions. It is
+// mcp-go, and appends the ProjectWiki routing block to the instructions. It is
 // ADDITIVE — the memory(+code)-only build still serves without it
-// (kbTools is nil until this is called).
-func (s *Server) RegisterKbTools(kh *handler.KbHandler) {
-	s.kbTools = kh
-	// The KB routing section is APPENDED (the KB joins the existing
+// (projectWikiTools is nil until this is called).
+func (s *Server) RegisterProjectWikiTools(kh *handler.ProjectWikiHandler) {
+	s.projectWikiTools = kh
+	// The ProjectWiki routing section is APPENDED (the ProjectWiki joins the existing
 	// memory/code instructions without rewriting them); setInstructions
 	// delivers the combined text over stdio (the mcp-go server captured
 	// its instructions at construction — a field write alone would not
 	// reach the initialize response).
-	s.setInstructions(s.instructions + kbInstructions)
-	for name, fn := range s.kbToolDispatch() {
+	s.setInstructions(s.instructions + projectWikiInstructions)
+	for name, fn := range s.projectWikiToolDispatch() {
 		s.calls[name] = fn
 	}
-	for _, tool := range s.kbToolSet() {
+	for _, tool := range s.projectWikiToolSet() {
 		s.mcp.AddTool(tool.def, s.mcpToolHandler(tool.name))
 		s.toolDefs[tool.name] = tool.def
 	}
 }
 
-// KbWritesSerialized reports whether the KB write queue serialized at least
-// one write (the test hook: a KB write that ran on the memory queue — or
+// ProjectWikiWritesSerialized reports whether the ProjectWiki write queue serialized at least
+// one write (the test hook: a ProjectWiki write that ran on the memory queue — or
 // bypassed a queue — would leave this false).
-func (s *Server) KbWritesSerialized() bool {
-	return s.kbQueue.WritesSerialized()
+func (s *Server) ProjectWikiWritesSerialized() bool {
+	return s.projectWikiQueue.WritesSerialized()
 }
 
 // codeToolDispatch returns the code_* tool name → dispatch fn map (the
@@ -426,11 +426,11 @@ func (s *Server) CallTool(ctx context.Context, name string, args map[string]any)
 		return b
 	}
 	isWrite := s.isWriteTool(name)
-	// 008-transport §4: the KB writes run on their own queue (the memory
+	// 008-transport §4: the ProjectWiki writes run on their own queue (the memory
 	// queue is untouched — neither blocks the other).
 	q := s.queue
-	if s.isKbWriteTool(name) {
-		q = s.kbQueue
+	if s.isProjectWikiWriteTool(name) {
+		q = s.projectWikiQueue
 	}
 	var result any
 	var err error
@@ -508,7 +508,7 @@ func (s *Server) SetDeadlockForTest() {
 func (s *Server) Close() {
 	s.h.Service().St().SetTxnHook(func() {})
 	s.queue.Close()
-	s.kbQueue.Close()
+	s.projectWikiQueue.Close()
 	if s.codeTools != nil {
 		s.codeTools.StopWatchForTest()
 	}
@@ -535,17 +535,17 @@ func (s *Server) isWriteTool(name string) bool {
 		return true
 	case "code_index", "code_rename", "code_watch":
 		return true
-	case "kb_generate", "kb_cite_source":
+	case "projectwiki_generate", "projectwiki_cite_source":
 		return true
 	}
 	return false
 }
 
-// isKbWriteTool reports whether a tool is a KB write (008-transport §4:
-// routed to the KB write queue, distinct from the memory write queue).
-func (s *Server) isKbWriteTool(name string) bool {
+// isProjectWikiWriteTool reports whether a tool is a ProjectWiki write (008-transport §4:
+// routed to the ProjectWiki write queue, distinct from the memory write queue).
+func (s *Server) isProjectWikiWriteTool(name string) bool {
 	switch name {
-	case "kb_generate", "kb_cite_source":
+	case "projectwiki_generate", "projectwiki_cite_source":
 		return true
 	}
 	return false

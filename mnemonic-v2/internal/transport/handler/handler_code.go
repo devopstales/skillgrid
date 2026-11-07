@@ -607,7 +607,7 @@ func (h *CodeHandler) confinePath(path string) error {
 	return nil
 }
 
-// Resolve runs the code_resolve (spec 004 §3 — the KB pin-check contract:
+// Resolve runs the code_resolve (spec 004 §3 — the project wiki pin-check contract:
 // resolve a symbol: anchor → {exists, file, line, called_from[], ambiguous,
 // candidates[]}).
 func (h *CodeHandler) Resolve(ctx context.Context, name string, calledFrom *string) (graph.ResolveResult, error) {
@@ -615,7 +615,7 @@ func (h *CodeHandler) Resolve(ctx context.Context, name string, calledFrom *stri
 }
 
 // Packages runs the code_packages (spec 004 §4 — the top-level Go package
-// map: the KB coverage-gap contract).
+// map: the project wiki coverage-gap contract).
 func (h *CodeHandler) Packages(ctx context.Context) ([]graph.PackageInfo, error) {
 	return graph.Packages(ctx, h.st)
 }

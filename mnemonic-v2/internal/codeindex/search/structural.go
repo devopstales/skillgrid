@@ -288,7 +288,7 @@ func walkGrepFiles(dir string, files *[]string, limit int) error {
 
 // indexSkipDir is the structural walk's exclude set — the SAME set the
 // codeindex.Index driver uses (spec 001 §6 / T1: .git / node_modules / vendor
-// / build output / the KB vault — the KB has its own kb_index and is not
+// / build output / the ProjectWiki vault — the ProjectWiki has its own projectwiki_index and is not
 // code). Mirrored locally (not imported) so the search package stays free of a
 // codeindex import cycle (codeindex → extract, and search is reached through
 // the walker). The F2 fix: the pre-fix walk used a SUPERSET (isGrepSkipDir

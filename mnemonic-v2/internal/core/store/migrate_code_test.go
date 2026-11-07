@@ -9,8 +9,8 @@ import (
 
 // allAppliedMigrations is the ordered, full set of applied SQLite migration
 // files (the memory change's 001-004 + this change's 100). The parity loop
-// iterates over it (data, not code — the KB change extends the loop over its
-// kb_* tables by adding to the tableSet map, not by rewriting the loop).
+// iterates over it (data, not code — the ProjectWiki change extends the loop over its
+// projectwiki_* tables by adding to the tableSet map, not by rewriting the loop).
 func allAppliedMigrations() []string {
 	return []string{
 		"001_schema.sql",
@@ -22,14 +22,14 @@ func allAppliedMigrations() []string {
 }
 
 // codeIndexTableSet is the table-set → creating-migration data map (B2 — the
-// loop is data, not code). The KB change extends this map with its kb_*
-// tables (D-KB) — the same regression catches the v1 bug class for the KB.
+// loop is data, not code). The ProjectWiki change extends this map with its projectwiki_*
+// tables (D-KB) — the same regression catches the v1 bug class for the ProjectWiki.
 // Memory tables are included at 001_schema so the loop is genuinely the
-// KB-extendable shape (a code_* read against the memory tables must also
+// ProjectWiki-extendable shape (a code_* read against the memory tables must also
 // survive a version mismatch without no-such-column).
 func codeIndexTableSet() map[string]string {
 	return map[string]string{
-		// memory (the loop's extendable shape — the KB adds its tables here)
+		// memory (the loop's extendable shape — the ProjectWiki adds its tables here)
 		"observations": "001_schema.sql",
 		// code-index content tables (all created by 100_code_index)
 		"files":            "100_code_index.sql",
@@ -88,8 +88,8 @@ func rawSelect(table, cols string) func(Store) error {
 // ERROR-CLASS assertion, not a success assertion): at versions >= a table's
 // creating migration the read SUCCEEDS; at earlier versions it returns a
 // classified version/table error (never no-such-column — the v1 bug). The
-// loop iterates the TABLE SET (data) over EVERY applied version so the KB
-// change extends it over its kb_* tables. The drift fixture (part b) proves
+// loop iterates the TABLE SET (data) over EVERY applied version so the ProjectWiki
+// change extends it over its projectwiki_* tables. The drift fixture (part b) proves
 // a store whose symbols table has `qualified` (not qualified_name — the
 // exact v1 on-disk drift) still runs every read selecting only its own
 // migration's columns, never no-such-column.

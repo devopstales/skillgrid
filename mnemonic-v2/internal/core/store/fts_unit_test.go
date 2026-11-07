@@ -8,37 +8,37 @@ import (
 )
 
 // [fts-unit-reusable] (M11): the reusable FTS unit is PARAMETERIZED (table
-// name, content columns, tokenizer) and EXECUTABLE — the KB's kb_pages_fts
+// name, content columns, tokenizer) and EXECUTABLE — the ProjectWiki's projectwiki_pages_fts
 // re-uses it verbatim. The contract: the DDL applies to a real temp store,
 // and a table created via the unit STAYS IN SYNC (insert → MATCH finds;
 // update → new term matches + old stops; delete → empty), not a string
-// shape. The KB's kb_pages_fts is the canonical consumer shape.
+// shape. The ProjectWiki's projectwiki_pages_fts is the canonical consumer shape.
 func TestFtsUnitReusable(t *testing.T) {
 	ctx := context.Background()
-	// the KB shape: 4 content columns, a different table, the same unit
-	ddls := FTSDDL("kb_pages_fts", "kb_pages", "id",
+	// the ProjectWiki shape: 4 content columns, a different table, the same unit
+	ddls := FTSDDL("projectwiki_pages_fts", "projectwiki_pages", "id",
 		[]string{"title", "body", "type", "rel_path"}, "trigram")
 	if len(ddls) != 5 {
 		t.Fatalf("expected 1 FTS DDL + 4 triggers, got %d", len(ddls))
 	}
 	for _, s := range ddls {
-		if !strings.Contains(s, "kb_pages_fts") {
+		if !strings.Contains(s, "projectwiki_pages_fts") {
 			t.Fatalf("DDL must name the table: %s", s)
 		}
 	}
 	// the virtual-table statement is the FTS5 shape
-	if !strings.Contains(ddls[0], "fts5(") || !strings.Contains(ddls[0], "content='kb_pages'") {
+	if !strings.Contains(ddls[0], "fts5(") || !strings.Contains(ddls[0], "content='projectwiki_pages'") {
 		t.Fatalf("virtual-table DDL must be external-content FTS5: %s", ddls[0])
 	}
-	// executable against a real store (the KB's content table fixture).
-	// Migration 200 already creates kb_pages + kb_pages_fts on a migrated
+	// executable against a real store (the ProjectWiki's content table fixture).
+	// Migration 200 already creates projectwiki_pages + projectwiki_pages_fts on a migrated
 	// store — drop them first so the self-contained fixture re-creates the
-	// canonical KB shape regardless of schema state.
+	// canonical ProjectWiki shape regardless of schema state.
 	st := openTestStore(t)
 	if err := st.ExecDDL(ctx, []string{
-		"DROP TABLE IF EXISTS kb_pages_fts",
-		"DROP TABLE IF EXISTS kb_pages",
-		"CREATE TABLE kb_pages (id INTEGER PRIMARY KEY, title TEXT, body TEXT, type TEXT, rel_path TEXT)",
+		"DROP TABLE IF EXISTS projectwiki_pages_fts",
+		"DROP TABLE IF EXISTS projectwiki_pages",
+		"CREATE TABLE projectwiki_pages (id INTEGER PRIMARY KEY, title TEXT, body TEXT, type TEXT, rel_path TEXT)",
 	}); err != nil {
 		t.Fatalf("create content table: %v", err)
 	}
@@ -49,30 +49,30 @@ func TestFtsUnitReusable(t *testing.T) {
 	}
 	// stays in sync: insert → MATCH finds it
 	if err := st.ExecDDL(ctx, []string{
-		"INSERT INTO kb_pages (id, title, body, type, rel_path) VALUES (1, 'alpha trigram', 'x', 'doc', 'a.md')",
+		"INSERT INTO projectwiki_pages (id, title, body, type, rel_path) VALUES (1, 'alpha trigram', 'x', 'doc', 'a.md')",
 	}); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
-	if n := ftsMatchCount(t, st, "kb_pages_fts", "trigram"); n != 1 {
+	if n := ftsMatchCount(t, st, "projectwiki_pages_fts", "trigram"); n != 1 {
 		t.Fatalf("insert must sync the FTS: got %d", n)
 	}
 	// update → the new term matches, the old stops
 	if err := st.ExecDDL(ctx, []string{
-		"UPDATE kb_pages SET title='alpha bigger' WHERE id=1",
+		"UPDATE projectwiki_pages SET title='alpha bigger' WHERE id=1",
 	}); err != nil {
 		t.Fatalf("update: %v", err)
 	}
-	if n := ftsMatchCount(t, st, "kb_pages_fts", "bigger"); n != 1 {
+	if n := ftsMatchCount(t, st, "projectwiki_pages_fts", "bigger"); n != 1 {
 		t.Fatalf("update must sync the new term: got %d", n)
 	}
-	if n := ftsMatchCount(t, st, "kb_pages_fts", "trigram"); n != 0 {
+	if n := ftsMatchCount(t, st, "projectwiki_pages_fts", "trigram"); n != 0 {
 		t.Fatalf("update must desync the old term: got %d", n)
 	}
 	// delete → empty
-	if err := st.ExecDDL(ctx, []string{"DELETE FROM kb_pages WHERE id=1"}); err != nil {
+	if err := st.ExecDDL(ctx, []string{"DELETE FROM projectwiki_pages WHERE id=1"}); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if n := ftsMatchCount(t, st, "kb_pages_fts", "bigger"); n != 0 {
+	if n := ftsMatchCount(t, st, "projectwiki_pages_fts", "bigger"); n != 0 {
 		t.Fatalf("delete must sync the FTS: got %d", n)
 	}
 

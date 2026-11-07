@@ -14,13 +14,13 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/config"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/project"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/store"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic-v2/internal/projectwiki"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/transport/handler"
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/transport/mcp"
 )
@@ -61,14 +61,14 @@ func runMCP(fl config.Flags, args []string) int {
 	}
 	ch.SetRoot(root)
 	srv.RegisterCodeTools(ch)
-	// The kb_* surface (008-transport §3 — the registration seam):
-	// register the KB tools on the memory server (the profile selects the
+	// The projectwiki_* surface (008-transport §3 — the registration seam):
+	// register the ProjectWiki tools on the memory server (the profile selects the
 	// set). The vault root is the sentinel dir under cwd (001-structure);
 	// the repo root is the git toplevel of cwd (006 §2 — the anchor paths
 	// are working-tree-relative, so the pin-check runs against it).
-	kh := handler.NewKbHandler(st, h.Config(), &gitDetector{det: project.Detector{EnvVar: h.Config().Project.EnvVar}})
-	kh.SetRoots(filepath.Join(cwd, ".skillgrid", "knowledge"), root)
-	srv.RegisterKbTools(kh)
+	kh := handler.NewProjectWikiHandler(st, h.Config(), &gitDetector{det: project.Detector{EnvVar: h.Config().Project.EnvVar}})
+	kh.SetRoots(projectwiki.Root(cwd), root)
+	srv.RegisterProjectWikiTools(kh)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	// The autosync manager (TICKET-17): when sync.auto=true, it debounces

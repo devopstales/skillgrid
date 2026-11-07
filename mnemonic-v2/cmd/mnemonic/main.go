@@ -204,8 +204,8 @@ func run(args []string) int {
 		return runDoctor(fl, cwd, args)
 	case "index":
 		return runIndex(fl, cwd, args)
-	case "kb":
-		return runKb(fl, cwd, args)
+	case "projectwiki":
+		return runProjectWiki(fl, cwd, args)
 	case "setup":
 		fmt.Fprintln(outW(), "mnemonic setup delegates to the agent-plugin change (not yet in this build).")
 		return exitOK
@@ -302,6 +302,7 @@ Commands:
   mcp           Run the MCP stdio server (starts autosync when sync.auto=true)
   serve         (deprecated in v2 — the HTTP dashboard is dropped; see mcp)
   mem           Memory tools (save|search|get|lookup|context|review|timeline|pin|unpin|delete|session|stats|doctor)
+  projectwiki   Project wiki tools (query|read|search|generate|validate|lint|status|cite-source|index|reindex|bootstrap|rebuild-meta|eval)
   sync          Sync (status|push|pull|export|import|enroll)
   trail         Inspect retrieval trails (recent|show)
   doctor        Whole-system health (--strict for CI)
