@@ -100,24 +100,24 @@ dies with the session).
    - **Target:** one glossary row defining `Development Workflow` (the ordered step-by-step execution guide for Delivery changes; the executable complement to the SDD pipeline concept page), with Use-When and Avoid columns per the table format.
    - **Acceptance:** `grep -q 'Development Workflow' .skillgrid/projectwiki/glossary/01-business-terms.md` exits 0.
    - **Acceptance scenario:** `happy path glossary-term-present` → `acceptance.feature`
-5. **KB indexed and valid:** the vault projections are rebuilt and drift-free.
-   - **Current:** the KB index predates the new page.
-   - **Target:** after the page + cross-link + glossary edits, `mnemonic kb index` runs in the same edit (same-edit rule); `mnemonic kb validate --strict` exits 0; `mnemonic kb lint` reports clean (no new findings).
-   - **Acceptance:** all three commands exit 0 from the repo root.
+5. **KB indexed and valid (no new drift):** the vault projections are rebuilt and the new page adds no drift.
+   - **Current:** the projectwiki index predates the new page; `projectwiki validate --strict` (non-JSON) already exits 1 on 2 pre-existing unresolved (unattested) grounded pages — `workflows/sdd-pipeline.md` and `decisions/04-adr-0050-harness2-host-integration.md` (verified 2026-11-07; not from this change).
+   - **Target:** after the page + cross-link + glossary edits, a freshly-built `mnemonic` binary (from `mnemonic-v2/` source — the installed 0.2.0 predates the kb→projectwiki rename, commit 5686caba) runs `projectwiki index` in the same edit (same-edit rule); the new page carries resolvable frontmatter `anchors` so it is **attested → fresh**; `projectwiki validate --strict` reports the new page **fresh** and the 2 pre-existing drifts only (no new drift from this change); `projectwiki lint` reports clean (no new findings).
+   - **Acceptance:** `projectwiki index` exits 0 (new page indexed) + `projectwiki lint` exits 0 clean + `projectwiki validate --strict` reports the new page fresh with the 2 pre-existing drifts only (no new drift). Note: `validate --strict` (non-JSON) exits 1 on the 2 pre-existing drifts regardless — the gate's pass criterion is **"no new drift from this change"**, not "exit 0" (user decision 2026-11-07, no-new-drift gate).
    - **Acceptance scenario:** `happy path kb-indexed-and-valid` → `acceptance.feature`
 6. **Edge coverage — drift is detectable:** the strict validator still catches a broken anchor in the new page.
-   - **Current:** `mnemonic kb validate --strict` passes on the current vault.
-   - **Target:** a temporarily broken code pin/anchor in `development-workflow.md` makes `mnemonic kb validate --strict` exit 1, and re-indexing/repairing it returns exit 0 (validator is not weakened by the new page).
-   - **Acceptance:** throwaway mutation test: break one anchor → `mnemonic kb validate --strict` exits 1 → restore → exit 0. (Executed as a QA throwaway, not a permanent test.)
+   - **Current:** `projectwiki validate --strict` exits 1 on the 2 pre-existing unresolved pages (baseline drift = 2).
+   - **Target:** a temporarily broken anchor in `development-workflow.md` makes **that page** drift in `projectwiki validate --strict` (drift count rises from the 2-drift baseline to 3), and restoring the anchor returns the page to fresh (back to the 2-drift baseline) — the validator is not weakened by the new page.
+   - **Acceptance:** throwaway mutation test (freshly-built binary): baseline (new page fresh, 2 pre-existing drifts) → break one anchor in `development-workflow.md` → re-index → new page drifts (3 drifts) → restore the anchor → re-index → new page fresh (2 drifts). (Executed as a QA throwaway, not a permanent test.)
    - **Acceptance scenario:** `failure kb-validate-detects-anchor-drift` → `acceptance.feature`
 
 ## Implementation Decisions
 
 - **Modules to build/modify:** new vault page `workflows/development-workflow.md`; a one-line cross-reference edit to `workflows/sdd-pipeline.md`; a one-row edit to `glossary/01-business-terms.md`; KB index rebuild. No Go/JS code changes.
 - **Interfaces:** page section contract — `# Development Workflow` title; `## Context`; `## Step 0` … `## Step 10` (each with Skill / Subagents / MCP / CLI / Files / Gates sub-structure per the plan); `## Cross-cutting tool usage`; `## Subagent summary`; `## Assumptions & contingencies`.
-- **Data flow:** approved plan (in-session content) → vault page; `mnemonic kb index` re-derives `index/` projections (engine-owned); `validate --strict` + `lint` gate the move.
-- **Error handling:** `kb validate --strict` non-zero (drift) → fix the page anchor/pin and re-index in the same edit; `kb lint` findings → fix or record in `.skillgrid/WINDOWS.md`; `hermes kanban` discovery failure at ticketing → hard STOP (never publish to a fallback board silently).
-- **Dependencies:** none new (Go: zero; Node: zero) — uses the installed `mnemonic kb` CLI and the existing vault engine.
+- **Data flow:** approved plan (in-session content) → vault page; `projectwiki index` (freshly-built binary) re-derives `index/` projections (engine-owned); `validate --strict` + `lint` gate the move.
+- **Error handling:** `projectwiki validate --strict` reports the new page drifted (broken anchor) → fix the page anchor/pin and re-index in the same edit; `projectwiki lint` findings → fix or record in `.skillgrid/WINDOWS.md`; `hermes kanban` discovery failure at ticketing → hard STOP (never publish to a fallback board silently).
+- **Dependencies:** none new (Go: zero; Node: zero) — the gate uses a freshly-built `mnemonic` binary from `mnemonic-v2/` source (the installed 0.2.0 is stale, see Assumptions) and the existing projectwiki vault engine.
 
 ## Testing Decisions
 
@@ -158,9 +158,16 @@ dies with the session).
   map with one of 17 changes would register 16 presence drifts.
 - **Assumption:** the hermes kanban board `skillgrid` is reachable at
   Step 4.2; discovery failure is a hard STOP (per the plan).
-- **Assumption:** the `mnemonic kb` CLI is installed and functional
-  (pre-ship gate depends on it; the plan's MCP-build-drift contingency
-  applies — CLI is the fallback and shares the engine with MCP).
+- **Assumption (verified 2026-11-07):** the installed `mnemonic` 0.2.0 binary is
+  **stale** — it predates the kb→projectwiki rename (commit 5686caba), exposes
+  `kb` (expects `.skillgrid/knowledge/`, resolves to old project `aiskillgrid`),
+  and has no `projectwiki` command. The pre-ship gate therefore runs on a
+  freshly-built binary from `mnemonic-v2/` source
+  (`go build -o <tmp> ./cmd/mnemonic` → `projectwiki index/validate/lint`,
+  resolves to project `skillgrid-v2`, store `skillgrid-v2.sqlite`). The 2
+  pre-existing unresolved drifts (`workflows/sdd-pipeline.md`,
+  `decisions/04-adr-0050-harness2-host-integration.md`) are a baseline, not from
+  this change (see R5/R6).
 - **Question:** none blocking.
 
 ## Decisions (ADR)
