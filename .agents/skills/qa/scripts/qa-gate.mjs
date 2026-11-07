@@ -163,7 +163,7 @@ function main() {
   const baseRef = tasksPath ? (process.env.QA_BASE_REF || readBaseRef(tasksPath)) : null;
 
   if (existsSync(shipScript) && baseRef) {
-    result.checks.ship_drift = runScript(root, shipScript, ["check", baseRef, "--anticipated", "mnemonic-v2/", "--exclude", ".backlog/*", "--exclude", ".skillgrid/*", "--exclude", ".agents/*", "--exclude", "go.work*", "--exclude", ".gitignore", "--exclude", "mnemonic/*", "--exclude", "mnemonic_back/*", "--exclude", "skillgrid-ui/*"]);
+    result.checks.ship_drift = runScript(root, shipScript, ["check", baseRef, "--anticipated", "mnemonic-v2/", "--exclude", ".backlog/*", "--exclude", ".skillgrid/*", "--exclude", ".agents/*", "--exclude", "go.work*", "--exclude", ".gitignore"]);
     if (result.checks.ship_drift.scope) {
       result.scopes.ship_drift = result.checks.ship_drift.scope;
     }

@@ -100,8 +100,6 @@ The engine is its own Go module (`mnemonic-v2/`, module `github.com/devopstales/
 ├── skillgrid-cli/      Go MODULE — the `skillgrid` binary: installer
 │                       command + per-agent setup (internal/setup,
 │                       internal/ui, internal/harnessconfig). cmd/skillgrid.
-├── skillgrid-ui/       Vite + React 19 SPA (repo WIP — v2 dropped the
-│                       embedded dashboard; no binary embeds dist/ yet)
 ├── plugins/            Per-agent plugin assets: opencode/ (5 native TS plugins),
 │                       kilo/, cursor/mcp.json
 ├── .agents/skills/     THE SKILL GRID — 7 category dirs + _shared/ reference library
@@ -173,7 +171,7 @@ build:
     - cd skillgrid-cli && go build -ldflags "-s -w -X main.version=..." -o dist/skillgrid ./cmd/skillgrid
 ```
 
-The v1 engine embedded the SPA behind a `-tags ui` build flag (it compiled `skillgrid-ui/dist` in via `//go:embed`). v2 dropped the embedded dashboard — no binary embeds `skillgrid-ui/dist`; `skillgrid-ui/` stays in the repo as WIP (ADR-0059).
+The v1 engine embedded the SPA behind a `-tags ui` build flag (it compiled `skillgrid-ui/dist` in via `//go:embed`). v2 dropped the embedded dashboard — and the `skillgrid-ui/` source tree has been removed from the repo (ADR-0059 follow-up).
 
 ### 3.2 Layering
 
@@ -536,7 +534,7 @@ s.mux.HandleFunc("POST /facts/search", s.requireWriteAuth(s.handleFactSearch))
 
 ## 11. Frontend Architecture (Embedded SPA)
 
-> **Removed with v1 (ADR-0059).** No v2 binary embeds the SPA; `skillgrid-ui/` remains in the repo as WIP. Kept as a design record.
+> **Removed with v1 (ADR-0059).** No v2 binary embeds the SPA, and the `skillgrid-ui/` source tree has been removed from the repo. Kept as a design record.
 
 `skillgrid-ui/` — **Vite 6 + React 19 + TypeScript + Tailwind 4 + TanStack Router + d3 + mermaid**.
 
