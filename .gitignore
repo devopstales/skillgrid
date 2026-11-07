@@ -61,4 +61,3 @@ site/public/
 .playwright-cli/
 .skillgrid/**/okf-metrics.jsonl
 .pi/
-mnemonic_back/mnemonic

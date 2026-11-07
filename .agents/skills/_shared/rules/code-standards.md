@@ -90,7 +90,7 @@ see the `skillgrid:improve-codebase-architecture` skill.
 
 - **Feature-first, not layer-first.** Organize by the *thing* (a feature, a
   domain concept), not by technical layer. `features/decisions/`,
-  `internal/mnemonic/memory/` — not `utils/`, `models/`, `controllers/` dumping
+  `internal/memory/` — not `utils/`, `models/`, `controllers/` dumping
   grounds.
 - **No catch-all packages.** `util` / `common` / `helpers` / `misc` are where
   cohesion goes to die. Name packages for what they *are*, not what they're

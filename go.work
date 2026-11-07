@@ -1,7 +1,6 @@
 go 1.26.0
 
 use (
-	./mnemonic
 	./mnemonic-v2
 	./skillgrid-cli
 )

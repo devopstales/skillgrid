@@ -1,9 +1,0 @@
-{
-  "meta": { "format": 3, "version": "7.6.0" },
-  "files": {
-    "a.py": {
-      "executed_lines": [1, 2, 3, 4],
-      "excluded_lines": []
-    }
-  }
-}

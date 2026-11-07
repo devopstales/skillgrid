@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devopstales/skillgrid/mnemonic"
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/setup"
 )
 
 func TestAvailableAgents(t *testing.T) {
@@ -253,9 +253,9 @@ func TestHermesPrerequisiteMissingNonFatal(t *testing.T) {
 	t.Cleanup(func() { prerequisiteLookPath = oldLookPath })
 
 	// Kanban CLI stubbed so the suite stays hermetic.
-	oldKanban := mnemonic.KanbanExec
-	t.Cleanup(func() { mnemonic.KanbanExec = oldKanban })
-	mnemonic.KanbanExec = func(hermesHome string, args ...string) (string, error) { return "", nil }
+	oldKanban := setup.KanbanExec
+	t.Cleanup(func() { setup.KanbanExec = oldKanban })
+	setup.KanbanExec = func(hermesHome string, args ...string) (string, error) { return "", nil }
 
 	home := t.TempDir()
 	repo := t.TempDir()
@@ -323,9 +323,9 @@ func TestHermesSelectionFlow(t *testing.T) {
 	// SOUL.md, and the ticketing block — and nothing is npm-installed.
 	// kanbanExec is stubbed so the suite stays hermetic even on machines
 	// with a real hermes binary on PATH.
-	oldKanban := mnemonic.KanbanExec
-	t.Cleanup(func() { mnemonic.KanbanExec = oldKanban })
-	mnemonic.KanbanExec = func(hermesHome string, args ...string) (string, error) { return "", nil }
+	oldKanban := setup.KanbanExec
+	t.Cleanup(func() { setup.KanbanExec = oldKanban })
+	setup.KanbanExec = func(hermesHome string, args ...string) (string, error) { return "", nil }
 	home := t.TempDir()
 	repo := t.TempDir()
 

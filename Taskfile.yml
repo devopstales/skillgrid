@@ -4,7 +4,6 @@
 #   task all          cross-build linux (amd64+386) and darwin (amd64+arm64)
 #   task test         go vet && go test in both modules
 #   task skill-check  skill-hygiene guard (anatomy invariants + line budgets + hot paths)
-#   task seed-test     run the Mnemonic all-stores seed integration tests
 #   task site:build    build the Hugo docs site into site/public
 #   task site:serve    run the Hugo dev server for the docs site
 #   task gh-pages      build the site + publish it to the gh-pages branch
@@ -21,9 +20,8 @@ version: "3"
 
 vars:
   CLI_DIR: skillgrid-cli
-  # ADR-0040: the Taskfile must build both mnemonic modules. v1 is archived
-  # (mnemonic_back/), v2 is the active binary producer (mnemonic-v2/).
-  MEM1_DIR: mnemonic_back
+  # ADR-0040: mnemonic-v2 is the active binary producer (mnemonic-v2/);
+  # the v1 engine module has been removed.
   MEM2_DIR: mnemonic-v2
   CLI_BIN: skillgrid
   MEM_BIN: mnemonic
@@ -76,19 +74,12 @@ tasks:
       - cd {{.CLI_DIR}} && GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}}-darwin-arm64 {{.CLI_PKG}}
 
   test:
-    desc: Run go vet and go test ./... in both modules.
+    desc: Run go vet and go test ./... in the engine and CLI modules.
     cmds:
       - cd {{.MEM2_DIR}} && go vet ./...
       - cd {{.MEM2_DIR}} && go test ./...
-      - cd {{.MEM1_DIR}} && go vet ./...
-      - cd {{.MEM1_DIR}} && go test ./...
       - cd {{.CLI_DIR}} && go vet ./...
       - cd {{.CLI_DIR}} && go test ./...
-
-  seed-test:
-    desc: Run the Mnemonic all-stores seed integration tests (memory + code index + web cache).
-    cmds:
-      - cd {{.MEM1_DIR}} && go test -v -run TestSeed ./internal/integration/
 
   skill-check:
     desc: Skill-hygiene guard — anatomy invariants, line budgets, hot-path ceilings (scripts/check-skillgrid-skills.mjs).
@@ -129,7 +120,6 @@ tasks:
     desc: gofmt -w both modules.
     cmds:
       - cd {{.MEM2_DIR}} && gofmt -l -w .
-      - cd {{.MEM1_DIR}} && gofmt -l -w .
       - cd {{.CLI_DIR}} && gofmt -l -w .
 
   clean:

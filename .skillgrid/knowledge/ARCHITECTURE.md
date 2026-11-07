@@ -41,30 +41,30 @@ status: draft
 
 ## 1. Architecture Overview
 
-Skillgrid is a **single Go binary** that acts as an *agentic memory + code-intel + workflow* engine. One process serves three clients: the **agent harness** (Cursor / OpenCode / Kilo) over MCP-stdio and native TS plugins, the **operator** over a local HTTP API, and the **dashboard** (a React SPA compiled *into* the binary). It dogfoods its own `.skillgrid/` state zone and SDD pipeline — this repo is simultaneously the product and its first customer.
+Skillgrid is a pair of Go binaries: the **engine** (`mnemonic`) — an *agentic memory + code-intel* engine serving the **agent harness** (Cursor / OpenCode / Kilo) over MCP-stdio and native TS plugins, and the **operator** over the CLI — and the **installer** (`skillgrid`), which stages the shipped hub content into machine locations. (The v1 engine's third client — the operator's local HTTP API + embedded dashboard — was dropped in v2.) It dogfoods its own `.skillgrid/` state zone and SDD pipeline — this repo is simultaneously the product and its first customer.
 
-The engine is its own Go module (`mnemonic/`, module `github.com/devopstales/skillgrid/mnemonic`) — the Mnemonic engine, code index, MCP server, HTTP API, and embedded dashboard all live there. `skillgrid-cli/` is a thin shell module (installer + command facades) that depends on `mnemonic/` via a `replace` directive and builds the shipped `skillgrid` binary. (ADR-0033 formalizes the multi-module Go workspace; the `mnemonic` standalone split was the 2026-10-06-mnemonic-standalone change, a design decision rather than a numbered ADR.)
+The engine is its own Go module (`mnemonic-v2/`, module `github.com/devopstales/skillgrid/mnemonic-v2`) — the Mnemonic engine, code index, and MCP stdio server all live there; it builds the `mnemonic` binary (`cmd/mnemonic`). `skillgrid-cli/` is a separate thin module (module `github.com/devopstales/skillgrid/skillgrid-cli`) — the `skillgrid` installer binary; it carries the per-agent setup packages (`internal/setup`, `internal/ui`, `internal/harnessconfig`) and no longer depends on the engine. The v1 engine module (`mnemonic/`) was removed (ADR-0059) — with it went the v1-only HTTP dashboard and fact-memory surface (v2's `serve` is a no-op that says so). (ADR-0033 formalizes the multi-module Go workspace; ADR-0059 records the v1 removal.)
 
 ### High-Level System Diagram
 
 ```
                      ┌──────────────────────────────────────────────────────┐
- AGENT HARNESS      │                skillgrid  (single Go binary)         │
+ AGENT HARNESS      │              skillgrid  (two Go binaries)           │
  (Cursor / OpenCode │                                                      │
-  / Kilo)           │  cmd/mnemonic/main.go  (flag.FlagSet + switch)       │
-    │  5 native TS   │   ├─ install ────▶ ~/.skillgrid/ + agent config merge│
-    │  plugins /     │   ├─ setup ──────▶ 5 TS plugins → agent config      │
-    │  cursor hooks  │   ├─ init/index ▶▶ codeindex (tree-sitter → chunk → │
-    │  (session,tool, │   │             │   graph → embed → community)      │
-    │   policy,stop) │   ├─ mcp ──────── stdio MCP (mcp-go) ──────┐        │
-    │         ▲       │   ├─ serve ───── HTTP :7438 ──────────────┤        │
-    │         └───────│   │   ├─ REST (memory/facts/sessions/policy/…)    │
-    │  (capture POST, │   │   ├─ embedded SPA (skillgrid-ui dist) │        │
-    │   checkpoint,   │   │   └─ /openapi.yaml + /swagger         │        │
-    │   stop gate)    │   └───────────────────────┬──────────────┘        │
+  / Kilo)           │  mnemonic — engine (mnemonic-v2/cmd/mnemonic)        │
+    │  5 native TS   │   ├─ mcp ──────── stdio MCP (mcp-go) ──────┐        │
+    │  plugins /     │   ├─ mem/index/kb — CLI (one handler set)  │        │
+    │  cursor hooks  │   ├─ sync/trail/doctor — CLI               │        │
+    │  (session,tool, │   └─ serve ───── no-op (v2 dropped the     │        │
+    │   policy,stop) │         HTTP dashboard — ADR-0059)         │        │
+    │         ▲       │  skillgrid — installer (skillgrid-cli)     │        │
+    │         └───────│   └─ install/setup → agent config merge   │        │
+    │  (capture POST, │                                              │        │
+    │   checkpoint,   │  codeindex (tree-sitter → chunk → graph →   │        │
+    │   stop gate)    │  embed → community)                         │        │
                       │                           ▼                         │
-                      │            internal/service.Service                 │
-                      │          (facade: memory · codeindex · webcache)    │
+                      │       internal/transport/handler (one handler set) │
+                      │         (MCP + CLI over memory · codeindex · kb)   │
                       │                           ▼                         │
                       │   ~/.skillgrid/mnemonic/<projectID>.sqlite (WAL)    │
                       │   embedded migrations · FTS5 (porter/trigram) · vec0│
@@ -93,14 +93,15 @@ The engine is its own Go module (`mnemonic/`, module `github.com/devopstales/ski
 
 ```
 /
-├── mnemonic/           Go MODULE — the ENTIRE runtime engine (module
-│                       `github.com/devopstales/skillgrid/mnemonic`): Mnemonic
-│                       engine, code index, MCP server, HTTP API, embedded
-│                       dashboard, installer core (internal/setup). cmd/mnemonic.
-├── skillgrid-cli/      Thin Go MODULE — the `skillgrid` binary: installer
-│                       command + facades over `mnemonic/` (go.mod `replace`
-│                       ../mnemonic). cmd/skillgrid.
-├── skillgrid-ui/       Vite + React 19 SPA; dist/ is built INTO the binary (go:embed)
+├── mnemonic-v2/        Go MODULE — the runtime engine (module
+│                       `github.com/devopstales/skillgrid/mnemonic-v2`): Mnemonic
+│                       engine, code index, MCP stdio server, KB engine.
+│                       cmd/mnemonic (the `mnemonic` binary).
+├── skillgrid-cli/      Go MODULE — the `skillgrid` binary: installer
+│                       command + per-agent setup (internal/setup,
+│                       internal/ui, internal/harnessconfig). cmd/skillgrid.
+├── skillgrid-ui/       Vite + React 19 SPA (repo WIP — v2 dropped the
+│                       embedded dashboard; no binary embeds dist/ yet)
 ├── plugins/            Per-agent plugin assets: opencode/ (5 native TS plugins),
 │                       kilo/, cursor/mcp.json
 ├── .agents/skills/     THE SKILL GRID — 7 category dirs + _shared/ reference library
@@ -114,14 +115,14 @@ The engine is its own Go module (`mnemonic/`, module `github.com/devopstales/ski
 ├── agents/             Dispatch-role subagent defs per harness (opencode/, cursor/)
 ├── .skillgrid/         THIS repo's own state zone (it dogfoods itself)
 ├── .backlog/           Local markdown ticket tracker (backlogmd)
-└── Taskfile.yml        task driver: build / test / seed-test / skill-check / site / install
+└── Taskfile.yml        task driver: build / test / skill-check / site / install
 ```
 
 Two distinct "content" worlds, deliberately separated:
 
 | World | Owner | Lives | Example |
 |-------|-------|-------|---------|
-| **Runtime** (binary) | the engine Go module | `mnemonic/` (+ thin `skillgrid-cli/` shell) | `service.Service`, `codeindex`, `store` |
+| **Runtime** (binary) | the engine Go module | `mnemonic-v2/` (+ `skillgrid-cli/` installer module) | `handler.Handler`, `codeindex`, `core/store` |
 | **Hub Content** (shipped) | the installer | `plugins/ hooks/ git-hooks/ config.d/ rules/ .agents/skills/` | the 5 native TS plugins, `block.md`, `indexing.yaml` |
 
 The installer (`skillgrid install`) *stages* Hub Content into machine locations (`~/.skillgrid/plugins/`, `~/.skillgrid/hooks/`, `~/.skillgrid/git-hooks/`) and merges MCP entries into the agent config — it never edits the repo.
@@ -132,28 +133,32 @@ The installer (`skillgrid install`) *stages* Hub Content into machine locations 
 
 ### 3.1 Module & entry point
 
-The engine module `mnemonic/go.mod` (module `github.com/devopstales/skillgrid/mnemonic`) holds the runtime. `skillgrid-cli/go.mod` is a thin shell that pulls it in with a local `replace`:
+The engine module `mnemonic-v2/go.mod` (module `github.com/devopstales/skillgrid/mnemonic-v2`) holds the runtime. `skillgrid-cli/go.mod` (module `github.com/devopstales/skillgrid/skillgrid-cli`) is the self-contained installer module — no cross-module `replace` (the v1 dependency was removed with the v1 module, ADR-0059):
 
 ```go
-// mnemonic/go.mod  — the engine (module github.com/devopstales/skillgrid/mnemonic)
+// mnemonic-v2/go.mod  — the engine (module github.com/devopstales/skillgrid/mnemonic-v2)
 go 1.26.0
 
 require (
-    github.com/mark3labs/mcp-go       v0.58.0   // MCP server
-    modernc.org/sqlite                v1.59.0   // pure-Go SQLite (cgo-free)
-    github.com/odvcencio/gotreesitter  v0.52.0   // AST extraction
-    github.com/benedoc-inc/onnxer     v0.7.0    // in-process ONNX embeddings
-    github.com/bluuewhale/loom                         // Leiden community detection
-    github.com/charmbracelet/huh          v1.0.0    // TUI multiselect
+    github.com/mark3labs/mcp-go       v1.5.0    // MCP stdio server
+    modernc.org/sqlite                v1.61.1   // pure-Go SQLite (cgo-free)
+    github.com/odvcencio/gotreesitter  v0.55.1   // AST extraction
+    github.com/fsnotify/fsnotify      v1.10.1   // index watch
+    github.com/lib/pq                 v1.12.3   // PG render driver (ADR-0041)
+    gopkg.in/yaml.v3                  v3.0.1
     ...
 )
 
-// skillgrid-cli/go.mod  — the thin shell (module .../skillgrid-cli)
-require github.com/devopstales/skillgrid/mnemonic v0.0.0-...
-replace github.com/devopstales/skillgrid/mnemonic => ../mnemonic
+// skillgrid-cli/go.mod  — the installer (module .../skillgrid-cli)
+require (
+    github.com/charmbracelet/huh      v1.0.0    // TUI multiselect
+    github.com/tidwall/gjson          v1.20.0   // agent-config JSON edits
+    github.com/tidwall/sjson          v1.2.5
+    gopkg.in/yaml.v3                  v3.0.1
+)
 ```
 
-Two entry points, two binaries. The engine `mnemonic/cmd/mnemonic/main.go` is **not** cobra — a single `flag.FlagSet` for install flags plus a `switch rest0` on the first bare argument; it carries the MCP server, HTTP `serve`, code index, and (with `-tags ui`) the embedded dashboard. `skillgrid-cli/cmd/skillgrid/main.go` is the thin installer shell. Version is baked at build time:
+Two entry points, two binaries. The engine `mnemonic-v2/cmd/mnemonic/main.go` is **not** cobra — a single `flag.FlagSet` plus a `switch rest0` on the first bare argument: `mcp`, `mem`, `sync`, `trail`, `doctor`, `index`, `kb`, `setup`; `serve` is a no-op that prints that v2 dropped the HTTP dashboard. `skillgrid-cli/cmd/skillgrid/main.go` is the installer shell. Version is baked at build time:
 
 ```go
 // version is set at build time via -ldflags "-X main.version=vX.Y.Z".
@@ -168,30 +173,30 @@ build:
     - cd skillgrid-cli && go build -ldflags "-s -w -X main.version=..." -o dist/skillgrid ./cmd/skillgrid
 ```
 
-The `-tags ui` flag on the **engine** build is what activates the embedded SPA (it compiles `skillgrid-ui/dist` in via `//go:embed`); without it the `mnemonic` binary is smaller and serves no dashboard.
+The v1 engine embedded the SPA behind a `-tags ui` build flag (it compiled `skillgrid-ui/dist` in via `//go:embed`). v2 dropped the embedded dashboard — no binary embeds `skillgrid-ui/dist`; `skillgrid-ui/` stays in the repo as WIP (ADR-0059).
 
 ### 3.2 Layering
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │  TRANSPORT LAYER                                                 │
-│  mnemonic/cmd/mnemonic/*.go  (main.go dispatch, mcp.go, serve…)   │
+│  mnemonic-v2/cmd/mnemonic/*.go  (main.go dispatch, mcp.go, mem…)  │
 │   ├─ MCP stdio (mcp-go)     ── agent harness                     │
-│   ├─ HTTP :7438 (ServeMux)  ── operator + dashboard              │
-│   └─ TUI (huh)              ── interactive prompts               │
+│   ├─ CLI (flag-based)       ── operator                           │
+│   └─ TUI (huh)              ── interactive prompts (skillgrid-cli)│
 ├──────────────────────────────────────────────────────────────────┤
-│  SERVICE FACADE                                                  │
-│  mnemonic/internal/service.Service + ProjectHandle               │
-│   (opens a project ONCE, refcounted store pool; the single seam  │
-│    every transport funnels through)                              │
+│  HANDLER SEAM (K6 — byte-identical across surfaces)              │
+│  mnemonic-v2/internal/transport/handler  — the ONE handler set   │
+│   every surface (MCP, CLI, the later HTTP mirror) calls; over    │
+│   memory.Service + the project detector                          │
 ├──────────────────────────────────────────────────────────────────┤
 │  SUBSYSTEM LAYER                                                 │
-│  memory · facts · codeindex · graph · search · hybrid · embedder ·│
-│  webcache · skills · context_harness · checkpoint · policy · …    │
+│  memory · kb · codeindex (graph, search, vectorstore, watch) ·   │
+│  intelligence (llm, embedder, degrade) · migrate · …             │
 ├──────────────────────────────────────────────────────────────────┤
 │  DATA LAYER                                                      │
-│  mnemonic/internal/store  (SQLite WAL + embedded migrations +     │
-│   FTS5 + vec0)  ──▶  ~/.skillgrid/mnemonic/<projectID>.sqlite    │
+│  mnemonic-v2/internal/core/store  (SQLite WAL + embedded         │
+│   migrations + FTS5 + vec0)  ──▶  ~/.skillgrid/mnemonic/<id>.sqlite│
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -209,45 +214,37 @@ The `-tags ui` flag on the **engine** build is what activates the embedded SPA (
 
 ## 4. Command Surface
 
-Hand-rolled dispatch (no cobra). The full surface from `main.go` usage:
+Hand-rolled dispatch (no cobra). The v2 `mnemonic` binary surface from `main.go` (the v1 surface — `install`, the HTTP `serve`, fact memory, `prime`/`compact` session commands — was removed with the v1 module, ADR-0059; the installer lives in the `skillgrid` binary):
 
 | Group | Commands |
 |-------|----------|
-| Install | `install` / `in`, `sync-repo` |
-| Transports | `mcp` (stdio), `serve` (HTTP, default `:7438`) |
-| Project | `init` (boot file + index + doc ingest), `index` (+ `index status`), `setup` (opencode/kilocode/cursor) |
-| Code intel | `orient`, `grep`, `callers`, `callees`, `dependents`, `implementors`, `hierarchy`, `tests-for`, `path`, `explain`, `impact`, `explore`, `diff-impact` |
-| Search | `search` (hybrid FTS + signals + semantic) |
-| Memory | `mem`, `memory` (fact memory), `migrate`, `trail` |
-| Session | `prime`, `compact`, `sessions`, `session`, `logs`, `stats`, `policy`, `skill` |
-| Ops | `doctor` (`--strict` for CI), `eval` (retrieval ablation), `pages`, `embedding-status` |
+| Transports | `mcp` (stdio), `serve` (no-op — v2 drops the HTTP dashboard) |
+| Project | `index` (build + `status`), `setup` (opencode/kilocode/cursor) |
+| Code intel | `index orient`, `grep`, `read`, `path`, `explain`, `impact`, `affected`, `search`, `watch` |
+| Memory | `mem` (`save`/`search`/`get`/`lookup`/`context`/`review`/`timeline`/`pin`/`unpin`/`delete`/`session`/`stats`), `sync`, `trail` |
+| Knowledge | `kb` (`bootstrap`/`index`/`reindex`/`query`/`read`/`search`/`generate`/`validate`/`lint`/`status`/`cite-source`/`rebuild-meta`/`eval`) |
+| Ops | `doctor` (`--strict` for CI) |
 
 ---
 
 ## 5. Mnemonic Engine — Package Structure
 
-`mnemonic/internal/` — the engine module's package tree. The load-bearing ones:
+`mnemonic-v2/internal/` — the engine module's package tree. The load-bearing ones:
 
 | Package | Responsibility |
 |---------|----------------|
-| `store/` | SQLite wrapper + embedded migrations (`store/migrations/*.sql`). Refcounted pool, WAL retry, `vec0` registration. |
-| `service/` | **The facade** — `Service` + `ProjectHandle`; `DefaultDataDir()` = `~/.skillgrid/mnemonic`. |
-| `memory/` | Observations: save/retrieve, FTS+vector retrieval, decay, importance tiers, governance, distill/dream consolidation, provenance. |
-| `facts/` | **Fact Memory** — the durable, project-scoped fact store (`facts.Store`: `Add` / `SearchWith` / `Forget` / `Decay` / `DecayAll`) over the `facts` table (`011_facts_skills.sql`); surfaced by the five `POST /facts*` routes (ADR-0032) and the `mnemonic-memory.ts` plugin. |
-| `codeindex/` | Incremental indexer (`indexer.go` ~1975 lines), `watch.go` (fsnotify), `fingerprint.go` (staleness gate), `graph.go` (symbol/call graph), opt-in `pdg_*`/`lsp_*` edge tiers. |
-| `extract/` | tree-sitter symbol/edge extraction per language. |
-| `graph/` | Graph queries: `impact.go` (blast radius), `resolve.go`, `span.go`, `coverage.go`. |
-| `search/` | FTS query building (`fts.go`, `symbol_fts.go`), structural by-example grep. |
-| `hybrid/` | RRF fusion (`rank.go`, `const RRFK = 60`), vector cache, rerank, confidence, snippets. |
-| `embedder/` | Providers: `onnx.go` (default `nomic-embed-code`, 768-dim), `ollama.go`, `external.go`, `null.go`, `select.go`, `warm.go`. |
-| `mcp/` | MCP stdio server (`server.go`) + ~40 `tools_*.go` registering `mem_*`/`code_*`/`web_*`/`session_*`/`team_*` tools. |
-| `context_harness/` | The Context Harness (ADR-0025) — owns the session context lifecycle. Absorbs `session_inject` (retrieval, render, autoprepend, summary, privacy — signatures unchanged, import path only) and adds intercept-and-abstract capture into a session-scoped FTS `tool_outputs` sandbox, a deterministic `ctx_query` over the code index, a `ctx index`/`indexed_files` writer + `ctx_search` two-leg RRF fusion, a Context Routing block, and the `ctx` CLI. A `clm/` sub-package implements the Context Language Model (ADR-0027): mirror render, overflow guard, calibration, revision validate/persist. See §8.1. |
-| `session_inject/` | (absorbed into `context_harness`) — L1 auto-prepend/distill on resume, L2 hybrid retrieval + context-block render (`mem_inject_session`). Importers change import path only. See §8.1. |
-| `loop/` | Session loop pages: `prime`/`compact`/`pages` text generation for session start/end hooks. |
-| `http/` | REST API (`server.go` ~1912 lines) + `ui/` (embedded SPA) + `docs/` (OpenAPI/Swagger). |
-| `config/` | Layered YAML config loader (`load.go` ~921 lines). |
-| `checkpoint/` | Checkpoint gating (ADR-0022). |
-| `policy/` | Pre-tool policy, fail-open (ADR-0021). |
+| `core/store/` | SQLite wrapper + embedded migrations (`store/migrations/*.sql`), PG render driver (ADR-0041). WAL retry, `vec0` registration. |
+| `core/config/` | Layered config loader + flags; per-project data dir under `~/.skillgrid/mnemonic`. |
+| `transport/handler/` | **The K6 seam** — the ONE handler set the MCP server, the CLI, and the later HTTP mirror all call; wraps `memory.Service` + the project detector; envelope `(code, message)` error contract. |
+| `memory/` | Observations: save/retrieve (`pipeline.go`), dedup (+ LLM judge), consolidate, importance tiers, relations, replay, trails, autosync, scan/lookup. |
+| `kb/` | The knowledge-base engine (KB change 2026-10-31): bootstrap/index/reindex (whitelist scope + `.knowledgeignore`), query (FTS + semantic RRF), validate/lint, status, cite-source, eval (recall@K regression net). |
+| `codeindex/` | Incremental indexer, staleness gate (`fingerprint.go`), fsnotify `watch/`, symbol/call `graph/`, `search/` (FTS + by-example + semantic `vectorstore/`). |
+| `codeindex/extract/` | tree-sitter symbol/edge extraction per language. |
+| `intelligence/` | `llm/` (providers), `embedder/` (onnx/ollama/external/null + select), `degrade/` (fail-open floors). |
+| `migrate/` | Store migration runner (SQLite + PG). |
+| `transport/mcp/` | MCP stdio server (`server.go`) + `tools_*.go` registering `mem_*`/`code_*`/`web_*`/`team_*` tools. |
+
+Removed with the v1 module (ADR-0059): `facts/` (fact memory — v2's model is observations), `service/` (folded into `transport/handler` + `memory`), `http/` (REST + embedded SPA dashboard — v2's `serve` is a no-op), `hybrid/` (fusion lives in `codeindex/search`), `context_harness/` / `session_inject/` / `loop/`, `checkpoint/`, `policy/`, and the `internal/eval` ablation harness (v2's `kb/eval` is the recall@K regression net).
 
 ---
 
@@ -354,6 +351,8 @@ Key seams are all injectable with a deterministic fallback (the fail-open patter
 
 ### 8.0 Fact Memory (durable facts)
 
+> **Removed with v1 (ADR-0059).** The `facts` lane and the `POST /facts*` routes went away with the v1 engine — v2's memory model is observations only (`mem_*`). Kept as a design record.
+
 Fact Memory is a **separate** memory lane from observations: a flat, durable, project-scoped set of *facts* — short, checkable statements the agent asserts once and re-reads across sessions. Where observations carry a decay curve and importance tiers, facts are deliberately permanent until explicitly forgotten or decayed.
 
 | Seam | What it does | Entry point |
@@ -366,6 +365,8 @@ Fact Memory is a **separate** memory lane from observations: a flat, durable, pr
 > **Route-verb contract.** The five fact routes are POST. The `mnemonic/internal/http` package serves the embedded SPA as a fallback, so a *wrong* verb (a `GET` to a POST-only route) returns the SPA shell (200 `text/html`), not a 405 — and a client that does `.json().catch(() => ({}))` silently turns that into `{}`. `plugin_route_contract_test.go` pins each plugin's HTTP verb to its route to catch exactly that class of bug.
 
 ### 8.1 Context Harness (session context lifecycle)
+
+> **Removed with v1 (ADR-0059).** The `context_harness/` package, `ctx_*` MCP tools, and the `ctx` CLI shipped in the v1 engine only — v2's surface is `mem_*`/`code_*`/`web_*`/`team_*`. Kept as a design record.
 
 The Context Harness (ADR-0025) owns the full context lifecycle of a session. It absorbed `session_inject` (import path change only — public signatures and the `mem_inject_session` contract are unchanged) and adds capture, structured query, proactive index, routing, a `ctx` CLI, and the Context Language Model layer.
 
@@ -491,25 +492,22 @@ The two transports share **one facade** — no logic duplication between the age
 
 ### 10.1 MCP stdio (agent)
 
-`mnemonic/cmd/mnemonic/mcp.go` → `mnemonic/internal/mcp/server.go`:
+`mnemonic-v2/cmd/mnemonic/mcp.go` → `mnemonic-v2/internal/transport/mcp/server.go`:
 
 ```go
-const (
-    serverName    = "skillgrid-mnemonic"
-    serverVersion = "0.1.0"
-)
-func Start() error {
-    s := server.NewMCPServer(serverName, serverVersion, serverOptions()...)
-    registerMemoryTools(s)
-    registerCodeTools(s)
-    // … ~28 register* calls
-    return server.ServeStdio(s)
+func runMCP(fl config.Flags, args []string) int {
+    h, st, _ := openRuntime(cwd, fl, "")   // the ONE handler set + store
+    srv := mcp.NewServer(h, p)             // profile: agent (default) | all
+    ch := codeHandlerFor(h.Config(), st)   // the code_* registration seam (B3)
+    // … code tools register on the memory server over the git-toplevel root
 }
 ```
 
-Stdio transport, spawned by the harness ("trusted by construction"). Tool groups: memory, code, orient, grep, graph, explore, hybrid, community, route, process, knowledge, web, teams, retrieval, compaction, affected, pdg, taint, governance, session, second-brain, skills.
+Stdio transport, spawned by the harness ("trusted by construction"). Tool groups: memory (`mem_*`), code (`code_*` — orient/grep/read/path/explain/impact/affected/search over the codeindex), web (`web_*`), teams (`team_*`), knowledge (`kb_*`).
 
 ### 10.2 HTTP :7438 (operator + dashboard)
+
+> **Removed with v1 (ADR-0059).** v2's `serve` is a no-op; the HTTP mirror is planned (spec 004-transport-mcp §4 — the handler seam is already shaped for it). Kept as a design record.
 
 `mnemonic/internal/http/server.go` — Go 1.22+ `ServeMux` method+wildcard routing:
 
@@ -530,11 +528,15 @@ s.mux.HandleFunc("POST /facts/search", s.requireWriteAuth(s.handleFactSearch))
 
 ### 10.3 The `skillgrid init` preamble (rendered from config)
 
+> **v1 mechanism (ADR-0059).** The Go writer for the preamble/sentinel region was the v1 `mnemonic init` command; after the v1 removal no code in this repo re-writes it. The `<!-- skillgrid-preamble -->` / `## Skillgrid` contract in `AGENTS.md` stands as rendered.
+
 `init` writes the `AGENTS.md` `<!-- skillgrid-preamble -->` region from a template + the project's `agents:` config (see §14), then upserts the `## Skillgrid` sentinel block (canonical payload in `_shared/agent-config/block.md`). The preamble is *rich* (Environment & Tooling, Key Directories, Engineering Standards, Security, Dependency Policies, Architecture Constraints, Definition of Done); the sentinel is a *navigation spine* that references — never inlines — the canonical rule files.
 
 ---
 
 ## 11. Frontend Architecture (Embedded SPA)
+
+> **Removed with v1 (ADR-0059).** No v2 binary embeds the SPA; `skillgrid-ui/` remains in the repo as WIP. Kept as a design record.
 
 `skillgrid-ui/` — **Vite 6 + React 19 + TypeScript + Tailwind 4 + TanStack Router + d3 + mermaid**.
 
@@ -618,7 +620,7 @@ The shell-era `plugins/{opencode,kilo}/hooks.yaml` (one event → one `.sh` → 
 
 **Two distinct "skill" registries** — do not confuse them:
 - **SKILL.md skills** (the grid) — loaded by the harness via the plugin's `skills` glob / `~/.agents/` copy. No runtime registry.
-- **Executable-skill registry** (SQLite `skills` + `skills_fts`, `mnemonic/internal/skills/execute.go`) — script skills with a `code_path`, run sandboxed by `skillgrid skill`.
+- **Executable-skill registry** (SQLite `skills` + `skills_fts`, v1 `mnemonic/internal/skills/execute.go`) — script skills with a `code_path`, run sandboxed by `skillgrid skill`. **v1-only — removed with ADR-0059.**
 
 ---
 
@@ -675,7 +677,7 @@ Three config layers with different owners:
 
 ### 14.1 Mnemonic indexing config — 3-way merge
 
-`config.Load(startDir)` (`mnemonic/internal/config/load.go`) — precedence lowest→highest:
+`config.Load(path, flags)` (`mnemonic-v2/internal/core/config/config.go`) — precedence lowest→highest:
 
 ```
 built-in defaults  <  home-local (~/.skillgrid/config.d/indexing.yaml)  <  first repo-local .skillgrid/config.d/indexing.yaml walking up from startDir
@@ -809,7 +811,7 @@ seed-test:
     - cd mnemonic && go test -v -run TestSeed ./internal/integration/
 ```
 
-Scale: **~355 `*_test.go` files, ~1,206 `Test*` functions.** Standard `testing` package + table tests + `httptest`; integration under `mnemonic/internal/integration/` (`TestSeedMemory`, `TestSeedCodeIndex`, `TestSeedWebCache`, `TestSeedAllStoresVisibleOverHTTP`). No test-framework dependency in `go.mod`.
+Scale (current tree): **mnemonic-v2 — 80 `*_test.go` files; skillgrid-cli — 23.** Standard `testing` package + table tests. (The v1 module carried ~355 test files plus the all-stores seed integration tests under `internal/integration/` (`TestSeedMemory`, `TestSeedCodeIndex`, `TestSeedWebCache`, `TestSeedAllStoresVisibleOverHTTP`) — removed with v1, ADR-0059.) No test-framework dependency in `go.mod`.
 
 ### UI
 

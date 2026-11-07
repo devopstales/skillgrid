@@ -1,6 +1,0 @@
-{
-  "src/a.ts": {
-    "s": { "line": { "total": 4, "uncovered": 1 } },
-    "statementMap": {}
-  }
-}
