@@ -10,6 +10,8 @@ zone rule, and the terminal close. This page is the durable *what and why*;
 the per-phase mechanics live in the pipeline skills (`.agents/skills/`) and
 the machine layout in `_shared/rules/sdd-structure.md`.
 
+For the step-by-step execution guide (which skill, subagent, MCP tool, file, and user gate per phase, Steps 0–10), see `development-workflow.md`.
+
 ## The pipeline
 
 ```
