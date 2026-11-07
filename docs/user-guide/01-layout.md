@@ -75,7 +75,7 @@ Runtime state for a project lives under `.skillgrid/` in the target repo:
 | `.skillgrid/change-specs/YYYY-MM-DD-<topic>/` | Active change artifacts (spec zone, committed): `briefing.md`, `acceptance.feature`, `blueprint.md`, `tasks.md`, `findings.md`, `qa-report.md` |
 | `.skillgrid/meta/state.yaml` | Pipeline state: `current_phase`, `current_change`, `completed_changes` |
 | `.skillgrid/meta/.lock` | Advisory session lock (JSON: `change`, `session_id`, `acquired_at`) — surfaces concurrent-session conflicts |
-| `.skillgrid/knowledge/WINDOWS.md` | Cross-change defect register — advisory findings (WARNING/SUGGESTION) not fixed before archive |
+| `.skillgrid/projectwiki/WINDOWS.md` | Cross-change defect register — advisory findings (WARNING/SUGGESTION) not fixed before archive |
 
 Hooks and skills read these at runtime. The `[skillgrid-context]` block in a commit body is the **durable** record; `checkpoint.json` is regenerated from `git log -1`, so it cannot drift from history.
 

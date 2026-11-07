@@ -11,7 +11,7 @@ Surface architectural friction and propose **deepening opportunities**: refactor
 This command is _informed_ by the project's domain model and built on a shared design vocabulary:
 
 - Call the Skill tool with "codebase-design" for the architecture vocabulary (**module**, **interface**, **depth**, **seam**, **adapter**, **leverage**, **locality**) and its principles (the deletion test, "the interface is the test surface", "one adapter = hypothetical seam, two = real"). Use these terms exactly in every suggestion, and don't drift into "component," "service," "API," or "boundary."
-- The domain language in `.skillgrid/knowledge/glossary/` (`01-business-terms.md`, `02-technical-terms.md`) gives names to good seams; ADRs in `.skillgrid/knowledge/decisions/04-adr-NNNN-slug.md` (index: `.skillgrid/knowledge/ASSUMPTIONS.md` § `LOCKED`) record decisions this command should not re-litigate.
+- The domain language in `.skillgrid/projectwiki/glossary/` (`01-business-terms.md`, `02-technical-terms.md`) gives names to good seams; ADRs in `.skillgrid/projectwiki/decisions/04-adr-NNNN-slug.md` (index: `.skillgrid/projectwiki/ASSUMPTIONS.md` § `LOCKED`) record decisions this command should not re-litigate.
 
 ## Process
 
@@ -22,7 +22,7 @@ This command is _informed_ by the project's domain model and built on a shared d
 - If the user named a direction (a module, a subsystem, a pain point), take it, and skip the inference below.
 - Otherwise, walk back a good stretch of the commit history (`git log --oneline`) to find the codebase's hot spots, the files and areas that keep coming up, and let those paths pull your attention first. If the changes are scattered with no clear hot spot, widen the net.
 
-Read the project's domain glossary (`.skillgrid/knowledge/glossary/`) and any ADRs in the area you're touching first.
+Read the project's domain glossary (`.skillgrid/projectwiki/glossary/`) and any ADRs in the area you're touching first.
 
 Then spawn a sub-agent to walk the codebase. Don't follow rigid heuristics; explore organically and note where you experience friction:
 
@@ -53,7 +53,7 @@ End the report with a **Top recommendation** section: which candidate you'd tack
 
 **Use the glossary's vocabulary for the domain, and the `codebase-design` vocabulary for the architecture.** If the glossary defines "Order," talk about "the Order intake module," not "the FooBarHandler," and not "the Order service."
 
-**ADR conflicts**: if a candidate contradicts an existing ADR (in-force set: `.skillgrid/knowledge/ASSUMPTIONS.md` § `LOCKED`), only surface it when the friction is real enough to warrant revisiting the ADR. Mark it clearly in the card (e.g. a warning callout: _"contradicts ADR-0007, but worth reopening because…"_). Don't list every theoretical refactor an ADR forbids.
+**ADR conflicts**: if a candidate contradicts an existing ADR (in-force set: `.skillgrid/projectwiki/ASSUMPTIONS.md` § `LOCKED`), only surface it when the friction is real enough to warrant revisiting the ADR. Mark it clearly in the card (e.g. a warning callout: _"contradicts ADR-0007, but worth reopening because…"_). Don't list every theoretical refactor an ADR forbids.
 
 See [HTML-REPORT.md](HTML-REPORT.md) for the full HTML scaffold, diagram patterns, and styling guidance.
 
@@ -65,7 +65,7 @@ Once the user picks a candidate, call the Skill tool with "interviewing" to walk
 
 Side effects happen inline as decisions crystallize; call the Skill tool with "architectural-decision-records" to keep the domain model current as you go:
 
-- **Naming a deepened module after a concept not in the glossary?** Add the term to `.skillgrid/knowledge/glossary/` (business terms → `01-business-terms.md`, technical terms → `02-technical-terms.md`).
+- **Naming a deepened module after a concept not in the glossary?** Add the term to `.skillgrid/projectwiki/glossary/` (business terms → `01-business-terms.md`, technical terms → `02-technical-terms.md`).
 - **Sharpening a fuzzy term during the conversation?** Update the glossary right there.
-- **User rejects the candidate with a load-bearing reason?** Offer an ADR, framed as: _"Want me to record this as an ADR so future architecture reviews don't re-suggest it?"_ Only offer when the reason would actually be needed by a future explorer to avoid re-suggesting the same thing; skip ephemeral reasons ("not worth it right now") and self-evident ones. An ADR is a new file at `.skillgrid/knowledge/decisions/04-adr-NNNN-slug.md` plus a row in `.skillgrid/knowledge/ASSUMPTIONS.md` § `LOCKED` — never delete an in-force ADR file or its row (supersede instead, ADR-0019).
+- **User rejects the candidate with a load-bearing reason?** Offer an ADR, framed as: _"Want me to record this as an ADR so future architecture reviews don't re-suggest it?"_ Only offer when the reason would actually be needed by a future explorer to avoid re-suggesting the same thing; skip ephemeral reasons ("not worth it right now") and self-evident ones. An ADR is a new file at `.skillgrid/projectwiki/decisions/04-adr-NNNN-slug.md` plus a row in `.skillgrid/projectwiki/ASSUMPTIONS.md` § `LOCKED` — never delete an in-force ADR file or its row (supersede instead, ADR-0019).
 - **Want to explore alternative interfaces for the deepened module?** Call the Skill tool with "codebase-design" and use its design-it-twice parallel sub-agent pattern.

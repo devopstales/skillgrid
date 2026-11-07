@@ -14,7 +14,7 @@ import (
 	"github.com/devopstales/skillgrid/mnemonic-v2/internal/core/store"
 )
 
-// Page is one knowledge vault page (a markdown file under the vault root).
+// Page is one project wiki vault page (a markdown file under the vault root).
 type Page struct {
 	RelPath  string
 	Title    string

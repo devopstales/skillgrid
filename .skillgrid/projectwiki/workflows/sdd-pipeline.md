@@ -62,7 +62,7 @@ locked constraints in `invariants/`, terms in `glossary/`, PRD/research/
 roadmaps in `reference/`, and this workflow lives in `workflows/`.
 Closed changes live in `xarchive/` (renamed from `archive/`). The hybrid
 source of truth: SQLite (mnemonic) for observations + code intelligence,
-the Markdown bundle for the knowledge base (ADR-0048 amending ADR-0012).
+the Markdown bundle for the project wiki (ADR-0048 amending ADR-0012).
 
 ## Participating sites
 

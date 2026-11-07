@@ -8,7 +8,7 @@ date: 2026-10-20
 
 # Hybrid Source of Truth
 **Amends:** `04-adr-0012-sqlite-as-second-brain.md` (adds the Markdown
-bundle as the durable SoT for the knowledge base; SQLite remains the SoT
+bundle as the durable SoT for the project wiki; SQLite remains the SoT
 for observations and code intelligence — this is an ADDITION to the store,
 not a second retrieval index over the same data).
 

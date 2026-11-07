@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * okf-lint.mjs — read-only drift guard for the .skillgrid knowledge bundle
+ * okf-lint.mjs — read-only drift guard for the .skillgrid project wiki bundle
  * (OKF v0.2).
  *
  * Runs nine checks over the bundle and reports a named drift verdict. It
@@ -12,7 +12,7 @@
  *   project-root defaults to the current working directory.
  *
  * Exit codes:
- *   0 — clean (no drift), or UNSCOPED (no knowledge bundle found — a
+ *   0 — clean (no drift), or UNSCOPED (no project wiki bundle found — a
  *       non-answer, not a clean bill)
  *   1 — drift detected (names every finding)
  *   2 — usage/parse error (missing arg, bundle unreadable)
@@ -38,7 +38,7 @@
  *                              diff the committed file
  *   9 orphans                  advisory-only: never fails the run
  *
- * Layout (R6): post-R6 roots first — `<root>/.skillgrid/knowledge/`, then
+ * Layout (R6): post-R6 roots first — `<root>/.skillgrid/projectwiki/`, then
  * the bundle root itself when it carries an `index.md` (fixture mode) —
  * else pre-R6 `<root>/.skillgrid/artifacts/` fallback (README.md is the
  * root catalog). Neither found => SCOPE: UNSCOPED (exit 0, non-answer).
@@ -47,7 +47,7 @@
  * tree (change-specs/, change-archive/, meta/ (state.yaml, .sdd/, .cache/,
  * .prototype/), config.d/, brainstorm/, the vault's derived index/
  * projections, okf-metrics.jsonl, WINDOWS.md): working-state and SDD
- * artifacts, not OKF concepts (ADR-0048, TICKET-14). In the knowledge/
+ * artifacts, not OKF concepts (ADR-0048, TICKET-14). In the projectwiki/
  * layout the concept scope is a WHITELIST — the vault's page-type folders
  * (config.json `page_types`) only; vault-root docs are out of scope.
  *
@@ -91,8 +91,8 @@ function worstScope(a, b) {
 
 function detectBundleRoot(projectRoot) {
   const sg = join(projectRoot, ".skillgrid");
-  const postR6 = join(sg, "knowledge");
-  if (isDir(postR6)) return { root: postR6, layout: "knowledge/" };
+  const postR6 = join(sg, "projectwiki");
+  if (isDir(postR6)) return { root: postR6, layout: "projectwiki/" };
   // Bundle-root mode: the lint target itself is a bundle (fixtures).
   if (existsSync(join(projectRoot, "index.md"))) {
     return { root: projectRoot, layout: "bundle-root" };
@@ -384,7 +384,7 @@ function main() {
   const detected = detectBundleRoot(projectRoot);
   if (!detected) {
     // Non-answer, not a clean bill (ADR-0010).
-    console.log("DRIFT: none (no knowledge bundle found)");
+    console.log("DRIFT: none (no project wiki bundle found)");
     console.log("SCOPE: UNSCOPED");
     writeTelemetry(projectRoot, "UNSCOPED", 0, []);
     process.exit(0);
@@ -410,12 +410,12 @@ function main() {
   }
 
   // --- Load concepts + reserved files ---
-  // Concept scope (001 §7): in the knowledge/ layout the index scope is a
+  // Concept scope (001 §7): in the projectwiki/ layout the index scope is a
   // WHITELIST — page-type folders only (from the vault's config.json).
   // Vault-root docs, index/ projections, and dot-dirs are out of scope by
   // construction. Fixture/bundle-root layouts keep the walk-all behavior.
   let pageFolders = null;
-  if (layout === "knowledge/") {
+  if (layout === "projectwiki/") {
     try {
       const cfg = JSON.parse(readFileSync(join(bundleRoot, "config.json"), "utf8"));
       pageFolders = new Set(Array.isArray(cfg.page_types) ? cfg.page_types : []);
@@ -512,7 +512,7 @@ function main() {
   const conceptRels = new Set(
     concepts.filter((c) => !c.isDirCatalog).map((c) => c.rel),
   );
-  // In the engine-driven knowledge/ layout the index is a derived
+  // In the engine-driven projectwiki/ layout the index is a derived
   // projection (index/catalog.md) — with no hand- or engine-written catalog
   // present, the "every concept is listed" half is vacuous, not a failure.
   if (catalogs.length > 0) {

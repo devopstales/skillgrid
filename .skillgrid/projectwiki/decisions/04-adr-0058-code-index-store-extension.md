@@ -16,7 +16,7 @@ The code-index adds the 7 content + 2 FTS tables + the graph reads + the vector 
 to the **same** `Store` the memory change owns (the shared project DB, spec
 `002-schema` §4). The extension must be **additive** (no existing memory method
 signature changes) and must include a **table-adding seam** (T21) the KB change's
-`KBStore` uses to add its `kb_*` tables without forking the dialect code.
+`KBStore` uses to add its `projectwiki_*` tables without forking the dialect code.
 
 ## Decision
 
@@ -34,7 +34,7 @@ Extend the `Store` interface (`mnemonic-v2/internal/core/store/store.go`) with:
 - **Trail seam (M7/T15):** `RecordRetrieval` (the shared `retrieval_trails` table,
   migration 003 — the memory change owns the table, the code-index owns the code-side
   writes)
-- **DDL seam (T21):** `ExecDDL` (the table-adding seam the KB re-uses)
+- **DDL seam (T21):** `ExecDDL` (the table-adding seam the project wiki re-uses)
 - **Transaction surface (K1):** `Begin` / `Txn` — the single per-file tx the
   idempotency claim rests on (the caller composes the five per-file writes inside one
   tx; the composite `ApplyFileGraph` is the driver's own composition, not a Store
@@ -45,8 +45,8 @@ Extend the `Store` interface (`mnemonic-v2/internal/core/store/store.go`) with:
 - **A separate `CodeStore` interface** — rejected: the code-index tables live in the
   same DB + share the WAL/write-retry + the migration runner; a separate store would
   fork the dialect code (the T21 seam exists to avoid exactly that).
-- **The KB forking `sqlite.go`/`postgres.go`** — rejected: that is the v1 pattern; the
-  KB spec (`004-index` §3.1) explicitly requires "same store, different query surface".
+- **The project wiki forking `sqlite.go`/`postgres.go`** — rejected: that is the v1 pattern; the
+  project wiki spec (`004-index` §3.1) explicitly requires "same store, different query surface".
 
 ## Consequences
 

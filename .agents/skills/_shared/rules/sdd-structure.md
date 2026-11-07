@@ -21,7 +21,7 @@ brainstorming → [research | prototype | sketch] → writing-blueprints → blu
 | `acceptance-test-authoring` | BDD `acceptance.feature` — valid Cucumber syntax, traceability oracle |
 | `writing-blueprints` | Technical plan → `blueprint.md`; **must** run critic subagent review + user validation before completion |
 | `architectural-decision-records` | Domain model (terms in `glossary/`) + ADR authoring / supersession |
-| `kb` | Read/maintain the `.skillgrid/knowledge/` vault via the `kb` engine (`mnemonic kb ...`) — recall before re-deriving; concepts live in `decisions/`/`invariants/`/`workflows/`/`glossary/`/`gotchas/`/`architecture/` with `index/` projections rebuilt by `kb index` in the same edit |
+| `projectwiki` | Read/maintain the `.skillgrid/projectwiki/` vault via the `projectwiki` engine (`mnemonic projectwiki ...`) — recall before re-deriving; concepts live in `decisions/`/`invariants/`/`workflows/`/`glossary/`/`gotchas/`/`architecture/` with `index/` projections rebuilt by `projectwiki index` in the same edit |
 | `research` / `code-research` | External fact-finding → `findings.md` (Research section) |
 | `prototype` | Feasibility probe → `findings.md` (Prototype section) |
 | `sketch` | UI/interaction variants → `findings.md` (Sketch section) |
@@ -59,19 +59,19 @@ brainstorming → [research | prototype | sketch] → writing-blueprints → blu
 │       ├── acceptance.feature  # BDD scenarios (the traceability oracle)
 │       ├── blueprint.md        # writing-blueprints (technical plan)
 │       ├── tasks.md            # slicing (tickets, waves, dependencies)
-│       ├── adr.md              # ADR Review Manifest (per-change; pointers to knowledge/decisions/04-adr-NNNN-slug.md)
+│       ├── adr.md              # ADR Review Manifest (per-change; pointers to projectwiki/decisions/04-adr-NNNN-slug.md)
 │       ├── findings.md         # research/prototype/sketch consolidated evidence (optional)
 │       ├── report.md           # two-phase: qa writes the QA half (test plan + gate verdict + evidence)
 │       └── review.md           # requesting-code-review audit record; read by ship and reflect
 ├── change-archive/             # CLOSED changes (committed, immutable); created lazily by ship (renamed from xarchive/, 2026-11-06)
 │   └── YYYY-MM-DD-<topic>/     #   moved here by ship; reflect completes report.md's retro half in place
-├── knowledge/                  # OKF knowledge vault (OKF v0.2, committed, cross-change) — the wiki
+├── projectwiki/                  # OKF project wiki vault (OKF v0.2, committed, cross-change) — the wiki
 │   ├── config.json             #   vault sentinel (page types, schema version)
-│   ├── KNOWLEDGE_SCHEMA.md     #   operating manual (human + agent)
+│   ├── PROJECTWIKI_SCHEMA.md     #   operating manual (human + agent)
 │   ├── ASSUMPTIONS.md          #   DURABLE root record — project understanding + in-force ADR index (path only) + locked constraints (the "bible")
 │   ├── ARCHITECTURE.md         #   DURABLE root record (created lazily) — live repo/program structure
 │   ├── WINDOWS.md              #   platform ops notes
-│   ├── .knowledgeignore        #   read boundary — index scope is out
+│   ├── .ignore        #   read boundary — index scope is out
 │   ├── .obsidian/              #   Obsidian vault config (per-user view state)
 │   ├── index/                  #   derived projections (catalog.md, log.md) — engine-owned, never hand-edit
 │   ├── decisions/              #   one ADR per file (04-adr-NNNN-slug.md); ASSUMPTIONS.md stores the path
@@ -133,7 +133,7 @@ The deepest artifact present in the change dir determines the phase. This is the
 
 ### Resume rule
 
-`resume` and `using-skillgrid` MUST derive phase from artifacts first, then cross-check `state.yaml`. If they disagree, **artifacts win** (the spec zone is the deeper truth — same principle as the state-drift-guard). The skill records the disagreement as a dated entry in `.skillgrid/knowledge/index/log.md` and patches the phase to match. `state.yaml` holds no freeform journal — prose goes to the KB write log, not `state.yaml`.
+`resume` and `using-skillgrid` MUST derive phase from artifacts first, then cross-check `state.yaml`. If they disagree, **artifacts win** (the spec zone is the deeper truth — same principle as the state-drift-guard). The skill records the disagreement as a dated entry in `.skillgrid/projectwiki/index/log.md` and patches the phase to match. `state.yaml` holds no freeform journal — prose goes to the KB write log, not `state.yaml`.
 
 ### Edit scope guard
 
@@ -196,30 +196,30 @@ changes:
 progress:
   completed_changes: 18
   blocked_changes: 0
-constraints_ref: .skillgrid/knowledge/ASSUMPTIONS.md                       # pointer, not a copy
+constraints_ref: .skillgrid/projectwiki/ASSUMPTIONS.md                       # pointer, not a copy
 ```
 
 - The `changes:` map is the **resume pointer** — `resume` and `using-skillgrid` read it first, replacing the old "find newest `change-specs/` dir" heuristic. Each entry's `slug` is the `change-specs/<slug>/` directory name; `phase` + `status` describe where that change is right now.
 - **Parallel development:** multiple changes may coexist in the map simultaneously. There is no single "active" change — every entry is its own independent pipeline position.
-- `constraints_ref` points at `.skillgrid/knowledge/ASSUMPTIONS.md` (the durable project understanding); operational rules live in AGENTS.md's `### Rules` section, not in `state.yaml`.
+- `constraints_ref` points at `.skillgrid/projectwiki/ASSUMPTIONS.md` (the durable project understanding); operational rules live in AGENTS.md's `### Rules` section, not in `state.yaml`.
 - Onboarding creates it with an empty `changes:` map. `ship` removes the change's entry from the map and increments `completed_changes`. `reflect` sets the entry's `phase: complete`.
 - **Legacy v1** (single `pipeline.current_change` + `current_phase`) is still parsed by the drift guard for backward compatibility, but new writes use v2.
 
-**`knowledge/ASSUMPTIONS.md`** is the *durable* project understanding — the four tiers `## VERIFIED` / `## INFERRED (HYPOTHESIS)` / `## LOCKED` / `## Open Questions`. `## LOCKED` is **the ADR index only**: one pointer row per in-force decision (a short description + the path to the record). `status`, `supersedes`, and `date` live in the file's frontmatter, not the row. The decision body is the file. Operational rules that are *not* decisions (build toolchain floor, commit format, dependency policy, spec/code zone order) live in AGENTS.md's `### Rules` section, not here.
+**`projectwiki/ASSUMPTIONS.md`** is the *durable* project understanding — the four tiers `## VERIFIED` / `## INFERRED (HYPOTHESIS)` / `## LOCKED` / `## Open Questions`. `## LOCKED` is **the ADR index only**: one pointer row per in-force decision (a short description + the path to the record). `status`, `supersedes`, and `date` live in the file's frontmatter, not the row. The decision body is the file. Operational rules that are *not* decisions (build toolchain floor, commit format, dependency policy, spec/code zone order) live in AGENTS.md's `### Rules` section, not here.
 
-**`knowledge/ARCHITECTURE.md`** is the *live* repo/program structure record — created lazily as the repo takes shape.
+**`projectwiki/ARCHITECTURE.md`** is the *live* repo/program structure record — created lazily as the repo takes shape.
 
-The **knowledge vault** (`.skillgrid/knowledge/`, OKF v0.2) holds the product + stack understanding (`ASSUMPTIONS.md` § VERIFIED), the terms glossary (`knowledge/glossary/01/02-*-terms.md`), locked constraints (`knowledge/invariants/`), and one ADR file per locked decision (`knowledge/decisions/04-adr-NNNN-slug.md`). Durable cross-change findings land as `knowledge/decisions/` ADRs or `knowledge/gotchas/` pages. The per-change `findings.md` stays in `change-specs/` for traceability; `reflect` lifts the durable, still-relevant findings into the vault so they survive the archive.
+The **project wiki vault** (`.skillgrid/projectwiki/`, OKF v0.2) holds the product + stack understanding (`ASSUMPTIONS.md` § VERIFIED), the terms glossary (`projectwiki/glossary/01/02-*-terms.md`), locked constraints (`projectwiki/invariants/`), and one ADR file per locked decision (`projectwiki/decisions/04-adr-NNNN-slug.md`). Durable cross-change findings land as `projectwiki/decisions/` ADRs or `projectwiki/gotchas/` pages. The per-change `findings.md` stays in `change-specs/` for traceability; `reflect` lifts the durable, still-relevant findings into the vault so they survive the archive.
 
 ## Artifact File Paths
 
 | Skill | Creates / updates | Path |
 |---|---|---|
-| onboarding | skeleton | `config.yaml`, `meta/state.yaml`, `knowledge/ASSUMPTIONS.md`, `knowledge/ARCHITECTURE.md` (lazy), knowledge vault (via `kb bootstrap`: `knowledge/config.json` sentinel + `KNOWLEDGE_SCHEMA.md` + `.knowledgeignore` + page-type folders), AGENTS block, `.gitignore` |
-| brainstorming | briefing + state (questioning via agent answer-select tool) | `change-specs/<topic>/briefing.md`, `change-specs/<topic>/adr.md`, `knowledge/ASSUMPTIONS.md` (new project or scope change → product + stack VERIFIED tier; VERIFIED/INFERRED tiers auto-written; LOCKED on user OK), `state.yaml` (`changes.<topic>` entry) |
-| architectural-decision-records | terms + ADRs | `knowledge/glossary/01-business-terms.md`, `knowledge/glossary/02-technical-terms.md`, `knowledge/decisions/04-adr-NNNN-slug.md`, `knowledge/ASSUMPTIONS.md` (§ `LOCKED` ADR index pointer row only) |
-| kb | concepts + catalogs | `.skillgrid/knowledge/<decisions\|invariants\|workflows\|glossary\|gotchas\|architecture>/*.md` + `knowledge/index/` projections (same-edit rule: every page write is followed by `kb index`); ADR numbering stays with `architectural-decision-records`; derived index is engine-owned (`kb index` rebuilds) |
-| research | findings | `change-specs/<topic>/findings.md` (`## Research:` section) + durable findings to the knowledge vault (`knowledge/decisions/` ADR or `knowledge/gotchas/` page) |
+| onboarding | skeleton | `config.yaml`, `meta/state.yaml`, `projectwiki/ASSUMPTIONS.md`, `projectwiki/ARCHITECTURE.md` (lazy), project wiki vault (via `projectwiki bootstrap`: `projectwiki/config.json` sentinel + `PROJECTWIKI_SCHEMA.md` + `.ignore` + page-type folders), AGENTS block, `.gitignore` |
+| brainstorming | briefing + state (questioning via agent answer-select tool) | `change-specs/<topic>/briefing.md`, `change-specs/<topic>/adr.md`, `projectwiki/ASSUMPTIONS.md` (new project or scope change → product + stack VERIFIED tier; VERIFIED/INFERRED tiers auto-written; LOCKED on user OK), `state.yaml` (`changes.<topic>` entry) |
+| architectural-decision-records | terms + ADRs | `projectwiki/glossary/01-business-terms.md`, `projectwiki/glossary/02-technical-terms.md`, `projectwiki/decisions/04-adr-NNNN-slug.md`, `projectwiki/ASSUMPTIONS.md` (§ `LOCKED` ADR index pointer row only) |
+| projectwiki | concepts + catalogs | `.skillgrid/projectwiki/<decisions\|invariants\|workflows\|glossary\|gotchas\|architecture>/*.md` + `projectwiki/index/` projections (same-edit rule: every page write is followed by `projectwiki index`); ADR numbering stays with `architectural-decision-records`; derived index is engine-owned (`projectwiki index` rebuilds) |
+| research | findings | `change-specs/<topic>/findings.md` (`## Research:` section) + durable findings to the project wiki vault (`projectwiki/decisions/` ADR or `projectwiki/gotchas/` page) |
 | prototype | findings + probe | `meta/.prototype/NNN-name/` (`prototype.md` + throwaway code, permanently retained) + `change-specs/<topic>/findings.md` (`## Prototype:` section) |
 | sketch | findings | `change-specs/<topic>/findings.md` (`## Sketch:` section) |
 | writing-blueprints | plan + critic validation + state | `change-specs/<topic>/blueprint.md`, `state.yaml` (phase → `blueprint` then `blueprint-validated`) |
@@ -230,15 +230,15 @@ The **knowledge vault** (`.skillgrid/knowledge/`, OKF v0.2) holds the product + 
 | qa | report (QA half) + state | `change-specs/<topic>/report.md` (test plan + verdict + evidence; retro half left empty), `state.yaml` (phase) |
 | review | findings + state | `change-specs/<topic>/` (review artifacts), `state.yaml` (phase) |
 | ship | move + state | **moves** `change-specs/<topic>/` → `change-archive/YYYY-MM-DD-<topic>/`; `state.yaml` (remove `changes.<topic>` entry, completed_changes +1) |
-| reflect | report (retro half) + state + artifacts | completes `change-archive/YYYY-MM-DD-<topic>/report.md` in place (from `## Final-State Facts` onward); lifts durable findings to the knowledge vault (`knowledge/decisions/` ADR or `knowledge/gotchas/` page); `state.yaml` (terminal phase) + Mnemonic session close |
+| reflect | report (retro half) + state + artifacts | completes `change-archive/YYYY-MM-DD-<topic>/report.md` in place (from `## Final-State Facts` onward); lifts durable findings to the project wiki vault (`projectwiki/decisions/` ADR or `projectwiki/gotchas/` page); `state.yaml` (terminal phase) + Mnemonic session close |
 
 ## Writing Rules
 
 - Create the change folder **before** writing the briefing.
 - READ before UPDATE; never blind overwrite.
 - Commit spec-zone changes (`.skillgrid/change-specs/`) before code changes — the `pre-commit` zone guard enforces it.
-- ADRs live as `knowledge/decisions/04-adr-NNNN-slug.md` — one file per decision, created lazily, global, not per-change. `knowledge/ASSUMPTIONS.md` § `LOCKED` (the ADR index) stores a short description + the path only; `status`/`supersedes`/`date` live in the file's frontmatter. The per-change `change-specs/<topic>/adr.md` is a manifest of pointers to those files, never a copy.
-- Terms live in `knowledge/glossary/01-business-terms.md` / `02-technical-terms.md` — a glossary and nothing else.
+- ADRs live as `projectwiki/decisions/04-adr-NNNN-slug.md` — one file per decision, created lazily, global, not per-change. `projectwiki/ASSUMPTIONS.md` § `LOCKED` (the ADR index) stores a short description + the path only; `status`/`supersedes`/`date` live in the file's frontmatter. The per-change `change-specs/<topic>/adr.md` is a manifest of pointers to those files, never a copy.
+- Terms live in `projectwiki/glossary/01-business-terms.md` / `02-technical-terms.md` — a glossary and nothing else.
 - `state.yaml` is updated on every phase transition (see the Artifact File Paths table); it is the dynamic counterparty to the knowledge bundle (the durable knowledge).
 - Knowledge bundle files are committed (durable knowledge that survives across machines); `state.yaml` is committed (the change log of phase transitions lives in its git history).
 
@@ -251,7 +251,7 @@ skills keep writing `state.yaml` directly at every phase transition; the
 guard owns the verification.
 
 **Run:** `node .agents/skills/qa/scripts/state-drift-check.mjs [project-root]` (defaults to
-cwd). ADR: `.skillgrid/knowledge/decisions/04-adr-0008-state-drift-guard-js-yaml.md` (Node.js + `yaml` package).
+cwd). ADR: `.skillgrid/projectwiki/decisions/04-adr-0008-state-drift-guard-js-yaml.md` (Node.js + `yaml` package).
 
 **Exit codes:** 0 clean, 1 drift (prints field/stale/derived table), 2
 usage/parse error.

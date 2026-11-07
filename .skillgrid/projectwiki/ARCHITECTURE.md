@@ -53,7 +53,7 @@ The engine is its own Go module (`mnemonic-v2/`, module `github.com/devopstales/
  (Cursor / OpenCode │                                                      │
   / Kilo)           │  mnemonic — engine (mnemonic-v2/cmd/mnemonic)        │
     │  5 native TS   │   ├─ mcp ──────── stdio MCP (mcp-go) ──────┐        │
-    │  plugins /     │   ├─ mem/index/kb — CLI (one handler set)  │        │
+    │  plugins /     │   ├─ mem/index/projectwiki — CLI (one handler set)│   │
     │  cursor hooks  │   ├─ sync/trail/doctor — CLI               │        │
     │  (session,tool, │   └─ serve ───── no-op (v2 dropped the     │        │
     │   policy,stop) │         HTTP dashboard — ADR-0059)         │        │
@@ -64,14 +64,14 @@ The engine is its own Go module (`mnemonic-v2/`, module `github.com/devopstales/
     │   stop gate)    │  embed → community)                         │        │
                       │                           ▼                         │
                       │       internal/transport/handler (one handler set) │
-                      │         (MCP + CLI over memory · codeindex · kb)   │
+                      │       (MCP + CLI over memory · codeindex · projectwiki)│
                       │                           ▼                         │
                       │   ~/.skillgrid/mnemonic/<projectID>.sqlite (WAL)    │
                       │   embedded migrations · FTS5 (porter/trigram) · vec0│
                       └─────────────────────────────────────────────────────┘
  REPO CONTENT (shipped by `skillgrid install`, the "Hub Content")
  .agents/skills/ (SDD pipeline + _shared rules)      .skillgrid/ (config,
- hooks/  git-hooks/  plugins/  config.d/  rules/      change-specs, change-archive, knowledge vault, meta)
+ hooks/  git-hooks/  plugins/  config.d/  rules/      change-specs, change-archive, project wiki vault, meta)
 ```
 
 ### Design Decisions
@@ -95,7 +95,7 @@ The engine is its own Go module (`mnemonic-v2/`, module `github.com/devopstales/
 /
 ├── mnemonic-v2/        Go MODULE — the runtime engine (module
 │                       `github.com/devopstales/skillgrid/mnemonic-v2`): Mnemonic
-│                       engine, code index, MCP stdio server, KB engine.
+│                       engine, code index, MCP stdio server, ProjectWiki engine.
 │                       cmd/mnemonic (the `mnemonic` binary).
 ├── skillgrid-cli/      Go MODULE — the `skillgrid` binary: installer
 │                       command + per-agent setup (internal/setup,
@@ -156,7 +156,7 @@ require (
 )
 ```
 
-Two entry points, two binaries. The engine `mnemonic-v2/cmd/mnemonic/main.go` is **not** cobra — a single `flag.FlagSet` plus a `switch rest0` on the first bare argument: `mcp`, `mem`, `sync`, `trail`, `doctor`, `index`, `kb`, `setup`; `serve` is a no-op that prints that v2 dropped the HTTP dashboard. `skillgrid-cli/cmd/skillgrid/main.go` is the installer shell. Version is baked at build time:
+Two entry points, two binaries. The engine `mnemonic-v2/cmd/mnemonic/main.go` is **not** cobra — a single `flag.FlagSet` plus a `switch rest0` on the first bare argument: `mcp`, `mem`, `sync`, `trail`, `doctor`, `index`, `projectwiki`, `setup`; `serve` is a no-op that prints that v2 dropped the HTTP dashboard. `skillgrid-cli/cmd/skillgrid/main.go` is the installer shell. Version is baked at build time:
 
 ```go
 // version is set at build time via -ldflags "-X main.version=vX.Y.Z".
@@ -189,7 +189,7 @@ The v1 engine embedded the SPA behind a `-tags ui` build flag (it compiled `skil
 │   memory.Service + the project detector                          │
 ├──────────────────────────────────────────────────────────────────┤
 │  SUBSYSTEM LAYER                                                 │
-│  memory · kb · codeindex (graph, search, vectorstore, watch) ·   │
+│  memory · projectwiki · codeindex (graph, search, vectorstore, watch) ·   │
 │  intelligence (llm, embedder, degrade) · migrate · …             │
 ├──────────────────────────────────────────────────────────────────┤
 │  DATA LAYER                                                      │
@@ -220,7 +220,7 @@ Hand-rolled dispatch (no cobra). The v2 `mnemonic` binary surface from `main.go`
 | Project | `index` (build + `status`), `setup` (opencode/kilocode/cursor) |
 | Code intel | `index orient`, `grep`, `read`, `path`, `explain`, `impact`, `affected`, `search`, `watch` |
 | Memory | `mem` (`save`/`search`/`get`/`lookup`/`context`/`review`/`timeline`/`pin`/`unpin`/`delete`/`session`/`stats`), `sync`, `trail` |
-| Knowledge | `kb` (`bootstrap`/`index`/`reindex`/`query`/`read`/`search`/`generate`/`validate`/`lint`/`status`/`cite-source`/`rebuild-meta`/`eval`) |
+| ProjectWiki | `projectwiki` (`bootstrap`/`index`/`reindex`/`query`/`read`/`search`/`generate`/`validate`/`lint`/`status`/`cite-source`/`rebuild-meta`/`eval`) |
 | Ops | `doctor` (`--strict` for CI) |
 
 ---
@@ -235,14 +235,14 @@ Hand-rolled dispatch (no cobra). The v2 `mnemonic` binary surface from `main.go`
 | `core/config/` | Layered config loader + flags; per-project data dir under `~/.skillgrid/mnemonic`. |
 | `transport/handler/` | **The K6 seam** — the ONE handler set the MCP server, the CLI, and the later HTTP mirror all call; wraps `memory.Service` + the project detector; envelope `(code, message)` error contract. |
 | `memory/` | Observations: save/retrieve (`pipeline.go`), dedup (+ LLM judge), consolidate, importance tiers, relations, replay, trails, autosync, scan/lookup. |
-| `kb/` | The knowledge-base engine (KB change 2026-10-31): bootstrap/index/reindex (whitelist scope + `.knowledgeignore`), query (FTS + semantic RRF), validate/lint, status, cite-source, eval (recall@K regression net). |
+| `projectwiki/` | The project wiki engine (the 2026-10-31-mnemonic-v2-knowledge-base change): bootstrap/index/reindex (whitelist scope + `.ignore`), query (FTS + semantic RRF), validate/lint, status, cite-source, eval (recall@K regression net). |
 | `codeindex/` | Incremental indexer, staleness gate (`fingerprint.go`), fsnotify `watch/`, symbol/call `graph/`, `search/` (FTS + by-example + semantic `vectorstore/`). |
 | `codeindex/extract/` | tree-sitter symbol/edge extraction per language. |
 | `intelligence/` | `llm/` (providers), `embedder/` (onnx/ollama/external/null + select), `degrade/` (fail-open floors). |
 | `migrate/` | Store migration runner (SQLite + PG). |
 | `transport/mcp/` | MCP stdio server (`server.go`) + `tools_*.go` registering `mem_*`/`code_*`/`web_*`/`team_*` tools. |
 
-Removed with the v1 module (ADR-0059): `facts/` (fact memory — v2's model is observations), `service/` (folded into `transport/handler` + `memory`), `http/` (REST + embedded SPA dashboard — v2's `serve` is a no-op), `hybrid/` (fusion lives in `codeindex/search`), `context_harness/` / `session_inject/` / `loop/`, `checkpoint/`, `policy/`, and the `internal/eval` ablation harness (v2's `kb/eval` is the recall@K regression net).
+Removed with the v1 module (ADR-0059): `facts/` (fact memory — v2's model is observations), `service/` (folded into `transport/handler` + `memory`), `http/` (REST + embedded SPA dashboard — v2's `serve` is a no-op), `hybrid/` (fusion lives in `codeindex/search`), `context_harness/` / `session_inject/` / `loop/`, `checkpoint/`, `policy/`, and the `internal/eval` ablation harness (v2's `projectwiki/eval` is the recall@K regression net).
 
 ---
 
@@ -460,7 +460,7 @@ A second, *human-readable* storage world — the SDD state zone, canonical in `_
 ```
 .skillgrid/
 ├── config.yaml          # REQUIRED static SoT — stack, testing, tracker, rules.*
-├── knowledge/           # OKF vault (committed) — the wiki
+├── projectwiki/         # OKF vault (committed) — the wiki
 │   ├── config.json      #   vault sentinel (page types)
 │   ├── ASSUMPTIONS.md   #   DURABLE — VERIFIED / INFERRED / LOCKED + ADR index
 │   ├── ARCHITECTURE.md  #   this file (live system architecture)
@@ -501,7 +501,7 @@ func runMCP(fl config.Flags, args []string) int {
 }
 ```
 
-Stdio transport, spawned by the harness ("trusted by construction"). Tool groups: memory (`mem_*`), code (`code_*` — orient/grep/read/path/explain/impact/affected/search over the codeindex), web (`web_*`), teams (`team_*`), knowledge (`kb_*`).
+Stdio transport, spawned by the harness ("trusted by construction"). Tool groups: memory (`mem_*`), code (`code_*` — orient/grep/read/path/explain/impact/affected/search over the codeindex), web (`web_*`), teams (`team_*`), knowledge (`projectwiki_*`).
 
 ### 10.2 HTTP :7438 (operator + dashboard)
 

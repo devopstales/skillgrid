@@ -147,9 +147,9 @@ function countLines(p) {
 
 {
   const root = mkdtempSync(join(tmpdir(), "okf-t5-"));
-  mkdirSync(join(root, ".skillgrid", "knowledge"), { recursive: true });
+  mkdirSync(join(root, ".skillgrid", "projectwiki"), { recursive: true });
   // Minimal bundle: a root index.md is enough for a scoped, clean run.
-  writeFileSync(join(root, ".skillgrid", "knowledge", "index.md"), [
+  writeFileSync(join(root, ".skillgrid", "projectwiki", "index.md"), [
     "---",
     'okf_version: "0.2"',
     "title: minimal",
@@ -183,7 +183,7 @@ function countLines(p) {
   rmSync(t6, { recursive: true, force: true });
 }
 
-// --- Layout: neither knowledge/ nor artifacts/ => UNSCOPED, still exit 0 ---
+// --- Layout: neither projectwiki/ nor artifacts/ => UNSCOPED, still exit 0 ---
 
 {
   const root = mkdtempSync(join(tmpdir(), "okf-t7-"));

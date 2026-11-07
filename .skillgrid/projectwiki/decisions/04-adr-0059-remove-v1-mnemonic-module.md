@@ -11,7 +11,7 @@ Change: — (direct instruction, no change folder; the `task → commit` chain i
 
 ## Context
 
-- ADR-0052 extracted the v2 engine into a fresh `mnemonic-v2/` module with v1 (`mnemonic/`, module `github.com/devopstales/skillgrid/mnemonic`) **coexisting until v2 ships**. The memory, code-index, and knowledge-base workstreams have all landed in v2; v2 is the sole active engine.
+- ADR-0052 extracted the v2 engine into a fresh `mnemonic-v2/` module with v1 (`mnemonic/`, module `github.com/devopstales/skillgrid/mnemonic`) **coexisting until v2 ships**. The memory, code-index, and project wiki workstreams have all landed in v2; v2 is the sole active engine.
 - The only remaining v1 consumer was `skillgrid-cli/internal/install`, which used six functions of the v1 root package (`Interactive`, `Option`, `MultiSelect`, `FindRepoRoot`, `LoadMCPConfig`, `RunSetup` — plus the `KanbanExec` test seam) through thin facade re-exports backed by `mnemonic/internal/{setup,ui,config}`.
 - The Taskfile was already building only v2 + the CLI: its `MEM1_DIR` pointed at `mnemonic_back/`, a directory that did not exist in the tree (stale since the v1 rename).
 - The v1-only surfaces — HTTP `:7438` + embedded SPA dashboard, fact memory (`POST /facts*`, `mem_fact_*`), the Context Harness / CLM (`ctx_*`), the executable-skill registry (`skillgrid skill`), the `mnemonic init` preamble writer, and the all-stores seed integration tests — have no consumer in the v2 flow. v2's `serve` command is already a no-op that prints that v2 dropped the HTTP dashboard.
