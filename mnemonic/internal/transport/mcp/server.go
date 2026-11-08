@@ -536,25 +536,31 @@ func (s *Server) txnCount() int {
 }
 
 // Start blocks on the stdio MCP loop until the client disconnects
-// (production entry: the cmd layer calls this). R5 serial stdio: the
-// worker pool and the message queue are both size 1 — at most one tool
-// call is in flight, one complete response at a time (the default pool of
-// 5 answers concurrent calls in completion order; this is the mutation
-// gate's pinned option).
+// (production entry: the cmd layer calls this). R5 serial stdio: one
+// worker + the largest queue mcp-go allows (see StartOn) — at most one
+// tool call in flight for any burst up to 10000, one complete response
+// at a time (the default pool of 5 answers concurrent calls in
+// completion order; this is the mutation gate's pinned option).
 func (s *Server) Start(ctx context.Context) error {
 	return s.StartOn(ctx, os.Stdin, os.Stdout)
 }
 
-// StartOn is the stdio loop over an injected reader/writer pair (the test
-// seam: the loop runs over pipes so the serial-in-flight and
+// StartOn is the stdio loop over an injected reader/writer pair (the
+// test seam: the loop runs over pipes so the serial-in-flight and
 // protocol-only-stdout invariants are observed in-process — production
 // uses Start = StartOn over os.Stdin/os.Stdout; the caller's ctx
 // cancellation ends the loop, the same teardown ServeStdio's internal
-// signal handler provided).
+// signal handler provided). The pinned options enforce R5's serial
+// stdio: one worker (at most one tool call in flight) + the largest
+// queue mcp-go allows (maxQueueSize, 10000), so any burst up to 10000
+// in-flight calls is absorbed by the queue and drained strictly one at
+// a time. mcp-go falls back to synchronous processing only when the
+// queue is *full* (a 10001+ in-flight burst) — logged to stderr; no
+// realistic client load reaches it.
 func (s *Server) StartOn(ctx context.Context, in io.Reader, out io.Writer) error {
 	sio := server.NewStdioServer(s.mcp)
 	server.WithWorkerPoolSize(1)(sio)
-	server.WithQueueSize(1)(sio)
+	server.WithQueueSize(10000)(sio)
 	return sio.Listen(ctx, in, out)
 }
 

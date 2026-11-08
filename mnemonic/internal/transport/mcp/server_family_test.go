@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -389,6 +390,7 @@ func TestSerialToolCalls(t *testing.T) {
 		mu       sync.Mutex
 		inflight int
 		maxSeen  int
+		signaled bool
 		started1 = make(chan struct{})
 		release  = make(chan struct{})
 	)
@@ -399,7 +401,8 @@ func TestSerialToolCalls(t *testing.T) {
 		if inflight > maxSeen {
 			maxSeen = inflight
 		}
-		first := inflight == 1
+		first := inflight == 1 && !signaled
+		signaled = true
 		mu.Unlock()
 		if first {
 			close(started1)
@@ -428,12 +431,13 @@ func TestSerialToolCalls(t *testing.T) {
 	}
 	waitForID := func(id int) {
 		t.Helper()
+		target := strconv.Itoa(id)
 		waitFor(t, 5*time.Second, func() bool {
 			for _, l := range out.lines() {
 				var m struct {
 					ID json.RawMessage `json:"id"`
 				}
-				if json.Unmarshal([]byte(l), &m) == nil && strings.Contains(string(m.ID), fmt.Sprintf("%d", id)) {
+				if json.Unmarshal([]byte(l), &m) == nil && string(m.ID) == target {
 					return true
 				}
 			}
@@ -444,10 +448,19 @@ func TestSerialToolCalls(t *testing.T) {
 	write(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}`)
 	waitForID(0)
 
-	// Two concurrent tool calls (the client sends both before any
-	// response — the MCP client's "parallel" tool calls).
-	write(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"test_slow_probe","arguments":{}}}`)
-	write(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"test_slow_probe","arguments":{}}}`)
+	// Deep concurrency: 128 tool calls in flight before any response —
+	// the MCP client's "parallel" tool calls, well beyond the queue
+	// (queueSize 1 backpressures the reader; it never opens a second
+	// worker). The writes run in a goroutine: once the queue holds one
+	// and the worker holds one, the reader — and these writes — block
+	// by design; the point is that all 128 are *sent* before any
+	// response is written.
+	const calls = 128
+	go func() {
+		for i := 1; i <= calls; i++ {
+			write(fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"tools/call","params":{"name":"test_slow_probe","arguments":{}}}`, i))
+		}
+	}()
 
 	<-started1 // the first call is in flight
 	// If the pool were >1, the second call would already be in flight.
@@ -456,13 +469,14 @@ func TestSerialToolCalls(t *testing.T) {
 	got := maxSeen
 	mu.Unlock()
 	if got != 1 {
-		t.Fatalf("two tool calls were in flight at once (maxSeen=%d) — the serial stdio option (WithWorkerPoolSize(1)) is not in effect", got)
+		t.Fatalf("%d tool calls were sent before any response and maxSeen=%d — the serial stdio option (WithWorkerPoolSize(1)) is not in effect", calls, got)
 	}
-	// Release both: the second call now runs (one at a time, complete
-	// responses for both).
+	// Release: every queued call drains one at a time, complete
+	// responses for all.
 	close(release)
-	waitForID(1)
-	waitForID(2)
+	for i := 1; i <= calls; i++ {
+		waitForID(i)
+	}
 
 	cancel()
 	if err := <-done; err != nil && ctx.Err() == nil {
