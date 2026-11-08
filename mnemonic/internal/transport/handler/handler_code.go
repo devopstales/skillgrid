@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -550,14 +551,40 @@ func (h *CodeHandler) FinishIndexForTest() {
 // for the guard).
 func (h *CodeHandler) HasActiveIndexForTest() bool { return h.hasActiveRun() }
 
+// SearchHit is one enriched code_search hit (TICKET-04): the hybrid hit
+// plus the per-hit blast radius (Callers = the distinct caller symbols,
+// TestFiles = the distinct test files among the callers) and Snippet (the
+// span-start line). A hit the hybrid did not resolve to a store row
+// (StoreID 0 — a structural-only hit for an unindexed file) carries the
+// enrichment fields empty; they are omitted from the JSON.
+type SearchHit struct {
+	search.Hit
+	Callers   int      `json:"Callers,omitempty"`
+	TestFiles []string `json:"TestFiles,omitempty"`
+	Snippet   string   `json:"Snippet,omitempty"`
+}
+
+// SearchAnswer is the enriched code_search result (TICKET-04): the hybrid
+// result's fields plus the per-hit enrichment. The search package stays
+// pure — the enrichment is this handler-level join, not a hybrid leg.
+type SearchAnswer struct {
+	Query    string
+	Under    string
+	Hits     []SearchHit
+	Degraded string
+	Warnings []string
+}
+
 // Search runs the code_search (spec 006 §5 — the hybrid search: FTS +
-// structural + semantic, RRF K=60). The embedder is the semantic leg's
-// seam (nil → degraded: no_vector, the FTS floor still answers).
-func (h *CodeHandler) Search(ctx context.Context, query string, q search.SearchQuery) (search.SearchResult, error) {
+// structural + semantic, RRF K=60) enriched per hit with the blast
+// radius + the span-start snippet (TICKET-04). The embedder is the
+// semantic leg's seam (nil → degraded: no_vector, the FTS floor still
+// answers).
+func (h *CodeHandler) Search(ctx context.Context, query string, q search.SearchQuery) (SearchAnswer, error) {
 	if q.Project == "" {
 		p, err := h.resolveProject("", "")
 		if err != nil {
-			return search.SearchResult{}, err
+			return SearchAnswer{}, err
 		}
 		q.Project = p
 	}
@@ -565,7 +592,105 @@ func (h *CodeHandler) Search(ctx context.Context, query string, q search.SearchQ
 		q.Query = query
 	}
 	q.Embedder = h.emb
-	return search.Hybrid(ctx, h.st, q)
+	res, err := search.Hybrid(ctx, h.st, q)
+	if err != nil {
+		return SearchAnswer{}, err
+	}
+	return h.enrichSearch(ctx, res)
+}
+
+// radius is the per-symbol enrichment (computed once per distinct StoreID
+// — a hit's StoreID is the symbol id, so repeated hits for the same
+// symbol share the join).
+type radius struct {
+	callers   int
+	testFiles []string
+}
+
+// enrichSearch joins each resolved hit to its blast radius (TICKET-04):
+// the distinct caller count (the graph's in-edges, deduped — a caller
+// with two call sites is one caller), the distinct test files among the
+// callers (the code_affected test-file rule), and the span-start snippet
+// (the existing read path). Unresolved hits (StoreID 0) keep the fields
+// empty — omitted, no error; a radius join that errors degrades that hit
+// to absent (the hybrid answer is the result, not the enrichment).
+func (h *CodeHandler) enrichSearch(ctx context.Context, res search.SearchResult) (SearchAnswer, error) {
+	out := SearchAnswer{Query: res.Query, Under: res.Under, Degraded: res.Degraded, Warnings: res.Warnings}
+	out.Hits = make([]SearchHit, len(res.Hits))
+	radiusBySym := map[int64]radius{}
+	for i, hit := range res.Hits {
+		out.Hits[i] = SearchHit{Hit: hit}
+		if hit.StoreID == 0 {
+			continue
+		}
+		r, ok := radiusBySym[hit.StoreID]
+		if !ok {
+			r = radius{}
+			if callers, tests, err := h.callerBlastRadius(ctx, hit.StoreID); err == nil {
+				r.callers, r.testFiles = callers, tests
+			}
+			radiusBySym[hit.StoreID] = r
+		}
+		out.Hits[i].Callers = r.callers
+		out.Hits[i].TestFiles = r.testFiles
+		out.Hits[i].Snippet = h.spanSnippet(ctx, hit)
+	}
+	return out, nil
+}
+
+// callerBlastRadius returns the distinct caller count + the distinct test
+// files among the callers of symID (the graph's in-edges via the callers
+// view; the (caller, target) pair is deduped — the target is fixed per
+// hit, so the caller symbol id is the dedup key).
+func (h *CodeHandler) callerBlastRadius(ctx context.Context, symID int64) (int, []string, error) {
+	nb, err := graph.Callers(ctx, h.st, symID)
+	if err != nil {
+		return 0, nil, err
+	}
+	callerSeen := map[int64]bool{}
+	testSeen := map[string]bool{}
+	pathByFile := map[int64]string{}
+	for _, e := range nb.Edges {
+		if e.From.ID == 0 {
+			continue // an unresolved caller: no count, no file
+		}
+		callerSeen[e.From.ID] = true
+		if e.From.FileID == 0 {
+			continue
+		}
+		path, ok := pathByFile[e.From.FileID]
+		if !ok {
+			f, err := h.st.FileByID(ctx, e.From.FileID)
+			if err != nil {
+				continue
+			}
+			path = f.Path
+		}
+		pathByFile[e.From.FileID] = path
+		if graph.IsTestPath(path) {
+			testSeen[path] = true
+		}
+	}
+	tests := make([]string, 0, len(testSeen))
+	for p := range testSeen {
+		tests = append(tests, p)
+	}
+	sort.Strings(tests)
+	return len(callerSeen), tests, nil
+}
+
+// spanSnippet is the hit's span-start line via the existing read path
+// (best-effort: a missing/unreadable file is an empty snippet, not an
+// error — the enrichment degrades to absent, never fails the search).
+func (h *CodeHandler) spanSnippet(ctx context.Context, hit search.Hit) string {
+	if hit.StartLine < 1 {
+		return ""
+	}
+	res, err := search.Read(ctx, h.st, hit.Path, hit.StartLine, hit.StartLine, search.ReadModeFull)
+	if err != nil || res.Text == "" {
+		return ""
+	}
+	return strings.TrimSpace(res.Text)
 }
 
 // Read runs the code_read (spec 006 §7 — fetch indexed source for

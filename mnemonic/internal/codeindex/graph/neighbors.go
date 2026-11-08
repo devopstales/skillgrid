@@ -194,11 +194,11 @@ func fetchEdges(ctx context.Context, st store.Store, symID int64) ([]NeighborEdg
 		out = append(out, resolveEdge(ctx, st, e, symID))
 	}
 	for _, e := range reverse {
-		var toID int64
-		if e.ToID != nil {
-			toID = *e.ToID
-		}
-		out = append(out, resolveEdge(ctx, st, e, toID))
+		// The reverse edge's From is the caller (the row's to_id is symID
+		// by construction — resolving From with it would re-root the view
+		// on the queried symbol and the From.ID != symID filter would drop
+		// every resolved reverse edge).
+		out = append(out, resolveEdge(ctx, st, e, e.FromID))
 	}
 	// Process name-only reverse edges
 	for _, e := range nameOnlyReverse {

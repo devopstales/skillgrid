@@ -198,6 +198,10 @@ func Affected(ctx context.Context, st store.Store, opts AffectedOpts) (AffectedR
 	return res, nil
 }
 
+// IsTestPath is the exported test-file rule (the code_affected
+// classification; the TICKET-04 search enrichment reuses it).
+func IsTestPath(path string) bool { return isTestPath(path) }
+
 // isTestPath reports whether a file path is a test file (any language).
 // The Java test-convention fix: Foo.java changed → FooTest.java recognized.
 func isTestPath(path string) bool {
