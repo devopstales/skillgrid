@@ -80,7 +80,7 @@ Chain strategy: single-branch serial
 - **Reversibility:** one-way (D4).
 - **Fails-when:** a family server lists another family's tool, the initialize JSON deviates from the pinned shape (any field), two calls interleave, or a non-protocol byte reaches stdout post-startup.
 
-### TICKET-04 — `code_search` enrichment (per-hit blast radius + snippet)
+### TICKET-04 — `code_search` enrichment (per-hit blast radius + snippet) ✅ done 2026-11-08 (`59195870`)
 
 - **Tracker ID:** (assigned at ticketing) (milestone 2026-11-08-mnemonic-mcp-split)
 - **Scope:** `handler_code.go` `Search`: after the hybrid result, join each resolved hit's symbol to the graph's in-edges — caller count = distinct caller symbols; test files = distinct `*_test.go` files among callers (the same test-file rule `code_affected` uses); snippet = the span-start line via the existing read path; dedup edges by (caller uid, target uid). Unresolved hits: fields omitted, no error. The search package stays pure (no `hybrid.go` edits).
