@@ -28,11 +28,13 @@ type wireTool struct {
 	Execution *struct {
 		TaskSupport string `json:"taskSupport"`
 	} `json:"execution"`
-	Annotations struct {
-		ReadOnlyHint    *bool `json:"readOnlyHint"`
-		DestructiveHint *bool `json:"destructiveHint"`
-		IdempotentHint  *bool `json:"idempotentHint"`
-		OpenWorldHint   *bool `json:"openWorldHint"`
+	DeferLoading bool `json:"defer_loading"`
+	Annotations  struct {
+		Title           string `json:"title"`
+		ReadOnlyHint    *bool  `json:"readOnlyHint"`
+		DestructiveHint *bool  `json:"destructiveHint"`
+		IdempotentHint  *bool  `json:"idempotentHint"`
+		OpenWorldHint   *bool  `json:"openWorldHint"`
 	} `json:"annotations"`
 }
 
@@ -79,9 +81,15 @@ func TestEveryToolServesTheOpenWikiWireContract(t *testing.T) {
 			if w.Execution == nil || w.Execution.TaskSupport != "forbidden" {
 				t.Errorf("execution = %+v, want taskSupport forbidden", w.Execution)
 			}
-			if w.Annotations.ReadOnlyHint != nil || w.Annotations.DestructiveHint != nil ||
-				w.Annotations.IdempotentHint != nil || w.Annotations.OpenWorldHint != nil {
-				t.Errorf("annotations carry per-tool claims, want the spec defaults (all nil): %+v", w.Annotations)
+			if w.Annotations.Title == "" {
+				t.Errorf("annotations carry no title")
+			}
+			if w.Annotations.OpenWorldHint != nil && *w.Annotations.OpenWorldHint {
+				// the local-first server is closed-world except the two
+				// tools that may call an external LLM (contract.go):
+				if name != "code_index" && name != "projectwiki_generate" {
+					t.Errorf("openWorldHint = true, want false (local-first server): %+v", w.Annotations)
+				}
 			}
 			required := make(map[string]bool, len(w.InputSchema.Required))
 			for _, n := range w.InputSchema.Required {
@@ -236,5 +244,92 @@ func TestInputSchemaEnforcedOverStdio(t *testing.T) {
 				t.Fatalf("conforming call rejected: %s", text)
 			}
 		})
+	}
+}
+
+// engramMemContract is the memory family's annotation surface pinned 1:1
+// from the engram MCP response (the 2026-11-08 tools/list dump) — the
+// architecture source for the memory surface (the 2026-11-04 blueprint).
+var engramMemContract = map[string]struct {
+	title      string
+	readOnly   bool
+	destruct   bool
+	idempotent bool
+	deferLoad  bool
+}{
+	"mem_capture_passive":   {title: "Capture Learnings", idempotent: true, deferLoad: true},
+	"mem_compare":           {title: "Compare Memory Pair (Persist Semantic Verdict)", idempotent: true},
+	"mem_consolidate":       {title: "Consolidate Memories", destruct: true, deferLoad: true},
+	"mem_context":           {title: "Get Memory Context", readOnly: true, idempotent: true},
+	"mem_current_project":   {title: "Detect Current Project", readOnly: true, idempotent: true},
+	"mem_delete":            {title: "Delete Memory", destruct: true, deferLoad: true},
+	"mem_doctor":            {title: "Run Engram Doctor", readOnly: true, idempotent: true, deferLoad: true},
+	"mem_get_observation":   {title: "Get Observation", readOnly: true, idempotent: true},
+	"mem_judge":             {title: "Judge Memory Conflict"},
+	"mem_judge_many":        {title: "Judge Memory Relations in Batch", deferLoad: true},
+	"mem_list_projects":     {title: "List Known Projects", readOnly: true, idempotent: true},
+	"mem_merge_projects":    {title: "Merge Projects", destruct: true, idempotent: true, deferLoad: true},
+	"mem_pin":               {title: "Pin Memory", idempotent: true, deferLoad: true},
+	"mem_review":            {title: "Review Memories", deferLoad: true},
+	"mem_save":              {title: "Save Memory"},
+	"mem_save_prompt":       {title: "Save User Prompt"},
+	"mem_search":            {title: "Search Memory", readOnly: true, idempotent: true},
+	"mem_search_prompts":    {title: "Search Stored Prompts", readOnly: true, idempotent: true},
+	"mem_session_end":       {title: "End Session", idempotent: true, deferLoad: true},
+	"mem_session_finalize":  {title: "Finalize Session", idempotent: true, deferLoad: true},
+	"mem_session_start":     {title: "Start Session", idempotent: true, deferLoad: true},
+	"mem_session_summary":   {title: "Save Session Summary"},
+	"mem_stats":             {title: "Memory Stats", readOnly: true, idempotent: true, deferLoad: true},
+	"mem_suggest_topic_key": {title: "Suggest Topic Key", readOnly: true, idempotent: true, deferLoad: true},
+	"mem_timeline":          {title: "Memory Timeline", readOnly: true, idempotent: true, deferLoad: true},
+	"mem_unpin":             {title: "Unpin Memory", idempotent: true, deferLoad: true},
+	"mem_update":            {title: "Update Memory", deferLoad: true},
+}
+
+// TestMemAnnotationsMirrorEngram pins the memory family's annotation
+// surface against that dump: the exact per-tool titles, hint values, and
+// the defer_loading split. openWorldHint is false for every tool
+// (local-first). The one deliberate deviation: mem_doctor's title drops
+// the engram brand. mem_lookup is the mnemonic-only extension (the
+// wiki-first fallback — engram has no counterpart) and is not asserted.
+func TestMemAnnotationsMirrorEngram(t *testing.T) {
+	s, _, _ := newProjectWikiFixture(t, All)
+
+	for name, def := range s.toolDefs {
+		if !strings.HasPrefix(name, "mem_") {
+			continue
+		}
+		if name == "mem_lookup" {
+			continue
+		}
+		engram, ok := engramMemContract[name]
+		if !ok {
+			t.Errorf("mem tool %s is missing from the engram pin table (a new mem tool needs its engram-side entry or a documented deviation)", name)
+			continue
+		}
+		w := wireShape(t, def)
+		a := w.Annotations
+		wantTitle := engram.title
+		if name == "mem_doctor" {
+			wantTitle = "Run Doctor"
+		}
+		if a.Title != wantTitle {
+			t.Errorf("%s title = %q, want %q (the engram response)", name, a.Title, wantTitle)
+		}
+		if got := a.ReadOnlyHint; got == nil || *got != engram.readOnly {
+			t.Errorf("%s readOnlyHint = %v, want %v (the engram response)", name, got, engram.readOnly)
+		}
+		if got := a.DestructiveHint; got == nil || *got != engram.destruct {
+			t.Errorf("%s destructiveHint = %v, want %v (the engram response)", name, got, engram.destruct)
+		}
+		if got := a.IdempotentHint; got == nil || *got != engram.idempotent {
+			t.Errorf("%s idempotentHint = %v, want %v (the engram response)", name, got, engram.idempotent)
+		}
+		if got := a.OpenWorldHint; got == nil || *got {
+			t.Errorf("%s openWorldHint = %v, want false (local-first)", name, got)
+		}
+		if w.DeferLoading != engram.deferLoad {
+			t.Errorf("%s defer_loading = %v, want %v (the engram response)", name, w.DeferLoading, engram.deferLoad)
+		}
 	}
 }

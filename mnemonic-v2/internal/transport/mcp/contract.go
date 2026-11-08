@@ -82,6 +82,110 @@ var numberBounds = map[string]struct {
 	"confidence":  {min: 0, max: 1},
 }
 
+// toolMeta is the per-tool annotation surface (title, MCP hints,
+// defer_loading). The mem_* values mirror the engram MCP response 1:1
+// (the architecture source for the memory surface — the 2026-11-04
+// blueprint; doctor's title drops the engram brand). code_* and
+// projectwiki_* follow the same scheme: verb-first titles, correct
+// per-tool hints (mcp-go's NewTool defaults — destructive on everything
+// — are wrong for the read families), local-first openWorld=false
+// (true only where a tool may shell out to an external LLM), and the
+// high-frequency retrieval/save set loaded immediately while the
+// low-frequency and admin tools defer_loading (engram's split pattern —
+// hosts with bounded tool context can skip the tail until needed).
+var toolMeta = map[string]struct {
+	title      string
+	readOnly   bool
+	destruct   bool
+	idempotent bool
+	openWorld  bool
+	deferLoad  bool
+}{
+	// memory family — mirrored from the engram MCP response (2026-11-08 dump)
+	"mem_capture_passive":   {title: "Capture Learnings", idempotent: true, deferLoad: true},
+	"mem_compare":           {title: "Compare Memory Pair (Persist Semantic Verdict)", idempotent: true},
+	"mem_consolidate":       {title: "Consolidate Memories", destruct: true, deferLoad: true},
+	"mem_context":           {title: "Get Memory Context", readOnly: true, idempotent: true},
+	"mem_current_project":   {title: "Detect Current Project", readOnly: true, idempotent: true},
+	"mem_delete":            {title: "Delete Memory", destruct: true, deferLoad: true},
+	"mem_doctor":            {title: "Run Doctor", readOnly: true, idempotent: true, deferLoad: true},
+	"mem_get_observation":   {title: "Get Observation", readOnly: true, idempotent: true},
+	"mem_judge":             {title: "Judge Memory Conflict"},
+	"mem_judge_many":        {title: "Judge Memory Relations in Batch", deferLoad: true},
+	"mem_list_projects":     {title: "List Known Projects", readOnly: true, idempotent: true},
+	"mem_lookup":            {title: "Look Up Memory", readOnly: true, idempotent: true},
+	"mem_merge_projects":    {title: "Merge Projects", destruct: true, idempotent: true, deferLoad: true},
+	"mem_pin":               {title: "Pin Memory", idempotent: true, deferLoad: true},
+	"mem_review":            {title: "Review Memories", deferLoad: true},
+	"mem_save":              {title: "Save Memory"},
+	"mem_save_prompt":       {title: "Save User Prompt"},
+	"mem_search":            {title: "Search Memory", readOnly: true, idempotent: true},
+	"mem_search_prompts":    {title: "Search Stored Prompts", readOnly: true, idempotent: true},
+	"mem_session_end":       {title: "End Session", idempotent: true, deferLoad: true},
+	"mem_session_finalize":  {title: "Finalize Session", idempotent: true, deferLoad: true},
+	"mem_session_start":     {title: "Start Session", idempotent: true, deferLoad: true},
+	"mem_session_summary":   {title: "Save Session Summary"},
+	"mem_stats":             {title: "Memory Stats", readOnly: true, idempotent: true, deferLoad: true},
+	"mem_suggest_topic_key": {title: "Suggest Topic Key", readOnly: true, idempotent: true, deferLoad: true},
+	"mem_timeline":          {title: "Memory Timeline", readOnly: true, idempotent: true, deferLoad: true},
+	"mem_unpin":             {title: "Unpin Memory", idempotent: true, deferLoad: true},
+	"mem_update":            {title: "Update Memory", deferLoad: true},
+	// code family — the core navigation/retrieval set is eager; the
+	// heavy and rarely needed tools defer.
+	"code_affected":          {title: "Find Affected Tests", readOnly: true, idempotent: true, deferLoad: true},
+	"code_circles":           {title: "Find Dependency Circles", readOnly: true, idempotent: true, deferLoad: true},
+	"code_communities":       {title: "List Code Communities", readOnly: true, idempotent: true, deferLoad: true},
+	"code_configs":           {title: "List Code Configs", readOnly: true, idempotent: true, deferLoad: true},
+	"code_dep_impact":        {title: "Analyze Dependency Impact", readOnly: true, idempotent: true, deferLoad: true},
+	"code_deps":              {title: "List Code Dependencies", readOnly: true, idempotent: true, deferLoad: true},
+	"code_docs":              {title: "Read Code Docs", readOnly: true, idempotent: true, deferLoad: true},
+	"code_embedding_status":  {title: "Embedding Status", readOnly: true, idempotent: true, deferLoad: true},
+	"code_explain":           {title: "Explain Code Node", readOnly: true, idempotent: true, deferLoad: true},
+	"code_explain_community": {title: "Explain Community", readOnly: true, idempotent: true, deferLoad: true},
+	"code_god_nodes":         {title: "Find God Nodes", readOnly: true, idempotent: true, deferLoad: true},
+	"code_get_callees":       {title: "Get Symbol Callees", readOnly: true, idempotent: true},
+	"code_get_callers":       {title: "Get Symbol Callers", readOnly: true, idempotent: true},
+	"code_get_dependents":    {title: "Get Symbol Dependents", readOnly: true, idempotent: true},
+	"code_get_hierarchy":     {title: "Get Code Hierarchy", readOnly: true, idempotent: true, deferLoad: true},
+	"code_get_implementors":  {title: "Get Implementors", readOnly: true, idempotent: true, deferLoad: true},
+	"code_get_tests_for":     {title: "Get Symbol Tests", readOnly: true, idempotent: true, deferLoad: true},
+	"code_grep":              {title: "Structural Code Grep", readOnly: true, idempotent: true, deferLoad: true},
+	"code_impact":            {title: "Analyze Code Impact", readOnly: true, idempotent: true},
+	"code_index":             {title: "Run Code Index", idempotent: true, openWorld: true, deferLoad: true},
+	"code_navigates":         {title: "Find Code Navigations", readOnly: true, idempotent: true, deferLoad: true},
+	"code_orient":            {title: "Orient on Code", readOnly: true, idempotent: true},
+	"code_packages":          {title: "List Code Packages", readOnly: true, idempotent: true, deferLoad: true},
+	"code_path":              {title: "Find Code Path", readOnly: true, idempotent: true, deferLoad: true},
+	"code_pdg_query":         {title: "Query PDG", readOnly: true, idempotent: true, deferLoad: true},
+	"code_process":           {title: "Explain Process", readOnly: true, idempotent: true, deferLoad: true},
+	"code_processes":         {title: "List Code Processes", readOnly: true, idempotent: true, deferLoad: true},
+	"code_read":              {title: "Read Code", readOnly: true, idempotent: true},
+	"code_rename":            {title: "Rename Code Symbol", idempotent: true, deferLoad: true},
+	"code_resolve":           {title: "Resolve Symbol", readOnly: true, idempotent: true},
+	"code_route":             {title: "Route Code Request", readOnly: true, idempotent: true, deferLoad: true},
+	"code_search":            {title: "Search Code", readOnly: true, idempotent: true},
+	"code_semantic":          {title: "Semantic Code Search", readOnly: true, idempotent: true, deferLoad: true},
+	"code_sql_schema":        {title: "Read SQL Schema", readOnly: true, idempotent: true, deferLoad: true},
+	"code_status":            {title: "Code Index Status", readOnly: true, idempotent: true},
+	"code_taint":             {title: "Taint Analysis", readOnly: true, idempotent: true, deferLoad: true},
+	"code_unresolved":        {title: "List Unresolved Symbols", readOnly: true, idempotent: true, deferLoad: true},
+	"code_watch":             {title: "Watch Code Changes", deferLoad: true},
+	// projectwiki family — stage-1/2 retrieval + status eager; generation,
+	// gates and admin defer.
+	"projectwiki_bootstrap":    {title: "Bootstrap ProjectWiki", idempotent: true, deferLoad: true},
+	"projectwiki_cite_source":  {title: "Cite ProjectWiki Source", idempotent: true, deferLoad: true},
+	"projectwiki_generate":     {title: "Generate ProjectWiki", idempotent: true, openWorld: true, deferLoad: true},
+	"projectwiki_index":        {title: "Index ProjectWiki", idempotent: true, deferLoad: true},
+	"projectwiki_lint":         {title: "Lint ProjectWiki", idempotent: true, deferLoad: true},
+	"projectwiki_query":        {title: "ProjectWiki Query", readOnly: true, idempotent: true},
+	"projectwiki_read":         {title: "ProjectWiki Read", readOnly: true, idempotent: true},
+	"projectwiki_rebuild_meta": {title: "Rebuild ProjectWiki Meta", idempotent: true, deferLoad: true},
+	"projectwiki_reindex":      {title: "Reindex ProjectWiki", idempotent: true, deferLoad: true},
+	"projectwiki_search":       {title: "ProjectWiki Search", readOnly: true, idempotent: true},
+	"projectwiki_status":       {title: "ProjectWiki Status", readOnly: true, idempotent: true},
+	"projectwiki_validate":     {title: "Validate ProjectWiki", readOnly: true, idempotent: true, deferLoad: true},
+}
+
 // finalizeMCPContract brings one tool definition up to the OpenWiki-shaped
 // wire contract:
 //   - inputSchema.$schema = draft-07 (declared, as OpenWiki's SDK does);
@@ -92,15 +196,30 @@ var numberBounds = map[string]struct {
 //   - execution.taskSupport = "forbidden" (every tool is a synchronous
 //     request; none is a long-running task — OpenWiki emits this on all
 //     of its tools);
-//   - annotations reduced to the spec defaults (all hints nil: the MCP
-//     spec's assumed defaults are exactly mcp-go's NewTool hard-coded
-//     values — mcp-go emits them explicitly on every tool, OpenWiki's
-//     SDK omits the hints entirely; nil claims nothing per tool).
+//   - annotations per the engram MCP response's pattern (the memory
+//     surface's architecture source): a human-readable title, correct
+//     per-tool hint values (mcp-go's NewTool defaults — destructive on
+//     everything — are wrong for the read families), and defer_loading on
+//     the low-frequency tail;
+//   - openWorld=false everywhere (local-first server) except the tools
+//     that may call an external LLM.
 //
 // Idempotent: re-finalizing a finalized definition is a no-op.
 func finalizeMCPContract(t mcplib.Tool) mcplib.Tool {
 	t.Execution = &mcplib.ToolExecution{TaskSupport: mcplib.TaskSupportForbidden}
-	t.Annotations = mcplib.ToolAnnotation{}
+	m, hasMeta := toolMeta[t.Name]
+	if !hasMeta {
+		t.Annotations = mcplib.ToolAnnotation{}
+	} else {
+		t.Annotations = mcplib.ToolAnnotation{
+			Title:           m.title,
+			ReadOnlyHint:    mcplib.ToBoolPtr(m.readOnly),
+			DestructiveHint: mcplib.ToBoolPtr(m.destruct),
+			IdempotentHint:  mcplib.ToBoolPtr(m.idempotent),
+			OpenWorldHint:   mcplib.ToBoolPtr(m.openWorld),
+		}
+		t.DeferLoading = m.deferLoad
+	}
 	sch := t.InputSchema
 	if sch.AdditionalFields == nil {
 		sch.AdditionalFields = map[string]any{}
