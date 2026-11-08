@@ -146,13 +146,48 @@ Diagrams are part of high-quality generation, not decoration. Where a flow, life
 ## Commands
 
 - `projectwiki bootstrap` — scaffold the vault if absent; idempotent (no-op when the sentinel exists). Also writes/refreshes the `### ProjectWiki` routing block in the repo root's `AGENTS.md` (marker-delimited, in-place — the agent's discovery path; ensured even on a no-op bootstrap).
-- `projectwiki index` — full rebuild of the derived FTS (the only "fix" for derived state).
 - `projectwiki query <terms>` — stage-1 ranked links + snippets (links-first).
-- `projectwiki validate <rel_path>` — pin-check (fresh/stale/unresolved) + claims.
-- `projectwiki lint` — deterministic health (`missing_title`, `stale_index`) + safe fix; target `projectwiki lint: clean`.
+- `projectwiki read <rel_path>` — stage-2: full page (or one `##` section) + pin-check state.
+- `projectwiki search <terms>` — raw FTS power path (more rows, longer snippets).
+- `projectwiki generate` — proactive save: incremental by default, `--full` re-derives; `changed: N`; degraded runs declare it.
+- `projectwiki index` — incremental reindex (changed pages only, advances the checkpoint) — the same-edit rule.
+- `projectwiki reindex` — FULL rebuild of the derived FTS from the markdown (the only "fix" for derived state). Idempotent.
+- `projectwiki validate <rel_path>` — pin-check (fresh/stale/unresolved) + claims; `--strict` carries the CI verdict.
+- `projectwiki lint` — deterministic health (`missing_title`, `stale_index`) + safe fix (`--fix`); target `projectwiki lint: clean`.
 - `projectwiki status` — indexed page count + run phase.
-- `projectwiki cite-source <rel_path>` — external-source citation + section granularity.
+- `projectwiki cite-source <rel_path>` — external-source citation (stable id, idempotent).
+- `projectwiki rebuild-meta` — rebuild derived metadata that is NOT the FTS index (run-state checkpoint + backlink in-degree cache).
 - `projectwiki eval` — retrieval regression net.
+
+The same functions are served as `projectwiki_*` MCP tools — one shared ProjectWikiHandler behind CLI and MCP, so the surfaces never diverge. In an MCP-connected session, prefer the tools over shelling out.
+
+## MCP tools
+
+The `mnemonic` MCP server (stdio) exposes the engine as `projectwiki_*` tools. The server's MCP instructions carry the routing (when to retrieve, trust rules, the ship gate); this skill is the full discipline.
+
+**Agent profile (8 tools — the working set):**
+
+| Tool | Function |
+|---|---|
+| `projectwiki_query` | Stage-1 retrieval: ranked links + 1-line snippets (`type` / `grounded_only` / `match_mode` filters). Thin result → fall back to `mem_lookup` or a direct markdown read. |
+| `projectwiki_read` | Stage-2 hydration: full page or one `##` section + pin-check state on grounded pages (+ backlinks on request). |
+| `projectwiki_search` | Raw FTS power path: more rows, longer snippets. Not the default retrieval. |
+| `projectwiki_generate` | Proactive save: incremental (entity-targeted) by default, `full` re-derives; returns `changed: N`; degraded runs carry `degraded:true` + a reason. |
+| `projectwiki_validate` | Pin-check (fresh/stale/unresolved); empty paths = every grounded page; `strict` carries the CI verdict (ok = no drift). |
+| `projectwiki_lint` | Deterministic health (missing titles, empty bodies, stale index rows); `fix` auto-repairs the safe findings. |
+| `projectwiki_status` | Vault health: indexed page count, run phase/id, baseline + event counts. |
+| `projectwiki_cite_source` | External citation on a page (stable `external:<name>` id; idempotent per name+version). |
+
+**Admin profile (`all`) — +4 maintenance tools:**
+
+| Tool | Function |
+|---|---|
+| `projectwiki_index` | Incremental reindex (changed pages only, advances the checkpoint) — the same-edit rule. |
+| `projectwiki_reindex` | FULL rebuild of the FTS index from the markdown. Idempotent. |
+| `projectwiki_bootstrap` | Scaffold the vault (sentinel, schema, templates, page folders). Idempotent no-op on an existing vault. |
+| `projectwiki_rebuild_meta` | Rebuild derived metadata that is NOT the FTS index: run-state checkpoint + backlink in-degree cache. |
+
+Writes (`projectwiki_generate`, `projectwiki_cite_source`) assert ownership via `expected_project` (mandatory) and serialize on the ProjectWiki write queue — distinct from the memory write queue. The `## Commands` CLI verbs map 1:1 to these tools (`projectwiki query` ↔ `projectwiki_query`, `projectwiki cite-source` ↔ `projectwiki_cite_source`, …).
 
 ## Verification
 
