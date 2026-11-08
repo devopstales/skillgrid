@@ -57,7 +57,7 @@ const (
 // tui subpath via the bridge's package.json. The .tsx is retired.
 const (
 	logoBridgeRel   = "plugins/opencode/skillgrid-logo" // bridge dir in repo (committed)
-	logoBridgeEntry = "./tui-plugins/skillgrid-logo"   // relative entry in V2 cli.json/opencode.jsonc
+	logoBridgeEntry = "./tui-plugins/skillgrid-logo"    // relative entry in V2 cli.json/opencode.jsonc
 )
 
 // findRepoRoot walks upward from start (or cwd when empty) for a marker asset,
@@ -364,6 +364,9 @@ func installAgentConfig(c *Config, agent string) error {
 		// the managed opencode.jsonc. The stale absolute .tsx entry (written
 		// by older installers) is retired.
 		if err := installOpenCodeLogo(repoRoot, dir, dry); err != nil {
+			return err
+		}
+		if err := ensureConfigFile(filepath.Join(dir, "tui.json"), dry); err != nil {
 			return err
 		}
 		if err := setJSON(filepath.Join(dir, "tui.json"), "theme", "tokyonight", dry); err != nil {

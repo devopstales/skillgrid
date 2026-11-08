@@ -503,6 +503,7 @@ func TestMemoryAndPersonasBoundary(t *testing.T) {
 		"rules/mnemonic.mdc",
 		".cursor-plugin/plugin.json",
 		"plugins/opencode/skillgrid-logo.tsx",
+		"plugins/opencode/skillgrid-logo.js",
 		"plugins/kilo/skillgrid-logo.tsx",
 		"hooks/tool-call-capture.js",
 		"hooks/stop-tests.js",
@@ -598,6 +599,7 @@ func TestSetupAgentsIntegration(t *testing.T) {
 		"rules/mnemonic.mdc",
 		".cursor-plugin/plugin.json",
 		"plugins/opencode/skillgrid-logo.tsx",
+		"plugins/opencode/skillgrid-logo.js",
 		"plugins/kilo/skillgrid-logo.tsx",
 		"hooks/tool-call-capture.js",
 		"hooks/stop-tests.js",
@@ -902,12 +904,12 @@ mcp:
 	}
 	got := collectNPMPackages(&cfg)
 
-	// opencode-ai (agent), @kilocode/cli (agent), install-mcp (MCP CLI),
+	// @opencode/cli (agent), @kilocode/cli (agent), install-mcp (MCP CLI),
 	// @upstash/context7-mcp (MCP server), @playwright/mcp@latest (MCP server),
 	// skills (global), @cucumber/cucumber (global), backlog.md (global),
 	// jscpd (global)
 	want := map[string]bool{
-		"opencode-ai":            true,
+		"@opencode/cli":          true,
 		"@kilocode/cli":          true,
 		"install-mcp":            true,
 		"@upstash/context7-mcp":  true,
@@ -950,8 +952,8 @@ mcp:
 }
 
 func TestInstallNPMBatchAllowScripts(t *testing.T) {
-	// Verify that installNPMBatch includes --allow-scripts for opencode-ai
-	// in the batched npm command. batchLookPath is stubbed so opencode-ai
+	// Verify that installNPMBatch includes --allow-scripts for @opencode/cli
+	// in the batched npm command. batchLookPath is stubbed so @opencode/cli
 	// is deterministically "not installed" and always goes into the batch.
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, "config.d"), 0o755); err != nil {
@@ -993,19 +995,19 @@ mcp: []
 		t.Fatal("no npm command captured — batchLookPath stub not working")
 	}
 
-	// opencode-ai must be in the batch with --allow-scripts.
+	// @opencode/cli must be in the batch with --allow-scripts.
 	hasAllowScripts := false
 	for i, arg := range capturedArgs {
-		if arg == "--allow-scripts=opencode-ai" {
+		if arg == "--allow-scripts=@opencode/cli" {
 			hasAllowScripts = true
-			if i+1 >= len(capturedArgs) || capturedArgs[i+1] != "opencode-ai" {
-				t.Errorf("--allow-scripts=opencode-ai not followed by package name: %v", capturedArgs)
+			if i+1 >= len(capturedArgs) || capturedArgs[i+1] != "@opencode/cli" {
+				t.Errorf("--allow-scripts=@opencode/cli not followed by package name: %v", capturedArgs)
 			}
 			break
 		}
 	}
 	if !hasAllowScripts {
-		t.Errorf("opencode-ai in batch but missing --allow-scripts: %v", capturedArgs)
+		t.Errorf("@opencode/cli in batch but missing --allow-scripts: %v", capturedArgs)
 	}
 }
 

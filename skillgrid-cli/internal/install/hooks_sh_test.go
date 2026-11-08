@@ -75,6 +75,7 @@ func newHookRepo(t *testing.T, hooksDir string) (string, string) {
 	} {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = root
+		cmd.Env = hermeticGitEnv()
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("git %v: %v: %s", args, err, out)
@@ -103,10 +104,18 @@ func runHook(t *testing.T, root, hook string) (int, string) {
 	return code, errb.String()
 }
 
+// hermeticGitEnv isolates global/system git config so a developer's
+// global core.hooksPath can't run hooks inside the throwaway test repos
+// (the tests invoke the hook scripts directly, not through git).
+func hermeticGitEnv() []string {
+	return append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+}
+
 // gitIn runs a git command confined to dir.
 func gitIn(dir string, args ...string) *exec.Cmd {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
+	cmd.Env = hermeticGitEnv()
 	return cmd
 }
 
