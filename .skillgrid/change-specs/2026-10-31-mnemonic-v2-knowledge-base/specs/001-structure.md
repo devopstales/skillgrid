@@ -61,6 +61,10 @@ follow the domain vocabulary: "change" is the SDD unit (`current change` in
 ├── architecture/               module map, data flow, boundaries
 ├── gotchas/                    discovered issues / non-obvious behavior
 ├── glossary/                   domain terms
+├── sources/                    one summary page per external source (013)
+├── concepts/                   reusable ideas / patterns / techniques (013)
+├── syntheses/                  cross-cutting analyses / durable query answers (013)
+├── preferences/                user preferences (013; reflect-written, user-owned)
 # ── input packets (engine-owned, immutable, git-tracked — 012) ──
 #    present only when config.json "trajectories" is true (created at bootstrap,
 #    or on first capture)
@@ -109,6 +113,7 @@ no `outputs/` layer (KB-9).
 |---|---|---|---|
 | `decisions/ invariants/ workflows/ architecture/ gotchas/ glossary/` | the agent (generated) + the user (reviewed) | ✅ | ✅ |
 | `skills/ cases/` (opt-in, 012) | the agent (distilled) + the user (reviewed) | ✅ | ✅ |
+| `sources/ concepts/ syntheses/ preferences/` (013) | the agent (generated — research capture + reflect) + the user (reviewed; `preferences/` user-owned) | ✅ | ✅ |
 | `trajectories/` (packets, 012) | the engine (captured) | ❌ (immutable — re-capture, never edit) | ❌ |
 | `index/` (derived projections) | the engine | ❌ (rebuilt by `projectwiki_index`/`projectwiki_reindex`/`projectwiki_rebuild_meta`) | ❌ |
 | the `projectwiki_*` tables (shared DB) | the engine | ❌ | ❌ |
@@ -127,9 +132,9 @@ edit must be followed by `projectwiki_index` (re-index) +, if grounded, `project
 
 ## 4. The page taxonomy (code-first types)
 
-Six core page types + two opt-in working-memory types (012). The first three are
-**grounded** (they pin code and carry `anchors:`); the rest are **contextual** (they
-synthesize but do not pin a specific line of code).
+Six core page types + two opt-in working-memory types (012) + four research/preference
+types (013). The first three are **grounded** (they pin code and carry `anchors:`); the
+rest are **contextual** (they synthesize but do not pin a specific line of code).
 
 | Type | Folder | Grounded? | What it captures |
 |---|---|---|---|
@@ -141,6 +146,10 @@ synthesize but do not pin a specific line of code).
 | `glossary` | `glossary/` | ⬜ | a domain term (cited) |
 | `skill` (opt-in, 012) | `skills/` | ⬜ | a generalized "how I do X", distilled from one or more trajectories (`sources:` cites `trajectory:TRJ-*`) |
 | `case` (opt-in, 012) | `cases/` | ⬜ | one concrete past run (cites its one `trajectory:TRJ-*`; agent-authored `outcome: success \| failure \| partial`) |
+| `source` (013) | `sources/` | ⬜ | one summary page per external source — a synthesis, not the source (KB-8); cites `external:` + version + `build_fingerprint` |
+| `concept` (013) | `concepts/` | ⬜ | a reusable idea / pattern / technique discovered in research or a session (cited) |
+| `synthesis` (013) | `syntheses/` | ⬜ | a cross-cutting analysis / durable query answer — the hub of a research-result tree (cited) |
+| `preference` (013) | `preferences/` | ⬜ | a user preference — how the user wants things done; one page per preference area (cited to the `memory:` observation it was stated in) |
 
 **One file per thing** (golden rule): each decision / invariant / workflow gets its own
 `.md`. A page is not a directory of sub-pages; sub-topics are separate pages linked by
@@ -205,7 +214,7 @@ The wikilink `[[invariants/enterprise-grace]]` is **relative to the vault root**
 | Field | Required | Notes |
 |---|---|---|
 | `title` | ✅ | human-readable; becomes the page's canonical label |
-| `type` | ✅ | one of the eight (the six core + the opt-in `Skill`/`Case`, 012); canonical case (`Decision`, `InvariantContract`, `BusinessWorkflow`, `Architecture`, `Gotcha`, `GlossaryTerm`, `Skill`, `Case`) |
+| `type` | ✅ | one of the twelve (six core + opt-in `Skill`/`Case`, 012 + `SourceSummary`/`Concept`/`Synthesis`/`Preference`, 013); canonical case (`Decision`, `InvariantContract`, `BusinessWorkflow`, `Architecture`, `Gotcha`, `GlossaryTerm`, `Skill`, `Case`, `SourceSummary`, `Concept`, `Synthesis`, `Preference`) |
 | `project` | ✅ | the owning project (matches the store's project) |
 | `aliases` | ⬜ | alternate wikilink targets; lint flags duplicate aliases across pages |
 | `anchors` | grounded only | the pin targets (§5.2) |
@@ -292,6 +301,10 @@ orphaned citation (the page may be stale).
   in-degree ≤ 1 (alias-resolved) is an orphan candidate. Outgoing (golden rule) and
   incoming (lint) are distinct — a page can satisfy the golden rule and still be an
   orphan if nothing links *to* it.
+- **Flag contradictions** (golden rule, llm-wiki rule 7; 013 §6): when a new finding
+  contradicts an existing page, the two pages link to each other and the superseded
+  page (or claim) moves to `status: deprecated` (OKF lifecycle). Contradictions are
+  never silently overwritten — both sides stay readable and linked.
 
 ## 7. `.ignore` (the read boundary)
 
@@ -303,7 +316,8 @@ shared DB (that is the store's concern). Syntactically gitignore-like.
 
 **Index scope is a whitelist, not a blacklist.** `projectwiki_index` / `projectwiki_reindex` (004 §4)
 scan exactly the page folders — `decisions/ invariants/ workflows/ architecture/
-gotchas/ glossary/` (+ opt-in `skills/ cases/`, 012) — and nothing else. Everything
+gotchas/ glossary/` (+ opt-in `skills/ cases/`, 012; + `sources/ concepts/
+syntheses/ preferences/`, 013) — and nothing else. Everything
 else under the vault root is out of index scope by construction: `index/` (derived
 projections), `templates/`, `.obsidian/` and other dot-dirs, `PROJECTWIKI_SCHEMA.md`,
 and the vault-root project docs (`ARCHITECTURE.md` / `ASSUMPTIONS.md` / `WINDOWS.md`).
@@ -321,7 +335,9 @@ The sentinel that marks a valid ProjectWiki. Minimal fields:
 {
   "schema_version": 1,
   "project": "skillgrid",
-  "page_types": ["decision","invariant","workflow","architecture","gotcha","glossary"],
+  "page_types": ["decision","invariant","workflow","architecture","gotcha","glossary","source","concept","synthesis","preference"],
+                                       // core + 013 always on; opt-in "skill","case" (012)
+                                       //   added at bootstrap when trajectories is true
   "anchor_engine": "auto",            // "auto" | "ripgrep" | "graph" (KB-O1)
   "strict": false,                     // pin-check fails the turn when true (KB-O3)
   "trajectories": false,               // 012: working-memory (skill/case) opt-in; the
@@ -329,7 +345,9 @@ The sentinel that marks a valid ProjectWiki. Minimal fields:
                                        //   skills/ cases/ trajectories/ dirs are created
                                        //   at bootstrap / first capture)
   "recall": {                          // 005 §2.3: the stage-1 inline carve-out
-    "inline_types": ["invariant","gotcha","skill","case"],
+    "inline_types": ["invariant","gotcha","skill","case","preference"],
+                                       // 013: preferences inline (short, immediately
+                                       //   actionable); sources/concepts/syntheses stay links-only
     "inline_max": 1600,                // chars; a page body longer is links-only
     "links_threshold": 50              // page count below → previews inline for all types
   }
@@ -337,7 +355,8 @@ The sentinel that marks a valid ProjectWiki. Minimal fields:
 ```
 
 `projectwiki_bootstrap` writes the scaffold (`config.json`, `PROJECTWIKI_SCHEMA.md`, `templates/`,
-the empty page folders, `.ignore`) when a project has no ProjectWiki yet. It is
+the empty page folders — including 013's `sources/ concepts/ syntheses/ preferences/` —, `.ignore`)
+when a project has no ProjectWiki yet. It is
 **idempotent** — a second `projectwiki_bootstrap` on an existing vault is a no-op.
 
 ## 9. Invariants
@@ -348,5 +367,19 @@ is the truth, the index is derived).
 
 ## 10. Open items
 
-None new — the layout, taxonomy, and format are fixed. KB-O1 (anchor engine default) and
-KB-O3 (strict mode) are carried to `006-validate` / `008-transport`.
+013 (wiki autolearning, 2026-11-08): the four research/preference types' engine side
+(`collectPages` whitelist extension under the KB-T16 umbrella, bootstrap scaffold +
+templates, `PROJECTWIKI_SCHEMA.md` section) and the skill write paths (research capture,
+reflect triage) are carried to `013-wiki-autolearning` §9. ADR-0060 (the structure
+decision) is PROPOSED — its LOCKED row awaits explicit user OK. KB-O1 (anchor engine
+default) and KB-O3 (strict mode) are carried to `006-validate` / `008-transport`.
+
+## Amendment — 2026-11-08 (013: wiki autolearning)
+
+This spec was amended in place for `013-wiki-autolearning` (ADR-0060, PROPOSED; the
+flat, type-driven llm-wiki structure): §2.2 adds the `sources/ concepts/ syntheses/
+preferences/` folders; §3 their ownership row; §4 + §5.1 the four contextual types
+(`SourceSummary`, `Concept`, `Synthesis`, `Preference` — the type count is now twelve,
+not eight); §6 the contradiction golden rule; §7 the index-scope whitelist; §8 the
+sentinel `page_types` + `recall.inline_types` (`preference`) and the bootstrap scaffold.
+All inline edits are marked `(013)`.
