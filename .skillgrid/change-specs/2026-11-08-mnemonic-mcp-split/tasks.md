@@ -35,7 +35,7 @@ Chain strategy: single-branch serial
 > **Precondition (all tickets):** blueprint approved + committed; `acceptance.feature` committed before any code-zone commit (pre-commit zone guard); `state.yaml` repointed to this change (done 2026-11-08); baseline probe artifacts re-fetchable per the briefing inventory (the /tmp copies are ephemeral).
 > **One-way doors:** D1 (TICKET-01) · D2 + D3 (TICKET-02) · D4 (TICKET-03) — each ticket stops for explicit user approval before execution, per the blueprint.
 
-### TICKET-01 — Rename module `mnemonic-v2/` → `mnemonic/` (door check)
+### TICKET-01 — Rename module `mnemonic-v2/` → `mnemonic/` (door check) ✅ done 2026-11-08 (`08f8984c`)
 
 > ⚠ one-way: D1 (module path + directory rename)
 
@@ -50,7 +50,7 @@ Chain strategy: single-branch serial
 - **Reversibility:** one-way (D1). In-repo only today; `skillgrid-cli` does not import the module.
 - **Fails-when:** build or suite red at the new path (the door check — stop; the blueprint is void) OR any `mnemonic-v2` reference left in go.mod/go.work/Taskfile.
 
-### TICKET-02 — Family-first CLI tree
+### TICKET-02 — Family-first CLI tree ✅ done 2026-11-08 (`5b047ddb`)
 
 > ⚠ one-way: D2 (CLI cutover, no aliases) · D3 (top-level `mnemonic mcp` + `mnemonic serve` removed)
 
@@ -65,7 +65,7 @@ Chain strategy: single-branch serial
 - **Reversibility:** one-way (D2, D3).
 - **Fails-when:** an old path still succeeds, a new path errors, or the "did you mean" line is missing on a removed path.
 
-### TICKET-03 — Per-family MCP servers + serial stdio (tracer end-to-end)
+### TICKET-03 — Per-family MCP servers + serial stdio (tracer end-to-end) ✅ done 2026-11-08 (`39b7e2ed`)
 
 > ⚠ one-way: D4 (server identity split: `mnemonic-v2` → `mnemonic-{memory,code,projectwiki}`)
 
