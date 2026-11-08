@@ -2,7 +2,7 @@
 
 > Change: `.skillgrid/change-specs/2026-11-08-mnemonic-mcp-split/` (moves to `.skillgrid/change-archive/2026-11-08-mnemonic-mcp-split/` at ship)
 > Generated: 2026-11-08T19:05:00+01:00 (qa)
-> Gate: CONCERNS
+> Gate: PASS (re-rendered 2026-11-08 after W001 fix `0b9e65cd`)
 >
 > Two phases, one file: **qa** writes the QA half (the sections above `## Final-State Facts`,
 > through `## Gate Decision` + `## Human Override`) into the spec folder. **ship** reads the
@@ -143,11 +143,11 @@ error.
 | fresh-install-writes-live-mcp-commands | skillgrid-cli setup suite (hermes/protocol/cursor family-command assertions) | yes | pass |
 | architecture-page-matches-the-new-tree | `projectwiki validate ARCHITECTURE.md` → ok (not_grounded) | yes | pass |
 | adr-lands-and-indexes | `check-adr-invariants.mjs` → OK 58 files/59 rows | yes | pass |
-| full-suite-green-race | `go test ./... -race` both modules — mnemonic 18/18 packages green; skillgrid-cli: 4 pre-existing failures in `internal/install` (identical at baseline `f30aea50`, worktree run) | yes | pass (named exception — Findings W001) |
+| full-suite-green-race | `go test ./... -race` both modules — mnemonic 18/18 packages green; skillgrid-cli all packages green (4 pre-existing `internal/install` failures fixed in re-verification, `0b9e65cd`) | yes | pass |
 | mutation-of-serial-option-is-caught | live mutation: `WithWorkerPoolSize(1)` removed → `TestSerialToolCalls` FAIL (RED, this session) | yes | pass |
 | mutation-of-renderer-is-caught | live mutation: blast-radius section removed → `TestExploreResponseShape` FAIL (RED, this session) | yes | pass |
 
-**Coverage:** 32/32 scenarios covered by a test or named verification that ran this session; 31 pass clean, 1 passes with a named pre-existing exception (W001).
+**Coverage:** 32/32 scenarios covered by a test or named verification that ran this session; all 32 pass clean (the one named pre-existing exception, W001, was fixed in re-verification — `0b9e65cd`).
 
 ## Verification-Gap Audit
 
@@ -261,7 +261,7 @@ No user-facing input handling changed in this change beyond what the stdio proto
 | Mutation | not configured (L4 floor via live sampling) | 0 | 2/2 mutations caught (RED) | N/A (floor met) |
 | Lint | not configured (go vet via `go test`) | errors only | 0 errors | PASS |
 | Typecheck | not configured (Go compilation) | errors only | 0 errors | PASS |
-| P0 pass rate | plan rows 1,2,3,4,5,6,7,16 | 100 | 100 (row 7: mnemonic 18/18; the 4 pre-existing v1 failures are outside the change footprint — W001) | PASS |
+| P0 pass rate | plan rows 1,2,3,4,5,6,7,16 | 100 | 100 (row 7: both modules green — the 4 v1 `internal/install` failures were fixed in re-verification, `0b9e65cd`) | PASS |
 | P1 pass rate | plan rows 8–17 | 95 | 100 | PASS |
 | Trivy security | `trivy fs . --scanners vuln …` | report only | 0 in main tree | N/A |
 | Duplication (jscpd) | `npx jscpd` (changed files) | report only | 72 clones · 2.69% lines (pre-existing, see below) | N/A |
@@ -313,7 +313,7 @@ No user-facing input handling changed in this change beyond what the stdio proto
 | Dimension | Verdict |
 |---|---|
 | Goal-backward verification (weakest truth) | VERIFIED (7/7 truths) |
-| Traceability (weakest scenario) | PARTIAL (`full-suite-green-race` — named pre-existing v1 exception, W001) |
+| Traceability (weakest scenario) | VERIFIED (`full-suite-green-race` now clean after W001 fix) |
 | Verification-gap audit | SUGGESTION (2 gaps found + fixed this session; 0 open) |
 | TDD evidence (weakest ticket) | OK (7/7) |
 | Assertion quality audit (weakest finding) | SUGGESTION (1 fixed this session; 0 open) |
@@ -323,7 +323,7 @@ No user-facing input handling changed in this change beyond what the stdio proto
 | Security audit | SUGGESTION (worktree findings only; main tree clean) |
 | Verification scope (composite) | COMPLETE (state-drift row: PARSE ERROR, pre-existing, no verdict effect) |
 
-**FLOOR:** Traceability — PARTIAL (the `full-suite-green-race` named exception). The gate can never render higher than CONCERNS.
+**FLOOR:** all floors at or above their thresholds (weakest: Traceability — VERIFIED after the W001 fix). No floor caps the gate.
 
 ## Findings
 
@@ -333,7 +333,7 @@ No user-facing input handling changed in this change beyond what the stdio proto
 
 ### WARNING (should fix before archive)
 
-- **W001 — 4 pre-existing v1 suite failures** in `skillgrid-cli/internal/install`: `TestMemoryAndPersonasBoundary`, `TestCollectNPMPackages`, `TestInstallNPMBatchAllowScripts`, `TestPrePushBlocksMalformedCloses`. Verified identical at the change's baseline (`f30aea50`, worktree run) — not caused by this change; the module is untouched by design (R1) and the change's only v1 footprint is `internal/setup` (green). One diagnosed root: `TestCollectNPMPackages` fails on npm package-list drift ("unexpected package @opencode/cli"). Resolution: v1 housekeeping (sync the package-list expectation + the hook/personas tests) — a separate small change.
+- None open. **W001 — 4 pre-existing v1 suite failures** in `skillgrid-cli/internal/install` (`TestMemoryAndPersonasBoundary`, `TestCollectNPMPackages`, `TestInstallNPMBatchAllowScripts`, `TestPrePushBlocksMalformedCloses`) — **FIXED in re-verification (`0b9e65cd`)** after the user chose fix-now. Verified pre-existing at the change's baseline (`f30aea50`, worktree run); fixed with three root causes: (a) `TestMemoryAndPersonasBoundary` — the V2-logo refactor dropped `ensureConfigFile(tui.json)` from the opencode path, a real source regression: fresh-home installs crash at `installAgentConfig` (restored in `agents.go`, matching the kilo path); (b) `TestCollectNPMPackages` / `TestInstallNPMBatchAllowScripts` — test expectations stale on `opencode-ai` where the source correctly uses `@opencode/cli` (package verified on npm, v2.2.6); (c) `TestPrePushBlocksMalformedCloses` — the developer's global `core.hooksPath` (`~/.skillgrid/git-hooks`) leaked into the throwaway git repos and its pre-commit footer check killed the test's own commit; the tests now run git with `GIT_CONFIG_GLOBAL/SYSTEM=/dev/null` (hermetic, via the shared `gitIn` helper + both repo-setup loops). Also fixed one pre-existing `gofmt` drift in `agents.go` (const-block comment alignment). Full `skillgrid-cli` suite `-race` green after the fix.
 
 ### SUGGESTION (nice to have)
 
@@ -343,19 +343,18 @@ No user-facing input handling changed in this change beyond what the stdio proto
 
 ## Gate Decision
 
-**Verdict:** CONCERNS
+**Verdict:** PASS
 
-**Reasoning:** Every one of the 9 requirements' scenarios is VERIFIED by named tests that ran fresh this session, a live stdio smoke across all three family servers, and 2/2 live mutation samplings — and the QA pass itself caught and fixed a real protocol defect (mcp-go's queue-full synchronous fallback; `10e4206b`). The gate is capped off PASS by exactly one named, baseline-proven exception: 4 pre-existing v1 suite failures in a module this change does not touch (W001), plus a pre-existing tooling gap in the state-drift guard (W002). No CRITICAL findings.
+**Reasoning:** Every one of the 9 requirements' scenarios is VERIFIED by named tests that ran fresh this session, a live stdio smoke across all three family servers, and 2/2 live mutation samplings — and the QA pass itself caught and fixed a real protocol defect (mcp-go's queue-full synchronous fallback; `10e4206b`). The one named exception from the first render (W001: 4 pre-existing v1 suite failures) was fixed in re-verification (`0b9e65cd`) at the user's choice — full `skillgrid-cli` suite `-race` green. Remaining findings are SUGGESTION-level only (W002 tooling gap, worktree-scoped Trivy findings, pre-existing status-banner drift) — none blocks PASS. No CRITICAL findings.
 
-**Open items (if CONCERNS):**
-- W001: the 4 pre-existing v1 failures — **fix now / defer (to ticket) / human look:** deferral recommended (v1 housekeeping, out of this change's footprint); the human may also accept-with-open-items.
+**Open items (if CONCERNS):** none — gate PASS. W002 (SUGGESTION) remains for a future tooling change.
 
 ## Human Override
 
 > A human decision always overrides this machine verdict.
 > An epic that fails its criteria with no human decision is recorded as **not accepted** — never as silently accepted.
 
-**Human decision (fill in):** <accept / accept-with-open-items / reject> — <name> — <date>
+**Human decision:** not applicable — gate PASS (no override needed). Re-rendered after the user chose fix-now on W001.
 
 <!-- reflect completes this half at archive time -->
 
@@ -370,7 +369,7 @@ No user-facing input handling changed in this change beyond what the stdio proto
 | Gate | Result |
 |------|--------|
 | Ship gate | <pending — ship> |
-| QA gate | ✅ CONCERNS (open item W001 — human decision pending) |
+| QA gate | ✅ PASS (re-rendered after W001 fix `0b9e65cd`) |
 | Verdict gate (advisory) | <pending — human> |
 
 ## Decisions
@@ -414,7 +413,7 @@ No user-facing input handling changed in this change beyond what the stdio proto
 
 ## Open Items (→ next change)
 
-- W001: 4 pre-existing v1 suite failures (skillgrid-cli/internal/install) — v1 housekeeping change.
+- W001: 4 pre-existing v1 suite failures (skillgrid-cli/internal/install) — **closed in QA re-verification (`0b9e65cd`)**; one source regression (opencode `tui.json` ensure) fixed in `agents.go`.
 - W002: state-drift-check.mjs vs the multi-segment state.yaml format — tooling fix or format decision.
 
 ## Web-cache promotion candidates
