@@ -11,7 +11,7 @@ metadata:
 
 # Project Wiki (`projectwiki`)
 
-Manage the project's durable knowledge: an OKF vault at `.skillgrid/projectwiki/` plus a derived FTS index in the project DB, served by the `projectwiki` engine (`mnemonic-v2`, `mnemonic projectwiki ...`).
+Manage the project's durable knowledge: an OKF vault at `.skillgrid/projectwiki/` plus a derived FTS index in the project DB, served by the `projectwiki` engine (`mnemonic projectwiki ...`).
 
 **Announce at start:** "I'm using the skillgrid:projectwiki skill to read or maintain the project wiki."
 
