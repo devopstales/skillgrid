@@ -40,9 +40,12 @@ func seedSearchGraph(t *testing.T, mainLines, testLines []int) (*CodeHandler, in
 
 	root := t.TempDir()
 	t.Chdir(root)
+	// The symbols are seeded at the line numbers below (add:3, main:2,
+	// TestAdd:2) — the working tree matches (the explore read path reads
+	// disk at those lines).
 	writeTestFile(t, root, "math.go", "package math\n\nfunc add(a, b int) int { return a + b }\n")
-	writeTestFile(t, root, "main.go", "package math\n\nfunc main() { add(1, 2) }\n")
-	writeTestFile(t, root, "math_test.go", "package math\n\nfunc TestAdd(t *testing.T) { add(1, 2) }\n")
+	writeTestFile(t, root, "main.go", "package math\nfunc main() { add(1, 2) }\n")
+	writeTestFile(t, root, "math_test.go", "package math\nfunc TestAdd(t *testing.T) { add(1, 2) }\n")
 
 	fMath, err := st.UpsertFile(ctx, store.FileRow{Path: "math.go", Language: "go", ContentHash: "h-math"})
 	if err != nil {

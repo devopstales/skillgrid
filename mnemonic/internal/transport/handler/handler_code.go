@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -626,7 +627,7 @@ func (h *CodeHandler) enrichSearch(ctx context.Context, res search.SearchResult)
 		r, ok := radiusBySym[hit.StoreID]
 		if !ok {
 			r = radius{}
-			if callers, tests, err := h.callerBlastRadius(ctx, hit.StoreID); err == nil {
+			if callers, _, tests, err := h.callerBlastRadius(ctx, hit.StoreID); err == nil {
 				r.callers, r.testFiles = callers, tests
 			}
 			radiusBySym[hit.StoreID] = r
@@ -638,16 +639,18 @@ func (h *CodeHandler) enrichSearch(ctx context.Context, res search.SearchResult)
 	return out, nil
 }
 
-// callerBlastRadius returns the distinct caller count + the distinct test
-// files among the callers of symID (the graph's in-edges via the callers
-// view; the (caller, target) pair is deduped — the target is fixed per
-// hit, so the caller symbol id is the dedup key).
-func (h *CodeHandler) callerBlastRadius(ctx context.Context, symID int64) (int, []string, error) {
+// callerBlastRadius returns the distinct caller count + the distinct
+// caller files + the distinct test files among the callers of symID (the
+// graph's in-edges via the callers view; the (caller, target) pair is
+// deduped — the target is fixed per hit, so the caller symbol id is the
+// dedup key).
+func (h *CodeHandler) callerBlastRadius(ctx context.Context, symID int64) (int, []string, []string, error) {
 	nb, err := graph.Callers(ctx, h.st, symID)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	callerSeen := map[int64]bool{}
+	fileSeen := map[string]bool{}
 	testSeen := map[string]bool{}
 	pathByFile := map[int64]string{}
 	for _, e := range nb.Edges {
@@ -667,16 +670,22 @@ func (h *CodeHandler) callerBlastRadius(ctx context.Context, symID int64) (int, 
 			path = f.Path
 		}
 		pathByFile[e.From.FileID] = path
+		fileSeen[path] = true
 		if graph.IsTestPath(path) {
 			testSeen[path] = true
 		}
 	}
+	files := make([]string, 0, len(fileSeen))
+	for p := range fileSeen {
+		files = append(files, p)
+	}
+	sort.Strings(files)
 	tests := make([]string, 0, len(testSeen))
 	for p := range testSeen {
 		tests = append(tests, p)
 	}
 	sort.Strings(tests)
-	return len(callerSeen), tests, nil
+	return len(callerSeen), files, tests, nil
 }
 
 // spanSnippet is the hit's span-start line via the existing read path
@@ -691,6 +700,186 @@ func (h *CodeHandler) spanSnippet(ctx context.Context, hit search.Hit) string {
 		return ""
 	}
 	return strings.TrimSpace(res.Text)
+}
+
+// ExploreLimit caps the hits code_explore renders (the composite is one
+// capped call — the CodeGraph shape, not an unbounded search).
+const ExploreLimit = 20
+
+// lineSpan is one numbered range of a file (start/end 1-based,
+// inclusive) — the explore source-block span.
+type lineSpan struct{ start, end int }
+
+// Explore runs the code_explore composite (TICKET-05): one call returns
+// the ranked symbols (the hybrid path — the TICKET-04 enrichment), the
+// per-symbol blast radius, and the line-numbered verbatim source per
+// file — rendered in the CodeGraph baseline layout with the v2
+// provenance. no_vector (an absent embedder — a deployment state, not a
+// degraded leg) never renders a degraded line; a leg that actually
+// failed does (the flag names the leg).
+func (h *CodeHandler) Explore(ctx context.Context, query string) (string, error) {
+	res, err := h.Search(ctx, query, search.SearchQuery{Limit: ExploreLimit})
+	if err != nil {
+		return "", err
+	}
+	return RenderExplore(h.buildExplore(ctx, query, res)), nil
+}
+
+// buildExplore assembles the typed ExploreResult (the renderer's input)
+// from the enriched search answer: the blast-radius lines (one per
+// resolved symbol — the TICKET-04 impact join), the per-file source
+// blocks (the existing read path, spans merged; the renderer elides the
+// gaps), the per-file edge summaries (the graph labels — INFERRED
+// tagged), and the fusion-leg provenance (Hit.Provenance). File blocks
+// follow the hits' rank order (first appearance).
+func (h *CodeHandler) buildExplore(ctx context.Context, query string, res SearchAnswer) ExploreResult {
+	out := ExploreResult{Query: query, Degraded: withoutNoVector(res.Degraded)}
+	// The per-file spans (every hit with a location — resolved or
+	// structural; a structural hit's span is its matched line).
+	var fileOrder []string
+	spansByFile := map[string][]lineSpan{}
+	for _, hit := range res.Hits {
+		if hit.Path == "" || hit.StartLine < 1 {
+			continue
+		}
+		end := hit.EndLine
+		if end < hit.StartLine {
+			end = hit.StartLine
+		}
+		if _, seen := spansByFile[hit.Path]; !seen {
+			fileOrder = append(fileOrder, hit.Path)
+		}
+		spansByFile[hit.Path] = append(spansByFile[hit.Path], lineSpan{hit.StartLine, end})
+	}
+	// The blast-radius lines (one per resolved symbol — the blast radius
+	// needs a symbol; a structural-only hit has no caller data).
+	for _, hit := range res.Hits {
+		if hit.StoreID == 0 {
+			continue
+		}
+		out.Symbols++
+		sym, err := h.st.SymbolByID(ctx, hit.StoreID)
+		if err != nil {
+			continue // the row vanished between search and join: no line
+		}
+		line := ExploreRadiusLine{Name: sym.Name, Path: hit.Path, Line: hit.StartLine}
+		if callers, files, tests, err := h.callerBlastRadius(ctx, hit.StoreID); err == nil {
+			line.Callers, line.CallerFiles, line.TestFiles = callers, files, tests
+		}
+		line.Provenance = provenanceSorted(hit.Provenance)
+		out.Radius = append(out.Radius, line)
+	}
+	// The per-file source blocks (rank order).
+	for _, path := range fileOrder {
+		blk := ExploreFileBlock{Path: path, Spans: h.readExploreSpans(ctx, path, mergeSpans(spansByFile[path]))}
+		if f, err := h.st.FileByPath(ctx, path); err == nil {
+			blk.Language = f.Language
+			blk.Edges = h.fileEdgeSummary(ctx, f.ID)
+		}
+		out.Blocks = append(out.Blocks, blk)
+	}
+	out.Files = len(out.Blocks)
+	return out
+}
+
+// withoutNoVector drops the no_vector flag (an absent embedder — the
+// hybrid marks it "absent, not failing"): the degraded line renders only
+// for legs that actually failed this call.
+func withoutNoVector(degraded string) string {
+	var out []string
+	for _, p := range strings.Split(degraded, ",") {
+		if p = strings.TrimSpace(p); p != "" && p != "no_vector" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, ", ")
+}
+
+// mergeSpans sorts the spans and merges overlapping/adjacent ones (the
+// gap-elision rule: a break between merged spans is the renderer's
+// "... (gap) ..." marker).
+func mergeSpans(spans []lineSpan) []lineSpan {
+	if len(spans) == 0 {
+		return nil
+	}
+	sorted := make([]lineSpan, len(spans))
+	copy(sorted, spans)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].start < sorted[j].start })
+	merged := []lineSpan{{sorted[0].start, sorted[0].end}}
+	for _, s := range sorted[1:] {
+		cur := &merged[len(merged)-1]
+		if s.start <= cur.end+1 {
+			if s.end > cur.end {
+				cur.end = s.end
+			}
+		} else {
+			merged = append(merged, s)
+		}
+	}
+	return merged
+}
+
+// readExploreSpans reads each merged span via the existing read path
+// (the code_read full mode: the live source, secret redaction). A span
+// that fails (a file deleted between index and read) is dropped — the
+// block renders what is on disk.
+func (h *CodeHandler) readExploreSpans(ctx context.Context, path string, spans []lineSpan) []SourceSpan {
+	out := make([]SourceSpan, 0, len(spans))
+	for _, s := range spans {
+		res, err := search.Read(ctx, h.st, path, s.start, s.end, search.ReadModeFull)
+		if err != nil || res.Text == "" {
+			continue
+		}
+		out = append(out, SourceSpan{Start: s.start, Text: res.Text})
+	}
+	return out
+}
+
+// fileEdgeSummary is the per-file edge-summary data (the file's outgoing
+// edges: toName + kind, deduped by (toName, kind, confidence), sorted
+// for determinism; INFERRED edges flagged for the renderer's (inferred)
+// tag). A file with no indexed rows carries no summary.
+func (h *CodeHandler) fileEdgeSummary(ctx context.Context, fileID int64) []ExploreEdge {
+	syms, err := h.st.SymbolsByFile(ctx, fileID)
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []ExploreEdge
+	for _, s := range syms {
+		edges, err := h.st.EdgesByFrom(ctx, s.ID, nil)
+		if err != nil {
+			continue
+		}
+		for _, e := range edges {
+			name := e.ToName
+			if e.ToID != nil {
+				if to, err := h.st.SymbolByID(ctx, *e.ToID); err == nil && to.Name != "" {
+					name = to.Name
+				}
+			}
+			if name == "" {
+				continue
+			}
+			inferred := e.Confidence == "INFERRED"
+			key := name + "\x00" + e.Kind + "\x00" + strconv.FormatBool(inferred)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, ExploreEdge{ToName: name, Kind: e.Kind, Inferred: inferred})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ToName != out[j].ToName {
+			return out[i].ToName < out[j].ToName
+		}
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].Inferred && !out[j].Inferred
+	})
+	return out
 }
 
 // Read runs the code_read (spec 006 §7 — fetch indexed source for

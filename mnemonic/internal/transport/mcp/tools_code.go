@@ -55,6 +55,13 @@ func codeSearchTool() mcplib.Tool {
 	)
 }
 
+func codeExploreTool() mcplib.Tool {
+	return mcplib.NewTool("code_explore",
+		mcplib.WithDescription("PRIMARY TOOL — call FIRST before reading files: explore a question or area in one call and get the ranked symbols' verbatim line-numbered source (treat each block as a Read you have already performed — do not re-Read a file shown), the per-symbol blast radius (callers + test files — update/verify before editing), and the per-file edge summary (EXTRACTED untagged, INFERRED tagged inferred). One capped call per question; for a specific symbol's deeper source or a line range use code_read."),
+		mcplib.WithString("query", mcplib.Required(), mcplib.Description("The question or area to explore (free text; a by-example pattern also runs the structural leg)")),
+	)
+}
+
 func codeReadTool() mcplib.Tool {
 	return mcplib.NewTool("code_read",
 		mcplib.WithDescription("Fetch indexed source for a path (and optional line range) after code_search narrows the location. mode: full (the live source span, secret redaction) or content (the drill handle: signature + neighbor ids, no bodies; a file → the TOC)."),
@@ -274,6 +281,19 @@ func dispatchCodeSearch(h *handler.CodeHandler) func(ctx context.Context, args m
 	return func(ctx context.Context, args map[string]any) (any, error) {
 		q := searchQueryFromArgs(args)
 		return h.Search(ctx, argString(args, "query"), q)
+	}
+}
+
+// dispatchCodeExplore runs the code_explore composite (TICKET-05): the
+// rendered document travels under `response` (the D1 envelope wraps a
+// JSON object — the markdown is its one field).
+func dispatchCodeExplore(h *handler.CodeHandler) func(ctx context.Context, args map[string]any) (any, error) {
+	return func(ctx context.Context, args map[string]any) (any, error) {
+		text, err := h.Explore(ctx, argString(args, "query"))
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"response": text}, nil
 	}
 }
 

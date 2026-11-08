@@ -282,10 +282,10 @@ func TestInitializeShapePerFamily(t *testing.T) {
 // [code-and-wiki-servers-are-isolated]
 // ────────────────────────────────────────────────────────────────────────────
 
-// codeAgentToolNames is the D1 code surface's agent-profile set (the 19
+// codeAgentToolNames is the D1 code surface's agent-profile set (the 20
 // working tools — the pin is the literal set, not a count).
 var codeAgentToolNames = []string{
-	"code_status", "code_index", "code_search", "code_read",
+	"code_status", "code_index", "code_search", "code_explore", "code_read",
 	"code_orient", "code_explain", "code_path", "code_impact",
 	"code_affected", "code_grep", "code_semantic", "code_get_callers",
 	"code_get_callees", "code_get_dependents", "code_get_implementors",
