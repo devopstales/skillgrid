@@ -11,7 +11,10 @@ servers:
     type: local
     command:
       - mnemonic
+      - memory
       - mcp
+      - "--profile"
+      - agent
   playwright:
     type: local
     command:

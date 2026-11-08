@@ -2,7 +2,7 @@
   "mcpServers": {
     "mnemonic": {
       "command": "mnemonic",
-      "args": ["mcp"]
+      "args": ["memory", "mcp", "--profile", "agent"]
     }
   }
 }

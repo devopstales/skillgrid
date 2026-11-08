@@ -121,7 +121,13 @@ func TestCursorPluginLayout(t *testing.T) {
 	if mnemonic.Command != "mnemonic" {
 		t.Errorf("mnemonic command = %q, want mnemonic", mnemonic.Command)
 	}
-	if len(mnemonic.Args) != 1 || mnemonic.Args[0] != "mcp" {
-		t.Errorf("mnemonic args = %v, want [mcp]", mnemonic.Args)
+	wantArgs := []string{"memory", "mcp", "--profile", "agent"}
+	if len(mnemonic.Args) != len(wantArgs) {
+		t.Fatalf("mnemonic args = %v, want %v", mnemonic.Args, wantArgs)
+	}
+	for i := range wantArgs {
+		if mnemonic.Args[i] != wantArgs[i] {
+			t.Errorf("mnemonic args[%d] = %q, want %q", i, mnemonic.Args[i], wantArgs[i])
+		}
 	}
 }

@@ -177,7 +177,7 @@ func nativePluginRels(extra ...string) []string {
 func mnemonicMCPEntry() map[string]interface{} {
 	return map[string]interface{}{
 		"type":    "local",
-		"command": []interface{}{"mnemonic", "mcp"},
+		"command": []interface{}{"mnemonic", "memory", "mcp", "--profile", "agent"},
 		"enabled": true,
 	}
 }
@@ -185,7 +185,7 @@ func mnemonicMCPEntry() map[string]interface{} {
 func cursorMCPEntry() map[string]interface{} {
 	return map[string]interface{}{
 		"command": "mnemonic",
-		"args":    []interface{}{"mcp"},
+		"args":    []interface{}{"memory", "mcp", "--profile", "agent"},
 	}
 }
 

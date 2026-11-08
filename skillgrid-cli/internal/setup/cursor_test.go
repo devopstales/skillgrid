@@ -155,7 +155,7 @@ func TestUpsertCursorMCP_LocalKeepsCommandArgs(t *testing.T) {
 	entry := MCPServerConfig{
 		Name:    "mnemonic",
 		Type:    "local",
-		Command: []string{"skillgrid", "mcp"},
+		Command: []string{"mnemonic", "memory", "mcp", "--profile", "agent"},
 	}
 	if err := upsertCursorMCP(mcpPath, entry, false); err != nil {
 		t.Fatalf("upsertCursorMCP: %v", err)
@@ -166,12 +166,18 @@ func TestUpsertCursorMCP_LocalKeepsCommandArgs(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := gjson.Parse(string(data)).Get("mcpServers.mnemonic")
-	if got.Get("command").String() != "skillgrid" {
-		t.Fatalf("command = %q, want skillgrid", got.Get("command").String())
+	if got.Get("command").String() != "mnemonic" {
+		t.Fatalf("command = %q, want mnemonic", got.Get("command").String())
 	}
 	args := got.Get("args").Array()
-	if len(args) != 1 || args[0].String() != "mcp" {
-		t.Fatalf("args = %v, want [mcp]", got.Get("args").Raw)
+	wantArgs := []string{"memory", "mcp", "--profile", "agent"}
+	if len(args) != len(wantArgs) {
+		t.Fatalf("args = %v, want %v", got.Get("args").Raw, wantArgs)
+	}
+	for i := range wantArgs {
+		if args[i].String() != wantArgs[i] {
+			t.Fatalf("args[%d] = %q, want %q", i, args[i].String(), wantArgs[i])
+		}
 	}
 	if got.Get("type").Exists() {
 		t.Fatalf("local entry must not set type, got %s", got.Raw)

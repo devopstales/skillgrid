@@ -21,7 +21,7 @@ import (
 var hermesMCPEntries = []MCPServerConfig{
 	{Name: "context7", Type: "remote", URL: "https://mcp.context7.com/mcp"},
 	{Name: "deepwiki", Type: "remote", URL: "https://mcp.deepwiki.com/mcp"},
-	{Name: "mnemonic", Type: "local", Command: []string{"mnemonic", "mcp"}},
+	{Name: "mnemonic", Type: "local", Command: []string{"mnemonic", "memory", "mcp", "--profile", "agent"}},
 	{Name: "playwright", Type: "local", Command: []string{"playwright-mcp"}},
 	{Name: "agent-browser", Type: "local", Command: []string{"agent-browser", "mcp", "--tools", "all"}},
 	{Name: "exa", Type: "remote", URL: "https://mcp.exa.ai/mcp"},
