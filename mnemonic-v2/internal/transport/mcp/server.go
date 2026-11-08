@@ -142,12 +142,11 @@ func NewServer(h *handler.Handler, profile Profile) *Server {
 	// The instructions start as the memory text (F6 — the field;
 	// RegisterCodeTools rewrites it to the combined block).
 	s.instructions = memoryInstructions
-	s.mcp = server.NewMCPServer(serverName, serverVersion, server.WithInstructions(s.instructions))
+	s.mcp = server.NewMCPServer(serverName, serverVersion, server.WithInstructions(s.instructions), server.WithInputSchemaValidation())
 	s.calls = s.buildToolDispatch()
 	s.toolDefs = map[string]mcplib.Tool{}
 	for _, tool := range s.toolSet() {
-		s.mcp.AddTool(tool.def, s.mcpToolHandler(tool.name))
-		s.toolDefs[tool.name] = tool.def
+		s.registerTool(tool.def)
 	}
 	return s
 }
@@ -177,9 +176,18 @@ func (s *Server) RegisterCodeTools(ch *handler.CodeHandler) {
 	// Register the profile-filtered code_* tool definitions with mcp-go
 	// (the stdio path: the tools/list response carries them).
 	for _, tool := range s.codeToolSet() {
-		s.mcp.AddTool(tool.def, s.mcpToolHandler(tool.name))
-		s.toolDefs[tool.name] = tool.def
+		s.registerTool(tool.def)
 	}
+}
+
+// registerTool finalizes the OpenWiki-shaped wire contract (contract.go)
+// and records the tool in both the mcp-go server and the re-registration
+// registry — setInstructions rebuilds the underlying server from
+// toolDefs, so the finalized definition is what every rebuild re-serves.
+func (s *Server) registerTool(def mcplib.Tool) {
+	def = finalizeMCPContract(def)
+	s.mcp.AddTool(def, s.mcpToolHandler(def.Name))
+	s.toolDefs[def.Name] = def
 }
 
 // setInstructions updates the routing block AND delivers it over stdio:
@@ -193,7 +201,7 @@ func (s *Server) setInstructions(text string) {
 		return
 	}
 	s.instructions = text
-	s.mcp = server.NewMCPServer(serverName, serverVersion, server.WithInstructions(text))
+	s.mcp = server.NewMCPServer(serverName, serverVersion, server.WithInstructions(text), server.WithInputSchemaValidation())
 	for name, def := range s.toolDefs {
 		s.mcp.AddTool(def, s.mcpToolHandler(name))
 	}
@@ -218,8 +226,7 @@ func (s *Server) RegisterProjectWikiTools(kh *handler.ProjectWikiHandler) {
 		s.calls[name] = fn
 	}
 	for _, tool := range s.projectWikiToolSet() {
-		s.mcp.AddTool(tool.def, s.mcpToolHandler(tool.name))
-		s.toolDefs[tool.name] = tool.def
+		s.registerTool(tool.def)
 	}
 }
 
