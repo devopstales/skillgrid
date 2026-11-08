@@ -119,7 +119,7 @@ Chain strategy: single-branch serial
 - **Reversibility:** reversible (docs/config).
 - **Fails-when:** any live reference to an old path survives the exclusion set, an installer entry writes the dead bare form, or the architecture page's anchors are stale.
 
-### TICKET-07 — ADR (last, per user execution order: code first, ADR after)
+### TICKET-07 — ADR (last, per user execution order: code first, ADR after) [OK] done 2026-11-08
 
 - **Tracker ID:** (assigned at ticketing) (milestone 2026-11-08-mnemonic-mcp-split)
 - **Scope:** Author `.skillgrid/projectwiki/decisions/04-adr-NNNN-mcp-family-split.md` (NNNN = next free — the vault's "Highest sequence in use" line in `ASSUMPTIONS.md` is the reliable source, `ls decisions/ | sort | tail -1` cross-check): supersedes the combined-server decision (T16 of `2026-10-31-mnemonic-v2-code-index`, located via § LOCKED); records briefing decisions 1–6 (rename, family-first tree, three baseline-modeled servers + one-per-client, serial stdio, code response contract, store unchanged) with the baseline probe evidence. Add the `ASSUMPTIONS.md` LOCKED pointer row + this change's `adr.md` manifest entry; `mnemonic projectwiki index` same-edit.
