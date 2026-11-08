@@ -4,7 +4,7 @@ description: Operate the project's project wiki engine (vault, index, query, val
 license: MIT
 metadata:
   author: devopstales
-  version: "1.1"
+  version: "1.2"
   part-of: skillgrid
   based_on: openwiki:mermaid-diagrams + pi-llm-wiki:llm-wiki + repocodex-agent-playbook
 ---
@@ -22,12 +22,17 @@ Manage the project's durable knowledge: an OKF vault at `.skillgrid/projectwiki/
   config.json                # sentinel: this dir is a KB (engine scaffold)
   PROJECTWIKI_SCHEMA.md        # operating manual for this vault
   .ignore           # read boundary for the indexer
-  decisions/   # TechnicalDecision — why a construct exists
-  invariants/ # InvariantContract — must-hold tokens, requires claims[]
-  workflows/   # BusinessWorkflow — thin cross-package flows
-  glossary/    # Reference — terms
-  reference/   # PRD, research, roadmaps
-  index/       # derived (rebuilt, never hand-edited): catalog.md / log.md /
+  decisions/     # TechnicalDecision — why a construct exists
+  invariants/    # InvariantContract — must-hold tokens, requires claims[]
+  workflows/     # BusinessWorkflow — thin cross-package flows
+  architecture/  # module map, data flow, boundaries
+  gotchas/       # discovered issues / non-obvious behavior
+  glossary/      # domain terms
+  sources/       # SourceSummary — one summary page per external source (013)
+  concepts/      # Concept — reusable ideas / patterns / techniques (013)
+  syntheses/     # Synthesis — cross-cutting analyses / durable query answers (013)
+  preferences/   # Preference — user preferences (013; user-owned)
+  index/         # derived (rebuilt, never hand-edited): catalog.md / log.md /
                #   reverse-index.md / events.jsonl — the engine's human mirror
 ```
 
@@ -66,7 +71,7 @@ Do not enumerate or preload the vault at task start. Retrieve, then stop once gr
 
 ## Maintain the project wiki
 
-1. **Locate the home first.** Decision → `decisions/`; must-hold token → `invariants/`; flow → `workflows/`; term → `glossary/`; report/roadmap → `reference/`. New writes of the four authored types outside their folders are rejected at review.
+1. **Locate the home first.** Decision → `decisions/`; must-hold token → `invariants/`; flow → `workflows/`; module map → `architecture/`; gotcha → `gotchas/`; term → `glossary/`; source summary / concept / durable answer / preference → `sources/` `concepts/` `syntheses/` `preferences/` (013). New writes of the twelve types outside their folders are rejected at review. Loading search results or reflect results into the vault follows `skillgrid:projectwiki-data-loading`.
 2. **Check what exists** (`index/catalog.md` + `projectwiki query`) before writing — a growing base beats a pile of duplicates.
 3. **Write or revise** per the Page contract below. On revise: state only what changed (confirm / revise-same-id / retract); carry unaffected content forward untouched.
 4. **Same-edit rule:** every page write is followed by `projectwiki index` — the engine rewrites the derived projections (`index/catalog.md` + `index/log.md` + `index/reverse-index.md`) from the markdown. You never hand-edit them (PW-INV-3). Page + reindex ship together or the change is incomplete.

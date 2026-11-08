@@ -1,6 +1,9 @@
 ---
 type: BusinessWorkflow
 title: "SDD Pipeline"
+anchors:
+  - path: .agents/skills/_shared/rules/sdd-structure.md
+    all_of: ["Phase Order"]
 ---
 
 # SDD Pipeline

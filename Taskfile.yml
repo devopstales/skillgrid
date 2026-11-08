@@ -20,9 +20,9 @@ version: "3"
 
 vars:
   CLI_DIR: skillgrid-cli
-  # ADR-0040: mnemonic-v2 is the active binary producer (mnemonic-v2/);
+  # ADR-0040: mnemonic is the active binary producer (mnemonic/);
   # the v1 engine module has been removed.
-  MEM2_DIR: mnemonic-v2
+  MEM2_DIR: mnemonic
   CLI_BIN: skillgrid
   MEM_BIN: mnemonic
   OUT: dist
@@ -30,7 +30,7 @@ vars:
   MEM_PKG: "./cmd/mnemonic"
   VERSION:
     sh: 'echo "${SKILLGRID_VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo 0.1.0-dev)}"'
-  # mnemonic-v2 is the active mnemonic producer and carries its own version
+  # mnemonic is the active mnemonic producer and carries its own version
   # line (0.2.0); the skillgrid CLI keeps the repo-derived version.
   MEM2_VERSION:
     sh: 'echo "${MNEMONIC_VERSION:-0.2.0}"'

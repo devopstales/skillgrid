@@ -5,6 +5,12 @@ status: accepted
 date: 2026-10-25
 supersedes: []
 superseded_by: []
+anchors:
+  # The ADR's harness2 surface was retired with the v1 module (ADR-0059);
+  # this pin keeps the load-bearing constraint live: the cgo-free pure-Go
+  # sqlite driver the process-model decision was shaped by.
+  - path: mnemonic-v2/go.mod
+    all_of: ["modernc.org/sqlite"]
 ---
 
 # ADR-0050: Harness² is hosted as an external subprocess, not a Go dependency
