@@ -166,7 +166,7 @@ func TestSaveWithoutProjectUsesDetector(t *testing.T) {
 // the mem Handler's methods resolve the project at call time with
 // DefaultCWD (""), and a real project.Detector errors on an empty cwd (the
 // git/basename binding needs a directory) — "project: cwd is empty and no
-// project selector was given" (the error the user hit running `mnemonic mem
+// project selector was given" (the error the user hit running `mnemonic memory
 // search` bare). The Handler must fall back to the config's already-resolved
 // Project.Name (openRuntime sets it after resolving with the REAL cwd), so a
 // bare mem command works without an env var or --project flag.

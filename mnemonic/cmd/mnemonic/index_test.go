@@ -37,7 +37,7 @@ func testConfig(t *testing.T) config.Config {
 // status --json` output is the envelope (the same marshal the MCP tools use).
 func TestIndexStatusJSONIsEnvelope(t *testing.T) {
 	installRunEnv(t)
-	out, code := captureRun(t, "index", "status", "--project", "p", "--json")
+	out, code := captureRun(t, "code", "status", "--project", "p", "--json")
 	if code != exitOK {
 		t.Fatalf("index status --project p --json exited %d, want 0 (output: %s)", code, out)
 	}
@@ -76,7 +76,7 @@ func TestIndexSearchParity(t *testing.T) {
 		t.Fatalf("index fixture: %v", err)
 	}
 	// The CLI's --json output (the envelope marshal of the CodeHandler result).
-	out, code := captureRun(t, "index", "search", "greet", "--project", "p", "--json")
+	out, code := captureRun(t, "code", "search", "greet", "--project", "p", "--json")
 	if code != exitOK {
 		t.Fatalf("index search greet --project p --json exited %d, want 0 (output: %s)", code, out)
 	}
@@ -108,7 +108,7 @@ func TestIndexSearchParity(t *testing.T) {
 // without a query exits 2 (a usage error, not a handler error).
 func TestIndexSearchRequiresQuery(t *testing.T) {
 	installRunEnv(t)
-	_, code := captureRun(t, "index", "search")
+	_, code := captureRun(t, "code", "search")
 	if code != exitUsage {
 		t.Fatalf("index search without a query must exit %d (usage error); got %d", exitUsage, code)
 	}
@@ -118,7 +118,7 @@ func TestIndexSearchRequiresQuery(t *testing.T) {
 // subcommand exits 2.
 func TestIndexUnknownSubcommand(t *testing.T) {
 	installRunEnv(t)
-	_, code := captureRun(t, "index", "frobnicate")
+	_, code := captureRun(t, "code", "frobnicate")
 	if code != exitUsage {
 		t.Fatalf("index frobnicate must exit %d (usage error); got %d", exitUsage, code)
 	}

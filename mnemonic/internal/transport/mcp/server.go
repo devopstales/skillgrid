@@ -35,6 +35,18 @@ const (
 	All Profile = "all"
 )
 
+// Family selects which tool family a server instance serves (R2: three
+// single-purpose servers — mnemonic-memory / mnemonic-code /
+// mnemonic-projectwiki — one binary, three stdio modes). The family is
+// fixed at server construction; a client mounts exactly one per project.
+type Family string
+
+const (
+	FamilyMemory      Family = "memory"
+	FamilyCode        Family = "code"
+	FamilyProjectWiki Family = "projectwiki"
+)
+
 const (
 	serverName    = "mnemonic-v2"
 	serverVersion = "0.1.0"

@@ -190,22 +190,18 @@ func run(args []string) int {
 	cwd, _ := os.Getwd()
 	cmd, args := rest[0], rest[1:]
 	switch cmd {
-	case "mcp":
-		return runMCP(fl, args)
-	case "serve":
-		return runServe(fl, args)
-	case "mem":
+	case "memory":
 		return runMem(fl, cwd, args)
+	case "code":
+		return runIndex(fl, cwd, args)
+	case "projectwiki":
+		return runProjectWiki(fl, cwd, args)
 	case "sync":
 		return runSync(fl, cwd, args)
 	case "trail":
 		return runTrail(fl, cwd, args)
 	case "doctor":
 		return runDoctor(fl, cwd, args)
-	case "index":
-		return runIndex(fl, cwd, args)
-	case "projectwiki":
-		return runProjectWiki(fl, cwd, args)
 	case "setup":
 		fmt.Fprintln(outW(), "mnemonic setup delegates to the agent-plugin change (not yet in this build).")
 		return exitOK
@@ -213,9 +209,23 @@ func run(args []string) int {
 		printUsage()
 		return exitOK
 	default:
+		if hint, ok := renamedCommands[cmd]; ok {
+			fmt.Fprintf(errW(), "error: %q was renamed: %s (see --help)\n", cmd, hint)
+			return exitUsage
+		}
 		fmt.Fprintf(errW(), "error: unknown command %q (see --help)\n", cmd)
 		return exitUsage
 	}
+}
+
+// renamedCommands maps the removed top-level commands onto their
+// replacements (D3: no aliases — the old paths refuse with a
+// did-you-mean, not a silent pass-through).
+var renamedCommands = map[string]string{
+	"mcp":   "mnemonic <family> mcp (memory|code|projectwiki)",
+	"serve": "mnemonic <family> mcp (the HTTP dashboard is dropped)",
+	"mem":   "mnemonic memory",
+	"index": "mnemonic code (bare `mnemonic code` runs the index)",
 }
 
 // stripGlobals removes the global flags (and their values) from args,
@@ -293,22 +303,24 @@ func main() {
 // the memory command surface).
 func printUsage() {
 	out := outW()
-	fmt.Fprintln(out, `mnemonic — local-first memory (v2)
+	fmt.Fprintln(out, `mnemonic — local-first memory + code intelligence (v2)
 
 Usage:
   mnemonic <command> [flags]
 
 Commands:
-  mcp           Run the MCP stdio server (starts autosync when sync.auto=true)
-  serve         (deprecated in v2 — the HTTP dashboard is dropped; see mcp)
-  mem           Memory tools (save|search|get|lookup|context|review|timeline|pin|unpin|delete|session|stats|doctor)
-  projectwiki   Project wiki tools (query|read|search|generate|validate|lint|status|cite-source|index|reindex|bootstrap|rebuild-meta|eval)
+  memory        Memory tools (save|search|get|lookup|context|review|timeline|pin|unpin|delete|session|stats|doctor|mcp)
+  code          Code index (bare `+"`code`"+` runs the index; status|search|orient|explain|path|impact|affected|grep|read|watch|mcp)
+  projectwiki   Project wiki tools (query|read|search|generate|validate|lint|status|cite-source|index|reindex|bootstrap|rebuild-meta|eval|mcp)
   sync          Sync (status|push|pull|export|import|enroll)
   trail         Inspect retrieval trails (recent|show)
   doctor        Whole-system health (--strict for CI)
-  index         (delegates to the code-index change)
   setup <agent> (delegates to the agent-plugin change)
   help          Show this help
+
+The <family> mcp verbs start the single-purpose MCP stdio servers
+(mnemonic-memory / mnemonic-code / mnemonic-projectwiki); a client
+mounts exactly one per project.
 
 Global flags (before the command):
   --data-dir DIR    Store data dir

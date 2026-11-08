@@ -1,4 +1,4 @@
-// mem.go — the mem command group (spec 005-transport-cli §2): each
+// mem.go — the memory command group (spec 005-transport-cli §2): each
 // subcommand parses its flags, calls the shared handler, and prints the
 // result (human-readable by default, the envelope JSON with --json —
 // the same marshal the MCP tools use, the K6 seam).
@@ -22,6 +22,7 @@ import (
 	"github.com/devopstales/skillgrid/mnemonic/internal/core/config"
 	"github.com/devopstales/skillgrid/mnemonic/internal/core/project"
 	"github.com/devopstales/skillgrid/mnemonic/internal/transport/handler"
+	"github.com/devopstales/skillgrid/mnemonic/internal/transport/mcp"
 )
 
 // jsonFlag adds the shared --json flag to fs.
@@ -33,7 +34,7 @@ func jsonFlag(fs *flag.FlagSet) *bool {
 // reorderArgs moves flag args (starting with --) before positionals so
 // the Go flag package parses them (it stops at the first positional).
 // The query positional stays last. This is the CLI's ergonomic: the user
-// can type `mem search q --project p` and it works.
+// can type `memory search q --project p` and it works.
 func reorderArgs(args []string) []string {
 	var flags, positionals []string
 	for i := 0; i < len(args); i++ {
@@ -70,10 +71,10 @@ func isBoolFlag(flag string) bool {
 	return false
 }
 
-// runMem dispatches the mem subcommands.
+// runMem dispatches the memory subcommands.
 func runMem(fl config.Flags, cwd string, args []string) int {
 	if len(args) == 0 {
-		return errExit("mem: a subcommand is required (save|search|get|lookup|context|review|timeline|pin|unpin|delete|session|stats|doctor)")
+		return errExit("memory: a subcommand is required (save|search|get|lookup|context|review|timeline|pin|unpin|delete|session|stats|doctor|mcp)")
 	}
 	switch args[0] {
 	case "save":
@@ -102,11 +103,13 @@ func runMem(fl config.Flags, cwd string, args []string) int {
 		return memStats(fl, cwd, args[1:])
 	case "doctor":
 		return memDoctor(fl, cwd, args[1:])
+	case "mcp":
+		return runMCP(fl, args[1:], mcp.FamilyMemory)
 	default:
 		if strings.HasPrefix(args[0], "-") {
-			return errExit("mem: unknown flag %q before a subcommand", args[0])
+			return errExit("memory: unknown flag %q before a subcommand", args[0])
 		}
-		return errExit("mem: unknown subcommand %q", args[0])
+		return errExit("memory: unknown subcommand %q", args[0])
 	}
 }
 
@@ -130,12 +133,12 @@ func rejectAll(pf projectFlag) string {
 	if pf.project != "" {
 		return project.ErrAllWithProject.Error()
 	}
-	return "mem: --all fan-out is not yet wired (the cross-project store is pending); use --project <name> to read one project"
+	return "memory: --all fan-out is not yet wired (the cross-project store is pending); use --project <name> to read one project"
 }
 
-// memSave runs `mem save`.
+// memSave runs `memory save`.
 func memSave(fl config.Flags, cwd string, args []string) int {
-	fs := flag.NewFlagSet("mem save", flag.ContinueOnError)
+	fs := flag.NewFlagSet("memory save", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var pf projectFlag
 	pf.add(fs)
@@ -155,7 +158,7 @@ func memSave(fl config.Flags, cwd string, args []string) int {
 		return exitUsage
 	}
 	if title == "" || typ == "" || content == "" {
-		return errExit("mem save: --title, --type and --content are required")
+		return errExit("memory save: --title, --type and --content are required")
 	}
 	// --no-capture is the tri-state off switch: absent → nil → the
 	// pipeline's default-on (the amended spec row); explicit → false.
@@ -180,9 +183,9 @@ func memSave(fl config.Flags, cwd string, args []string) int {
 	return finish(fs, *jsonOut, dispatchResult{result: res, err: err})
 }
 
-// memSearch runs `mem search <query>`.
+// memSearch runs `memory search <query>`.
 func memSearch(fl config.Flags, cwd string, args []string) int {
-	fs := flag.NewFlagSet("mem search", flag.ContinueOnError)
+	fs := flag.NewFlagSet("memory search", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var pf projectFlag
 	pf.add(fs)
@@ -198,7 +201,7 @@ func memSearch(fl config.Flags, cwd string, args []string) int {
 	}
 	query := strings.Join(fs.Args(), " ")
 	if query == "" {
-		return errExit("mem search: a query is required")
+		return errExit("memory search: a query is required")
 	}
 	// --all is refused until the cross-project store lands (rejectAll):
 	// an explicit project + --all is the pinned usage error, a bare --all
@@ -217,9 +220,9 @@ func memSearch(fl config.Flags, cwd string, args []string) int {
 	return finish(fs, *jsonOut, dispatchResult{result: res, err: err})
 }
 
-// memGet runs `mem get` (full content by id / sync_id).
+// memGet runs `memory get` (full content by id / sync_id).
 func memGet(fl config.Flags, cwd string, args []string) int {
-	fs := flag.NewFlagSet("mem get", flag.ContinueOnError)
+	fs := flag.NewFlagSet("memory get", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var pf projectFlag
 	pf.add(fs)
@@ -241,7 +244,7 @@ func memGet(fl config.Flags, cwd string, args []string) int {
 		}
 	}
 	if id == 0 && syncID == "" {
-		return errExit("mem get: --id or --sync-id (or a positional id) is required")
+		return errExit("memory get: --id or --sync-id (or a positional id) is required")
 	}
 	if msg := rejectAll(pf); msg != "" {
 		return errExit("%s", msg)
@@ -256,9 +259,9 @@ func memGet(fl config.Flags, cwd string, args []string) int {
 	return finish(fs, *jsonOut, dispatchResult{result: res, err: err})
 }
 
-// memLookup runs `mem lookup` (the wiki-first fallback).
+// memLookup runs `memory lookup` (the wiki-first fallback).
 func memLookup(fl config.Flags, cwd string, args []string) int {
-	fs := flag.NewFlagSet("mem lookup", flag.ContinueOnError)
+	fs := flag.NewFlagSet("memory lookup", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var pf projectFlag
 	pf.add(fs)
@@ -274,7 +277,7 @@ func memLookup(fl config.Flags, cwd string, args []string) int {
 		return exitUsage
 	}
 	if id == 0 && syncID == "" && topicKey == "" && phrase == "" {
-		return errExit("mem lookup: --id, --sync-id, --topic-key or --phrase is required")
+		return errExit("memory lookup: --id, --sync-id, --topic-key or --phrase is required")
 	}
 	if msg := rejectAll(pf); msg != "" {
 		return errExit("%s", msg)
@@ -290,9 +293,9 @@ func memLookup(fl config.Flags, cwd string, args []string) int {
 	return finish(fs, *jsonOut, dispatchResult{result: res, err: err})
 }
 
-// memContext runs `mem context` (byte-budget orientation).
+// memContext runs `memory context` (byte-budget orientation).
 func memContext(fl config.Flags, cwd string, args []string) int {
-	fs := flag.NewFlagSet("mem context", flag.ContinueOnError)
+	fs := flag.NewFlagSet("memory context", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	jsonOut := jsonFlag(fs)
 	var budget int
@@ -312,9 +315,9 @@ func memContext(fl config.Flags, cwd string, args []string) int {
 	return finish(fs, *jsonOut, dispatchResult{result: res, err: err})
 }
 
-// memReview runs `mem review` (list overdue / mark reviewed).
+// memReview runs `memory review` (list overdue / mark reviewed).
 func memReview(fl config.Flags, cwd string, args []string) int {
-	fs := flag.NewFlagSet("mem review", flag.ContinueOnError)
+	fs := flag.NewFlagSet("memory review", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var pf projectFlag
 	pf.add(fs)
@@ -337,10 +340,10 @@ func memReview(fl config.Flags, cwd string, args []string) int {
 	return finish(fs, *jsonOut, dispatchResult{result: res, err: err})
 }
 
-// memTimeline runs `mem timeline` (the service method is not yet exposed —
+// memTimeline runs `memory timeline` (the service method is not yet exposed —
 // the honest degraded envelope, R-2).
 func memTimeline(fl config.Flags, cwd string, args []string) int {
-	fs := flag.NewFlagSet("mem timeline", flag.ContinueOnError)
+	fs := flag.NewFlagSet("memory timeline", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	jsonOut := jsonFlag(fs)
 	var sessionID string
@@ -349,7 +352,7 @@ func memTimeline(fl config.Flags, cwd string, args []string) int {
 		return exitUsage
 	}
 	if sessionID == "" {
-		return errExit("mem timeline: --session is required")
+		return errExit("memory timeline: --session is required")
 	}
 	// R-2: the service method is not yet exposed — a degraded envelope,
 	// never a healthy empty one (the same shape the MCP tool renders).
@@ -361,13 +364,13 @@ func memTimeline(fl config.Flags, cwd string, args []string) int {
 	return finish(fs, *jsonOut, dispatchResult{result: res})
 }
 
-// memPin runs `mem pin` / `mem unpin`.
+// memPin runs `memory pin` / `memory unpin`.
 func memPin(fl config.Flags, cwd string, args []string, pin bool) int {
 	verb := "pin"
 	if !pin {
 		verb = "unpin"
 	}
-	fs := flag.NewFlagSet("mem "+verb, flag.ContinueOnError)
+	fs := flag.NewFlagSet("memory "+verb, flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var pf projectFlag
 	pf.add(fs)
@@ -378,7 +381,7 @@ func memPin(fl config.Flags, cwd string, args []string, pin bool) int {
 		return exitUsage
 	}
 	if id == 0 {
-		return errExit("mem %s: --id is required", verb)
+		return errExit("memory %s: --id is required", verb)
 	}
 	h, st, err := openRuntime(cwd, fl, pf.project)
 	if err != nil {
@@ -396,9 +399,9 @@ func memPin(fl config.Flags, cwd string, args []string, pin bool) int {
 	return finish(fs, *jsonOut, dispatchResult{result: res, err: herr})
 }
 
-// memDelete runs `mem delete` (soft by default, --hard deletes outright).
+// memDelete runs `memory delete` (soft by default, --hard deletes outright).
 func memDelete(fl config.Flags, cwd string, args []string) int {
-	fs := flag.NewFlagSet("mem delete", flag.ContinueOnError)
+	fs := flag.NewFlagSet("memory delete", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var pf projectFlag
 	pf.add(fs)
@@ -413,7 +416,7 @@ func memDelete(fl config.Flags, cwd string, args []string) int {
 		return exitUsage
 	}
 	if id == 0 {
-		return errExit("mem delete: --id is required")
+		return errExit("memory delete: --id is required")
 	}
 	h, st, err := openRuntime(cwd, fl, pf.project)
 	if err != nil {
@@ -432,10 +435,10 @@ func memDelete(fl config.Flags, cwd string, args []string) int {
 	return finish(fs, *jsonOut, dispatchResult{result: res, err: herr})
 }
 
-// memSession runs `mem session start|end|summary|finalize`.
+// memSession runs `memory session start|end|summary|finalize`.
 func memSession(fl config.Flags, cwd string, args []string) int {
 	if len(args) == 0 {
-		return errExit("mem session: a subcommand is required (start|end|summary|finalize)")
+		return errExit("memory session: a subcommand is required (start|end|summary|finalize)")
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
@@ -448,12 +451,12 @@ func memSession(fl config.Flags, cwd string, args []string) int {
 	case "finalize":
 		return memSessionFinalize(fl, cwd, rest)
 	default:
-		return errExit("mem session: unknown subcommand %q", sub)
+		return errExit("memory session: unknown subcommand %q", sub)
 	}
 }
 
 func memSessionStart(fl config.Flags, cwd string, args []string) int {
-	fs := flag.NewFlagSet("mem session start", flag.ContinueOnError)
+	fs := flag.NewFlagSet("memory session start", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var pf projectFlag
 	pf.add(fs)
@@ -469,7 +472,7 @@ func memSessionStart(fl config.Flags, cwd string, args []string) int {
 		return exitUsage
 	}
 	if id == "" {
-		return errExit("mem session start: --id is required")
+		return errExit("memory session start: --id is required")
 	}
 	h, st, err := openRuntime(cwd, fl, pf.project)
 	if err != nil {
@@ -486,7 +489,7 @@ func memSessionStart(fl config.Flags, cwd string, args []string) int {
 }
 
 func memSessionEnd(fl config.Flags, cwd string, args []string) int {
-	fs := flag.NewFlagSet("mem session end", flag.ContinueOnError)
+	fs := flag.NewFlagSet("memory session end", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	jsonOut := jsonFlag(fs)
 	var sessionID, summary string
@@ -496,7 +499,7 @@ func memSessionEnd(fl config.Flags, cwd string, args []string) int {
 		return exitUsage
 	}
 	if sessionID == "" {
-		return errExit("mem session end: --session is required")
+		return errExit("memory session end: --session is required")
 	}
 	h, st, err := openRuntime(cwd, fl, "")
 	if err != nil {
@@ -510,7 +513,7 @@ func memSessionEnd(fl config.Flags, cwd string, args []string) int {
 }
 
 func memSessionSummary(fl config.Flags, cwd string, args []string) int {
-	fs := flag.NewFlagSet("mem session summary", flag.ContinueOnError)
+	fs := flag.NewFlagSet("memory session summary", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var pf projectFlag
 	pf.add(fs)
@@ -528,7 +531,7 @@ func memSessionSummary(fl config.Flags, cwd string, args []string) int {
 		return exitUsage
 	}
 	if sessionID == "" {
-		return errExit("mem session summary: --session is required")
+		return errExit("memory session summary: --session is required")
 	}
 	h, st, err := openRuntime(cwd, fl, pf.project)
 	if err != nil {
@@ -550,7 +553,7 @@ func memSessionSummary(fl config.Flags, cwd string, args []string) int {
 }
 
 func memSessionFinalize(fl config.Flags, cwd string, args []string) int {
-	fs := flag.NewFlagSet("mem session finalize", flag.ContinueOnError)
+	fs := flag.NewFlagSet("memory session finalize", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var pf projectFlag
 	pf.add(fs)
@@ -561,7 +564,7 @@ func memSessionFinalize(fl config.Flags, cwd string, args []string) int {
 		return exitUsage
 	}
 	if sessionID == "" {
-		return errExit("mem session finalize: --session is required")
+		return errExit("memory session finalize: --session is required")
 	}
 	h, st, err := openRuntime(cwd, fl, pf.project)
 	if err != nil {
@@ -574,9 +577,9 @@ func memSessionFinalize(fl config.Flags, cwd string, args []string) int {
 	return finish(fs, *jsonOut, dispatchResult{result: res, err: herr})
 }
 
-// memStats runs `mem stats` (per-type/project statistics).
+// memStats runs `memory stats` (per-type/project statistics).
 func memStats(fl config.Flags, cwd string, args []string) int {
-	fs := flag.NewFlagSet("mem stats", flag.ContinueOnError)
+	fs := flag.NewFlagSet("memory stats", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var pf projectFlag
 	pf.add(fs)
@@ -597,7 +600,7 @@ func memStats(fl config.Flags, cwd string, args []string) int {
 	return finish(fs, *jsonOut, dispatchResult{result: res, err: herr})
 }
 
-// memDoctor runs `mem doctor` (the spec's per-project functional health
+// memDoctor runs `memory doctor` (the spec's per-project functional health
 // check; the top-level `doctor` is the whole-system one).
 func memDoctor(fl config.Flags, cwd string, args []string) int {
 	return runDoctor(fl, cwd, args)

@@ -85,7 +85,7 @@ func saveReq(p, title string) memory.SaveRequest {
 // usage error.
 func TestCLIProjectSelection(t *testing.T) {
 	t.Setenv("MNEMONIC_PROJECT", "envproj")
-	err := runCLIError(t, "mem", "search", "q", "--project", "explicit", "--all")
+	err := runCLIError(t, "memory", "search", "q", "--project", "explicit", "--all")
 	if err == nil {
 		t.Fatalf("explicit project + --all must be a usage error")
 	}
@@ -101,7 +101,7 @@ func TestCLIProjectSelection(t *testing.T) {
 // --project.
 func TestCLIAllFanoutNotWired(t *testing.T) {
 	t.Setenv("MNEMONIC_PROJECT", "envproj")
-	out, code := captureRun(t, "mem", "search", "q", "--all")
+	out, code := captureRun(t, "memory", "search", "q", "--all")
 	if code != exitUsage {
 		t.Fatalf("bare --all on a read command must be a usage error (exit 2), got %d (output: %s)", code, out)
 	}
@@ -115,7 +115,7 @@ func TestCLIAllFanoutNotWired(t *testing.T) {
 // is refused the same way (it too would silently resolve to one project).
 func TestCLIAllFanoutNotWiredGet(t *testing.T) {
 	t.Setenv("MNEMONIC_PROJECT", "envproj")
-	out, code := captureRun(t, "mem", "get", "--id", "1", "--all")
+	out, code := captureRun(t, "memory", "get", "--id", "1", "--all")
 	if code != exitUsage {
 		t.Fatalf("--all on mem get must be a usage error (exit 2), got %d (output: %s)", code, out)
 	}
@@ -157,15 +157,6 @@ func TestDoctorJSONCarriesChecks(t *testing.T) {
 	}
 }
 
-// TestServePrintsPointer: the deprecated serve alias prints a pointer to
-// mcp/CLI and exits 0 (the spec: no-op alias until v2.1).
-func TestServePrintsPointer(t *testing.T) {
-	out := runCLI(t, "serve")
-	if !strings.Contains(out, "mcp") {
-		t.Fatalf("serve must point at the mcp command: %s", out)
-	}
-}
-
 // TestStubSubcommands: setup is a delegation stub — it prints a pointer (the
 // dispatch is complete; the delegation is a one-line change later when the
 // owning change lands). index is now a REAL command (TICKET-07 — the
@@ -183,7 +174,7 @@ func TestStubSubcommands(t *testing.T) {
 	// the detector's resolution). A bare `index` with no project selector in
 	// a non-git cwd is a handler error (exit 1), not a stub pointer.
 	installRunEnv(t)
-	if _, code := captureRun(t, "index", "status", "--project", "p"); code != exitOK {
+	if _, code := captureRun(t, "code", "status", "--project", "p"); code != exitOK {
 		t.Fatalf("index status --project p must exit 0 (the code_status read); got %d", code)
 	}
 	// migrate is removed: it is now an unknown command (usage error).
@@ -197,7 +188,7 @@ func TestStubSubcommands(t *testing.T) {
 func TestTrailRecent(t *testing.T) {
 	installRunEnv(t)
 	// Seed a retrieval (the search records the trail).
-	_, code := captureRun(t, "mem", "search", "seedquery", "--project", "p")
+	_, code := captureRun(t, "memory", "search", "seedquery", "--project", "p")
 	if code != exitOK {
 		t.Fatalf("seed search exited %d", code)
 	}
@@ -213,7 +204,7 @@ func TestTrailRecent(t *testing.T) {
 // TestTrailShow: trail show prints one trail by id.
 func TestTrailShow(t *testing.T) {
 	installRunEnv(t)
-	_, code := captureRun(t, "mem", "search", "showquery", "--project", "p")
+	_, code := captureRun(t, "memory", "search", "showquery", "--project", "p")
 	if code != exitOK {
 		t.Fatalf("seed search exited %d", code)
 	}

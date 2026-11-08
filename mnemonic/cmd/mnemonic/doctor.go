@@ -21,7 +21,7 @@ import (
 	"github.com/devopstales/skillgrid/mnemonic/internal/transport/handler"
 )
 
-// runDoctor runs `doctor` (and `mem doctor`, the same check). The
+// runDoctor runs `doctor` (and `memory doctor`, the same check). The
 // migration-state check (TICKET-19 doctor completeness) is advisory: a v1
 // dir detected but not migrated renders a `migrate-pending` line (the
 // operator reads it and runs `mnemonic migrate`); it never fails the

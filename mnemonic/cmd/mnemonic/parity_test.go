@@ -63,7 +63,7 @@ func mcpCall(t *testing.T, h *handler.Handler, tool string, args map[string]any)
 // TestCLIMCPParity [cli-mcp-parity]: mem save over the CLI (with --json)
 // and mem_save over MCP with the same args must produce identical JSON.
 func TestCLIMCPParity(t *testing.T) {
-	cliOut := runCLI(t, "mem", "save", "--title", "T", "--type", "decision", "--content", "C",
+	cliOut := runCLI(t, "memory", "save", "--title", "T", "--type", "decision", "--content", "C",
 		"--project", "p", "--session", "s", "--json")
 	mcpOut := mcpCall(t, newTestHandler(t), "mem_save", map[string]any{
 		"title": "T", "type": "decision", "content": "C", "project": "p", "session_id": "s",
@@ -75,7 +75,7 @@ func TestCLIMCPParity(t *testing.T) {
 // on the read path too (a search with no hits must render identically
 // over both surfaces).
 func TestCLIMCPParitySearch(t *testing.T) {
-	cliOut := runCLI(t, "mem", "search", "nothinghere", "--project", "p", "--json")
+	cliOut := runCLI(t, "memory", "search", "nothinghere", "--project", "p", "--json")
 	mcpOut := mcpCall(t, newTestHandler(t), "mem_search", map[string]any{"query": "nothinghere", "project": "p"})
 	assertJSONParity(t, cliOut, string(mcpOut))
 }
@@ -89,7 +89,7 @@ func TestCLIMCPParityError(t *testing.T) {
 	// The CLI's --json error output is on stdout (the envelope); the
 	// exit code is 1 (a handler error, not a usage error).
 	installRunEnv(t)
-	cliOut, _ := captureRun(t, "mem", "get", "--id", "999", "--project", "p", "--json")
+	cliOut, _ := captureRun(t, "memory", "get", "--id", "999", "--project", "p", "--json")
 	mcpOut := mcpCall(t, newTestHandler(t), "mem_get_observation", map[string]any{"id": 999})
 	var a, b map[string]any
 	if err := json.Unmarshal([]byte(cliOut), &a); err != nil {
@@ -126,7 +126,7 @@ func assertJSONParity(t *testing.T, cliOut, mcpOut string) {
 // envelope (degraded flag + reason when the intelligence seams are
 // absent — the save ran on the deterministic floor, the flag says so).
 func TestCLIParityJSONShape(t *testing.T) {
-	out := runCLI(t, "mem", "save", "--title", "T", "--type", "decision", "--content", "C",
+	out := runCLI(t, "memory", "save", "--title", "T", "--type", "decision", "--content", "C",
 		"--project", "p", "--session", "s", "--json")
 	var env map[string]any
 	if err := json.Unmarshal([]byte(out), &env); err != nil {
@@ -148,7 +148,7 @@ func TestCLIParityJSONShape(t *testing.T) {
 // subcommand is a usage error (exit 2, message on stderr) — never a
 // half-marshaled envelope.
 func TestCLIUnknownSubcommand(t *testing.T) {
-	err := runCLIError(t, "mem", "frobnicate")
+	err := runCLIError(t, "memory", "frobnicate")
 	if err == nil {
 		t.Fatalf("an unknown subcommand must be a usage error")
 	}
@@ -175,7 +175,7 @@ func TestCLIUnknownTopLevelCommand(t *testing.T) {
 // explicit > env > git > basename).
 func TestCLIExplicitProjectBeatsEnv(t *testing.T) {
 	t.Setenv("MNEMONIC_PROJECT", "envproj")
-	out := runCLI(t, "mem", "save", "--title", "T", "--type", "decision", "--content", "C",
+	out := runCLI(t, "memory", "save", "--title", "T", "--type", "decision", "--content", "C",
 		"--project", "explicit", "--session", "s", "--json")
 	var env map[string]any
 	if err := json.Unmarshal([]byte(out), &env); err != nil {

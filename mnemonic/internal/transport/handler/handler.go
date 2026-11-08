@@ -91,7 +91,7 @@ func (h *Handler) resolveProject(cwd, explicit string) (string, error) {
 		}
 		// The detector failed (e.g. empty cwd). Fall back to the config's
 		// already-resolved project (openRuntime sets cfg.Project.Name after
-		// resolving with the real cwd). Without this, a bare `mnemonic mem
+		// resolving with the real cwd). Without this, a bare `mnemonic memory
 		// search` fails "cwd is empty" even though the project was already
 		// resolved at startup.
 		if h.cfg.Project.Name != "" {

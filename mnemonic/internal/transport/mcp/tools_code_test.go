@@ -496,7 +496,7 @@ func TestV21DeferredReportRunFlag(t *testing.T) {
 
 // TestMCPCLIParity verifies the K5/K6 seam's MCP side (F5): the code_search
 // tool's CallTool bytes are the envelope marshal of the CodeHandler result.
-// The CLI side (the real `mnemonic index search --json` byte emission via the
+// The CLI side (the real `mnemonic code search --json` byte emission via the
 // finish() marshal path — NOT a re-marshal) is driven by captureRun in
 // cmd/mnemonic/index_test.go's TestIndexSearchParity (the raw CLI --json bytes
 // are compared byte-for-byte against the MCP CallTool envelope). The MCP +

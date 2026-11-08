@@ -25,8 +25,11 @@ import (
 	"github.com/devopstales/skillgrid/mnemonic/internal/transport/mcp"
 )
 
-// runMCP runs `mnemonic mcp`: the stdio server entrypoint.
-func runMCP(fl config.Flags, args []string) int {
+// runMCP runs `mnemonic <family> mcp`: the stdio server entrypoint. The
+// family selects the server identity + tool set (T3 switches the
+// registration onto it; until then the body serves all three families).
+func runMCP(fl config.Flags, args []string, family mcp.Family) int {
+	_ = family
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var profile string
@@ -136,17 +139,4 @@ func startAutosync(ctx context.Context, h *handler.Handler, st store.Store) (*me
 		_ = tr.Close()
 	}()
 	return a, tr, nil
-}
-
-// runServe runs `serve`: the deprecated no-op alias (the v2 HTTP
-// dashboard is dropped — the pointer to mcp/CLI is the retained surface).
-func runServe(fl config.Flags, args []string) int {
-	// The flag set accepts the globals (the command is a no-op; the
-	// parse is here so a mistyped flag is a loud error, not a silent
-	// one).
-	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	_ = fs.Parse(args)
-	fmt.Fprintln(outW(), "mnemonic serve: v2 drops the HTTP dashboard. Use `mnemonic mcp` (the stdio server) or the CLI (`mnemonic mem ...`).")
-	return exitOK
 }

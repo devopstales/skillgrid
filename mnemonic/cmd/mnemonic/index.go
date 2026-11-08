@@ -26,6 +26,7 @@ import (
 	"github.com/devopstales/skillgrid/mnemonic/internal/core/project"
 	"github.com/devopstales/skillgrid/mnemonic/internal/core/store"
 	"github.com/devopstales/skillgrid/mnemonic/internal/transport/handler"
+	"github.com/devopstales/skillgrid/mnemonic/internal/transport/mcp"
 )
 
 // codeHandlerFor builds the shared CodeHandler over a store (the production
@@ -43,17 +44,20 @@ var codeHandlerFor = func(cfg config.Config, st store.Store) *handler.CodeHandle
 	return handler.NewCodeHandler(st, emb, cfg, "", &gitDetector{det: det})
 }
 
-// runIndex runs the `mnemonic index` command group (spec 008 §4). The
-// subcommand dispatches onto the shared CodeHandler (the same one the MCP
-// server wraps — the K5/K6 seam).
+// runIndex runs the `mnemonic code` command group (spec 008 §4). Bare
+// `mnemonic code` runs the incremental index; the subcommands dispatch
+// onto the shared CodeHandler (the same one the MCP server wraps — the
+// K5/K6 seam).
 func runIndex(fl config.Flags, cwd string, args []string) int {
 	if len(args) == 0 {
 		// No subcommand → the incremental index (the spec's default:
-		// `mnemonic index [flags]` runs the index).
+		// `mnemonic code [flags]` runs the index).
 		return runIndexIndex(fl, cwd, args)
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
+	case "mcp":
+		return runMCP(fl, rest, mcp.FamilyCode)
 	case "index", "":
 		return runIndexIndex(fl, cwd, rest)
 	case "status":
@@ -77,14 +81,14 @@ func runIndex(fl config.Flags, cwd string, args []string) int {
 	case "watch":
 		return runIndexWatch(fl, cwd, rest)
 	default:
-		fmt.Fprintf(errW(), "error: unknown index subcommand %q (see: mnemonic index --help)\n", sub)
+		fmt.Fprintf(errW(), "error: unknown code subcommand %q (see: mnemonic code --help)\n", sub)
 		return exitUsage
 	}
 }
 
 // codeRuntime opens the runtime + builds the CodeHandler + sets the root (the
 // git toplevel of cwd, the index walk's root). It is the single wiring point
-// the index subcommands share (the same store the mem commands open — the
+// the index subcommands share (the same store the memory commands open — the
 // K6 seam).
 func codeRuntime(cwd string, fl config.Flags, explicit string) (*handler.CodeHandler, store.Store, error) {
 	cfg, err := config.Load(cwd, fl)
@@ -118,7 +122,7 @@ func indexProjectFlag(fs *flag.FlagSet) *string {
 	return fs.String("project", "", "project selector (beats "+config.EnvProject+" and detection)")
 }
 
-// runIndexIndex runs `mnemonic index [flags]` (the incremental index — the
+// runIndexIndex runs `mnemonic code [flags]` (the incremental index — the
 // code_index write).
 func runIndexIndex(fl config.Flags, cwd string, args []string) int {
 	fs := flag.NewFlagSet("index", flag.ContinueOnError)

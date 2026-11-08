@@ -19,11 +19,12 @@ import (
 	"github.com/devopstales/skillgrid/mnemonic/internal/projectwiki"
 	"github.com/devopstales/skillgrid/mnemonic/internal/transport/envelope"
 	"github.com/devopstales/skillgrid/mnemonic/internal/transport/handler"
+	"github.com/devopstales/skillgrid/mnemonic/internal/transport/mcp"
 )
 
 func runProjectWiki(fl config.Flags, cwd string, args []string) int {
 	if len(args) == 0 {
-		return errExit("projectwiki: a subcommand is required (query|read|search|generate|validate|lint|status|cite-source|index|reindex|bootstrap|rebuild-meta|eval)")
+		return errExit("projectwiki: a subcommand is required (query|read|search|generate|validate|lint|status|cite-source|index|reindex|bootstrap|rebuild-meta|eval|mcp)")
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
@@ -53,8 +54,10 @@ func runProjectWiki(fl config.Flags, cwd string, args []string) int {
 		return projectWikiRebuildMeta(fl, cwd, rest)
 	case "eval":
 		return projectWikiEval(fl, cwd, rest)
+	case "mcp":
+		return runMCP(fl, rest, mcp.FamilyProjectWiki)
 	default:
-		return errExit("projectwiki: unknown subcommand %q (query|read|search|generate|validate|lint|status|cite-source|index|reindex|bootstrap|rebuild-meta|eval)", sub)
+		return errExit("projectwiki: unknown subcommand %q (query|read|search|generate|validate|lint|status|cite-source|index|reindex|bootstrap|rebuild-meta|eval|mcp)", sub)
 	}
 }
 
@@ -68,7 +71,7 @@ func projectWikiOpError(format string, args ...any) int {
 // projectWikiJSON prints the --json output: the envelope wire shape (snake_case,
 // the degraded flag with its default reason) — the same marshal the MCP
 // tools use, the K6 byte-identical contract (finish does the same for the
-// mem commands). res must marshal to a JSON object (wrap slices in a map).
+// memory commands). res must marshal to a JSON object (wrap slices in a map).
 func projectWikiJSON(res any) int {
 	degraded, reason := envelope.ExtractDegraded(res)
 	env, err := envelope.WithDegraded(res, degraded, reason)
@@ -118,7 +121,7 @@ func projectWikiHandler(cwd string, fl config.Flags, explicit string) (store.Sto
 }
 
 // projectWikiProjectFlag registers the project selector on fs. Read pf.project only
-// AFTER fs.Parse (the parse fills the struct in place — the mem commands'
+// AFTER fs.Parse (the parse fills the struct in place — the memory commands'
 // convention; a pre-parse read is "").
 func projectWikiProjectFlag(fs *flag.FlagSet) *projectFlag {
 	var pf projectFlag

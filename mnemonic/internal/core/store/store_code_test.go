@@ -62,7 +62,7 @@ func TestUpsertFileConflictReturnsExistingID(t *testing.T) {
 // ON CONFLICT(path) DO UPDATE branch — and inside the txn, LastInsertId()
 // must still return the EXISTING rowid, not 0. A 0 here → the symbol upsert
 // references file_id=0 → the symbols.file_id → files.id FK fails. This is
-// the re-index regression the live `mnemonic index` (second run) hit.
+// the re-index regression the live `mnemonic code` (second run) hit.
 func TestUpsertFileConflictTxnReturnsExistingID(t *testing.T) {
 	st := openTestStore(t)
 	ctx := context.Background()
