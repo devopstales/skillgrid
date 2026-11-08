@@ -26,10 +26,12 @@ import (
 )
 
 // runMCP runs `mnemonic <family> mcp`: the stdio server entrypoint. The
-// family selects the server identity + tool set (T3 switches the
-// registration onto it; until then the body serves all three families).
+// family selects the single-purpose server — identity, profile-filtered
+// tool set, and the family-gated registrations (the RegisterCodeTools /
+// RegisterProjectWikiTools seams are no-ops on the non-matching family,
+// so `mnemonic memory mcp` serves mem_* only, `code mcp` code_* only,
+// `projectwiki mcp` projectwiki_* only).
 func runMCP(fl config.Flags, args []string, family mcp.Family) int {
-	_ = family
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var profile string
@@ -51,12 +53,13 @@ func runMCP(fl config.Flags, args []string, family mcp.Family) int {
 		fmt.Fprintf(outW(), "error: unknown profile %q (agent|all)\n", profile)
 		return exitUsage
 	}
-	srv := mcp.NewServer(h, p)
+	srv := mcp.NewServer(h, p, family)
 	defer srv.Close()
 	// The code_* surface (B3 — the registration seam): register the code
-	// tools on the memory server (the profile selects the set). The root is
-	// the git toplevel of cwd (the index walk's root); the onSync seam is the
-	// Index driver (the TICKET-06 watch loop's OnSyncFunc signature).
+	// tools (the profile selects the set; the seam is a no-op unless this
+	// is the code server). The root is the git toplevel of cwd (the index
+	// walk's root); the onSync seam is the Index driver (the TICKET-06
+	// watch loop's OnSyncFunc signature).
 	ch := codeHandlerFor(h.Config(), st)
 	root := cwd
 	if gitRoot, err := gitToplevel(cwd); err == nil && gitRoot != "" {
@@ -65,8 +68,9 @@ func runMCP(fl config.Flags, args []string, family mcp.Family) int {
 	ch.SetRoot(root)
 	srv.RegisterCodeTools(ch)
 	// The projectwiki_* surface (008-transport §3 — the registration seam):
-	// register the ProjectWiki tools on the memory server (the profile selects the
-	// set). The vault root is the sentinel dir under cwd (001-structure);
+	// register the ProjectWiki tools (the profile selects the set; the seam
+	// is a no-op unless this is the projectwiki server). The vault root is
+	// the sentinel dir under cwd (001-structure);
 	// the repo root is the git toplevel of cwd (006 §2 — the anchor paths
 	// are working-tree-relative, so the pin-check runs against it).
 	kh := handler.NewProjectWikiHandler(st, h.Config(), &gitDetector{det: project.Detector{EnvVar: h.Config().Project.EnvVar}})

@@ -15,7 +15,7 @@ import (
 )
 
 func TestWriteQueueSerializes(t *testing.T) {
-	s := NewServer(newTestHandler(t), Agent)
+	s := NewServer(newTestHandler(t), Agent, FamilyMemory)
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
@@ -46,7 +46,7 @@ func TestWriteQueueSerializes(t *testing.T) {
 }
 
 func TestEnvelopeCarriesDegraded(t *testing.T) {
-	s := NewServer(newTestHandler(t), Agent) // nil seams
+	s := NewServer(newTestHandler(t), Agent, FamilyMemory) // nil seams
 	out := s.CallTool(ctx, "mem_save", saveArgs(1))
 	var env struct {
 		Degraded       bool   `json:"degraded"`
@@ -68,7 +68,7 @@ func TestEnvelopeCarriesDegraded(t *testing.T) {
 func TestEnvelopeCarriesDegradedWhenStoreFails(t *testing.T) {
 	st := openTestStore(t, t.TempDir())
 	_ = st.Close() // a closed store: every read/write errors
-	s := NewServer(newTestHandlerWithStore(t, st), Agent)
+	s := NewServer(newTestHandlerWithStore(t, st), Agent, FamilyMemory)
 	out := s.CallTool(ctx, "mem_search", map[string]any{"query": "x", "project": testProject})
 	var env map[string]any
 	if err := json.Unmarshal(out, &env); err != nil {
@@ -89,7 +89,7 @@ func TestEnvelopeCarriesDegradedWhenStoreFails(t *testing.T) {
 
 func TestStdioRoundTrip(t *testing.T) {
 	// in-process: pipe the server's stdio, speak JSON-RPC, assert a valid tool result frame
-	s := NewServer(newTestHandler(t), Agent)
+	s := NewServer(newTestHandler(t), Agent, FamilyMemory)
 	frames, err := s.HandshakeAndCall(ctx, "mem_current_project") // test harness: initialize → tools/call
 	if err != nil {
 		t.Fatal(err)
@@ -137,7 +137,7 @@ func parseToolCallFrame(t *testing.T, frame []byte) map[string]any {
 // unknown tool is a JSON-RPC error frame (never a crash, never a nil frame),
 // and the server keeps serving after it (the queue and the registry survive).
 func TestUnknownToolIsEnvelopeError(t *testing.T) {
-	s := NewServer(newTestHandler(t), Agent)
+	s := NewServer(newTestHandler(t), Agent, FamilyMemory)
 	frames, err := s.HandshakeAndCall(ctx, "mem_not_a_tool")
 	if err != nil {
 		t.Fatal(err)
@@ -171,7 +171,7 @@ func TestUnknownToolIsEnvelopeError(t *testing.T) {
 // cannot stall reads). A test-only deadlock switch stands in for a crashed
 // worker: if the read path enqueued, this would hang (the test times out).
 func TestReadsBypassTheQueue(t *testing.T) {
-	s := NewServer(newTestHandler(t), Agent)
+	s := NewServer(newTestHandler(t), Agent, FamilyMemory)
 	s.SetDeadlockForTest()
 	out := s.CallTool(ctx, "mem_current_project", map[string]any{})
 	if !json.Valid(out) {
@@ -183,7 +183,7 @@ func TestReadsBypassTheQueue(t *testing.T) {
 // queue: a save that errors (missing required arg) is answered with the
 // error envelope, and the next save on the same server still succeeds.
 func TestWriteQueueDrainsAfterError(t *testing.T) {
-	s := NewServer(newTestHandler(t), Agent)
+	s := NewServer(newTestHandler(t), Agent, FamilyMemory)
 	bad := s.CallTool(ctx, "mem_save", map[string]any{"title": "no content", "type": "decision"})
 	if !json.Valid(bad) {
 		t.Fatalf("failed write must still be valid JSON: %s", bad)
@@ -212,7 +212,7 @@ func TestWriteQueueDrainsAfterError(t *testing.T) {
 // contract) and the store's transaction seam counts the committed
 // transactions: one queued write = one transaction.
 func TestJudgeManyWritesOnceInQueue(t *testing.T) {
-	s := NewServer(newTestHandler(t), Agent)
+	s := NewServer(newTestHandler(t), Agent, FamilyMemory)
 	obs1 := s.CallTool(ctx, "mem_save", saveArgs(1))
 	obs2 := s.CallTool(ctx, "mem_save", saveArgs(2))
 	if !json.Valid(obs1) || !json.Valid(obs2) {
@@ -256,7 +256,7 @@ func TestJudgeManyWritesOnceInQueue(t *testing.T) {
 // literal, and NOT the shared testProject), so a regression to the
 // literal "p" fails the assertion. An explicit selector wins.
 func TestCurrentProjectReturnsDetectorResolution(t *testing.T) {
-	s := NewServer(newTestHandlerDistinctProject(t), Agent)
+	s := NewServer(newTestHandlerDistinctProject(t), Agent, FamilyMemory)
 	// No explicit → the detector's chain (resolves to distinctProject, a
 	// value distinct from the pre-fix "p" literal).
 	out := s.CallTool(ctx, "mem_current_project", map[string]any{})
@@ -282,7 +282,7 @@ func TestCurrentProjectReturnsDetectorResolution(t *testing.T) {
 // no-detector path: a Handler with no detector returns an envelope error,
 // never a placeholder project name.
 func TestCurrentProjectNoDetectorIsError(t *testing.T) {
-	s := NewServer(newTestHandlerNoDetector(t), Agent)
+	s := NewServer(newTestHandlerNoDetector(t), Agent, FamilyMemory)
 	out := s.CallTool(ctx, "mem_current_project", map[string]any{})
 	var env map[string]any
 	if err := json.Unmarshal(out, &env); err != nil {
@@ -305,7 +305,7 @@ func TestCurrentProjectNoDetectorIsError(t *testing.T) {
 // not a success), not a bare captured:0. The pinned required args are
 // validated before the no-op — absent → invalid_arguments.
 func TestCapturePassiveIsHonestNoOp(t *testing.T) {
-	s := NewServer(newTestHandler(t), Agent)
+	s := NewServer(newTestHandler(t), Agent, FamilyMemory)
 	out := s.CallTool(ctx, "mem_capture_passive", map[string]any{
 		"text":       "## Key Learnings:\n- x",
 		"session_id": "s1",
@@ -342,7 +342,7 @@ func TestCapturePassiveIsHonestNoOp(t *testing.T) {
 // mem_session_finalize is the atomic close. None of them may be a healthy
 // empty envelope.
 func TestSessionLifecycleWired(t *testing.T) {
-	s := NewServer(newTestHandler(t), Agent)
+	s := NewServer(newTestHandler(t), Agent, FamilyMemory)
 	st := s.h.Service().St()
 	// start: the session row must exist after the call.
 	out := s.CallTool(ctx, "mem_session_start", map[string]any{
@@ -404,7 +404,7 @@ func TestSessionLifecycleWired(t *testing.T) {
 // a healthy empty envelope: a wired tool returns real rows, an unwired one
 // returns degraded:true + reason (R-2).
 func TestAdminToolsReachable(t *testing.T) {
-	s := NewServer(newTestHandler(t), All)
+	s := NewServer(newTestHandler(t), All, FamilyMemory)
 	// stats: wired (per-type counts from the store).
 	out := s.CallTool(ctx, "mem_stats", map[string]any{"project": testProject})
 	assertToolOK(t, out)
@@ -437,7 +437,7 @@ func TestAdminToolsReachable(t *testing.T) {
 // TestListProjectsWired (fix round 1, IMPORTANT #2) pins mem_list_projects:
 // a wired read (distinct projects from the store), agent-profile (spec §3).
 func TestListProjectsWired(t *testing.T) {
-	s := NewServer(newTestHandler(t), Agent)
+	s := NewServer(newTestHandler(t), Agent, FamilyMemory)
 	// Seed a row in a project the store does not open for (list_projects
 	// spans the tables, not the open project): the result must reflect the
 	// store's actual rows, not a hardcoded fixture.
@@ -460,7 +460,7 @@ func TestListProjectsWired(t *testing.T) {
 // parked cursor: mem_get_observation's schema carries no history_cursor
 // until the store's version paging exists (the handler signature keeps it).
 func TestGetObservationSchemaDropsHistoryCursor(t *testing.T) {
-	s := NewServer(newTestHandler(t), Agent)
+	s := NewServer(newTestHandler(t), Agent, FamilyMemory)
 	sch := s.ToolSchema("mem_get_observation")
 	if sch.Props["history_cursor"] {
 		t.Fatalf("mem_get_observation must not expose history_cursor until store version paging exists (R-4)")

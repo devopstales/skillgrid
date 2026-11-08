@@ -54,7 +54,7 @@ func TestProjectWikiJSONParity(t *testing.T) {
 	kh := handler.NewProjectWikiHandler(st, config.Config{}, nil)
 	cwd, _ := os.Getwd()
 	kh.SetRoots(projectwiki.Root(cwd), cwd)
-	srv := mcp.NewServer(h, mcp.All)
+	srv := mcp.NewServer(h, mcp.All, mcp.FamilyProjectWiki)
 	srv.RegisterProjectWikiTools(kh)
 	defer srv.Close()
 

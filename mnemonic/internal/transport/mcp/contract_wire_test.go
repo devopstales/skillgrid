@@ -114,12 +114,19 @@ func TestEveryToolServesTheOpenWikiWireContract(t *testing.T) {
 // limit 1..50 (a superset of every tool default), the identifiers'
 // maxLength, budget's documented max, confidence 0..1, integer types.
 func TestConstraintSpotChecks(t *testing.T) {
-	s, _, _ := newProjectWikiFixture(t, Agent)
-	s.RegisterCodeTools(newTestCodeHandler(t))
+	// The per-family split: each server holds only its own family's tool
+	// definitions, so every constraint pin is checked on the server of the
+	// tool's family (one combined server can no longer carry all three).
+	memSrv := NewServer(newTestHandler(t), Agent, FamilyMemory)
+	defer memSrv.Close()
+	codeSrv := NewServer(newTestHandler(t), Agent, FamilyCode)
+	defer codeSrv.Close()
+	codeSrv.RegisterCodeTools(newTestCodeHandler(t))
+	wikiSrv, _, _ := newProjectWikiFixture(t, Agent)
 
-	prop := func(tool, pname string) map[string]any {
+	prop := func(srv *Server, tool, pname string) map[string]any {
 		t.Helper()
-		w := wireShape(t, s.toolDefs[tool])
+		w := wireShape(t, srv.toolDefs[tool])
 		p, ok := w.InputSchema.Properties[pname].(map[string]any)
 		if !ok {
 			t.Fatalf("%s has no %s property", tool, pname)
@@ -127,31 +134,40 @@ func TestConstraintSpotChecks(t *testing.T) {
 		return p
 	}
 
-	for _, tool := range []string{"mem_search", "code_search", "projectwiki_query", "projectwiki_search"} {
-		p := prop(tool, "limit")
+	// limit 1..50 on every family's search/query tool.
+	for _, tc := range []struct {
+		srv  *Server
+		tool string
+	}{
+		{memSrv, "mem_search"},
+		{codeSrv, "code_search"},
+		{wikiSrv, "projectwiki_query"},
+		{wikiSrv, "projectwiki_search"},
+	} {
+		p := prop(tc.srv, tc.tool, "limit")
 		if p["type"] != "integer" || p["minimum"] != float64(1) || p["maximum"] != float64(50) {
-			t.Errorf("%s.limit = %v, want integer 1..50", tool, p)
+			t.Errorf("%s.limit = %v, want integer 1..50", tc.tool, p)
 		}
 	}
-	if p := prop("mem_context", "budget"); p["type"] != "integer" || p["maximum"] != float64(65536) {
+	if p := prop(memSrv, "mem_context", "budget"); p["type"] != "integer" || p["maximum"] != float64(65536) {
 		t.Errorf("mem_context.budget = %v, want integer, max 65536", p)
 	}
-	if p := prop("mem_judge", "confidence"); p["type"] != "number" || p["minimum"] != float64(0) || p["maximum"] != float64(1) {
+	if p := prop(memSrv, "mem_judge", "confidence"); p["type"] != "number" || p["minimum"] != float64(0) || p["maximum"] != float64(1) {
 		t.Errorf("mem_judge.confidence = %v, want number 0..1", p)
 	}
-	if p := prop("projectwiki_query", "query"); p["minLength"] != float64(1) || p["maxLength"] != float64(2000) {
+	if p := prop(wikiSrv, "projectwiki_query", "query"); p["minLength"] != float64(1) || p["maxLength"] != float64(2000) {
 		t.Errorf("projectwiki_query.query = %v, want minLength 1 maxLength 2000", p)
 	}
-	if p := prop("code_read", "path"); p["minLength"] != float64(1) || p["maxLength"] != float64(500) {
+	if p := prop(codeSrv, "code_read", "path"); p["minLength"] != float64(1) || p["maxLength"] != float64(500) {
 		t.Errorf("code_read.path = %v, want minLength 1 maxLength 500", p)
 	}
 	// empty-string-means-default parameters stay open (no minLength):
 	// projectwiki_read.section (empty = the full body),
 	// projectwiki_validate.paths (empty = every grounded page).
-	if p := prop("projectwiki_read", "section"); p["minLength"] != nil {
+	if p := prop(wikiSrv, "projectwiki_read", "section"); p["minLength"] != nil {
 		t.Errorf("projectwiki_read.section = %v, must stay open (empty = full body)", p)
 	}
-	if p := prop("projectwiki_validate", "paths"); p["minLength"] != nil {
+	if p := prop(wikiSrv, "projectwiki_validate", "paths"); p["minLength"] != nil {
 		t.Errorf("projectwiki_validate.paths = %v, must stay open (empty = all grounded pages)", p)
 	}
 }
@@ -207,7 +223,7 @@ func callResultText(t *testing.T, result map[string]any) (isError bool, text str
 // the property named in the message), while a conforming call reaches
 // the handler.
 func TestInputSchemaEnforcedOverStdio(t *testing.T) {
-	s := NewServer(newTestHandler(t), Agent)
+	s := NewServer(newTestHandler(t), Agent, FamilyMemory)
 	t.Cleanup(s.Close)
 
 	cases := []struct {

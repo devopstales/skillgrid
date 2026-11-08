@@ -67,7 +67,7 @@ Decide to use OAuth2 for the auth model.
 	}
 	kh := handler.NewProjectWikiHandler(st, config.Config{}, projectwikiDetStub{})
 	kh.SetRoots(vault, vault)
-	s := NewServer(h, profile)
+	s := NewServer(h, profile, FamilyProjectWiki)
 	s.RegisterProjectWikiTools(kh)
 	t.Cleanup(s.Close)
 	return s, st, vault
@@ -94,12 +94,11 @@ func initializeInstructions(t *testing.T, frames [][]byte) string {
 	return rpc.Result.Instructions
 }
 
-// TestProjectWikiInstructionsServedOverStdio proves the ProjectWiki instructions reach the
-// wire: the stdio initialize response carries the "### ProjectWiki"
-// section after RegisterProjectWikiTools — and does not before. This is the
-// regression net for the capture-timing flaw (the mcp-go server captured
-// the instructions at construction, so a field rewrite was never served;
-// setInstructions rebuilds the server to deliver the updated text).
+// TestProjectWikiInstructionsServedOverStdio proves the projectwiki
+// baseline block reaches the wire: the projectwiki server's stdio
+// initialize response carries the retrieval discipline and the page-job
+// lifecycle (generate/index/validate/lint), and the memory server does not
+// carry the block.
 func TestProjectWikiInstructionsServedOverStdio(t *testing.T) {
 	s, _, _ := newProjectWikiFixture(t, All)
 	frames, err := s.HandshakeAndCall(context.Background(), "projectwiki_status")
@@ -107,21 +106,26 @@ func TestProjectWikiInstructionsServedOverStdio(t *testing.T) {
 		t.Fatalf("handshake: %v", err)
 	}
 	served := initializeInstructions(t, frames)
-	if !strings.Contains(served, "### ProjectWiki") {
-		t.Fatalf("the stdio initialize response must carry the ProjectWiki section, got: %s", served)
+	if !strings.Contains(served, "Do not enumerate, preload, or search the vault at task start") {
+		t.Fatalf("the projectwiki initialize block must carry the retrieval discipline, got: %s", served)
 	}
 	if !strings.Contains(served, "projectwiki_query") {
-		t.Fatalf("the ProjectWiki section must route projectwiki_query (the stage-1 entry), got: %s", served)
+		t.Fatalf("the block must route projectwiki_query (the stage-1 entry), got: %s", served)
 	}
-	// A server without ProjectWiki registration does not carry the section.
-	memOnly := NewServer(newTestHandler(t), Agent)
-	defer memOnly.Close()
-	frames2, err := memOnly.HandshakeAndCall(context.Background(), "mem_current_project")
+	for _, name := range []string{"projectwiki_generate", "projectwiki_validate", "projectwiki_lint"} {
+		if !strings.Contains(served, name) {
+			t.Fatalf("the block must name the lifecycle tool %s, got: %s", name, served)
+		}
+	}
+	// The memory server does not serve the projectwiki block.
+	memSrv := NewServer(newTestHandler(t), Agent, FamilyMemory)
+	defer memSrv.Close()
+	frames2, err := memSrv.HandshakeAndCall(context.Background(), "mem_current_project")
 	if err != nil {
 		t.Fatalf("handshake: %v", err)
 	}
-	if served := initializeInstructions(t, frames2); strings.Contains(served, "ProjectWiki") {
-		t.Fatalf("a server without ProjectWiki tools must not carry the ProjectWiki section, got: %s", served)
+	if served := initializeInstructions(t, frames2); strings.Contains(served, "Do not enumerate, preload, or search the vault") {
+		t.Fatalf("the memory server must not serve the projectwiki block, got: %s", served)
 	}
 }
 
@@ -242,19 +246,14 @@ func TestProjectWikiCiteSourceIdempotent(t *testing.T) {
 	}
 }
 
-// TestProjectWikiGenerateQueueAndOwnership pins projectwiki_generate's write semantics: the
-// write runs through the ProjectWiki write queue (distinct from the memory queue)
-// and the expected_project mismatch is an error, not a silent generate.
+// TestProjectWikiGenerateQueueAndOwnership pins projectwiki_generate's write
+// semantics: the write runs through the ProjectWiki write queue (the family
+// split means the wiki server never touches the memory queue — it carries no
+// mem tools) and the expected_project mismatch is an error, not a silent
+// generate.
 func TestProjectWikiGenerateQueueAndOwnership(t *testing.T) {
 	s, _, _ := newProjectWikiFixture(t, All)
 	ctx := context.Background()
-	// A memory write on the memory queue (the ProjectWiki queue must stay distinct).
-	if out := s.CallTool(ctx, "mem_save", saveArgs(1)); strings.Contains(string(out), `"error"`) {
-		t.Fatalf("mem_save: %s", out)
-	}
-	if !s.WritesSerialized() {
-		t.Fatal("mem_save must run through the memory write queue")
-	}
 	if out := s.CallTool(ctx, "projectwiki_generate", map[string]any{"expected_project": testProject}); strings.Contains(string(out), `"error"`) {
 		t.Fatalf("projectwiki_generate: %s", out)
 	}
@@ -263,5 +262,9 @@ func TestProjectWikiGenerateQueueAndOwnership(t *testing.T) {
 	}
 	if out := s.CallTool(ctx, "projectwiki_generate", map[string]any{"expected_project": "other-project"}); !strings.Contains(string(out), `"error"`) {
 		t.Fatalf("projectwiki_generate with a mismatched expected_project must error, got: %s", out)
+	}
+	// The family split: the wiki server carries no memory tools.
+	if _, ok := s.toolDefs["mem_save"]; ok {
+		t.Fatal("the wiki server must not register mem_save (family split)")
 	}
 }

@@ -55,7 +55,7 @@ func stripRandom(m map[string]any) {
 // stdio server takes) and returns the envelope JSON.
 func mcpCall(t *testing.T, h *handler.Handler, tool string, args map[string]any) []byte {
 	t.Helper()
-	s := mcp.NewServer(h, mcp.All)
+	s := mcp.NewServer(h, mcp.All, mcp.FamilyMemory)
 	defer s.Close()
 	return s.CallTool(testCtx(), tool, args)
 }

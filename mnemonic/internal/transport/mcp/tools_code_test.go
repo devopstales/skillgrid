@@ -72,7 +72,7 @@ var codeAdminTools = []string{
 // present with its required params; code_resolve returns the pin-check shape;
 // code_packages returns the package map.
 func TestCodeToolContract(t *testing.T) {
-	srv := NewServer(newTestHandler(t), Agent)
+	srv := NewServer(newTestHandler(t), Agent, FamilyCode)
 	defer srv.Close()
 	srv.RegisterCodeTools(newTestCodeHandler(t))
 
@@ -124,11 +124,11 @@ func TestCodeToolContract(t *testing.T) {
 // superset of agent; admin-only tools like code_rename appear in all but not
 // in agent.
 func TestCodeProfileMembership(t *testing.T) {
-	agentSrv := NewServer(newTestHandler(t), Agent)
+	agentSrv := NewServer(newTestHandler(t), Agent, FamilyCode)
 	defer agentSrv.Close()
 	agentSrv.RegisterCodeTools(newTestCodeHandler(t))
 
-	allSrv := NewServer(newTestHandler(t), All)
+	allSrv := NewServer(newTestHandler(t), All, FamilyCode)
 	defer allSrv.Close()
 	allSrv.RegisterCodeTools(newTestCodeHandler(t))
 
@@ -156,31 +156,19 @@ func TestCodeProfileMembership(t *testing.T) {
 		}
 	}
 
-	// F6 — the combined instructions: RegisterCodeTools rewrites the
-	// Server's instructions to the combined memory + code block (the memory-
-	// only instructions stay intact when code tools are absent).
-	if !strings.Contains(allSrv.instructions, "code_search") {
-		t.Fatalf("after RegisterCodeTools the instructions must be the combined memory + code block (name code routing), got: %s", allSrv.instructions)
+	// R4 — the code server serves NO instructions (the gitnexus shape:
+	// serverInfo carries name + version only; the tool descriptions carry
+	// the routing). RegisterCodeTools must not introduce any.
+	if allSrv.instructions != "" {
+		t.Fatalf("the code server must serve no instructions (gitnexus shape), got: %s", allSrv.instructions)
 	}
-	if !strings.Contains(allSrv.instructions, "code_orient") {
-		t.Fatalf("the combined instructions must name code_orient (the navigation entry point), got: %s", allSrv.instructions)
-	}
-	// A memory-only server (no code tools) keeps the memory instructions.
-	memOnly := NewServer(newTestHandler(t), Agent)
-	defer memOnly.Close()
-	if strings.Contains(memOnly.instructions, "code_search") {
-		t.Fatalf("a memory-only server must keep the memory instructions (no code routing), got: %s", memOnly.instructions)
-	}
-	// F6 + capture-timing fix — the stdio initialize response must carry
-	// the combined text: the mcp-go server captures the instructions at
-	// construction, so the field rewrite above alone never reached the
-	// wire (setInstructions rebuilds the server to serve the updated text).
-	frames, err := allSrv.HandshakeAndCall(context.Background(), "mem_current_project")
+	// The stdio initialize response must agree: no instructions field.
+	frames, err := allSrv.HandshakeAndCall(context.Background(), "code_status")
 	if err != nil {
 		t.Fatalf("handshake: %v", err)
 	}
-	if served := initializeInstructions(t, frames); !strings.Contains(served, "code_search") {
-		t.Fatalf("the stdio initialize response must carry the combined memory + code instructions, got: %s", served)
+	if served := initializeInstructions(t, frames); served != "" {
+		t.Fatalf("the stdio initialize response must carry no instructions, got: %s", served)
 	}
 }
 
@@ -455,7 +443,7 @@ func TestLSPFlagDrivesTier(t *testing.T) {
 		}
 		return "", false, nil
 	})
-	srv := NewServer(newTestHandler(t), All)
+	srv := NewServer(newTestHandler(t), All, FamilyCode)
 	defer srv.Close()
 	srv.RegisterCodeTools(ch2)
 	out := srv.CallTool(ctx, "code_index", map[string]any{"lsp": true})
@@ -468,7 +456,7 @@ func TestLSPFlagDrivesTier(t *testing.T) {
 // TestV21DeferredReportRunFlag verifies the v2.1-deferred tools are declared
 // in the surface and report "run code_index --flag" (deferred, not missing).
 func TestV21DeferredReportRunFlag(t *testing.T) {
-	srv := NewServer(newTestHandler(t), All)
+	srv := NewServer(newTestHandler(t), All, FamilyCode)
 	defer srv.Close()
 	srv.RegisterCodeTools(newTestCodeHandler(t))
 
@@ -505,7 +493,7 @@ func TestV21DeferredReportRunFlag(t *testing.T) {
 // the CLI half (the finish() path), and the two are byte-identical by
 // construction (the same CodeHandler method + the same envelope).
 func TestMCPCLIParity(t *testing.T) {
-	srv := NewServer(newTestHandler(t), Agent)
+	srv := NewServer(newTestHandler(t), Agent, FamilyCode)
 	defer srv.Close()
 	ch := newTestCodeHandler(t)
 	srv.RegisterCodeTools(ch)

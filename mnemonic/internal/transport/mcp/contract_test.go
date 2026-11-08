@@ -55,7 +55,7 @@ var adminTools = []string{
 
 func TestMemToolContract(t *testing.T) {
 	// golden per tool: name, required params, return-shape keys. Any drift = fail.
-	s := NewServer(newTestHandler(t), Agent)
+	s := NewServer(newTestHandler(t), Agent, FamilyMemory)
 	tools := s.ToolNames()
 	for _, want := range agentProfileTools {
 		if !slices.Contains(tools, want) {
@@ -89,7 +89,7 @@ func TestMemToolContract(t *testing.T) {
 // full table: 22 agent names + 6 admin), pinning the "all = agent + admin"
 // composition so a future edit cannot add a tool to only one side.
 func TestAllProfileIsAgentPlusAdmin(t *testing.T) {
-	s := NewServer(newTestHandler(t), All)
+	s := NewServer(newTestHandler(t), All, FamilyMemory)
 	tools := s.ToolNames()
 	for _, want := range append(append([]string{}, agentProfileTools...), adminTools...) {
 		if !slices.Contains(tools, want) {
@@ -104,7 +104,7 @@ func TestAllProfileIsAgentPlusAdmin(t *testing.T) {
 // TestSuggestTopicKeyContract pins the D1-pinned under-specified tool (spec
 // 004-transport-mcp §3 + 004-dedup §6): the family heuristic's arg surface.
 func TestSuggestTopicKeyContract(t *testing.T) {
-	s := NewServer(newTestHandler(t), Agent)
+	s := NewServer(newTestHandler(t), Agent, FamilyMemory)
 	sch := s.ToolSchema("mem_suggest_topic_key")
 	for _, req := range []string{"topic", "project"} {
 		if !sch.Required[req] {
@@ -116,7 +116,7 @@ func TestSuggestTopicKeyContract(t *testing.T) {
 // TestUpdateRequiresExpectedProject pins the ownership assertion (spec
 // 004-transport-mcp §4: update/delete take a mandatory expected_project).
 func TestUpdateRequiresExpectedProject(t *testing.T) {
-	s := NewServer(newTestHandler(t), All) // mem_delete is admin-profile
+	s := NewServer(newTestHandler(t), All, FamilyMemory) // mem_delete is admin-profile
 	for _, tool := range []string{"mem_update", "mem_delete"} {
 		sch := s.ToolSchema(tool)
 		if !sch.Required["expected_project"] {
@@ -129,7 +129,7 @@ func TestUpdateRequiresExpectedProject(t *testing.T) {
 // transport is where marked_by_model enters — the service hardcodes ""
 // otherwise, and the envelope must not pretend provenance it cannot carry).
 func TestJudgeCarriesModelArg(t *testing.T) {
-	s := NewServer(newTestHandler(t), Agent)
+	s := NewServer(newTestHandler(t), Agent, FamilyMemory)
 	for _, tool := range []string{"mem_judge", "mem_judge_many"} {
 		if _, ok := s.ToolSchema(tool).Props["model"]; !ok {
 			t.Errorf("%s must accept the agent's model name (marked_by_model)", tool)
