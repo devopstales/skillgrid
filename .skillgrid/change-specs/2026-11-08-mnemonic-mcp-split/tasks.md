@@ -93,7 +93,7 @@ Chain strategy: single-branch serial
 - **Reversibility:** reversible (additive response fields; the renderer is TICKET-05's).
 - **Fails-when:** a hit misses its blast-radius line, an unresolved hit errors, or any edge appears twice.
 
-### TICKET-05 — `code_explore` composite (primary tool, CodeGraph-format response)
+### TICKET-05 — `code_explore` composite (primary tool, CodeGraph-format response) ✅ done 2026-11-08 (`541ab49a`)
 
 - **Tracker ID:** (assigned at ticketing) (milestone 2026-11-08-mnemonic-mcp-split)
 - **Scope:** `explore_format.go` (new) — pure renderer over a typed `ExploreResult`: `**Exploration: <query>**` header, `Found N symbols across M files.`, `**Blast radius**` section (per-symbol `file:line — N callers; tests: <files>`), the provenance note, per-file `**\`file\`**` source blocks (line-numbered verbatim, gap-elided, edge-summary line), EXTRACTED untagged / INFERRED `(inferred)`, per-hit fusion-leg provenance from `Hit.Provenance`, `degraded` line iff a leg degraded, no duplicate edges. The CodeGraph baseline layout (`/tmp/base-codegraph-explore-response.txt`, re-fetched) is the reference. `handler_code.go` — `Explore(ctx, query)`: rank via the hybrid path (TICKET-04), source per file via the existing read path, blast radius via the existing impact join, edge provenance from the graph labels. `tools_code.go` — register `code_explore` (agent profile) with the CodeGraph-style description ("PRIMARY TOOL — call FIRST…", one-capped-call, treat source as already Read).
