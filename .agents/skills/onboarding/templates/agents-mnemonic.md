@@ -123,13 +123,13 @@ Do not edit Backlog task, draft, document, decision, or milestone markdown files
   replace everything from that marker to `<!-- mnemonic:end -->` (inclusive)
   with the freshly rendered block. **Not found** → append the block at the
   placement position. Never append a second copy.
-- **Menu adaptation:** the ladder names the **default narrow MCP menu**.
-  Verify the session's mounted tool inventory before writing: if the project
-  re-enables the full menu (`SKILLGRID_MCP_CODE_TOOLS`), extend ladder steps
-  2–3 with the canonical ladder from
-  `_shared/rules/mnemonic-code-indexing.md` (`code_map` /
-  `code_search_symbols` / `code_outline` / `code_related`). Never name a tool
-  that is not mounted — an agent sent to a missing tool is a defect.
+- **Menu adaptation:** the ladder names the **agent profile** of the mounted
+  family server. The mnemonic MCP is one single-purpose server per family —
+  `mnemonic memory mcp`, `mnemonic code mcp`, `mnemonic projectwiki mcp`
+  (a client mounts exactly one per project); `--profile all` widens a family
+  to its full tool set (the agent profile is the default). Verify the
+  session's mounted tool inventory before writing. Never name a tool that is
+  not mounted — an agent sent to a missing tool is a defect.
 - **Index state:** check the live state with `code_status` at render time and
   record the finding in the knowledge bundle, not in AGENTS.md. Ladder step 1
   is state-independent, so the wording holds for an empty or a fresh index.

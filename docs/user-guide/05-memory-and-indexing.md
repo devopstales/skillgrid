@@ -1,34 +1,42 @@
 # Memory and indexing
 
-**Mnemonic** is the persistent brain of your project — Skillgrid's local-first store of durable knowledge, not a scratchpad for chat. It is a single SQLite store embedded in the `skillgrid` CLI, exposed to agents over MCP (`skillgrid mcp`), over HTTP + a web dashboard (`skillgrid serve`), and as direct CLI commands (`skillgrid mem fs`, `skillgrid index`, `skillgrid search`). A chat window is a working set: it fills, compacts, and dies. Mnemonic is what survives — the decisions, a live map of the code, the research, and a record of what each agent session did — so a fresh session opens already oriented instead of blind.
+**Mnemonic** is the persistent brain of your project — Skillgrid's local-first store of durable knowledge, not a scratchpad for chat. It is a single SQLite store behind the `mnemonic` binary, exposed to agents over **three single-purpose MCP stdio servers** (`mnemonic memory mcp` / `mnemonic code mcp` / `mnemonic projectwiki mcp` — a client mounts exactly one per project) and as direct CLI commands (`mnemonic memory search`, `mnemonic code`, `mnemonic projectwiki query`). A chat window is a working set: it fills, compacts, and dies. Mnemonic is what survives — the decisions, a live map of the code, and a record of what each agent session did — so a fresh session opens already oriented instead of blind.
+
+> **v2 surface.** This page documents the v2 engine (the `mnemonic` binary, module `github.com/devopstales/skillgrid/mnemonic`). Sections marked **v1 legacy** describe the retired v1 `skillgrid` binary's surface (the HTTP dashboard on `:7438`, web cache, Fact Memory, the L0–L3 layered distillation, Agent Observation's full audit stream, and Memfs) — that surface shipped in the v1 change records under `.skillgrid/change-archive/` and the ADR index in `.skillgrid/projectwiki/ASSUMPTIONS.md` (notably ADR-0059, the v1 removal).
 
 **Storage stack:** the database is provided by [`modernc.org/sqlite`](https://modernc.org/sqlite) (pure-Go build of SQLite, **cgo-free**) — the only extensions in use are **FTS5** (compiled into the driver) and **vec0** (cgo-free vector index from `modernc.org/sqlite/vec`, migration 042). No `json1`, `rtree`, or loadable extensions. JSON payloads are stored as TEXT and parsed in Go.
 
-Everything lives in **one per-project database** at `~/.skillgrid/mnemonic/<project>.sqlite` (override the directory with `SKILLGRID_MNEMONIC_DATA_DIR`). The store is single-connection (`MaxOpenConns=1`) and WAL-journaled; memory, code index, web cache, and session events are views over the same file, not separate databases.
+Everything lives in **one per-project database** at `~/.skillgrid/mnemonic/<project>.sqlite` (override the directory with `MNEMONIC_DATA_DIR`). The store is single-connection (`MaxOpenConns=1`) and WAL-journaled; memory, code index, and project wiki are views over the same file, not separate databases.
 
-Mnemonic has **six major functions**, documented below — one `##` section each:
+Mnemonic has **three major functions** in v2, documented below — one `##` section each (the v1-only functions are listed after them, marked legacy):
 
 | Function | Purpose |
 |----------|---------|
-| [**Memory**](#memory) | Durable observations, layered L0–L3 distillation, governance, Fact Memory, Agent Skills, hybrid/semantic recall |
+| [**Memory**](#memory) | Durable observations, scope tiers, hybrid/semantic recall, sessions + trails |
 | [**Code index**](#code-index) | Incremental AST graph + BM25/hybrid/semantic search, impact, communities, PDG/taint |
-| [**Web cache**](#web-cache) | TTL-cached remote research snapshots (Context7 / Exa / DeepWiki / WebFetch) |
-| [**Agent Observation**](#agent-observation) | Session events layer (per-tool-call audit stream) and session handoff via git |
-| [**Memfs**](#memfs) | OpenViking-style `memfs://` share interface: walk the indexed repo tree as a virtual filesystem |
+| [**Project wiki**](#project-wiki) | The git-tracked OKF vault (`.skillgrid/projectwiki/`) + derived FTS index, with pin-checked anchors |
+
+| v1 legacy function | Purpose |
+|----------|---------|
+| [**Web cache**](#web-cache) | TTL-cached remote research snapshots (Context7 / Exa / DeepWiki / WebFetch) — v1 only |
+| [**Agent Observation**](#agent-observation) | Session events layer (per-tool-call audit stream) and session handoff via git — v1 only (v2 keeps a lighter `session_trails` + `mnemonic trail`) |
+| [**Memfs**](#memfs) | OpenViking-style `memfs://` share interface: walk the indexed repo tree as a virtual filesystem — v1 only |
 
 ---
 
 ## Quick path
 
 ```
-skillgrid mcp              # agent tools (stdio) — MCP surface below
-skillgrid serve            # HTTP API + Web UI (default 127.0.0.1:7438)
-skillgrid index --dir .    # one-shot code index (semantic tier config-driven; --pdg / --lsp opt-in)
-skillgrid search "AuthService"   # intent-routed retrieval
-skillgrid mem fs tree src/       # walk the code index as a virtual filesystem
+mnemonic memory mcp --profile agent   # memory MCP server (stdio) — the default family
+mnemonic code mcp --profile agent     # code-index MCP server (stdio)
+mnemonic projectwiki mcp              # project-wiki MCP server (stdio)
+mnemonic code --dir .                 # one-shot incremental code index (bare `code` runs the index)
+mnemonic code search "AuthService"    # index retrieval
+mnemonic memory search "decision"     # memory retrieval
+mnemonic projectwiki query "adr"      # wiki retrieval
 ```
 
-Data dir: `~/.skillgrid/mnemonic/<project>.sqlite`. The rest of this page documents, per function: what it does, its MCP tools, its HTTP/API interface, its SQLite tables, and its dataflow.
+Data dir: `~/.skillgrid/mnemonic/<project>.sqlite`. The rest of this page documents, per function: what it does, its MCP tools, its (v1) HTTP/API interface, its SQLite tables, and its dataflow.
 
 ---
 
@@ -37,6 +45,8 @@ Data dir: `~/.skillgrid/mnemonic/<project>.sqlite`. The rest of this page docume
 Durable, project-scoped observations — what an agent learned (decisions, discoveries, preferences) — plus a layered distillation into progressively more durable memories, a fact store, an agent skills registry, and recall over lexical, hybrid, and semantic channels.
 
 ### Function
+
+> **Scope note (v2).** v2 keeps the core observation model — save/search/get/context, project scoping + scope tiers, the session protocol, dedup with conflict judgment (`mem_judge`/`mem_judge_many`), and consolidation — plus a `session_trails` audit of committed saves (the `mnemonic trail` CLI). The **L0–L3 layered distillation**, **Fact Memory + Agent Skills registry**, and the **governance/visibility ACL** machinery (`mem_share`/`mem_governance`/`mem_unify`) described below are **v1 legacy** (the retired `skillgrid` binary; ADR-0059) — read them as the historical design, not the v2 surface.
 
 Memory persists what an agent learned so a future session starts oriented instead of blind. Observations are **project-scoped** by default (an observation tagged with the CWD-resolved project is visible only in that project) and **scope-tiered** for facts that cross projects: `project` → `user` → `global`. Save after: bug fixes (with root cause), architecture/design decisions, non-obvious discoveries, config/env setup, established patterns, and user preferences. Use a stable `topic_key` for evolving topics (upsert, don't duplicate). End sessions with `mem_session_summary` — the next session reads it.
 
@@ -73,63 +83,50 @@ graph LR
 
 ### MCP tools
 
-**Core memory (24):**
+Served by the single-purpose **mnemonic-memory** server — `mnemonic memory mcp --profile agent` (the default; `--profile all` promotes the deferred admin tools to core). The `initialize` response carries the family identity and the instruction block:
+
+```
+serverInfo: { name: "mnemonic-memory", version: "0.2.0" }
+instructions: "mnemonic-memory provides persistent memory that survives
+               across sessions and compactions.\n\nCORE TOOLS (always available):
+  mem_save — save verified durable conclusions, grouped by topic
+  mem_search — find past work, decisions, or context from previous sessions
+  …(22 agent tools)…\n\nDEFERRED TOOLS (admin profile only):
+  mem_delete, mem_stats, mem_timeline, mem_merge_projects, mem_review, mem_doctor\n\n
+PROACTIVE SAVE RULE: …  ## DELIVERY GUARANTEE  ## CONFLICT SURFACING"
+```
+
+**Agent profile (22 core):**
 
 | Tool | Role |
 |------|------|
-| `mem_current_project` | Detect project from CWD — never errors; recommended first call. Returns resolved project ID, resolution source, all available projects. |
-| `mem_save` | Save a curated observation (`**What**/**Why**/**Where**/**Learned**`). Reuse `topic_key` to upsert an evolving topic. Best-effort links to related obs. |
-| `mem_update` | Update an observation in place (non-empty fields only; FTS stays in sync). |
-| `mem_delete` | Soft-delete by default (`deleted_at` set, recoverable); `hard=true` removes the row. |
-| `mem_get_observation` | Full untruncated content by ID. |
-| `mem_search` | FTS5 full-text search. `project` scopes/overrides CWD; `scope` restricts to project/user/global; `all_projects` spans every store and merges cross-project ranks; per-owner visibility enforcement (`reader_owner`/`reader_agent`). |
-| `mem_context` | Recent session summaries for fast recall before a full search. |
-| `mem_timeline` | Chronological before/after around one observation (the progressive-disclosure middle layer). |
-| `mem_suggest_topic_key` | Suggest a stable `topic_key` from type + title for upserts. |
-| `mem_stats` | Observation count by type, active/total sessions, created-range. |
-| `mem_compare` | Record/clear/inspect semantic relations between two obs: `related` \| `compatible` \| `scoped` \| `conflicts_with` \| `supersedes`. |
-| `mem_judge` | Record a conflict verdict between two obs (`not_conflict` removes a `conflicts_with` link). |
-| `mem_pin` / `mem_unpin` | Pin an obs to sort ahead in `mem_context` and boost `mem_search` (local to this device store). |
-| `mem_share` | Widen visibility — the only explicit way out of `private`. Target `team`\|`restricted`\|`agent`; `acl` comma list for restricted/agent. |
-| `mem_governance` | Read governance fields: owner, append-only version history, status, retrieval usage, visibility + ACL grants. |
-| `mem_layers` | Inspect the L0→L1→L2→L3 chain for a session/topic with provenance links (empty chain never fabricated). |
-| `mem_capture_passive` | Extract structured learnings from pasted text (recognizes `Key Learnings:` / Lesson / Discovery lines). Idempotent. |
-| `mem_save_prompt` | Record a user prompt for future recall (trimmed, bounded, deduped per session). |
-| `mem_review` | List obs due for local review (`review_after <= now`), or mark reviewed to reset the cycle. |
-| `mem_doctor` | Read-only diagnostics: schema version, WAL state, FTS drift vs base tables, by-type counts, disk size. |
-| `mem_merge_projects` | Merge one source project name into the canonical name (idempotent; records the alias; drift warning if the CWD-resolved project was retired). |
-| `mem_unify` | Fold several source project stores into one canonical project (idempotent aliases + re-tag). Admin tool — confirm with the user first. |
-| `mem_session_start` | Create a workspace session (required before `mem_save` in OpenCode plugin flows). Optional `title` shown in the dashboard session list. |
-| `mem_session_set_title` | Rename a session. |
-| `mem_session_summary` | Persist the structured end-of-session summary (Goal / Discoveries / Accomplished / Next Steps / Relevant Files). |
-| `mem_session_end` | End a session with an optional summary (runs the distill hook). |
+| `mem_save` | Save verified durable conclusions, grouped by topic. |
+| `mem_search` | Find past work, decisions, or context from previous sessions. |
+| `mem_get_observation` | Get full untruncated content of a search result by ID. |
+| `mem_lookup` | Wiki-first lookup: the narrow raw-fact fallback when the wiki has no answer. |
+| `mem_search_prompts` | Recall previously saved user prompts. |
+| `mem_context` | Get recent history for useful recall or relevant recovery. |
+| `mem_save_prompt` | Save user prompt for context. |
+| `mem_capture_passive` | Capture structured learnings from pasted text. |
+| `mem_update` | Update an existing observation in place. |
+| `mem_judge` | Record a verdict on a pending memory conflict (judgment_required flow). |
+| `mem_judge_many` | Record verdicts for up to 32 pending conflicts in one call. |
+| `mem_compare` | Persist a semantic verdict you have already judged externally. |
+| `mem_consolidate` | Merge duplicate or overlapping observations. |
+| `mem_suggest_topic_key` | Suggest a stable topic key for an evolving topic. |
+| `mem_session_start` / `mem_session_end` / `mem_session_summary` / `mem_session_finalize` | The session protocol: create, end (optional summary), persist the structured end-of-session summary, finalize (terminal state). |
+| `mem_current_project` / `mem_list_projects` | Detect current project from cwd (recommended first call); list known projects. |
+| `mem_pin` / `mem_unpin` | Pin an observation so it sorts first in context recall; unpin (back to normal recency ordering). |
 
-**Tiered & hybrid recall:**
+**All profile adds 6 admin tools:** `mem_delete` (soft by default, hard flag removes it), `mem_stats`, `mem_timeline` (chronological context around an observation), `mem_merge_projects`, `mem_review` (list or mark reviewed observations), `mem_doctor` (memory health report).
 
-| Tool | Role |
-|------|------|
-| `semantic_search` | Ranked L1 overviews (with abstracts) over tiered/long-term memory (corpus `ltm`\|`all`). Never returns full L2 bodies. |
-| `load_full_details` | Load full L2 markdown for a path returned by `semantic_search`. |
-| `hybrid_search` | Hybrid (BM25 FTS5 + optional vector RRF) over Fact Memory + Agent Skill registry, facts and skills ranked side by side with per-leg provenance. |
-| `mem_inject_session` | On-demand session context injection: hybrid retrieval of injectable observations rendered into a token-cost-annotated context block (default budget 2000 tokens). `all_projects` widens across buckets. |
-
-**Fact Memory & Agent Skills:**
-
-| Tool | Role |
-|------|------|
-| `fact_add` | Add a durable fact to Fact Memory + record a session-events trail (requires `content` + `session_id`). |
-| `fact_search` | Lexical FTS search over Fact Memory (soft-deleted excluded), bm25-ranked, trail recorded. |
-| `fact_forget` | Soft-delete a fact (`deleted_at`), trail recorded. |
-| `fact_decay` | Apply the AKL importance decay to one fact (`importance_score *= exp(-decay_rate * age_days)`), trail recorded. |
-| `fact_decay_all` | Batch decay + below-threshold purge over all live facts (default threshold 0.5), single batch trail. |
-| `write_skill` | Create (or `overwrite`) an Agent Skill: code written to `.skillgrid/files/skills/{name}.{ext}`, metadata in `skills` + `skills_fts`; soft-deleted names are resurrected. |
-| `list_skills` | List the registry (live skills, name/language/description/path). |
-| `search_skills` | Lexical FTS search over the registry (bm25-ranked). |
-| `use_skill` | Execute a registered skill in the sandbox (10s deadline, 1MB output cap); logs a `skill_usage` row + session-events trail. |
+> **v1 legacy.** The v1 `skillgrid` binary additionally shipped a **Tiered & hybrid recall** surface (`semantic_search` / `load_full_details` over L1→L2 long-term memory, `hybrid_search` over Fact Memory + the skill registry, `mem_inject_session`) and a **Fact Memory & Agent Skills** surface (`fact_add`/`fact_search`/`fact_forget`/`fact_decay(_all)`, `write_skill`/`list_skills`/`search_skills`/`use_skill`) — plus the governance/visibility machinery (`mem_share`, `mem_governance`, `mem_unify`) and the L0–L3 distillation described in [Function](#function). None of those are in the v2 engine; see the v1 change records under `.skillgrid/change-archive/`.
 
 ### HTTP / API interface
 
-`skillgrid serve` (default `127.0.0.1:7438`) exposes memory over a JSON REST API. Write routes are gated by `SKILLGRID_HTTP_TOKEN` (bearer); read routes are open on the loopback. The embedded web dashboard (Memory Visualization: observations list/detail/edit/share, session list with summaries, timeline) consumes the same routes.
+> **v1 legacy (ADR-0059).** The v1 `skillgrid serve` HTTP API + embedded dashboard (default `127.0.0.1:7438`) is not part of v2 — v2's operator surface is the CLI. The routes below shipped with v1; see [Web UI](10-webui.md).
+
+Write routes were gated by `SKILLGRID_HTTP_TOKEN` (bearer); read routes were open on the loopback. The embedded web dashboard (Memory Visualization: observations list/detail/edit/share, session list with summaries, timeline) consumed the same routes.
 
 | Route | Method | Purpose |
 |-------|--------|---------|
@@ -240,64 +237,53 @@ code_status → code_index (if not fresh) → code_search → code_read
 
 `code_status` reports `freshness` (`fresh` | `lag` | `empty` | `unknown`) and a `capabilities` block (graph/fts/vector+dims). Reindex when not `fresh`. Prefer index tools over `rg` for **unfamiliar** large repos; use `rg`/`grep` for exact identifiers.
 
-**Tool surfacing:** the narrow `code_*` menu (orient, signature, callers/callees, process, community, …) is **unlisted by default** to keep the MCP surface small — re-enable it with `SKILLGRID_MCP_CODE_TOOLS`. The composite `code_explore` (the primary tool: verbatim source grouped by file + call paths + blast radius in one call) and the four ladder tools (`code_status`/`code_index`/`code_search`/`code_read`) stay listed.
+**Tool surfacing (v2):** the code index is served by the single-purpose **mnemonic-code** server (`mnemonic code mcp`); the `--profile agent|all` flag selects the tool set (the agent profile is the default — the narrow menu). `code_explore` (the primary tool: verbatim source grouped by file + call paths + blast radius in one call) and the ladder tools (`code_status`/`code_index`/`code_search`/`code_read`) are on both profiles. (v1 used the `SKILLGRID_MCP_CODE_TOOLS` env filter to re-enable the unlisted menu — gone in v2.)
 
 ### MCP tools
 
-**Ladder (always listed):**
+Served by the single-purpose **mnemonic-code** server — `mnemonic code mcp --profile agent` (the default, 20 tools; `--profile all` is the full 39). The `initialize` response carries `serverInfo.name: "mnemonic-code"` + the code instruction block (the exploration discipline: `code_explore` first, treat returned source as already read).
+
+**Agent profile (20):**
 
 | Tool | Role |
 |------|------|
-| `code_status` | Index health + freshness, `capabilities` block, `resolution_audit`, `unresolved_members`, `import_cycles`, `schema_fingerprint`. |
-| `code_index` | Incremental index for the cwd git root (respects `indexing.yaml` include/exclude). |
-| `code_search` | BM25 full-text over indexed chunks. |
-| `code_read` | Indexed source for a path + optional range — **after** search narrowed the location. Never read whole files speculatively. |
+| `code_status` | Index health — 4-state freshness (not a boolean), per-language extractor tier, capabilities block. Call when the index may be stale (after clone, branch switch, large edits). |
+| `code_index` | Run the incremental index for the cwd git root (async: `run_id` + status; a repeat while active → `409 operation_conflict`). |
+| `code_search` | Hybrid search (FTS + structural + semantic, RRF K=60) — prefer over grep/rg when exploring unknown areas of a large repo. |
+| `code_explore` | **PRIMARY tool** — call first before reading files: the ranked symbols' verbatim line-numbered source (treat each block as a Read you already performed), the per-symbol blast radius (callers + test files), and the per-file edge summary (EXTRACTED untagged, INFERRED tagged). One capped call per question. |
+| `code_read` | Indexed source for a path + range after search narrowed the location. `mode: full` (live span, secret redaction) or `content` (the drill handle: signature + neighbor ids). |
+| `code_orient` | The navigation entry point — the progressive-disclosure "map" of a symbol/package/file (metadata + TOC + bounded outbound edges, depth-re-rootable). |
+| `code_explain` | Node + degree + connections ranked by the neighbor's degree (hubs first). |
+| `code_path` | BFS shortest path between two symbols, or "where the graph stops". |
+| `code_impact` | Risk-tiered blast radius (WILL BREAK / LIKELY AFFECTED) — dependents, capped by depth + min-confidence. |
+| `code_affected` | "Which tests do I run after this change?" — affected tests from changed files (`changed`) or a git ref (`base`). |
+| `code_grep` | Index-free structural AST grep (by-example patterns) — the structural leg of the hybrid search. |
+| `code_semantic` | Embedding search (symbol + chunk) — the semantic leg (`degraded: no_vector` when the embedder is absent). |
+| `code_get_callers` / `code_get_callees` / `code_get_dependents` / `code_get_implementors` / `code_get_hierarchy` / `code_get_tests_for` | Confidence-labeled graph-neighbor views of a symbol (EXTRACTED/INFERRED). |
+| `code_resolve` | Resolve a symbol: anchor → `{exists, file, line, called_from[], candidates[]}` (the project-wiki pin-check contract). |
+| `code_packages` | Top-level Go package map (path, files, symbols) — the wiki coverage-gap contract. |
 
-**Composite & hybrid (listed):**
+**All profile adds (19):**
 
 | Tool | Role |
 |------|------|
-| `code_explore` | **Primary** code-intelligence tool: relevant symbols' verbatim source grouped by file, call paths between them (incl. INFERRED dynamic-dispatch hops), and blast-radius summary — one call. Optional `maxTokens` budget. |
-| `code_hybrid_search` | Offline hybrid: FTS + deterministic signals (proximity, TF-IDF, type/API) + semantic vectors via RRF. Every hit carries per-signal provenance. Degrades to FTS+signals (never a hard fail). |
-| `code_semantic_search` | Semantic (embedding) search. Symbol-level hits → file+line; chunk-level → line range. Requires an active embedder. |
-| `code_embedding_status` | Active provider (onnx/external/off), model, dim, embedded count, model-swap guard. |
-| `code_grep` | Index-free structural by-example search: metavariable pattern (`\name`, `\(ARGS*)`, `\*`/`\_`) against the gotreesitter syntax tree of files under a directory. |
+| `code_rename` | Rename plan (graph edits vs text-search edits; `dry_run` default true). |
+| `code_unresolved` | The drop-not-guess backlog (the `unresolved_edges` ledger). |
+| `code_circles` | Import cycles (re-derived from `kind='imports'` edges). |
+| `code_deps` / `code_dep_impact` | The SBOM dependency graph; which dependents a dependency change affects. |
+| `code_embedding_status` | Provider / model / dim / embedded count. |
+| `code_watch` | Start the live incremental watcher (fsnotify: debounce, burst-collapse, re-check, delete). |
+| `code_pdg_query` / `code_taint` | **v2.1-deferred** (declared in the surface, not yet implemented): per-function CFG/PDG dependents; source→sink taint. |
+| `code_communities` / `code_god_nodes` / `code_explain_community` | **v2.1-deferred**: Leiden subsystems, most-connected symbols, community detail. |
+| `code_processes` / `code_process` | **v2.1-deferred**: precomputed process flows + one named trace. |
+| `code_route` / `code_navigates` | Framework routes (URL + method + framework → handler refs); screen→screen navigation edges. |
+| `code_docs` / `code_configs` / `code_sql_schema` | Knowledge-graph reads: `.md` doc nodes + links, config nodes + references, SQL DDL tables. |
 
-**Menu (unlisted by default; `SKILLGRID_MCP_CODE_TOOLS`):**
-
-| Tool | Role |
-|------|------|
-| `code_orient` | Tier-1 orientation: symbol metadata, signature, file TOC, symbol list, linked rationale. |
-| `code_signature` | Just the signature + span of a resolved symbol. |
-| `code_file_toc` | Table of contents (every symbol, in line order) for the file containing a symbol. |
-| `code_rationale` | Rationale comments (`# NOTE:` / `# WHY:` / ADR-RFC) linked to a symbol's nearest enclosing definition. |
-| `code_get_callers` / `code_get_callees` | In/out edge neighbors of a symbol, each confidence-labeled (EXTRACTED/INFERRED/AMBIGUOUS). |
-| `code_dependents` | Depth-N dependent subgraph (reverse edges). |
-| `code_implementors` / `code_hierarchy` | `implements`/`extends` neighbor views. |
-| `code_tests_for` | Tests covering a symbol (`tests_for` edges + resolved route). |
-| `code_path` | Shortest edge path between two symbols (each hop confidence-labeled); if no static path, a "where the graph stops" answer. |
-| `code_explain` | A symbol's node, degree, and all connections ranked by neighbor degree (hubs first). |
-| `code_impact` | Risk-tiered blast radius: depth-1 dependents WILL BREAK, deeper LIKELY AFFECTED. Every edge confidence-tagged; `min_confidence` filters low-confidence hops. |
-| `code_communities` | Leiden subsystems, LLM-free labeled (content-hash seeded, reproducible), each with a cohesion score. |
-| `code_god_nodes` | Most-connected symbols by degree; `exclude_hubs` suppresses utility super-hubs. |
-| `code_explain_community` | A community's members (symbol, kind, path, line), entry points, cohesion. |
-| `code_processes` | Precomputed process flows (execution traces from entry points through call chains), each step confidence-labeled + LLM/deterministic label (empty when down — never fabricated). |
-| `code_process` | The full step-by-step trace of one named process, with the "stops at \<symbol\> (\<reason\>)" note. |
-| `code_route` | Framework routes: route nodes (URL + method + framework) and their `references` edges to handlers. |
-| `code_navigates` | Framework navigation (screen → screen) edges (query-only). |
-| `code_docs` | Indexed markdown docs + their `references` edges (EXTRACTED link / INFERRED wikilink). |
-| `code_configs` | Indexed config files + their `configures` edges (EXTRACTED explicit / INFERRED conventional / AMBIGUOUS kept-not-dropped). |
-| `code_sql_schema` | Indexed SQL schema nodes (tables + columns parsed from DDL). |
-| `code_sql_access` | `reads`/`writes` edges between code symbols and SQL tables (parsed from DML). |
-| `code_unresolved_refs` | Unresolved reference drops (route-handler refs that failed to resolve — drop-not-guess), each with match count. |
-| `code_pdg_query` | (opt-in `index --pdg`) Per-function CFG/PDG: control- and data-dependents of a statement. Empty tables → "run index --pdg" message, never an error. |
-| `code_taint` | (opt-in `index --pdg`) Intraprocedural source→sink taint findings, hop-by-hop with confidence labels. `--json` for CI. |
-| `code_affected` | PR command: which tests to run after a change. Traverses changed files → affected tests via import + tests_for (+ resolved route) edges, depth-capped (default 5); traverses **resolved edges only** (step-01 drop policy). Inputs: `changed` list, stdin (`git diff --name-only`), or `base` git ref. |
-| `code_rename` | PR command: what renaming a symbol touches. Disambiguation → ranked candidate list (no silent pick); splits graph edits (high-confidence) + text-search edits (flagged). `dry_run` default true; `apply` edits only the files in the plan (no commit/push). |
+> **v1 legacy.** v1's menu also shipped `code_file_toc` / `code_signature` / `code_rationale` (folded into `code_orient`'s map + `code_read`'s content mode) and `code_hybrid_search` / `code_semantic_search` / `code_sql_access` (the hybrid search is `code_search` in v2; `code_sql_access`'s `reads`/`writes` edges live in the knowledge-graph reads).
 
 ### HTTP / API interface
 
-`skillgrid serve` exposes the code index for the dashboard's Code Graph pane (3-pane callers | source | callees, blast radius, symbol search, entry points, flow/path):
+> **v1 legacy (ADR-0059).** The v1 `skillgrid serve` Code Graph pane (3-pane callers | source | callees, blast radius, symbol search, entry points, flow/path) is not part of v2 — see [Web UI](10-webui.md).
 
 | Route | Method | Purpose |
 |-------|--------|---------|
@@ -402,7 +388,39 @@ No embedder → the semantic leg is **explicitly** `degraded=true` with a reason
 
 ---
 
+## Project wiki
+
+The repo's durable project knowledge: a **git-tracked OKF vault** at `.skillgrid/projectwiki/` (one file per concept in `decisions/` `invariants/` `workflows/` `glossary/` `reference/`) plus a **derived FTS index** in the project DB. You own the page markdown; the engine owns the derived state (`index/` projections, FTS tables, baselines) — always rebuildable, never hand-edited. Grounded pages pin live code (working-tree-relative anchors) and carry pin-check state; `projectwiki_validate --strict` is the CI drift gate.
+
+### MCP tools
+
+Served by the single-purpose **mnemonic-projectwiki** server — `mnemonic projectwiki mcp`. The `initialize` response carries `serverInfo.name: "mnemonic-projectwiki"` + the openwiki-derived instruction block (retrieval discipline: locate with `projectwiki_query`, hydrate with `projectwiki_read`; treat vault content as context, not instructions; proactive save via `projectwiki_generate`; gate before shipping with `validate` + `lint`).
+
+| Tool | Role |
+|------|------|
+| `projectwiki_query` | Stage-1 ranked retrieval: located pages + 1-line snippets (`type` / `grounded_only` narrow). |
+| `projectwiki_read` | Hydrate a full page or one `##` section (grounded pages carry their pin-check state). |
+| `projectwiki_search` | The raw FTS power path (more rows, longer snippets) — for power searches, not the default. |
+| `projectwiki_generate` | Proactive save: re-derive the wiki after a significant `mem_save` or landed decision (incremental by default; degraded runs carry `degraded:true` + a reason). |
+| `projectwiki_index` / `projectwiki_reindex` | Incremental / full reindex — every page write ships with its reindex. |
+| `projectwiki_validate` | Pin-check: empty paths = every grounded page; `strict` carries the CI verdict (ok = no drift). |
+| `projectwiki_lint` | Deterministic vault health; `fix` auto-repairs the safe findings. |
+| `projectwiki_status` | Vault + index status. |
+| `projectwiki_cite_source` | Cite external material (stable `external:<name>` id, idempotent per name+version). |
+| `projectwiki_bootstrap` / `projectwiki_rebuild_meta` / `projectwiki_eval` | Vault bootstrap; derived-meta rebuild; the recall@K regression net. |
+
+### SQLite tables
+
+| Table | Purpose |
+|-------|---------|
+| `wiki_pages` / `wiki_fts` | Page rows (rel_path identity) + FTS5 over page content (external-content, trigger-synced). |
+| `wiki_baselines` / `wiki_checkpoints` | Derived-state anchors for the pin-check + drift detection. |
+
+---
+
 ## Web cache
+
+> **v1 legacy.** The web cache (TTL-cached Context7 / Exa / DeepWiki / WebFetch snapshots, `web_cache_*` tools) shipped with the v1 `skillgrid` binary and is not in the v2 engine — the `mnemonic` MCP servers do not expose `web_cache_*`. Kept as the historical design; see the v1 change records under `.skillgrid/change-archive/`.
 
 A TTL-cached snapshot store for remote research, so a repeat lookup doesn't re-hit Context7 / Exa / DeepWiki / WebFetch. The protocol is **lookup-first**:
 
@@ -460,6 +478,8 @@ Default TTLs: context7 30d, exa/fetch 7d, deepwiki 14d, manual never. An entry p
 
 
 ## Agent Observation
+
+> **v1 legacy (partially).** The full **session-events audit stream** (migration 040/041: `session_events`, `from_commit`/`to_commit`, the activity counters, `session_changes` / `mem_query_events` / `mem_export_events`) shipped with the v1 `skillgrid` binary. v2 keeps a lighter audit: the `session_trails` log of committed saves, inspected with `mnemonic trail recent|show`. The HTTP routes below are v1-only; see [Web UI](10-webui.md).
 
 The per-session audit layer: an append-only, per-tool-call event stream that records what an agent session actually did — file reads/writes, commands, commits, errors, sensitive/blocked actions — with the session's git commit range (`from_commit` → `to_commit`). This is the replacement for the old checkpoint-file + handoff-hub + `.cleave` relay (dropped in migration 041): **the session-events layer + the git log (with its `[skillgrid-context]` blocks) are now the durable record**. A fresh session resumes from the event stream and `git log` — no relay tables.
 
@@ -539,6 +559,8 @@ sequenceDiagram
 
 ## Memfs
 
+> **v1 legacy.** The `memfs://` virtual-filesystem interface (`skillgrid mem fs ls|tree|find|cat`) shipped with the v1 `skillgrid` binary and is not in the v2 engine — v2's navigation surface is `code_orient` / `code_read` / `code_packages`. Kept as the historical design.
+
 A read-only **virtual filesystem over the project code index** — the OpenViking-style `memfs://` share interface. Instead of querying a black-box store, the agent (or you) walks the indexed repo tree as directories, files, and symbols: `ls`, `tree`, `find`, `cat`. It shares the OpenViking `viking://` browse paradigm — paths resolve against the index, not the disk, so what you see is exactly what the code index knows.
 
 ### Function
@@ -607,7 +629,7 @@ Single-connection discipline: `find` materializes the file leg (query closed) be
 
 ### Storage stack & PRAGMAs
 
-**`modernc.org/sqlite`** — pure-Go, cgo-free. `skillgrid doctor` reports `cgo: free (modernc.org/sqlite + gotreesitter)`. Extensions in play: **FTS5** (five external-content virtual tables with trigger sync: `observations_fts` `tokenize='porter'`, `chunks_fts`, `symbol_fts` `tokenize='unicode61'`, `prompts_fts`, `web_cache_fts`; rank via the built-in `bm25()`) and **vec0** (042, cgo-free, 768-dim pinned). Consequences of the pure-Go build: no `sha1()` SQL function (hashes computed in Go), no regexp/string-char functions (the session-title backfill migration stayed in Go), no `ON CONFLICT` against partial indexes (handled in Go).
+**`modernc.org/sqlite`** — pure-Go, cgo-free. `mnemonic doctor` reports `cgo: free (modernc.org/sqlite + gotreesitter)`. Extensions in play: **FTS5** (external-content virtual tables with trigger sync: `observations_fts` `tokenize='porter'`, `chunks_fts`, `symbol_fts` `tokenize='unicode61'`, `prompts_fts`; v1 also had `web_cache_fts`; rank via the built-in `bm25()`) and **vec0** (cgo-free, 768-dim pinned). Consequences of the pure-Go build: no `sha1()` SQL function (hashes computed in Go), no regexp/string-char functions (the session-title backfill migration stayed in Go), no `ON CONFLICT` against partial indexes (handled in Go).
 
 Connection PRAGMAs (applied in `store.openDatabase`):
 
@@ -643,40 +665,58 @@ WAL-locked opens are retried with backoff (50ms → 100ms → 200ms, 3 attempts)
 
 Out-of-range values log a warning and fall back to the default; config load does not fail.
 
-`skillgrid index` flags: `--dir` (default `.`), `--project`, `--pdg` (CFG/PDG + taint), `--lsp` (LSP edge tier). No `--embeddings` flag — the semantic tier is config-driven via `mnemonic.embedder` (see [Code index](#code-index)).
+`mnemonic code` flags: `--dir` (default `.`), `--watch` (the live fsnotify watcher). No `--embeddings` flag — the semantic tier is config-driven via `mnemonic.embedder` (see [Code index](#code-index)).
+
+> **v1 legacy.** The `mnemonic.checkpoint` / `mnemonic.inject` config keys (session-start injection + checkpoint claims — the `skillgrid prime` mechanism) and the v1 `--pdg` / `--lsp` index flags are v1-only; the tables above document the v1 config surface.
 
 ### Environment variables
 
+**v2 (`mnemonic` binary):**
+
 | Variable | Role |
 |----------|------|
-| `SKILLGRID_MNEMONIC_DATA_DIR` | Data directory (default `~/.skillgrid/mnemonic`) |
-| `SKILLGRID_MNEMONIC_PORT` | Serve port (default 7438) |
-| `SKILLGRID_HTTP_TOKEN` | Bearer for write routes |
-| `SKILLGRID_MNEMONIC_PROJECT` | Pin project for `index` / tools |
-| `SKILLGRID_MNEMONIC_HTTP_URL` | Plugin → serve URL |
-| `SKILLGRID_NO_WATCH=1` | Disable the watcher (manual index; fingerprint gate is the backstop) |
-| `SKILLGRID_MCP_CODE_TOOLS` | Re-enable the unlisted narrow `code_*` menu tools |
-| `MNEMONIC_EMBED` | Enable the semantic **search** leg in retrieval (`1`/`true`/`yes`/`on`); default off. Indexing is separate — config-driven |
+| `MNEMONIC_DATA_DIR` | Data directory (default `~/.skillgrid/mnemonic`) |
+| `MNEMONIC_PROJECT` | Pin the project for CLI/MCP (beats the detection chain: explicit > env > git > basename) |
+| `MNEMONIC_PG_DSN` | Postgres DSN (the store dialect's render path; ADR-0041) |
+| `MNEMONIC_LLM_API_KEY` | The LLM seam's API key (env-only secret) |
+| `MNEMONIC_SYNC_AUTO` | Autosync on/off (the MCP server's debounced save-commit sync worker) |
+| `MNEMONIC_HTTP_TOKEN` | Bearer for the (planned) HTTP mirror's write routes (env-only secret) |
+| `MNEMONIC_TIMEZONE` | Timezone for timestamps |
+
+**v1 legacy (`skillgrid` binary):** `SKILLGRID_MNEMONIC_DATA_DIR`, `SKILLGRID_MNEMONIC_PORT` (7438), `SKILLGRID_HTTP_TOKEN`, `SKILLGRID_MNEMONIC_PROJECT`, `SKILLGRID_MNEMONIC_HTTP_URL`, `SKILLGRID_NO_WATCH=1`, `SKILLGRID_MCP_CODE_TOOLS` (the unlisted `code_*` menu filter — replaced by the v2 `--profile agent|all` flag), `MNEMONIC_EMBED`.
 
 ### Project identity
 
-Each git repo binds to a **clone-private** identity under `.git/` so memory survives rename, re-clone, and linked worktrees. A parent of many repos → ambiguous; pick a project explicitly or set `SKILLGRID_MNEMONIC_PROJECT`. Fold multiple directory-hashed stores into one with `mem_unify` / `mem_merge_projects`.
+Each git repo binds to a **clone-private** identity under `.git/` so memory survives rename, re-clone, and linked worktrees. A parent of many repos → ambiguous; pick a project explicitly or set `MNEMONIC_PROJECT`. Fold multiple directory-hashed stores into one with `mem_unify` / `mem_merge_projects` (v1; v2 has `mem_merge_projects`).
 
 ### CLI quick reference
 
 ```bash
-skillgrid mcp [--debug]            # stdio MCP server
-skillgrid serve [--port 7438]      # HTTP API + dashboard
-skillgrid index [--dir .] [--project ID] [--pdg] [--lsp]
-skillgrid search [--corpus code|grep|mem|symbols|hybrid|semantic] <query>
-skillgrid code <map|get-symbol|get-signature|symbols-in-file|impact|get-callers|index-status|…>
-skillgrid mem fs <ls|tree|find|cat> <path>   # memfs virtual filesystem
-skillgrid trail <recent|show>      # inspect retrieval trails
-skillgrid export --project ID --out DIR   # Obsidian Markdown + viz JSON
-skillgrid setup <opencode|kilocode|cursor>  # install plugins + register MCP
-skillgrid migrate [--tier]         # backfill tier sidecars
-skillgrid doctor [--strict]        # functional health check (embed round-trip, capabilities)
+# family MCP servers (stdio) — a client mounts exactly one per project
+mnemonic memory mcp --profile agent|all        # mnemonic-memory
+mnemonic code mcp --profile agent|all          # mnemonic-code
+mnemonic projectwiki mcp --profile agent|all   # mnemonic-projectwiki
+
+# memory family
+mnemonic memory save|search|get|lookup|context|review|timeline|pin|unpin|delete
+mnemonic memory session|stats|doctor
+
+# code family (bare `code` runs the incremental index)
+mnemonic code [--dir .] [--watch]
+mnemonic code status|search|orient|explain|path|impact|affected|grep|read
+
+# projectwiki family
+mnemonic projectwiki query|read|search|generate|validate|lint|status|cite-source
+mnemonic projectwiki index|reindex|bootstrap|rebuild-meta|eval
+
+# ops
+mnemonic sync status|push|pull|export|import|enroll
+mnemonic trail recent|show
+mnemonic doctor [--strict]          # whole-system health (--strict for CI)
+mnemonic setup <agent>              # delegates to the agent-plugin change
 ```
+
+> **v1 legacy.** The v1 `skillgrid` binary's surface — `skillgrid mcp`, `skillgrid serve`, `skillgrid index`, `skillgrid search`, `skillgrid code <verb>`, `skillgrid mem fs`, `skillgrid export`, `skillgrid setup`, `skillgrid migrate` — is retired; the old `mnemonic` verbs (`mcp`/`mem`/`index`/`serve`) are refused with a did-you-mean.
 
 ### Gotchas
 
@@ -685,9 +725,9 @@ skillgrid doctor [--strict]        # functional health check (embed round-trip, 
 - `stale=true` ≠ lag; use `freshness`.
 - The code index is **per-project** (one SQLite file); no cross-project code search.
 - The store is **single-connection** (`MaxOpenConns=1`); advisory passes reopen the DB after the core commit to avoid the write-lock deadlock.
-- The narrow `code_*` menu is unlisted by default — set `SKILLGRID_MCP_CODE_TOOLS` to see it.
-- Migration 041 is one-way: the Hub/relay handoff tables are gone; session history reconstructs from `session_events` + `git log` only.
-- Memfs is read-only and code-index-only — no FS mutations, no observation browsing (that's `mem search`).
+- The `code_*` tool set is profile-gated — `mnemonic code mcp --profile all` for the full 39 (the agent profile's 20 is the default).
+- Migration 041 is one-way (v1 store): the Hub/relay handoff tables are gone; session history reconstructs from `session_events` + `git log` only.
+- Memfs is read-only and code-index-only (v1) — no FS mutations, no observation browsing (that's `memory search`).
 - Go import targets are stored as **leaf names**, so Go import-cycle detection only ever reports cycles for in-repo file pairs when full module paths are persisted.
 
 ### Protocol reference
