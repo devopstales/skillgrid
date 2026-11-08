@@ -106,7 +106,7 @@ Chain strategy: single-branch serial
 - **Reversibility:** reversible (new tool + new renderer; removal restores the pre-ticket surface).
 - **Fails-when:** the response is missing a baseline element, lists a duplicate edge, tags an EXTRACTED edge, or errors on the empty index.
 
-### TICKET-06 — Docs / convention files / installer
+### TICKET-06 — Docs / convention files / installer [OK] done 2026-11-08
 
 - **Tracker ID:** (assigned at ticketing) (milestone 2026-11-08-mnemonic-mcp-split)
 - **Scope:** (1) RED `TestNoStalePathReferences`: boundary-tolerant grep over `.agents/skills` + `docs` + `.skillgrid/projectwiki` with T-12's exclusion set (archive + historical change folders + `projectwiki/decisions/04-adr-*.md`) — fails before, passes after. (2) **user-guide 05 in-place v2 rewrite** (user decision): MCP/CLI/env sections → the v2 surface (three servers, per-family initialize shapes, `mnemonic <family> <verb>` tables, env table); v1-only content (dashboard :7438, web cache, fact memory, L0–L3) marked legacy with a pointer; `09-serve-dashboard.md` stays (named out-of-scope). (3) **`ARCHITECTURE.md`**: module paths, CLI dispatch table, `runMCP` signature anchor → the new tree; `mnemonic projectwiki index` same-edit. (4) **installer** (declared scope expansion, user decision): `skillgrid-cli/internal/setup/setup.go` MCP entries → `["mnemonic","<family>","mcp","--profile","agent"]` (memory family = default) + the three setup tests. (5) Convention files: onboarding template ladder → v2 family surface + per-family command lines; `_shared/rules/mnemonic-*.md` paths; `mnemonic/SKILL.md` + `projectwiki/SKILL.md` v2 refs; `qa-gate.mjs` `--anticipated "mnemonic/"`. v1 `skillgrid` command references untouched.
