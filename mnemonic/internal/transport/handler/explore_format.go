@@ -108,13 +108,23 @@ func RenderExplore(r ExploreResult) string {
 		b.WriteString("\n**Source Code**\n\n")
 		b.WriteString("> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.\n")
 		for _, blk := range r.Blocks {
+			// The fence must outlast the longest backtick run in the span
+			// text, or verbatim content (raw strings, markdown, generated
+			// code) terminates the fence early and the remainder renders as
+			// prose — an indirect prompt-injection channel (review 2026-11-09).
+			fence := "```"
+			for _, s := range blk.Spans {
+				if n := longestBacktickRun(s.Text); n+1 > len(fence) {
+					fence = strings.Repeat("`", n+1)
+				}
+			}
 			b.WriteString("\n")
 			fmt.Fprintf(&b, "**`%s`**", blk.Path)
 			if len(blk.Edges) > 0 {
 				fmt.Fprintf(&b, " — %s", edgeSummary(blk.Edges))
 			}
 			b.WriteString("\n\n")
-			fmt.Fprintf(&b, "```%s\n", blockLanguage(blk.Language))
+			fmt.Fprintf(&b, "%s%s\n", fence, blockLanguage(blk.Language))
 			for si, s := range blk.Spans {
 				if si > 0 {
 					b.WriteString("... (gap) ...\n")
@@ -123,10 +133,27 @@ func RenderExplore(r ExploreResult) string {
 					fmt.Fprintf(&b, "%d\t%s\n", s.Start+i, ln)
 				}
 			}
-			b.WriteString("```\n")
+			b.WriteString(fence + "\n")
 		}
 	}
 	return b.String()
+}
+
+// longestBacktickRun returns the length of the longest consecutive run of
+// backticks in s (0 when s has none).
+func longestBacktickRun(s string) int {
+	max, cur := 0, 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '`' {
+			cur++
+			if cur > max {
+				max = cur
+			}
+		} else {
+			cur = 0
+		}
+	}
+	return max
 }
 
 // edgeSummary is the per-file edge-summary line: the first 6 distinct

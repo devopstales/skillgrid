@@ -181,3 +181,34 @@ func TestExploreDegradedLeg(t *testing.T) {
 		t.Errorf("no_vector rendered (a deployment state, not a degraded leg): %q", line)
 	}
 }
+
+// TestExploreFenceEscapesLongBacktickRuns pins the fence-escape fix
+// (security review 2026-11-09, Low): verbatim content containing a run
+// of 3+ backticks must not terminate the code fence early — the fence
+// is sized to the longest backtick run in the block's span text + 1, so
+// the content stays inside the fence instead of rendering as prose.
+func TestExploreFenceEscapesLongBacktickRuns(t *testing.T) {
+	out := RenderExplore(ExploreResult{
+		Query: "probe",
+		Blocks: []ExploreFileBlock{{
+			Path:     "doc.md",
+			Language: "go",
+			Spans: []SourceSpan{{
+				Start: 1,
+				Text:  "before\nx := `a````b` // four backticks inside a raw string\nafter",
+			}},
+		}},
+	})
+	if !strings.Contains(out, "`````go\n") {
+		t.Fatalf("expected a 5-backtick opening fence for a 4-backtick content run, got:\n%s", out)
+	}
+	if !strings.Contains(out, "\n`````\n") {
+		t.Fatalf("expected the block to close with a 5-backtick fence, got:\n%s", out)
+	}
+	if strings.Contains(out, "\n```\n") || strings.Contains(out, "\n```go\n") {
+		t.Fatalf("a triple-backtick fence still appears (would end at the content run):\n%s", out)
+	}
+	if !strings.Contains(out, "2\tx := `a````b` // four backticks inside a raw string") {
+		t.Fatalf("content line missing or malformed, got:\n%s", out)
+	}
+}
