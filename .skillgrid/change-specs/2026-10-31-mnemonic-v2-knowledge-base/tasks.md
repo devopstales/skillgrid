@@ -25,3 +25,13 @@
 ## Exit criteria
 
 - All Must-Haves (truths / artifacts / key links) green; QA gate PASS; two-axis review clean; ship.
+
+---
+
+## Epic: 013 Wiki Autolearning (research results + user preferences into the vault)
+
+> Sliced from `specs/013-wiki-autolearning.md` §9 (engine → scaffold → skills order). ADR-0060 ACCEPTED 2026-11-09 (explicit user OK) — LOCKED row flipped. The 011 tickets above landed as KB-T1..T6 (2026-11-05, state `P26-11-05-kb011-exec`).
+
+- [ ] T-013-1 — **Engine: four contextual page types** (spec 013 §2/§9.1). `PageTypeDirs` 6→10 (+ `sources` `concepts` `syntheses` `preferences`; taxonomy 8→12 with the opt-in 012 `skills`/`cases`); `pageDirs` index whitelist extension (KB-T16 umbrella — `collectPages` honors the 001 §7 scope for the four folders); `ValidatePagePath` accepts the four types; `projectwiki_bootstrap` scaffolds the four empty folders + `page_types` + the four `templates/` files + the `recall` block (001 §8 sentinel: `inline_types` incl. `preference`, `inline_max` 1600, `links_threshold` 50). Pinned tests: path validation, whitelist, bootstrap scaffold shape.
+- [ ] T-013-2 — **Scaffold/docs: this vault** (spec 013 §9.2 + 001 §8). `PROJECTWIKI_SCHEMA.md` sections for the four types + the contradiction golden rule (013 §6); the four type folders (`.gitkeep`) + `templates/` (`source.md` `concept.md` `synthesis.md` `preference.md` mirroring the engine templates); `config.json` `page_types` += four + `recall` block; same-edit `projectwiki index` + `validate`.
+- [ ] T-013-3 — **Skills: the autolearning write paths** (spec 013 §3/§4/§5/§9.3). `research/SKILL.md`: capture step — `sources/` pages + `draft` `syntheses/` hub at research time, same-edit index (WA-INV-5); `reflect/SKILL.md`: triage step — the 013 §5 learning→home table replacing the stale `reference/06-research-findings.md` lift, `draft → stable` finalization at ship; web-cache promotion candidates retargeted from "one concept file" to the `sources/`/`syntheses/`/`concepts/` tree; `projectwiki/SKILL.md`: the 12-type form (the 013 lines reverted at the mcp-split review re-apply now that 013 lands); `projectwiki-data-loading/SKILL.md` un-parked from the change folder back to `.agents/skills/`.
