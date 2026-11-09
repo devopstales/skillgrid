@@ -9,7 +9,7 @@ anchors:
   # The ADR's harness2 surface was retired with the v1 module (ADR-0059);
   # this pin keeps the load-bearing constraint live: the cgo-free pure-Go
   # sqlite driver the process-model decision was shaped by.
-  - path: mnemonic-v2/go.mod
+  - path: mnemonic/go.mod
     all_of: ["modernc.org/sqlite"]
 ---
 
