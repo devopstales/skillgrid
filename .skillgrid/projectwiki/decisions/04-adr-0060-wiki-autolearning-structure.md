@@ -16,7 +16,7 @@ Change: 2026-10-31-mnemonic-v2-knowledge-base (spec-zone amendment; `specs/013-w
 - User preferences (how the user wants work done) live only in the memory tier; the vault has no home for them, so a preference stated in one session is not surfaced when a later session queries the domain it constrains.
 - pi-llm-wiki solves the same problem with a proven shape: research is cut into `sources/` (one summary page per source) + `concepts/` (reusable ideas/patterns) + `syntheses/` (cross-cutting answers), all **flat type folders**, one file per thing, cross-referenced (≥2 links per page), cited, with **contradictions flagged** (both sides documented).
 - pi-hermes-memory's autolearning loop (learning at work-unit boundaries, correction detection, failure memory, consolidation) has no vault-side equivalent here: the memory tier is promoted to the vault only by explicit generate runs. The shipped change — the richest sourced-learning source in the system — never flows back into the vault.
-- The wiki mechanics already exist in the engine (001 §6): `[[type/slug]]` wikilinks, on-the-fly backlinks, `in_degree` ranking, the ≥2-outgoing-links golden rule, orphan lint, `sources:` citations with `external:` + `build_fingerprint` staleness tokens, and the OKF `draft|stable|deprecated` lifecycle. What is missing is the **page types** and the **write paths** that feed them.
+- The wiki mechanics already exist in the engine (001 §6): folder-qualified wikilinks (the `type/slug` form), on-the-fly backlinks, `in_degree` ranking, the ≥2-outgoing-links golden rule, orphan lint, `sources:` citations with `external:` + `build_fingerprint` staleness tokens, and the OKF `draft|stable|deprecated` lifecycle. What is missing is the **page types** and the **write paths** that feed them.
 
 ## Decision
 
@@ -29,7 +29,7 @@ Change: 2026-10-31-mnemonic-v2-knowledge-base (spec-zone amendment; `specs/013-w
 
 ## Alternatives considered
 
-- **Nested `research/<result-slug>/` topic trees** — rejected: breaks the folder-qualified wikilink form (`[[type/slug]]` is a single-segment type folder, 001 §6) and the one-folder-per-type mapping; and "a page is not a directory of sub-pages" (001 §4).
+- **Nested `research/<result-slug>/` topic trees** — rejected: breaks the folder-qualified wikilink form (the `type/slug` form is a single-segment type folder, 001 §6) and the one-folder-per-type mapping; and "a page is not a directory of sub-pages" (001 §4).
 - **The status-quo single `reference/06-research-findings.md` sink** — rejected: a retrieval black hole (one file, no per-type query, no per-source staleness) — and the path was already stale post-reorg.
 - **A root `PREFERENCES.md`** — rejected: vault-root project docs are **out of index scope** (001 §7); unindexed preferences cannot be recalled, which defeats the point.
 
