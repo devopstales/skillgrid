@@ -361,35 +361,42 @@ No user-facing input handling changed in this change beyond what the stdio proto
 
 ## Final-State Facts
 
-**Shipped:** <what actually shipped>
-**Base branch:** <base-branch> · **Chain strategy:** <strategy>
-**Integration:** <merged @ <commit> | PR <url> | kept branch <name>> (from ship context)
+**Shipped:** the `mnemonic-v2` → `mnemonic` rename; the family-first CLI tree (`memory`/`code`/`projectwiki` verbs; top-level `mcp`/`serve` removed with did-you-mean, the HTTP dashboard dropped); three single-purpose MCP family servers (`mnemonic-memory`/`-code`/`-projectwiki` @0.2.0, agent/all tool profiles, serial stdio, stderr-only diagnostics); `code_search` per-hit blast radius + snippet; the `code_explore` composite (CodeGraph-format response, EXTRACTED/INFERRED provenance); docs + installer v2 surface; ADR-0061. Seven tickets (T1 `08f8984c` / T2 `5b047ddb` / T3 `39b7e2ed` / T4 `59195870` / T5 `541ab49a` / T6 `9c9d2138`+`b0917d4d` / T7 `f0eb2dfc`+`e3b3e145`) + post-QA review fixes (`83f745c8`, `84b95c4e`, `c31094da`, `e75b017f`, `9074f940`).
+**Base branch:** release/2 · **Chain strategy:** single-branch serial
+**Integration:** kept branch `release/2` (option 3, user choice — not merged/pushed; 63 commits ahead of `origin/release/2`) (from ship context)
 
 ## Gates
 
 | Gate | Result |
 |------|--------|
-| Ship gate | <pending — ship> |
+| Ship gate | ✅ GO — QA PASS + review floor met (0 unfixed Important); move verified, `diff -r` empty |
 | QA gate | ✅ PASS (re-rendered after W001 fix `0b9e65cd`) |
-| Verdict gate (advisory) | <pending — human> |
+| Verdict gate (advisory) | accepted-with-open-items (recorded below; not enforced) |
 
 ## Decisions
 
 | Decision | Tradeoff | Why | Source |
 |----------|----------|-----|--------|
-| <reflect> | | | |
+| Three single-purpose family servers, one mounted per client (vs the combined server) | per-client tool-context cost ↓; a cross-family workflow needs a second mount | baseline parity (engram/openwiki/gitnexus shapes); supersedes the code-index change's T16 combined-server design decision | ADR-0061; briefing decisions 1–6 |
+| Serial stdio: `WithWorkerPoolSize(1)`, stdout protocol-only post-startup | throughput deliberately bounded | responses can never interleave; stdio JSON-RPC purity (one complete line per write) | spec 004-transport-mcp; R5; `TestSerialToolCalls` |
+| Code server ships with NO instructions (gitnexus shape) | no routing text on the code family | open item O1 resolved against the baseline (gitnexus mcp 1.6.12 ships empty instructions) | state `P26-11-08-mcpsplit-exec` (O1); T3 `39b7e2ed` |
+| Kept `toolDefs` when deleting dead `setInstructions` | partially overrides reviewer M8's "delete both" | the reviewer's grep covered non-test files only; 5 test call sites read `toolDefs` as the registered-tool observation point | review M8; build failure bg_52; commit `9074f940` |
 
 ## Lessons
 
 | Lesson | Root Cause | Do Differently | Source |
 |--------|-----------|----------------|--------|
-| <reflect> | | | |
+| The rename commit bundled five work units (spec-folder deletions, 264-line skill + 013 lines, ADR anchors + index, gitnexus block + CLAUDE.md) — it swallowed the `<!-- skillgrid:end -->` sentinel (I1) and forced the 013 revert (I3) | "a rename is one change" framing; the zone guard catches zone-mixing, not scope-mixing within one zone | one logical change per commit (`commits.md`); scope-check bundled rename commits | review I1/I2/I3; commit `08f8984c` |
+| A dead-code claim ("only read inside X") missed the test call sites — deleting `toolDefs` broke the build | the verification grep used `grep -v _test` | dead-code claims: grep including `*_test.go` before deleting | review M8; bg_52 build failure |
+| Verbatim file content with 3+ backticks terminated the renderer's code fence — an indirect prompt-injection channel in a document framed as authoritative | fixed 3-backtick fence over untrusted content | per-block fence = longest backtick run in the span text + 1; pinning test with a 4-backtick run | security review 2026-11-09 (Low); commit `e75b017f` |
 
 ## Patterns
 
 | Pattern | Reuse | Source |
 |---------|-------|--------|
-| <reflect> | | |
+| Registration seam: `RegisterCodeTools`/`RegisterProjectWikiTools` are family-gated no-ops — one binary → N server modes is a mechanical per-family extension | any future family or multi-server mode over one store | `server.go` (R3); ADR-0061 |
+| Baseline probes: capture the replaced server's transcript (instructions + tool responses) to /tmp BEFORE replacement — re-fetchable evidence for the equivalence-or-better contract | any transport/contract replacement | state `P26-11-08-mcpsplit-exec` ("baseline probes captured") |
+| Same-edit vault reindex: vault edit + `projectwiki index` land in one commit | every vault edit | commits `311577bc`, `5b4ebd20` |
 
 ## Surprises
 
@@ -403,44 +410,49 @@ No user-facing input handling changed in this change beyond what the stdio proto
 
 | Category | Finding | Fix lands in | Source |
 |----------|---------|--------------|--------|
+| Navigation | `mnemonic projectwiki ...` resolves `.skillgrid/projectwiki` relative to CWD — running it from the `mnemonic/` module dir fails (`lstat .../mnemonic/.skillgrid/projectwiki: no such file`); vault commands need the repo root as CWD | document the cwd requirement in `.agents/skills/projectwiki/SKILL.md` (proposed — not built) | ship 2026-11-09 (index run failure before the root-cwd rebuild) |
 
 ## Acceptance Verdict
 
-**Verdict:** <accepted | accepted-with-open-items | rejected>
+**Verdict:** accepted-with-open-items
 
-**Grounding:** <goal from briefing.md + the Goal-Backward Verification / Traceability Matrix evidence above that supports the verdict>
+**Grounding:** the briefing goal — one binary, three single-purpose family servers, exactly one mounted per client, response contracts equivalent-or-better to the engram/openwiki/gitnexus baselines, serial stdio — is met: 9/9 requirement scenarios verified by named tests (QA half), a live stdio smoke across all three family servers (22 mem / 19 code instr=0B / 8 wiki), 2/2 live mutation samplings, and the integrated-tree suites (both modules `-race` green at `ec38f3a0`).
 
-**Reasoning:** <2–3 sentences: what drove the verdict>
+**Reasoning:** Every requirement has named passing test evidence and the review floor is met with 0 unfixed Important findings. The open items are tooling/docs only (W002 state-drift parser; the stale "three transports" prose) — none touches a shipped behavior.
 
 ## Open Items (→ next change)
 
 - W001: 4 pre-existing v1 suite failures (skillgrid-cli/internal/install) — **closed in QA re-verification (`0b9e65cd`)**; one source regression (opencode `tui.json` ensure) fixed in `agents.go`.
 - W002: state-drift-check.mjs vs the multi-segment state.yaml format — tooling fix or format decision.
+- AGENTS.md `**What this is:**` line still reads "three transports (CLI, MCP stdio, HTTP/REST + embedded SPA)" — the HTTP dashboard was DROPPED by this change (`main.go:226` did-you-mean: "the HTTP dashboard is dropped"); the engine is now CLI + MCP stdio only. Curated prose outside the managed block — fix at the next onboarding/docs pass.
+- `Distribution Surface` glossary row (`02-technical-terms.md`) + the `ASSUMPTIONS.md` component-map line still describe the v1 `skillgrid serve` three-transport surface — ADR-skill-owned definitions; flagged for the ADR/docs follow-up.
 
 ## Web-cache promotion candidates
 
-<!-- reflect: proposals only. Replace with one line if none. -->
+None — no `web_cache` entries for this change (the store's 14 entries all predate it and are expired; the baselines were captured to /tmp, not the cache).
 
 ## Prior-Change Follow-Through
 
 | Prior open item (from previous archived change) | Addressed by this change? | Evidence |
 |--------------------------------------------------|---------------------------|----------|
-| <reflect> | | |
+| `2026-10-31-mnemonic-v2-code-index` report: "after ship repoint `current_change` to the next queued function (knowledge-base)" | yes | state repoints to `2026-10-31-mnemonic-v2-knowledge-base` (this ship's state commit) |
+| `2026-10-31-mnemonic-v2-code-index`: vec0/HNSW + LSP "declared v2.1-deferred" | no — still deferred (out of scope here) | QA half G8 note; no ANN/LSP work in this change's diff |
 
 ## Move Evidence (from ship context)
 
 **From:** `.skillgrid/change-specs/2026-11-08-mnemonic-mcp-split/` → **To:** `.skillgrid/change-archive/2026-11-08-mnemonic-mcp-split/`
-**`diff -r` readback:** <pending — ship>
+**`diff -r` readback:** EMPTY ✅ (pre-move `cp -R` snapshot; source-gone check passed; 2026-11-09)
 
 ## Overrides / Waivers / Contradictions
 
-- <pending — human override if any>
+- None (QA PASS without override; review floor met; the user chose option 3 keep-branch — an integration choice, not a gate override).
 
 ## Lineage (observation IDs)
 
-- briefing: <reflect>
-- blueprint: <reflect>
-- tasks: <reflect>
-- ship: <reflect>
+- briefing: in-repo `briefing.md` (no mnemonic observation saved)
+- blueprint: in-repo `blueprint.md` (no mnemonic observation saved)
+- tasks: in-repo `tasks.md` (no mnemonic observation saved)
+- ship: obs 188 (`skillgrid/2026-11-08-mnemonic-mcp-split/ship`)
 - report (QA half): this file
-- research / findings / ADRs: ADR-0061 (04-adr-0061-mcp-family-split.md)
+- research / findings / ADRs: ADR-0061 (`04-adr-0061-mcp-family-split.md`)
+- review: `review.md` — floor **met** (Standards met / Spec met / Security secure after fixes; 0 unfixed Important); worst issue the AGENTS.md sentinel swallow (I1, fixed `83f745c8`)
