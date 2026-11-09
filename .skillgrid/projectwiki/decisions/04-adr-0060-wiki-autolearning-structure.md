@@ -1,6 +1,7 @@
 ---
 type: TechnicalDecision
-status: proposed
+status: accepted
+accepted: 2026-11-09
 supersedes: none
 date: 2026-11-08
 ---
