@@ -130,6 +130,7 @@ This project uses the skillgrid project wiki: an OKF vault at `.skillgrid/projec
 - **Maintain**: `projectwiki lint [--fix]` · `projectwiki index` (incremental) / `projectwiki reindex` (full) · `projectwiki status` · `projectwiki rebuild-meta` · `projectwiki cite-source`.
 - Vault files are truth (PW-INV-1); `index/**` + the `projectwiki_*` rows are derived — never hand-edit (PW-INV-3).
 <!-- project-wiki:end -->
+<!-- skillgrid:end -->
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

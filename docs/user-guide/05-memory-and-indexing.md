@@ -241,7 +241,7 @@ code_status → code_index (if not fresh) → code_search → code_read
 
 ### MCP tools
 
-Served by the single-purpose **mnemonic-code** server — `mnemonic code mcp --profile agent` (the default, 20 tools; `--profile all` is the full 39). The `initialize` response carries `serverInfo.name: "mnemonic-code"` + the code instruction block (the exploration discipline: `code_explore` first, treat returned source as already read).
+Served by the single-purpose **mnemonic-code** server — `mnemonic code mcp --profile agent` (the default, 20 tools; `--profile all` is the full 39). The `initialize` response carries `serverInfo.name: "mnemonic-code"` + the pinned empty capabilities `{"tools":{},"resources":{},"prompts":{}}` and **no instructions block** (the gitnexus shape) — the exploration discipline (`code_explore` first, treat returned source as already read) lives in the `code_explore` tool description, not in an instructions field.
 
 **Agent profile (20):**
 

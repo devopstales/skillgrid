@@ -28,10 +28,6 @@ Manage the project's durable knowledge: an OKF vault at `.skillgrid/projectwiki/
   architecture/  # module map, data flow, boundaries
   gotchas/       # discovered issues / non-obvious behavior
   glossary/      # domain terms
-  sources/       # SourceSummary — one summary page per external source (013)
-  concepts/      # Concept — reusable ideas / patterns / techniques (013)
-  syntheses/     # Synthesis — cross-cutting analyses / durable query answers (013)
-  preferences/   # Preference — user preferences (013; user-owned)
   index/         # derived (rebuilt, never hand-edited): catalog.md / log.md /
                #   reverse-index.md / events.jsonl — the engine's human mirror
 ```
@@ -71,7 +67,7 @@ Do not enumerate or preload the vault at task start. Retrieve, then stop once gr
 
 ## Maintain the project wiki
 
-1. **Locate the home first.** Decision → `decisions/`; must-hold token → `invariants/`; flow → `workflows/`; module map → `architecture/`; gotcha → `gotchas/`; term → `glossary/`; source summary / concept / durable answer / preference → `sources/` `concepts/` `syntheses/` `preferences/` (013). New writes of the twelve types outside their folders are rejected at review. Loading search results or reflect results into the vault follows `skillgrid:projectwiki-data-loading`.
+1. **Locate the home first.** Decision → `decisions/`; must-hold token → `invariants/`; flow → `workflows/`; module map → `architecture/`; gotcha → `gotchas/`; term → `glossary/`. New writes of the authored page types outside their folders are rejected at review. (The 013 data-loading workflow — `sources/` `concepts/` `syntheses/` `preferences/` — ships with the `2026-10-31-mnemonic-v2-knowledge-base` change; its skill is parked in that change's folder until the engine lands the four folders.)
 2. **Check what exists** (`index/catalog.md` + `projectwiki query`) before writing — a growing base beats a pile of duplicates.
 3. **Write or revise** per the Page contract below. On revise: state only what changed (confirm / revise-same-id / retract); carry unaffected content forward untouched.
 4. **Same-edit rule:** every page write is followed by `projectwiki index` — the engine rewrites the derived projections (`index/catalog.md` + `index/log.md` + `index/reverse-index.md`) from the markdown. You never hand-edit them (PW-INV-3). Page + reindex ship together or the change is incomplete.
