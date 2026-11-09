@@ -1,4 +1,4 @@
-// Package main is the mnemonic-v2 CLI (spec 005-transport-cli): the
+// Package main is the mnemonic CLI (spec 005-transport-cli): the
 // human/ops interface over the SAME shared handler the MCP stdio server
 // uses (the K6 byte-identical seam — the CLI and MCP never diverge in
 // behavior; they are two adapters over one Handler).

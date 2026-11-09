@@ -1,4 +1,4 @@
-// Package llm is the LLM seam for the mnemonic-v2 memory function (spec
+// Package llm is the LLM seam for the mnemonic memory function (spec
 // 003-intelligence §2.1, INV-3). The LLM interface is the seam: a nil seam
 // means "absent" (the deterministic floor runs, flagged degraded), and a
 // present-but-erroring seam is "failing" (one bounded retry, then the floor).

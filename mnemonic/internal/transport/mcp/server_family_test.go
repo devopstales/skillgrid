@@ -449,12 +449,13 @@ func TestSerialToolCalls(t *testing.T) {
 	waitForID(0)
 
 	// Deep concurrency: 128 tool calls in flight before any response —
-	// the MCP client's "parallel" tool calls, well beyond the queue
-	// (queueSize 1 backpressures the reader; it never opens a second
-	// worker). The writes run in a goroutine: once the queue holds one
-	// and the worker holds one, the reader — and these writes — block
-	// by design; the point is that all 128 are *sent* before any
-	// response is written.
+	// the MCP client's "parallel" tool calls, a burst far beyond any
+	// single round. The queue is pinned to mcp-go's max (10000): a
+	// smaller queue lets mcp-go fall back to synchronous processing
+	// when full, which breaks strict seriality (10e4206b). One worker
+	// processes the calls one at a time. The writes run in a goroutine:
+	// the point is that all 128 are *sent* before any response is
+	// written.
 	const calls = 128
 	go func() {
 		for i := 1; i <= calls; i++ {

@@ -1,4 +1,4 @@
-// Package embedder is the Embedder seam for the mnemonic-v2 memory function
+// Package embedder is the Embedder seam for the mnemonic memory function
 // (spec 003-intelligence §2.2, INV-3). The Embedder interface is the seam: a
 // nil seam is "absent" (the vector leg simply does not run, the result is
 // flagged degraded), and a present-but-erroring seam is "failing" (one bounded

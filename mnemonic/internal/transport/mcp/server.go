@@ -35,11 +35,11 @@ type Profile string
 
 const (
 	// Agent is the working-set profile (spec 004-transport-mcp §3's
-	// | agent | rows — R-1, fix round 1): memory 22 / code 19 /
+	// | agent | rows — R-1, fix round 1): memory 22 / code 20 /
 	// projectwiki 8 tools.
 	Agent Profile = "agent"
 	// All is the full profile (agent + each family's admin tools):
-	// memory 28 / code 38 / projectwiki 12 tools.
+	// memory 28 / code 39 / projectwiki 12 tools.
 	All Profile = "all"
 )
 
@@ -179,8 +179,8 @@ type Server struct {
 	queue   *writeQueue
 	// mcpOpts is the family's mcp-go construction options (the code
 	// family's pinned {"tools":{},"resources":{},"prompts":{}}
-	// capabilities, R4) — every server rebuild (setInstructions) reuses
-	// them so a rebuild never changes the family's wire contract.
+	// capabilities, R4) — the family's wire contract, pinned at
+	// construction.
 	mcpOpts []server.ServerOption
 	// logW is the serving diagnostic seam (R5: post-startup, stdout
 	// carries only protocol frames — the stdio loop owns stdout; the
@@ -205,12 +205,11 @@ type Server struct {
 	// construction, per family: memory renders per profile, projectwiki
 	// is the fixed openwiki-derived block, code has none). A field
 	// (not a const) so the per-profile render and the tests can inspect
-	// it; setInstructions is the rebuild path if it ever changes.
+	// it.
 	instructions string
-	// toolDefs is the name → tool-definition registry (every AddTool
-	// records here): setInstructions rebuilds the mcp-go server — which
-	// captures the instructions at construction — and re-adds the full
-	// registered set.
+	// toolDefs is the registry of finalized tool definitions (every
+	// registerTool records here): the wire-contract record the tests
+	// assert against (the mcp-go server is opaque).
 	toolDefs map[string]mcplib.Tool
 	// calls is the in-process dispatch (the test harness calls CallTool
 	// directly; the stdio path goes through mcp.HandleMessage).
@@ -280,7 +279,7 @@ func NewServer(h *handler.Handler, profile Profile, family Family) *Server {
 // and — for the code family — the pinned
 // {"tools":{},"resources":{},"prompts":{}} capabilities (the gitnexus
 // shape, R4: no list-changed, no resources, no prompts). The options are
-// stored (mcpOpts) so every rebuild keeps the family's wire contract.
+// stored (mcpOpts) — the family's wire contract, pinned at construction.
 func (s *Server) mcpServerOptions() []server.ServerOption {
 	opts := []server.ServerOption{server.WithInputSchemaValidation()}
 	if s.instructions != "" {
@@ -322,33 +321,12 @@ func (s *Server) RegisterCodeTools(ch *handler.CodeHandler) {
 }
 
 // registerTool finalizes the OpenWiki-shaped wire contract (contract.go)
-// and records the tool in both the mcp-go server and the re-registration
-// registry — setInstructions rebuilds the underlying server from
-// toolDefs, so the finalized definition is what every rebuild re-serves.
+// and records the tool with the mcp-go server — the finalized definition
+// is what the stdio path serves.
 func (s *Server) registerTool(def mcplib.Tool) {
 	def = finalizeMCPContract(def)
 	s.mcp.AddTool(def, s.mcpToolHandler(def.Name))
 	s.toolDefs[def.Name] = def
-}
-
-// setInstructions updates the routing block AND delivers it over stdio:
-// the mcp-go server captures the instructions at construction (a field
-// write alone is never served — the F6 capture-timing flaw), so a change
-// rebuilds the underlying server with the new text + the full registered
-// tool set. The field stays the in-process source of truth (the tests and
-// the CLI surface read it).
-func (s *Server) setInstructions(text string) {
-	if text == s.instructions {
-		return
-	}
-	s.instructions = text
-	// The rebuild reuses the family's construction options (mcpServerOptions
-	// reads the updated field + the family's capability pins) so the wire
-	// contract is unchanged across the rebuild.
-	s.mcp = server.NewMCPServer(serverNameFor(s.family), serverVersion, s.mcpServerOptions()...)
-	for name, def := range s.toolDefs {
-		s.mcp.AddTool(def, s.mcpToolHandler(name))
-	}
 }
 
 // RegisterProjectWikiTools adds the projectwiki_* tool family to the server

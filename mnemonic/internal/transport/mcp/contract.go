@@ -8,8 +8,8 @@ package mcp
 // execution.taskSupport="forbidden", and carries no per-tool annotation
 // hints (the MCP spec's assumed defaults). finalizeMCPContract is the
 // single choke point — Server.registerTool applies it to every tool
-// definition of every family and profile; the re-registration path
-// (setInstructions) re-serves the same finalized definitions. The server
+// definition of every family and profile, so the finalized definition
+// is what the stdio path serves. The server
 // enforces the schema at call time (server.WithInputSchemaValidation):
 // a schema violation is a SEP-1303 tool execution error the agent can
 // read and correct, never a silent drop.
