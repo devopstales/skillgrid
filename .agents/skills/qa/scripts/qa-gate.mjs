@@ -136,7 +136,7 @@ function readBaseRef(tasksPath) {
 
 function main() {
   const root = resolve(process.argv[2] || ".");
-  const scriptsDir = join(root, ".agents", "skills", "verification", "qa", "scripts");
+  const scriptsDir = join(root, ".agents", "skills", "qa", "scripts");
 
   const result = {
     verdict: "CLEAN",
