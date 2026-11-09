@@ -79,6 +79,11 @@ var pageDirs = map[string]struct{}{
 	"glossary":     {},
 	"skills":       {}, // opt-in (012)
 	"cases":        {}, // opt-in (012)
+	// 013 (wiki-autolearning, ADR-0060): the four contextual types.
+	"sources":     {},
+	"concepts":    {},
+	"syntheses":   {},
+	"preferences": {},
 }
 
 // loadIgnore reads the vault's .ignore (gitignore-like, 001 §7) — falling

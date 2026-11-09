@@ -25,6 +25,12 @@ var PageTypeDirs = []string{
 	"architecture",
 	"gotchas",
 	"glossary",
+	// 013 (wiki-autolearning, ADR-0060): the four contextual types — research
+	// results + user preferences enter the vault as flat, type-driven pages.
+	"sources",
+	"concepts",
+	"syntheses",
+	"preferences",
 }
 
 type Options struct {
@@ -58,6 +64,14 @@ func Bootstrap(ctx context.Context, st store.Store, root string, opts Options) (
 		"page_types":     PageTypeDirs,
 		"anchor_engine":  opts.AnchorEngine,
 		"strict":         opts.Strict,
+		// 001 §8 (013): the stage-1 inline carve-out (005 §2.3) — preferences
+		// inline (short, immediately actionable); sources/concepts/syntheses
+		// stay links-only. The 012 mechanism consumes this block.
+		"recall": map[string]any{
+			"inline_types":    []string{"invariant", "gotcha", "skill", "case", "preference"},
+			"inline_max":      1600,
+			"links_threshold": 50,
+		},
 	}
 	cfgBytes, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -82,7 +96,111 @@ func Bootstrap(ctx context.Context, st store.Store, root string, opts Options) (
 			return nil, fmt.Errorf("projectwiki: mkdir %s: %w", d, err)
 		}
 	}
+	// 013 (001 §8): bootstrap scaffolds the four contextual-type templates.
+	if err := os.MkdirAll(filepath.Join(root, "templates"), 0o755); err != nil {
+		return nil, fmt.Errorf("projectwiki: mkdir templates: %w", err)
+	}
+	for name, body := range contextualTemplates {
+		p := filepath.Join(root, "templates", name)
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			return nil, fmt.Errorf("projectwiki: write templates/%s: %w", name, err)
+		}
+		created = append(created, "templates/"+name)
+	}
 	return &Scaffold{Root: root, Created: created}, nil
+}
+
+// contextualTemplates are the four 013 (wiki-autolearning) page templates
+// (ADR-0060) — the skeletons a research result / preference is cut into.
+// They mirror the files committed to an existing vault's templates/
+// (the same-edit rule keeps the two copies identical).
+var contextualTemplates = map[string]string{
+	"source.md": `---
+type: SourceSummary
+title: "<name> <version>"
+status: stable
+sources:
+  - "external:<name> <version>"
+---
+
+# <name> <version>
+
+## Summary
+
+<A synthesis of what this source is and says — never a copy of the raw content (WA-INV-2).>
+
+## Claims taken
+
+- <a checkable claim> — used by [[syntheses/<result-slug>]]
+
+## Staleness
+
+Re-verify when the upstream version moves (the build_fingerprint drift flags this page alone, WA-INV-3).
+`,
+	"concept.md": `---
+type: Concept
+title: "<concept name>"
+status: stable
+sources:
+  - "syntheses/<result-slug>"
+---
+
+# <concept name>
+
+<A reusable idea / pattern / technique that outlives the research result it came from.>
+
+## Where it applies
+
+- [[gotchas/<slug>]] / [[architecture/<slug>]] / [[decisions/<adr>]] — the link that makes the external finding actionable in this repo.
+
+## Evidence
+
+- [[syntheses/<result-slug>]] — the result this concept was cut from.
+`,
+	"synthesis.md": `---
+type: Synthesis
+title: "<result question>"
+status: draft
+sources:
+  - "external:<name> <version>"
+---
+
+# <result question>
+
+The hub of a research result (WA-INV-1): one file per thing, cross-linked.
+
+## Method
+
+<how the question was researched>
+
+## Findings
+
+- <finding> — from [[sources/<name>-<version>]]
+
+## Answer
+
+<TL;DR + the answer. Links to every sources/ page drawn on and every concepts/ page spawned (≥2 outgoing, 001 §6).>
+`,
+	"preference.md": `---
+type: Preference
+title: "<preference area>"
+status: stable
+sources:
+  - "memory:<sync_id>"
+---
+
+# <preference area>
+
+Project-scoped user preferences (the global view stays in memory; each bullet cites the observation where the user stated it — INV-1 provenance).
+
+## Preferences
+
+- <the preference, in imperative form> — said in session <S> (memory:<sync_id>)
+
+## Constrains
+
+- [[invariants/<slug>]] / [[workflows/<slug>]] — the convention pages this preference constrains (≥2 outgoing, 001 §6).
+`,
 }
 
 // Root returns the vault root for cwd: .skillgrid/projectwiki/ when it

@@ -97,6 +97,10 @@ func TestCollectPagesWhitelistScope(t *testing.T) {
 	writeVaultPage(t, vault, "trajectories/TRJ-2026-01-01-001/extracted.md", "packet")
 	writeVaultPage(t, vault, ".obsidian/app.md", "obsidian state")
 	writeVaultPage(t, vault, "gotchas/skipme.md", "ignored by .ignore")
+	writeVaultPage(t, vault, "sources/context7-embed-rs-v0.4.md", "source summary")
+	writeVaultPage(t, vault, "concepts/fence-sizing.md", "a concept")
+	writeVaultPage(t, vault, "syntheses/mcp-seriality.md", "a result hub")
+	writeVaultPage(t, vault, "preferences/tooling.md", "a preference")
 	if err := os.WriteFile(filepath.Join(vault, ".ignore"),
 		[]byte("# boundary\ngotchas/skipme.md\n"), 0o644); err != nil {
 		t.Fatalf("write ignore: %v", err)
@@ -110,10 +114,21 @@ func TestCollectPagesWhitelistScope(t *testing.T) {
 	for _, p := range pages {
 		got[p.RelPath] = true
 	}
-	if len(pages) != 2 {
-		t.Fatalf("collected %d pages, want 2: %v", len(pages), got)
+	if len(pages) != 6 {
+		t.Fatalf("collected %d pages, want 6: %v", len(pages), got)
 	}
 	if !got["decisions/auth-model.md"] || !got["invariants/grace.md"] {
 		t.Fatalf("in-scope pages missing: %v", got)
+	}
+	// 013 (ADR-0060): the four contextual type folders are in scope.
+	for _, p := range []string{
+		"sources/context7-embed-rs-v0.4.md",
+		"concepts/fence-sizing.md",
+		"syntheses/mcp-seriality.md",
+		"preferences/tooling.md",
+	} {
+		if !got[p] {
+			t.Fatalf("013 contextual page %s not collected: %v", p, got)
+		}
 	}
 }
