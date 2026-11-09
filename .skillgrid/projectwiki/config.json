@@ -6,9 +6,24 @@
     "workflows",
     "architecture",
     "gotchas",
-    "glossary"
+    "glossary",
+    "sources",
+    "concepts",
+    "syntheses",
+    "preferences"
   ],
   "project": "skillgrid-v2",
   "schema_version": 1,
-  "strict": false
+  "strict": false,
+  "recall": {
+    "inline_types": [
+      "invariant",
+      "gotcha",
+      "skill",
+      "case",
+      "preference"
+    ],
+    "inline_max": 1600,
+    "links_threshold": 50
+  }
 }
