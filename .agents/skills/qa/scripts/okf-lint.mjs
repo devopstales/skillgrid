@@ -25,7 +25,11 @@
  *                              listed, every catalog entry resolves
  *   3 links-unbroken           in-bundle Markdown targets only (no network,
  *                              no anchors, no assets)
- *   4 no-wikilink-syntax       relative Markdown links only; no [[wikilinks]]
+ *   4 wikilink-resolution    [[wikilinks]] are allowed as an equivalent
+ *                              in-bundle link syntax (OKF issue #176:
+ *                              cannot escape the bundle); unresolved
+ *                              wikilinks are advisory-only (OKF §5.3
+ *                              broken-link tolerance), never drift
  *   5 provenance-required      status: stable => generated present, plus
  *                              sources when anchored; draft exempt (the agent
  *                              never self-stamps)
@@ -76,7 +80,7 @@ import {
 import { join, resolve, isAbsolute, dirname, relative } from "node:path";
 import { parse } from "yaml";
 
-const RESERVED = new Set(["index.md", "log.md"]);
+const RESERVED = new Set(["index.md", "log.md", "reverse-index.md"]);
 const ANCHOR_MAX_SPAN = 100; // scope_lines default
 
 // --- Scope (verification-scope.md): worst-scope-wins ---
@@ -225,12 +229,21 @@ function extractLinks(body) {
   return out;
 }
 
+// The engine's slugOf (mnemonic index_inc.go): lowercase, non-alphanumeric
+// runs collapsed to "-", trimmed.
+function slugify(s) {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
 function wikilinks(body) {
   const noFences = stripFence(body);
+  // Inline code spans are syntax mentions, not links (an illustrative
+  // `[[x]]` in prose is documentation, never a link claim).
+  const noCode = noFences.replace(/`+[^`\n]*`+/g, "");
   const out = [];
   const re = /\[\[([^\]]+)\]\]/g;
   let m;
-  while ((m = re.exec(noFences))) {
+  while ((m = re.exec(noCode))) {
     out.push(m[1].split("|")[0].trim());
   }
   return out;
@@ -436,7 +449,7 @@ function main() {
     // Pre-R6 artifacts/ fallback: README.md is the root catalog (the
     // post-R6 root catalog is index.md). Treat it as reserved so it is
     // checked for okf_version and links, not linted as a concept.
-    if (base === "index.md" || base === "log.md" || base === "README.md") {
+    if (base === "index.md" || base === "log.md" || base === "README.md" || base === "reverse-index.md") {
       reserved.push({ rel, content: readBodyFile(f) });
       continue;
     }
@@ -534,7 +547,6 @@ function main() {
   }
 
   // --- Check 3: links-unbroken (in-bundle Markdown targets only) ---
-  // --- Check 4: no-wikilink-syntax ---
   for (const c of concepts) {
     for (const link of extractLinks(c.body)) {
       const abs = join(dirname(c.abs), link.target);
@@ -550,9 +562,6 @@ function main() {
         );
       }
     }
-    for (const wl of wikilinks(c.body)) {
-      find("no-wikilink-syntax", c.rel, `[[${wl}]] uses banned wikilink syntax`);
-    }
   }
   for (const r of reserved) {
     for (const link of extractLinks(r.content)) {
@@ -564,10 +573,40 @@ function main() {
         find("link-broken", r.rel, `link target does not exist: ${link.target}`);
       }
     }
-    for (const wl of wikilinks(r.content)) {
-      find("no-wikilink-syntax", r.rel, `[[${wl}]] uses banned wikilink syntax`);
-    }
   }
+
+  // --- Check 4: wikilink-resolution (advisory-only) ---
+  // [[wikilinks]] are an allowed in-bundle link syntax (OKF issue #176 —
+  // an equivalent alternative to Markdown links that cannot escape the
+  // bundle). Unresolved wikilinks are reported as advisories, never drift
+  // (OKF §5.3: consumers MUST tolerate broken links). Resolution mirrors
+  // the engine (001 §6) plus the documented [[type/slug]] form: basename,
+  // slugified basename, rel path (with and without .md), frontmatter
+  // title, aliases — case-insensitive.
+  const wikiTargets = new Set();
+  const addTarget = (t) => {
+    if (typeof t === "string" && t.trim()) wikiTargets.add(t.trim().toLowerCase());
+  };
+  for (const c of concepts) {
+    if (c.parseError) continue;
+    const baseNoExt = c.base.replace(/\.md$/i, "");
+    addTarget(baseNoExt);
+    addTarget(slugify(baseNoExt));
+    addTarget(c.rel);
+    addTarget(c.rel.replace(/\.md$/i, ""));
+    addTarget(c.fm?.title);
+    if (Array.isArray(c.fm?.aliases)) c.fm.aliases.forEach(addTarget);
+  }
+  const unresolvedWikilinks = [];
+  const checkWikilinks = (content, rel) => {
+    for (const wl of wikilinks(content)) {
+      if (!wikiTargets.has(wl.toLowerCase())) {
+        unresolvedWikilinks.push(`${rel}: [[${wl}]]`);
+      }
+    }
+  };
+  for (const c of concepts) checkWikilinks(c.body, c.rel);
+  for (const r of reserved) checkWikilinks(r.content, r.rel);
 
   // --- Check 5: provenance-required ---
   for (const c of concepts) {
@@ -703,6 +742,11 @@ function main() {
   if (orphans.length > 0) {
     console.log(
       `ADVISORY: ${orphans.length} orphan(s) (not counted in drift): ${orphans.join(", ")}`,
+    );
+  }
+  if (unresolvedWikilinks.length > 0) {
+    console.log(
+      `ADVISORY: ${unresolvedWikilinks.length} unresolved wikilink(s) (not counted in drift, OKF §5.3): ${unresolvedWikilinks.join(", ")}`,
     );
   }
   console.log(`SCOPE: ${scope}`);

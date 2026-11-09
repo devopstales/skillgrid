@@ -12,3 +12,6 @@ generated:
 
 A stable page with no pin. It is valid knowledge — it loads, it just never
 arms the liveness check. See the [root catalog](../index.md).
+
+It also cross-references a page by name: [[go-version-floor]] — a resolvable
+wikilink (allowed syntax per OKF issue #176; no advisory, no drift).

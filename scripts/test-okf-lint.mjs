@@ -66,6 +66,9 @@ function assert(name, cond, detail = "") {
   assert("clean: exit 0", r.code === 0, `got ${r.code}: ${r.stdout}\n${r.stderr}`);
   assert("clean: DRIFT: clean", r.stdout.includes("DRIFT: clean"), r.stdout);
   assert("clean: SCOPE: COMPLETE", /^SCOPE: COMPLETE$/m.test(r.stdout), r.stdout);
+  // Rule 4 (OKF issue #176): a resolvable wikilink is allowed syntax — no
+  // finding of any kind (not even an advisory).
+  assert("clean: resolvable wikilink unflagged", !r.stdout.includes("wikilink"), r.stdout);
 }
 
 // --- Drifted bundle: all four finding classes named ---
@@ -83,6 +86,14 @@ function assert(name, cond, detail = "") {
   // union-of-regions claim check reports DRIFT (not CLAIM_BROKEN).
   assert("drift: names anchor-drift (literal-only)", r.stdout.includes("anchor-drift"), r.stdout);
   assert("drift: claim literal reported absent from region", r.stdout.includes('claim literal "go 1.23" not in any matched region'), r.stdout);
+  // Rule 4 (OKF issue #176): the banned-syntax finding is gone; the fixture's
+  // unresolvable [[wikilink]] is advisory-only (OKF §5.3), never drift.
+  assert("drift: no-wikilink-syntax no longer a finding", !r.stdout.includes("no-wikilink-syntax"), r.stdout);
+  assert(
+    "drift: unresolved wikilink reported as advisory",
+    /ADVISORY: \d+ unresolved wikilink\(s\)/.test(r.stdout) && r.stdout.includes("[[wikilink]]"),
+    r.stdout,
+  );
   assert("drift: SCOPE: COMPLETE", /^SCOPE: COMPLETE$/m.test(r.stdout), r.stdout);
 }
 

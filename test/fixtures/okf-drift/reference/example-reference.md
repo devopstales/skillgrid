@@ -23,5 +23,5 @@ the provenance-required check must report.
 It also links to a file that does not exist:
 [ghost page](ghost-page.md) — a link-broken finding.
 
-And it uses the banned vault syntax: [ghost page](ghost-page.md) and
-[[wikilink]] — a no-wikilink-syntax finding.
+And it carries an unresolvable wikilink: [[wikilink]] — advisory-only (allowed
+syntax per OKF issue #176; OKF §5.3 broken-link tolerance, never drift).
