@@ -38,9 +38,10 @@ const (
 //  1. Copy the MemoryProvider plugin (plugins/hermes/) to
 //     $HERMES_HOME/plugins/mnemonic/.
 //  2. Write the mcp_servers block to $HERMES_HOME/config.yaml (YAML).
-//     Every server from config.d/mcp.yaml is registered; the mnemonic
-//     entry additionally carries env MNEMONIC_MCP_EXCLUDE=mem so the MCP
-//     server hides the mem_* tools the provider handles natively.
+//     Every server from config.d/mcp.yaml is registered; the
+//     mnemonic-memory entry additionally carries env
+//     MNEMONIC_MCP_EXCLUDE=mem so the MCP server hides the mem_* tools
+//     the provider handles natively.
 //  3. Write the SOUL.md marker-delimited protocol block (idempotent: a
 //     second run replaces the block in place, never duplicates it).
 //  4. Create the project's Kanban board via `hermes kanban boards create
@@ -148,7 +149,7 @@ type hmcEntry struct {
 
 // upsertHermesMCP reads $HERMES_HOME/config.yaml as generic YAML, replaces
 // the mcp_servers block with the entries from config.d/mcp.yaml (the
-// mnemonic entry gets MNEMONIC_MCP_EXCLUDE=mem), and writes it back. Every
+// mnemonic-memory entry gets MNEMONIC_MCP_EXCLUDE=mem), and writes it back. Every
 // other key in the file is preserved. A missing file is created.
 //
 // On a YAML parse error the original file is backed up and left untouched
@@ -230,8 +231,8 @@ func upsertHermesMCP(home string, cfgPath string, entries []MCPServerConfig, dry
 }
 
 // hmcEntryFromMCPServer renders one MCP entry: remote -> {url}, local ->
-// {command, args}. The mnemonic entry additionally pins env
-// MNEMONIC_MCP_EXCLUDE=mem so `mnemonic mcp` suppresses the mem_* tools.
+// {command, args}. The mnemonic-memory entry additionally pins env
+// MNEMONIC_MCP_EXCLUDE=mem so the MCP server suppresses the mem_* tools.
 func hmcEntryFromMCPServer(e MCPServerConfig) hmcEntry {
 	h := hmcEntry{Name: e.Name}
 	if e.Type == "remote" {
@@ -244,9 +245,9 @@ func hmcEntryFromMCPServer(e MCPServerConfig) hmcEntry {
 			h.Args = e.Command[1:]
 		}
 	}
-	// "mnemonic" is the server name from config.d/mcp.yaml (the map key that
-	// becomes MCPServerConfig.Name).
-	if e.Name == "mnemonic" {
+	// "mnemonic-memory" is the memory server name from config.d/mcp.yaml
+	// (the map key that becomes MCPServerConfig.Name).
+	if e.Name == "mnemonic-memory" {
 		h.Env = map[string]string{ExcludeEnvVar: "mem"}
 	}
 	return h

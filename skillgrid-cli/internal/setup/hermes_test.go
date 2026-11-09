@@ -21,7 +21,9 @@ import (
 var hermesMCPEntries = []MCPServerConfig{
 	{Name: "context7", Type: "remote", URL: "https://mcp.context7.com/mcp"},
 	{Name: "deepwiki", Type: "remote", URL: "https://mcp.deepwiki.com/mcp"},
-	{Name: "mnemonic", Type: "local", Command: []string{"mnemonic", "memory", "mcp", "--profile", "agent"}},
+	{Name: "mnemonic-memory", Type: "local", Command: []string{"mnemonic", "memory", "mcp", "--profile", "agent"}},
+	{Name: "mnemonic-code", Type: "local", Command: []string{"mnemonic", "code", "mcp", "--profile", "agent"}},
+	{Name: "mnemonic-projectwiki", Type: "local", Command: []string{"mnemonic", "projectwiki", "mcp", "--profile", "agent"}},
 	{Name: "playwright", Type: "local", Command: []string{"playwright-mcp"}},
 	{Name: "agent-browser", Type: "local", Command: []string{"agent-browser", "mcp", "--tools", "all"}},
 	{Name: "exa", Type: "remote", URL: "https://mcp.exa.ai/mcp"},
@@ -105,10 +107,10 @@ func TestSetupHermes_MCPConfig(t *testing.T) {
 			}
 		}
 	}
-	// The mnemonic entry carries the exclude env var (the provider handles
-	// mem_* natively, so the MCP server must not re-expose them).
-	if env, _ := servers["mnemonic"]["env"].(map[string]interface{}); env == nil || env[ExcludeEnvVar] != "mem" {
-		t.Fatalf("mnemonic env = %v, want %s=mem", servers["mnemonic"]["env"], ExcludeEnvVar)
+	// The mnemonic-memory entry carries the exclude env var (the provider
+	// handles mem_* natively, so the MCP server must not re-expose them).
+	if env, _ := servers["mnemonic-memory"]["env"].(map[string]interface{}); env == nil || env[ExcludeEnvVar] != "mem" {
+		t.Fatalf("mnemonic-memory env = %v, want %s=mem", servers["mnemonic-memory"]["env"], ExcludeEnvVar)
 	}
 	// The unrelated user config survives.
 	data, _ := os.ReadFile(cfgPath)

@@ -156,19 +156,19 @@ func TestCodeProfileMembership(t *testing.T) {
 		}
 	}
 
-	// R4 — the code server serves NO instructions (the gitnexus shape:
-	// serverInfo carries name + version only; the tool descriptions carry
-	// the routing). RegisterCodeTools must not introduce any.
-	if allSrv.instructions != "" {
-		t.Fatalf("the code server must serve no instructions (gitnexus shape), got: %s", allSrv.instructions)
+	// R4 (superseded) — the code server serves the fixed codeInstructions
+	// block (all three MCP servers now share the same wire shape:
+	// instructions present on initialize).
+	if allSrv.instructions != codeInstructions {
+		t.Fatalf("the code server must serve codeInstructions, got: %s", allSrv.instructions)
 	}
-	// The stdio initialize response must agree: no instructions field.
+	// The stdio initialize response must agree.
 	frames, err := allSrv.HandshakeAndCall(context.Background(), "code_status")
 	if err != nil {
 		t.Fatalf("handshake: %v", err)
 	}
-	if served := initializeInstructions(t, frames); served != "" {
-		t.Fatalf("the stdio initialize response must carry no instructions, got: %s", served)
+	if served := initializeInstructions(t, frames); served != codeInstructions {
+		t.Fatalf("the stdio initialize response must carry codeInstructions, got: %s", served)
 	}
 }
 

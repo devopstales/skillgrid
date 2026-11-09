@@ -7,11 +7,27 @@ servers:
   deepwiki:
     type: remote
     url: https://mcp.deepwiki.com/mcp
-  mnemonic:
+  mnemonic-memory:
     type: local
     command:
       - mnemonic
       - memory
+      - mcp
+      - "--profile"
+      - agent
+  mnemonic-code:
+    type: local
+    command:
+      - mnemonic
+      - code
+      - mcp
+      - "--profile"
+      - agent
+  mnemonic-projectwiki:
+    type: local
+    command:
+      - mnemonic
+      - projectwiki
       - mcp
       - "--profile"
       - agent

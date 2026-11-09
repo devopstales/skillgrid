@@ -152,6 +152,41 @@ After mem_save: if judgment_required, prefer mem_judge_many (max 32) with candid
 Ask conversationally when confidence < 0.7 OR (relation in {supersedes, conflicts_with} AND type in {architecture, policy, decision}); else resolve with related | compatible | scoped | not_conflict. Pass evidence from user reply.`
 }
 
+// codeInstructions is the mnemonic-code initialize block: the tool-set
+// overview (R4 — every family now carries instructions; the code family
+// was resolved to "none" (gitnexus shape) but that decision is superseded
+// so all three MCP servers share the same wire shape).
+const codeInstructions = `mnemonic-code is the code-intelligence MCP server: a local, git-rooted AST+FTS index of the current repo. It exposes symbol-level search, orientation, blast-radius, and graph-navigation tools — no LLM, no network.
+
+## Core workflow
+
+1. code_status — check index freshness (4-state: fresh / stale / unknown / error). After a clone, branch switch, or large refactor, run code_index before trusting results.
+2. code_search — hybrid search (FTS + structural + semantic, RRF). Prefer this over grep/rg when exploring unknown areas.
+3. code_read — fetch indexed source after search narrows path + line range.
+4. code_impact — risk-tiered blast radius before editing any symbol.
+
+## Graph navigation
+
+- code_orient — the navigation entry point: a progressive-disclosure map of a symbol/package/file (metadata + TOC + bounded outbound edges).
+- code_explain — node + degree + connections ranked by neighbor degree (hubs first).
+- code_path — BFS shortest path between two symbols, or the graph boundary for one.
+- code_get_callers / code_get_callees / code_get_dependents / code_get_implementors / code_get_hierarchy / code_get_tests_for — six neighbor-view tools; every edge carries a confidence label (EXTRACTED / INFERRED / AMBIGUOUS).
+- code_resolve — resolve a symbol to {exists, file, line, called_from[], ambiguous, candidates[]}.
+
+## Search legs
+
+- code_grep — index-free structural AST grep (by-example); the structural leg of the hybrid search.
+- code_semantic — embedding search (symbol + chunk); the semantic leg (degraded: no_vector when the embedder is absent).
+- code_explore — PRIMARY tool for a question: ranked symbols' verbatim source + per-symbol blast radius + per-file edge summary in one capped call.
+
+## Admin (all profile)
+
+- code_index — run incremental or full index.
+- code_rename — rename plan (graph edits vs text-search edits; dry_run default).
+- code_affected — which tests to run after a change (changed files or git base).
+- code_packages — top-level Go package map.
+- code_unresolved — the drop-not-guess backlog (unresolved_edges ledger).`
+
 // projectWikiInstructions is the mnemonic-projectwiki initialize block
 // (R4: the openwiki 0.9.0 text as the literal base — the retrieval
 // discipline, the trust/claims rules — with the page-job lifecycle
@@ -224,10 +259,9 @@ type Server struct {
 // shared handler (R3). The profile selects the tool set within the family
 // (Agent ⊂ All). The family selects the server identity (serverNameFor),
 // the instructions (memory: engram-derived, profile-aware; projectwiki:
-// openwiki-derived; code: none — the gitnexus shape sends no
-// instructions), and which registrations run (the memory family's tools
-// register here; RegisterCodeTools / RegisterProjectWikiTools are
-// family-gated, R3).
+// openwiki-derived; code: the fixed codeInstructions block), and which
+// registrations run (the memory family's tools register here;
+// RegisterCodeTools / RegisterProjectWikiTools are family-gated, R3).
 func NewServer(h *handler.Handler, profile Profile, family Family) *Server {
 	switch family {
 	case FamilyMemory, FamilyCode, FamilyProjectWiki:
@@ -252,13 +286,16 @@ func NewServer(h *handler.Handler, profile Profile, family Family) *Server {
 		s.txnMu.Unlock()
 	})
 	// The per-family instructions (R4): memory renders per profile;
-	// projectwiki is the fixed openwiki-derived block; code has none
-	// (the gitnexus baseline — open item O1 resolved to none).
+	// projectwiki is the fixed openwiki-derived block; code is the
+	// fixed code-index block (supersedes the earlier "none" decision
+	// so all three servers share the same wire shape).
 	switch family {
 	case FamilyMemory:
 		s.instructions = memoryInstructionsFor(profile)
 	case FamilyProjectWiki:
 		s.instructions = projectWikiInstructions
+	case FamilyCode:
+		s.instructions = codeInstructions
 	}
 	s.mcpOpts = s.mcpServerOptions()
 	s.mcp = server.NewMCPServer(serverNameFor(family), serverVersion, s.mcpOpts...)

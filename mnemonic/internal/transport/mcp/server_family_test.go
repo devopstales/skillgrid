@@ -225,10 +225,10 @@ func TestInitializeShapePerFamily(t *testing.T) {
 		if res.ServerInfo.Name != "mnemonic-code" || res.ServerInfo.Version != "0.2.0" {
 			t.Fatalf("code serverInfo = %s/%s, want mnemonic-code/0.2.0", res.ServerInfo.Name, res.ServerInfo.Version)
 		}
-		// gitnexus shape: no instructions field at all (the tool
-		// descriptions carry the routing).
-		if res.Instructions != "" {
-			t.Fatalf("the code server must serve no instructions (gitnexus shape), got: %s", res.Instructions)
+		// codeInstructions is present (all three families now carry
+		// instructions on the initialize response).
+		if res.Instructions != codeInstructions {
+			t.Fatalf("the code server must serve codeInstructions, got: %s", res.Instructions)
 		}
 		// the pinned capabilities: exactly tools/resources/prompts,
 		// each empty (no list-changed, no resources, no prompts).
