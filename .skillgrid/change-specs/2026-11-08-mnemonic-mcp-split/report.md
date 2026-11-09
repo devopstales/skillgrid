@@ -338,6 +338,7 @@ No user-facing input handling changed in this change beyond what the stdio proto
 ### SUGGESTION (nice to have)
 
 - **W002 — state-drift-check.mjs cannot parse the multi-segment state.yaml format** (pre-existing; both pre- and post-change content fail identically). Either make the state format strict YAML or make the guard lenient; until then the drift guard is dead.
+- **Deleted draft spec folders (disposition record):** three v1-era draft specs (`2026-10-05-mnemonic-central-pg`, `2026-10-06-mnemonic-standalone`, `2026-10-07-mnemonic-compaction-v2` — all `status: draft`, never executed) were deleted outright in the D1 rename commit (`08f8984c`) without a recorded disposition (code-review finding I2). Restored to `change-specs/` at review time; they are superseded by the v2 repo-map redesign (2026-11-01) and are kept as historical drafts.
 - **Trivy (worktree):** `.worktrees/mnemonic-llm-provider` carries golang.org/x/text CVE-2026-56851 (HIGH, fix v0.41.0) + 12 SPA findings (1 CRITICAL DOMPurify) — fix on that branch, not this one.
 - **7 advisory STATUS-banner findings** (pre-existing: 6 old briefings + the current change's banner, now `draft` vs derived phase `qa`).
 
