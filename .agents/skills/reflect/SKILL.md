@@ -131,7 +131,9 @@ Complete the existing file IN PLACE in the moved folder (`.skillgrid/change-arch
 
 **Lineage** — the observation IDs of every artifact read (the lineage endpoint), **plus** the `review.md` facts: the review verdict floor, each axis's independence grade, and the Critical/Important findings caught pre-merge (so a future reader can see what review caught vs. what escaped).
 
-**Lift durable findings.** From the sourced learnings above (Surprises, Patterns, Decisions that constrain *future* work), append the ones that outlive this change to `.skillgrid/projectwiki/reference/06-research-findings.md` — the durable, cross-change distillation. A finding that is only true for this one change stays in `report.md` alone. This is the terminal catch: anything `research`/`prototype`/`sketch` missed while the sources were fresh still lands here at close.
+**Triage sourced learnings to their vault home.** From the sourced learnings above (Decisions / Lessons / Patterns / Surprises) + user preferences + this change's research results, route each per the 013 triage table: locked decision → `decisions/` + `ASSUMPTIONS.md` § LOCKED (**propose + confirm** — enters on explicit user yes only); user preference → `preferences/<area>.md` (each bullet cites the `memory:` observation it was stated in); research result → `syntheses/` hub + `sources/` + `concepts/` tree; must-hold convention → `invariants/` (with `claims:`); gotcha / tool quirk / failure lesson → `gotchas/`; code fact ("how it works" changed) → the component page / `architecture/` (grounded re-pin); domain term → `glossary/`; process bug → the governing skill / `_shared` rule (**not a vault home** — the triage below). A finding true only for this one change stays in `report.md` alone. Contradiction rule: a new page never silently overwrites — link new↔old in both directions and move the superseded page to `status: deprecated` (never deleted). This is the terminal catch: anything `research` missed while the sources were fresh still lands here at close.
+
+**Finalize the change's research results.** For each `syntheses/` hub this change's research left as `status: draft`: re-confirm the `sources:` citations, add links to the shipped pages it informs, and flip it `draft → stable`. A result that ships without finalization (a blocked cycle) stays `draft` — visible and searchable, marked un-finalized. The closing `projectwiki generate` runs **once** for all these writes, not per page.
 
 **Finding triage — process bug vs one-off.** For each Lesson and Surprise, classify it before it closes:
 
@@ -162,7 +164,7 @@ Research done during this change (via the `skillgrid:mnemonic` web-cache protoco
 
 ```
 ### Candidate: <title, from the cache entry>
-- **Concept home:** <where the concept would live, e.g. `decisions/` or `invariants/`>
+- **Concept home:** <where the promoted tree would land — a `syntheses/` hub + `sources/` page + `concepts/` pages (013), or a core folder (`invariants/`, `gotchas/`) for a checkable convention or lesson>
 - **Why:** <why this is worth promoting — reusable across changes, not true for this change alone>
 - **sources:** <the cache source — context7 | exa | deepwiki | fetch | manual>
 - **Claim:** <the checkable claim, one falsifiable statement>
@@ -172,7 +174,7 @@ Research done during this change (via the `skillgrid:mnemonic` web-cache protoco
 **Explicit-confirmation rule:**
 
 - Confirmation is **EXPLICIT before any write** — no candidate becomes a concept until the human says yes to it.
-- If interactive before close: confirm the candidates now; on a `yes`, the concept file **and** its `index.md` / `log.md` entries land in the **same edit** (the same-edit rule — a concept without its index entry is drift the moment it lands).
+- If interactive before close: confirm the candidates now; on a `yes`, the promoted pages **and** the `projectwiki index` run land in the **same edit** (the same-edit rule — a page without its index entry is drift the moment it lands).
 - Not interactive (or the human defers): defer the confirmation to the next session/change — the candidate stays a card in the archive.
 - Unconfirmed candidates **expire harmlessly** — they are proposals recorded in the archived report, never committed concepts. Nothing to clean up, nothing re-confirmed by default.
 

@@ -150,13 +150,17 @@ The consolidated `findings.md` is the single downstream contract that
 `skillgrid:writing-blueprints` reads — it carries research, prototype, and sketch
 evidence in one file.
 
-**Cross-change findings.** If a finding outlives this change (an external API
-fact, a version's behavior, a domain constraint, a library limitation that will
-constrain *future* work), also append it to `.skillgrid/projectwiki/reference/06-research-findings.md`
-(the durable, cross-change distillation). A finding that is only true for this
-one change stays in the per-change `findings.md` alone. `reflect` does the same
-lift at close — doing it here catches the durable facts while the sources are
-still fresh.
+**Capture-fresh vault writes.** If the research touched external sources
+(a library, a paper, an article, a CLI), write the vault pages *now* —
+fingerprints and source context are current: one `sources/<name>-<version>.md`
+page per source (a summary, never a copy — its `sources:` carries the
+`external:` citation + `build_fingerprint`), plus a `syntheses/<result-slug>.md`
+hub with `status: draft` (question, method, findings, answer) cross-linked to
+every source page it drew on, and a `concepts/` page for any finding that
+outlives the result. Run `projectwiki index` in the same edit as the writes. A
+finding true only for this one change stays in the per-change `findings.md`
+alone. `reflect` finalizes the hub at ship (`draft → stable`) — doing the
+capture here means the durable facts are never lost to staleness.
 
 Commit the findings (`git add` + `git commit`) — the artifact is a checkpoint the
 blueprint will cite.
