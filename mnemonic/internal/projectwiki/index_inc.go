@@ -150,7 +150,9 @@ func upsertPageFull(ctx context.Context, st store.Store, p Page, project string)
 
 // recomputeInDegree recomputes wikilink in-degree across the live pages
 // (011 deliverable 6: in_degree). [[Target]] resolves against page title,
-// aliases, and slug (basename without .md), case-insensitively.
+// aliases, slug (basename without .md), the full rel path (with .md), and
+// the documented [[type/slug]] form (rel without .md, 001 §6) —
+// case-insensitively.
 func recomputeInDegree(ctx context.Context, st store.Store, root, project string) error {
 	rows, err := st.Query(ctx,
 		`SELECT rel_path, body FROM projectwiki_pages WHERE project = ? AND deleted_at IS NULL ORDER BY rel_path`, project)
@@ -179,6 +181,7 @@ func recomputeInDegree(ctx context.Context, st store.Store, root, project string
 		}
 		register(slugOf(rel))
 		register(rel)
+		register(strings.TrimSuffix(rel, ".md")) // the documented [[type/slug]] form (001 §6)
 	}
 
 	degs := map[string]int{}

@@ -163,7 +163,7 @@ func TestIndexInDegree(t *testing.T) {
 	ctx := context.Background()
 	vault := t.TempDir()
 	writeVaultPage(t, vault, "decisions/alpha.md",
-		"---\ntitle: Alpha\ntype: Decision\n---\n\nSee [[Beta]] and [[beta-alias]].")
+		"---\ntitle: Alpha\ntype: Decision\n---\n\nSee [[Beta]], [[beta-alias]], and [[decisions/beta]].")
 	writeVaultPage(t, vault, "decisions/beta.md",
 		"---\ntitle: Beta\ntype: Decision\naliases:\n  - beta-alias\n---\n\nBody of beta.")
 	st := openProjectWikiStore(t)
@@ -176,8 +176,8 @@ func TestIndexInDegree(t *testing.T) {
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("beta row: %v %+v", err, rows)
 	}
-	if n, _ := rows[0][0].(int64); n != 2 {
-		t.Fatalf("beta in_degree: %d, want 2 (title link + alias link)", n)
+	if n, _ := rows[0][0].(int64); n != 3 {
+		t.Fatalf("beta in_degree: %d, want 3 (title link + alias link + type/slug link)", n)
 	}
 	rows, err = st.Query(ctx,
 		`SELECT in_degree FROM projectwiki_pages WHERE project = 'proj-a' AND rel_path = 'decisions/alpha.md'`)
