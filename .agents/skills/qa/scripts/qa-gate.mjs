@@ -42,6 +42,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { parse } from "yaml";
 
 const SCOPE_RANK = { COMPLETE: 0, TRUNCATED: 1, UNSCOPED: 2, UNREADABLE: 3 };
 
@@ -74,10 +75,26 @@ function runScript(root, scriptPath, args) {
   };
 }
 
-// Find the active change's slug (newest dir under .skillgrid/change-specs/).
+// Find the active change's slug: state.yaml's `pipeline.current_change`
+// (the serial-dev source of truth) first, else the newest dir under
+// .skillgrid/change-specs/.
 function findActiveSlug(root) {
   const specsDir = join(root, ".skillgrid", "change-specs");
   if (!existsSync(specsDir)) return null;
+  try {
+    const st = parse(
+      readFileSync(join(root, ".skillgrid", "meta", "state.yaml"), "utf8"),
+    );
+    const cur = st?.pipeline?.current_change;
+    if (
+      typeof cur === "string" &&
+      existsSync(join(specsDir, cur, "tasks.md"))
+    ) {
+      return cur;
+    }
+  } catch {
+    // state.yaml missing/unparseable: fall through to newest-dir heuristic.
+  }
   const dirs = readdirSync(specsDir, { withFileTypes: true })
     .filter((e) => e.isDirectory())
     .map((e) => e.name)
