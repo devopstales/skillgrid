@@ -4,7 +4,7 @@
 > **Role:** this is the *how* — the implementation plan: concrete steps, files, code, tests, and verification. The companion `briefing.md` is the *what* (requirements & intent). The filename pair is load-bearing: `brainstorming` and `resume` key phase state off which of the two files exist. Do not rename.
 > Assume the engineer has zero context for this codebase. Document every file to touch, the code, the tests, and how to verify. DRY. YAGNI. TDD. Frequent commits. No placeholders.
 
-**Status:** PROPOSED
+**Status:** PROPOSED — amended at QA (2026-11-11, W005): the Key Link below is corrected to the shipped spec-008 design (agent-proactive `projectwiki_generate`, not an eager `SaveEvent` subscription); truths T1–T8 were verified against the shipped engine at the QA gate (see `report.md`). Ratification of this blueprint as a whole remains the human's call at the ship gate.
 
 **Tier:** T2
 
@@ -53,7 +53,7 @@
 
 **Key links** (critical connections between artifacts that must work together):
 
-- [ ] The memory `SaveEvent` → `projectwiki_generate` (eager-per-save) → `projectwiki_index` (final step) → no-op proof (PW-INV-4).
+- [x] The agent-proactive save loop (spec 008 §3, as shipped): significant `mem_save` → agent calls `projectwiki_generate` (write queue, ownership-asserted) → `projectwiki_index` (final step) → no-op proof (PW-INV-4). *(Amended 2026-11-11: the originally sketched eager `SaveEvent` subscription was not built; the proactive protocol is the recorded design in 008-transport + the AGENTS.md vault block + the management skill.)*
 - [ ] `projectwiki_pages` (source of truth) ↔ `projectwiki_pages_fts`/`projectwiki_claims` (derived) in the shared DB; `index/last-update.json` is the file projection of `projectwiki_run_state`.
 
 **One-way-door decisions** (hard to reverse — flag for explicit user approval before implementing):

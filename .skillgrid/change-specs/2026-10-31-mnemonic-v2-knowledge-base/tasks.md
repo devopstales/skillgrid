@@ -6,21 +6,53 @@
 
 ### Wave 1 (engine core)
 
-- [ ] TICKET-01 — `projectwiki_bootstrap` vault scaffold (idempotent, no-ProjectWiki detection) — Task 1.
-- [ ] TICKET-02 — `projectwiki_index` / `projectwiki_reindex` derived FTS rebuild over the vault (incremental + full, idempotent) — Task 2.
+- [x] TICKET-01 — `projectwiki_bootstrap` vault scaffold (idempotent, no-ProjectWiki detection) — Task 1. *(Landed as KB-T1..T5, 2026-11-05 — state `P26-11-05-kb011-exec`.)*
+- [x] TICKET-02 — `projectwiki_index` / `projectwiki_reindex` derived FTS rebuild over the vault (incremental + full, idempotent) — Task 2. *(KB-T1..T5; Reindex derived-state parity fixed at QA, 2026-11-11.)*
 
 ### Wave 2 (retrieval + drift)
 
-- [ ] TICKET-03 — `projectwiki_query` wiki-first cited retrieval + memory fallback + `degraded: stale_index`.
-- [ ] TICKET-04 — `projectwiki_validate` pin-check (all_of / line+version / symbol anchors) + claims.
-- [ ] TICKET-05 — `projectwiki_lint` deterministic health + `--fix` safe subset.
+- [x] TICKET-03 — `projectwiki_query` wiki-first cited retrieval + memory fallback + `degraded: stale_index`. *(KB-T5 query; thin/fallback/degraded engine wiring landed at QA, 2026-11-11 — W003.)*
+- [x] TICKET-04 — `projectwiki_validate` pin-check (all_of / line+version / symbol anchors) + claims. *(KB-T4/T5.)*
+- [x] TICKET-05 — `projectwiki_lint` deterministic health + `--fix` safe subset. *(KB-T5; full spec 007 §2 check set landed at QA, 2026-11-11 — W006.)*
 
 ### Wave 3 (state + skill + eval)
 
-- [ ] TICKET-06 — `projectwiki_status` first verb + `projectwiki_run_state` / `projectwiki_page_baselines` / `projectwiki_events`.
-- [ ] TICKET-07 — `projectwiki_cite_source` external citation + re-fetch section granularity.
-- [ ] TICKET-08 — `projectwiki_eval` retrieval regression net (fixture corpus, recall@K, meanRankDist, topScoreBelowOne; threshold = observed baseline).
-- [ ] TICKET-09 — `projectwiki` management skill (SKILL.md / CONVENTIONS.md / PAGES.md / CLAIMS.md / MERMAID.md) + `009-skill.md` amendments.
+- [x] TICKET-06 — `projectwiki_status` first verb + `projectwiki_run_state` / `projectwiki_page_baselines` / `projectwiki_events`. *(KB-T5; T7 by-type/stale/pending/orphan breakdown landed at QA, 2026-11-11 — W006.)*
+- [x] TICKET-07 — `projectwiki_cite_source` external citation + re-fetch section granularity. *(KB-T7, handler parity.)*
+- [x] TICKET-08 — `projectwiki_eval` retrieval regression net (fixture corpus, recall@K, meanRankDist, topScoreBelowOne; threshold = observed baseline). *(KB-T5, `TestEvalRecallAtOne`.)*
+- [x] TICKET-09 — `projectwiki` management skill (SKILL.md / CONVENTIONS.md / PAGES.md / CLAIMS.md / MERMAID.md) + `009-skill.md` amendments. *(`.agents/skills/projectwiki/`, 5 files.)*
+
+## Traceability (SATISFIES)
+
+### TICKET-01
+**SATISFIES:** bootstrap-scaffolds-contextual-types; assess-query-thin-on-empty-index
+
+### TICKET-02
+**SATISFIES:** index-incremental-only-changed; reindex-rebuilds-projectwiki-pages; index-soft-deletes-removed-pages; index-in-degree
+
+### TICKET-03
+**SATISFIES:** query-returns-ranked-projectwiki-pages; query-no-match-returns-empty; assess-query-degraded-when-index-lags-vault
+
+### TICKET-04
+**SATISFIES:** validate-fresh-page-passes; validate-stale-claim-fails; validate-unresolved-pin-fails
+
+### TICKET-05
+**SATISFIES:** lint-structural-checks; lint-weak-pin; lint-missing-title-and-fix
+
+### TICKET-06
+**SATISFIES:** status-reports-indexed-pages; status-breakdown
+
+### TICKET-07
+**SATISFIES:** cite-source-returns-content
+
+### TICKET-08
+**SATISFIES:** eval-recall-at-one
+
+### T-013-1
+**SATISFIES:** validate-page-path-contextual-types; collect-pages-whitelist-scope
+
+### T-013-2
+**SATISFIES:** bootstrap-scaffolds-contextual-types
 
 ## Exit criteria
 
