@@ -2,8 +2,11 @@ package projectwiki
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/devopstales/skillgrid/mnemonic/internal/core/store"
@@ -33,19 +36,56 @@ func openProjectWikiStore(t *testing.T) store.Store {
 func TestReindexRebuildsProjectWikiPages(t *testing.T) {
 	ctx := context.Background()
 	vault := t.TempDir()
+	// Two pages: the second links to the first and carries an alias, so
+	// the rebuild's derived state (in_degree, aliases) is observable.
 	writeVaultPage(t, vault, "decisions/auth-model.md",
 		"---\ntitle: Auth Model\ntype: Decision\nstatus: stable\n---\n\nWe use OAuth2.")
+	writeVaultPage(t, vault, "architecture/flows.md",
+		"---\ntitle: Flows\ntype: Architecture\nstatus: stable\naliases: [flow-map]\n"+
+			"---\n\nSee [[decisions/auth-model]].\n")
 	st := openProjectWikiStore(t)
 
 	res, err := Reindex(ctx, st, vault, "proj-a")
 	if err != nil {
 		t.Fatalf("reindex: %v", err)
 	}
-	if res.Scanned != 1 {
-		t.Fatalf("scanned = %d, want 1", res.Scanned)
+	if res.Scanned != 2 {
+		t.Fatalf("scanned = %d, want 2", res.Scanned)
 	}
-	if res.Changed != 1 {
-		t.Fatalf("changed = %d, want 1", res.Changed)
+	if res.Changed != 2 {
+		t.Fatalf("changed = %d, want 2", res.Changed)
+	}
+
+	// W003 root fix: Reindex must write the same derived state as the
+	// incremental Index (upsertPageFull + recomputeInDegree) — not the
+	// primitive writer's aliases=[]/in_degree=0.
+	rows, err := st.Query(ctx,
+		`SELECT body, body_hash, aliases, in_degree FROM projectwiki_pages WHERE project = 'proj-a' AND deleted_at IS NULL ORDER BY rel_path`,
+	)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("indexed rows = %d, want 2", len(rows))
+	}
+	for _, r := range rows {
+		body := strVal(r, 0)
+		if body == "" {
+			t.Fatalf("stored body empty for %v", r)
+		}
+		sum := sha256.Sum256([]byte(body))
+		if strVal(r, 1) != hex.EncodeToString(sum[:]) {
+			t.Fatalf("body_hash %q != sha256(body)", strVal(r, 1))
+		}
+	}
+	// rows are ordered by rel_path: architecture/flows.md first,
+	// decisions/auth-model.md second (the link target).
+	aliases := strVal(rows[0], 2)
+	if !strings.Contains(aliases, "flow-map") {
+		t.Fatalf("reindex lost the alias: %q", aliases)
+	}
+	if deg, ok := rows[1][3].(int64); !ok || deg < 1 {
+		t.Fatalf("link target in_degree = %v, want >= 1 (recomputeInDegree)", rows[1][3])
 	}
 }
 

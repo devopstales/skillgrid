@@ -14,9 +14,22 @@ import (
 	"github.com/devopstales/skillgrid/mnemonic/internal/core/store"
 )
 
+// Lint severities (spec 007 §2): SeverityError blocks under --strict/CI;
+// SeverityWarn is reported, non-blocking; SeverityInfo is advisory. Named
+// so the CLI boundary compares against the vocabulary, not raw strings.
+const (
+	SeverityError = "error"
+	SeverityWarn  = "warn"
+	SeverityInfo  = "info"
+)
+
+// orphanInDegreeMax is spec 007 §2's orphan threshold ("0–1 incoming
+// backlinks") — the single definition of the rule; status.go's orphan
+// count embeds it in its SQL.
+const orphanInDegreeMax = 1
+
 // LintIssue is one deterministic health finding (spec 007 §2).
-// Severity is "error" (blocking under --strict/CI), "warn"
-// (reported, non-blocking), or "info" (advisory).
+// Severity is one of the Severity* constants above.
 type LintIssue struct {
 	RelPath  string
 	Code     string
@@ -36,13 +49,14 @@ func issue(rel, code, severity, msg string) LintIssue {
 // (bare line: with no version: token), past stale_after, weak
 // cross-references (< 2 outgoing wikilinks), contradiction markers,
 // broken code:/external: citations, and coverage gaps (top-level Go
-// packages under repo that no page cites). root is the vault root
-// (reserved for parity with Index; the checks read the indexed
-// bodies), repo is the working-tree root for code: citation and
+// packages under repo that no page cites). repo is the working-tree
+// root for code: citation and
 // coverage resolution — empty repo skips those two checks. The
 // external: neuledge fingerprint re-resolution is a network check:
 // offline it is skipped with no finding (007 §3), never an error.
-func Lint(ctx context.Context, st store.Store, root, repo, project string) ([]LintIssue, error) {
+// The checks read the indexed rows (bodies, aliases, in_degree), never
+// the vault files — the handler syncs the index before linting.
+func Lint(ctx context.Context, st store.Store, repo, project string) ([]LintIssue, error) {
 	rows, err := st.Query(ctx,
 		`SELECT rel_path, title, type, body, body_hash, aliases, in_degree FROM projectwiki_pages WHERE project = ? AND deleted_at IS NULL ORDER BY rel_path`,
 		project)
@@ -72,14 +86,17 @@ func Lint(ctx context.Context, st store.Store, root, repo, project string) ([]Li
 		infos = append(infos, pageLinkInfo{rel, body})
 
 		if strings.TrimSpace(title) == "" {
-			out = append(out, issue(rel, "missing_title", "warn", "title empty"))
+			out = append(out, issue(rel, "missing_title", SeverityWarn, "title empty"))
 			continue
 		}
 		h := sha256.Sum256([]byte(body))
 		if hex.EncodeToString(h[:]) != bh {
-			out = append(out, issue(rel, "stale_index", "warn", "body_hash mismatch"))
+			out = append(out, issue(rel, "stale_index", SeverityWarn, "body_hash mismatch"))
 		}
 		var aliases []string
+		// The aliases payload is engine-written (upsertPageFull's
+		// json.Marshal) — on a corrupt row the duplicate_alias check is
+		// skipped for that page, never the whole lint.
 		_ = json.Unmarshal([]byte(strVal(r, 5)), &aliases)
 		for _, a := range aliases {
 			key := strings.ToLower(strings.TrimSpace(a))
@@ -87,14 +104,14 @@ func Lint(ctx context.Context, st store.Store, root, repo, project string) ([]Li
 				continue
 			}
 			if owner, dup := aliasOwner[key]; dup && owner != rel {
-				out = append(out, issue(rel, "duplicate_alias", "warn",
+				out = append(out, issue(rel, "duplicate_alias", SeverityWarn,
 					"alias "+a+" also claimed by "+owner))
 			} else {
 				aliasOwner[key] = rel
 			}
 		}
-		if deg, ok := r[6].(int64); ok && deg <= 1 {
-			out = append(out, issue(rel, "orphan", "warn", "in_degree <= 1 (no page links here)"))
+		if deg, ok := r[6].(int64); ok && deg <= orphanInDegreeMax {
+			out = append(out, issue(rel, "orphan", SeverityWarn, "in_degree <= 1 (no page links here)"))
 		}
 	}
 
@@ -103,35 +120,39 @@ func Lint(ctx context.Context, st store.Store, root, repo, project string) ([]Li
 	for _, p := range pages {
 		grounded := IsGrounded(p.typ)
 		if len(p.outLinks) < 2 {
-			out = append(out, issue(p.rel, "weak_cross_reference", "warn", "fewer than 2 outgoing wikilinks"))
+			out = append(out, issue(p.rel, "weak_cross_reference", SeverityWarn, "fewer than 2 outgoing wikilinks"))
 		}
 		for _, link := range p.outLinks {
 			if _, ok := targets[strings.ToLower(link)]; !ok {
-				out = append(out, issue(p.rel, "broken_wikilink", "error", "unresolved wikilink [["+link+"]]"))
+				out = append(out, issue(p.rel, "broken_wikilink", SeverityError, "unresolved wikilink [["+link+"]]"))
 			}
 		}
 		if len(p.fm.Sources) == 0 {
-			sev := "warn"
+			sev := SeverityWarn
 			if grounded {
-				sev = "error"
+				sev = SeverityError
 			}
 			out = append(out, issue(p.rel, "missing_sources", sev, "empty sources: (no provenance)"))
 		}
 		if grounded && len(p.fm.Anchors) == 0 {
-			out = append(out, issue(p.rel, "ungrounded_grounded", "error", "grounded page with no anchors:"))
+			out = append(out, issue(p.rel, "ungrounded_grounded", SeverityError, "grounded page with no anchors:"))
 		}
 		for _, a := range p.fm.Anchors {
 			if a.Line > 0 && a.Version == "" {
-				out = append(out, issue(p.rel, "weak_pin", "warn", "span pinned by bare line: with no version: token"))
+				out = append(out, issue(p.rel, "weak_pin", SeverityWarn, "span pinned by bare line: with no version: token"))
 			}
 		}
 		if p.fm.StaleAfter != "" {
+			// time.Now() is a deliberate hidden dependency (code-standards
+			// exception, named in review.md): stale_after is a wall-clock
+			// horizon (007 §2) and both test sides are pinned (2020-01-01
+			// past / no fixture uses a future date).
 			if t, perr := time.Parse("2006-01-02", p.fm.StaleAfter); perr == nil && t.Before(time.Now()) {
-				out = append(out, issue(p.rel, "past_stale_after", "warn", "stale_after "+p.fm.StaleAfter+" has passed"))
+				out = append(out, issue(p.rel, "past_stale_after", SeverityWarn, "stale_after "+p.fm.StaleAfter+" has passed"))
 			}
 		}
 		if strings.Contains(p.body, "## Contradiction") {
-			out = append(out, issue(p.rel, "contradiction", "warn", "unresolved ## Contradiction marker"))
+			out = append(out, issue(p.rel, "contradiction", SeverityWarn, "unresolved ## Contradiction marker"))
 		}
 		for _, s := range p.fm.Sources {
 			switch {
@@ -142,13 +163,21 @@ func Lint(ctx context.Context, st store.Store, root, repo, project string) ([]Li
 				}
 				citedPkgs[pkgOf(ref)] = true
 				if repo != "" {
-					if _, serr := os.Stat(filepath.Join(repo, filepath.FromSlash(ref))); serr != nil {
-						out = append(out, issue(p.rel, "broken_citation", "warn", "code: citation does not resolve: "+ref))
+					joined := filepath.Join(repo, filepath.FromSlash(ref))
+					if joined != filepath.Clean(repo) && !strings.HasPrefix(joined, filepath.Clean(repo)+string(filepath.Separator)) {
+						// A vault-authored ref is data, not a path: refuse
+						// to stat outside the repo root (CWE-22 — the
+						// finding is the only leak).
+						out = append(out, issue(p.rel, "broken_citation", SeverityWarn, "code: citation escapes repo root: "+ref))
+						continue
+					}
+					if _, serr := os.Stat(joined); serr != nil {
+						out = append(out, issue(p.rel, "broken_citation", SeverityWarn, "code: citation does not resolve: "+ref))
 					}
 				}
 			case s.External != "":
 				if s.Version == "" || s.SourceURL == "" {
-					out = append(out, issue(p.rel, "broken_citation", "warn",
+					out = append(out, issue(p.rel, "broken_citation", SeverityWarn,
 						"external: citation missing version/source_url: "+s.External))
 				}
 				// Fingerprint re-resolution is network-bound; skipped
@@ -163,7 +192,7 @@ func Lint(ctx context.Context, st store.Store, root, repo, project string) ([]Li
 	if repo != "" {
 		for _, pkg := range goPackages(repo) {
 			if !citedPkgs[pkg] {
-				out = append(out, issue("", "coverage_gap", "info", "no page cites package "+pkg))
+				out = append(out, issue("", "coverage_gap", SeverityInfo, "no page cites package "+pkg))
 			}
 		}
 	}

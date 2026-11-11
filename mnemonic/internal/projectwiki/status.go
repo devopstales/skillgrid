@@ -3,6 +3,7 @@ package projectwiki
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 
 	"github.com/devopstales/skillgrid/mnemonic/internal/core/store"
@@ -74,7 +75,10 @@ func Status(ctx context.Context, st store.Store, root, project string) (*StatusR
 		}
 	}
 	typeRows, err := st.Query(ctx,
-		`SELECT type, COUNT(*), COALESCE(SUM(CASE WHEN in_degree <= 1 THEN 1 ELSE 0 END), 0) FROM projectwiki_pages WHERE project = ? AND deleted_at IS NULL GROUP BY type`, project)
+		// The orphan rule is defined once — lint.go's orphanInDegreeMax
+		// (spec 007 §2); this SQL embeds that constant, not a second
+		// literal.
+		fmt.Sprintf(`SELECT type, COUNT(*), COALESCE(SUM(CASE WHEN in_degree <= %d THEN 1 ELSE 0 END), 0) FROM projectwiki_pages WHERE project = ? AND deleted_at IS NULL GROUP BY type`, orphanInDegreeMax), project)
 	if err != nil {
 		return nil, err
 	}

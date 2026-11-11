@@ -271,7 +271,7 @@ func (h *ProjectWikiHandler) Lint(ctx context.Context, cwd, explicit string, fix
 	if _, err := projectwiki.Index(ctx, h.st, root, p); err != nil {
 		return nil, err
 	}
-	issues, err := projectwiki.Lint(ctx, h.st, root, repo, p)
+	issues, err := projectwiki.Lint(ctx, h.st, repo, p)
 	if err != nil {
 		return nil, err
 	}
@@ -288,7 +288,7 @@ func (h *ProjectWikiHandler) Lint(ctx context.Context, cwd, explicit string, fix
 			if err != nil {
 				return nil, err
 			}
-			issues, err = projectwiki.Lint(ctx, h.st, root, repo, p)
+			issues, err = projectwiki.Lint(ctx, h.st, repo, p)
 			if err != nil {
 				return nil, err
 			}

@@ -357,7 +357,7 @@ func projectWikiLint(fl config.Flags, cwd string, args []string) int {
 	if *strict {
 		// Spec 007 §2: only error-severity findings block under --strict.
 		for _, iss := range res.Issues {
-			if iss.Severity == "error" {
+			if iss.Severity == projectwiki.SeverityError {
 				return exitErr
 			}
 		}

@@ -51,7 +51,7 @@ func TestLintStructuralChecks(t *testing.T) {
 	if _, err := Reindex(ctx, st, vault, "proj-a"); err != nil {
 		t.Fatalf("reindex: %v", err)
 	}
-	issues, err := Lint(ctx, st, vault, repo, "proj-a")
+	issues, err := Lint(ctx, st, repo, "proj-a")
 	if err != nil {
 		t.Fatalf("lint: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestLintWeakPin(t *testing.T) {
 	if _, err := Reindex(ctx, st, vault, "proj-a"); err != nil {
 		t.Fatalf("reindex: %v", err)
 	}
-	issues, err := Lint(ctx, st, vault, t.TempDir(), "proj-a")
+	issues, err := Lint(ctx, st, t.TempDir(), "proj-a")
 	if err != nil {
 		t.Fatalf("lint: %v", err)
 	}
@@ -110,5 +110,35 @@ func TestLintWeakPin(t *testing.T) {
 	}
 	if _, ok := got["ungrounded_grounded@decisions/pinned.md"]; ok {
 		t.Error("page with anchors must not be ungrounded_grounded")
+	}
+}
+
+// TestLintCodeCitationEscape pins the CWE-22 guard: a vault-authored
+// code: ref is data, not a path — refs escaping the repo root yield a
+// finding instead of a stat (the security-review Low, 2026-11-11).
+func TestLintCodeCitationEscape(t *testing.T) {
+	ctx := context.Background()
+	vault := t.TempDir()
+	repo := t.TempDir()
+	writeVaultPage(t, vault, "decisions/escape.md", "---\n"+
+		"title: Escape\ntype: Decision\nstatus: stable\n"+
+		"sources:\n  - \"code:../outside.txt\"\n"+
+		"---\n\nBody.\n")
+	st := openProjectWikiStore(t)
+	if _, err := Reindex(ctx, st, vault, "proj-a"); err != nil {
+		t.Fatalf("reindex: %v", err)
+	}
+	issues, err := Lint(ctx, st, repo, "proj-a")
+	if err != nil {
+		t.Fatalf("lint: %v", err)
+	}
+	found := false
+	for _, iss := range issues {
+		if iss.Code == "broken_citation" && strings.Contains(iss.Message, "escapes repo root") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected an 'escapes repo root' finding for code:../outside.txt, got %+v", issues)
 	}
 }
