@@ -63,6 +63,36 @@ func Query(ctx context.Context, st store.Store, query string, f QueryFilters) ([
 	return out, nil
 }
 
+// ThinThreshold is the spec 005 §6 thin cutoff: a stage-1 result with
+// fewer hits than this is "thin" and carries the mem_lookup fallback
+// hint (KQ-O4: the value is a measured tunable; 3 is the shipped
+// default until projectwiki_eval sweeps it).
+const ThinThreshold = 3
+
+// AssessQuery computes the spec 005 §6/§7 result metadata for one
+// stage-1 query: thin (resultCount < ThinThreshold) with its
+// fallback hint, and degraded = "stale_index" when the derived index
+// lags the vault files at root (a live page whose body_hash differs
+// from the indexed row, or a vault page not yet indexed). An empty
+// root skips the staleness check. The ProjectWiki never calls
+// mem_lookup itself — the agent is the router (005 §6).
+func AssessQuery(ctx context.Context, st store.Store, root, project string, resultCount int) (thin bool, fallback, degraded string, err error) {
+	if resultCount < ThinThreshold {
+		thin, fallback = true, "mem_lookup"
+	}
+	if root == "" {
+		return thin, fallback, "", nil
+	}
+	_, lagged, err := indexLag(ctx, st, root, project)
+	if err != nil {
+		return thin, fallback, "", err
+	}
+	if lagged {
+		return thin, fallback, "stale_index", nil
+	}
+	return thin, fallback, "", nil
+}
+
 func strVal(r []any, i int) string {
 	if i >= len(r) {
 		return ""

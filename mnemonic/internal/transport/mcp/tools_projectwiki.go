@@ -28,9 +28,9 @@ func projectWikiQueryTool() mcplib.Tool {
 		mcplib.WithNumber("limit", mcplib.Description("Maximum hits (default 10)")),
 		mcplib.WithString("match_mode", mcplib.Description("Term matching: any (default) or all")),
 		mcplib.WithBoolean("grounded_only", mcplib.Description("Restrict to grounded pages (decision, invariant, workflow)")),
-		// thin is parked: the engine's thin-threshold flag is not yet wired;
-		// the arg returns from the schema until it exists (the
-		// mem_get_observation history_cursor pattern).
+		// Result metadata (005 §6): a thin result carries thin:true +
+		// fallback:"mem_lookup"; a lagging index carries
+		// degraded:"stale_index". Output-only — no input arg.
 	)
 }
 

@@ -14,7 +14,7 @@ func TestStatusReportsIndexedPages(t *testing.T) {
 	if _, err := Reindex(ctx, st, vault, "proj-a"); err != nil {
 		t.Fatalf("reindex: %v", err)
 	}
-	res, err := Status(ctx, st, "proj-a")
+	res, err := Status(ctx, st, vault, "proj-a")
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}

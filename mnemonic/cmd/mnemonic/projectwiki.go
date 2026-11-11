@@ -178,6 +178,12 @@ func projectWikiQuery(fl config.Flags, cwd string, args []string) int {
 		fmt.Fprintf(outW(), "%s | %s | %s (score %.3f)\n", hit.RelPath, hit.Title, hit.Type, hit.Score)
 	}
 	fmt.Fprintf(outW(), "projectwiki query: %d hit(s)\n", res.Count)
+	if res.Thin {
+		fmt.Fprintf(outW(), "projectwiki query: thin result — fallback: %s\n", res.Fallback)
+	}
+	if res.Degraded != "" {
+		fmt.Fprintf(outW(), "projectwiki query: degraded: %s\n", res.Degraded)
+	}
 	return exitOK
 }
 
@@ -340,7 +346,7 @@ func projectWikiLint(fl config.Flags, cwd string, args []string) int {
 		fmt.Fprintln(outW(), "projectwiki lint: clean")
 	} else {
 		for _, iss := range res.Issues {
-			fmt.Fprintf(outW(), "projectwiki lint: %s %s %s\n", iss.RelPath, iss.Code, iss.Message)
+			fmt.Fprintf(outW(), "projectwiki lint: %s %s [%s] %s\n", iss.RelPath, iss.Code, iss.Severity, iss.Message)
 		}
 		fmt.Fprintf(outW(), "projectwiki lint: %d issue(s)", res.Count)
 		if res.Fixed > 0 {
@@ -348,8 +354,13 @@ func projectWikiLint(fl config.Flags, cwd string, args []string) int {
 		}
 		fmt.Fprintln(outW())
 	}
-	if *strict && len(res.Issues) > 0 {
-		return exitErr
+	if *strict {
+		// Spec 007 §2: only error-severity findings block under --strict.
+		for _, iss := range res.Issues {
+			if iss.Severity == "error" {
+				return exitErr
+			}
+		}
 	}
 	return exitOK
 }
@@ -372,8 +383,8 @@ func projectWikiStatus(fl config.Flags, cwd string, args []string) int {
 	if *jsonOut {
 		return projectWikiJSON(res)
 	}
-	fmt.Fprintf(outW(), "projectwiki status: project=%s indexed=%d phase=%s baselines=%d events=%d\n",
-		res.Project, res.Indexed, res.Phase, res.Baselines, res.Events)
+	fmt.Fprintf(outW(), "projectwiki status: project=%s indexed=%d phase=%s baselines=%d events=%d stale=%d pending=%d orphans=%d\n",
+		res.Project, res.Indexed, res.Phase, res.Baselines, res.Events, res.Stale, res.Pending, res.Orphans)
 	return exitOK
 }
 

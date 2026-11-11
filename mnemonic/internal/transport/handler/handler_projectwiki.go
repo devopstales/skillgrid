@@ -113,10 +113,16 @@ type QueryRequest struct {
 	GroundedOnly bool
 }
 
-// QueryBatch is the projectwiki_query output: the ranked hits + count.
+// QueryBatch is the projectwiki_query output: the ranked hits + count,
+// plus the spec 005 §6 result metadata — thin with its mem_lookup
+// fallback hint when the result is thin, and degraded: stale_index
+// when the index lags the vault.
 type QueryBatch struct {
-	Results []projectwiki.QueryResult `json:"results"`
-	Count   int                       `json:"count"`
+	Results  []projectwiki.QueryResult `json:"results"`
+	Count    int                       `json:"count"`
+	Thin     bool                      `json:"thin,omitempty"`
+	Fallback string                    `json:"fallback,omitempty"`
+	Degraded string                    `json:"degraded,omitempty"`
 }
 
 // SearchBatch is the projectwiki_search output (008 §3 raw FTS power path).
@@ -161,7 +167,12 @@ func (h *ProjectWikiHandler) Query(ctx context.Context, cwd, explicit string, r 
 	if err != nil {
 		return nil, err
 	}
-	return &QueryBatch{Results: res, Count: len(res)}, nil
+	root, _ := h.Roots()
+	thin, fallback, degraded, err := projectwiki.AssessQuery(ctx, h.st, root, p, len(res))
+	if err != nil {
+		return nil, err
+	}
+	return &QueryBatch{Results: res, Count: len(res), Thin: thin, Fallback: fallback, Degraded: degraded}, nil
 }
 
 // Read runs projectwiki_read's stage-2 hydration (008 §3): the full page (or one
@@ -256,11 +267,11 @@ func (h *ProjectWikiHandler) Lint(ctx context.Context, cwd, explicit string, fix
 	if err != nil {
 		return nil, err
 	}
-	root, _ := h.Roots()
+	root, repo := h.Roots()
 	if _, err := projectwiki.Index(ctx, h.st, root, p); err != nil {
 		return nil, err
 	}
-	issues, err := projectwiki.Lint(ctx, h.st, p)
+	issues, err := projectwiki.Lint(ctx, h.st, root, repo, p)
 	if err != nil {
 		return nil, err
 	}
@@ -277,7 +288,7 @@ func (h *ProjectWikiHandler) Lint(ctx context.Context, cwd, explicit string, fix
 			if err != nil {
 				return nil, err
 			}
-			issues, err = projectwiki.Lint(ctx, h.st, p)
+			issues, err = projectwiki.Lint(ctx, h.st, root, repo, p)
 			if err != nil {
 				return nil, err
 			}
@@ -294,7 +305,8 @@ func (h *ProjectWikiHandler) Status(ctx context.Context, cwd, explicit string) (
 	if err != nil {
 		return nil, err
 	}
-	return projectwiki.Status(ctx, h.st, p)
+	root, _ := h.Roots()
+	return projectwiki.Status(ctx, h.st, root, p)
 }
 
 // CiteSource runs projectwiki_cite_source (008 §3): records an external citation on

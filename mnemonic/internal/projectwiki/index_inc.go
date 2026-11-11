@@ -160,29 +160,11 @@ func recomputeInDegree(ctx context.Context, st store.Store, root, project string
 		return fmt.Errorf("projectwiki: in_degree: %w", err)
 	}
 
-	targets := map[string]string{} // normalized target -> rel_path
-	type pageInfo struct {
-		rel  string
-		body string
-	}
-	var infos []pageInfo
+	var infos []pageLinkInfo
 	for _, r := range rows {
-		rel, body := s0(r, 0), s0(r, 1)
-		infos = append(infos, pageInfo{rel, body})
-		fm, _, _ := SplitFrontmatter(body)
-		register := func(t string) {
-			if t != "" {
-				targets[strings.ToLower(strings.TrimSpace(t))] = rel
-			}
-		}
-		register(fm.Title)
-		for _, a := range fm.Aliases {
-			register(a)
-		}
-		register(slugOf(rel))
-		register(rel)
-		register(strings.TrimSuffix(rel, ".md")) // the documented [[type/slug]] form (001 §6)
+		infos = append(infos, pageLinkInfo{s0(r, 0), s0(r, 1)})
 	}
+	targets := buildLinkTargets(infos)
 
 	degs := map[string]int{}
 	for _, pi := range infos {
@@ -205,6 +187,36 @@ func recomputeInDegree(ctx context.Context, st store.Store, root, project string
 		}
 	}
 	return nil
+}
+
+// pageLinkInfo is one live page's rel_path + body for link resolution.
+type pageLinkInfo struct {
+	rel  string
+	body string
+}
+
+// buildLinkTargets maps every normalized wikilink target (page title,
+// aliases, slug, full rel path, and the documented [[type/slug]] form)
+// to its page's rel_path — the single resolution set shared by the
+// in-degree recompute and lint's broken-link check.
+func buildLinkTargets(infos []pageLinkInfo) map[string]string {
+	targets := map[string]string{}
+	for _, pi := range infos {
+		fm, _, _ := SplitFrontmatter(pi.body)
+		register := func(t string) {
+			if t != "" {
+				targets[strings.ToLower(strings.TrimSpace(t))] = pi.rel
+			}
+		}
+		register(fm.Title)
+		for _, a := range fm.Aliases {
+			register(a)
+		}
+		register(slugOf(pi.rel))
+		register(pi.rel)
+		register(strings.TrimSuffix(pi.rel, ".md"))
+	}
+	return targets
 }
 
 // slugOf derives a page slug from a rel_path or topic_key: lowercase,

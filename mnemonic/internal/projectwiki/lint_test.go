@@ -14,7 +14,7 @@ func TestLintMissingTitleAndFix(t *testing.T) {
 		t.Fatalf("reindex: %v", err)
 	}
 
-	issues, err := Lint(ctx, st, "proj-a")
+	issues, err := Lint(ctx, st, vault, "", "proj-a")
 	if err != nil {
 		t.Fatalf("lint: %v", err)
 	}

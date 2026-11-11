@@ -198,6 +198,9 @@ func TestProjectWikiDispatchReads(t *testing.T) {
 	}
 	if out := s.CallTool(ctx, "projectwiki_query", map[string]any{"query": "auth model"}); !strings.Contains(string(out), "decisions/auth-model.md") {
 		t.Fatalf("projectwiki_query must return the grounded page, got: %s", out)
+	} else if !strings.Contains(string(out), `"thin":true`) || !strings.Contains(string(out), `"fallback":"mem_lookup"`) {
+		// W003: 1 hit < ThinThreshold — the wired 005 §6 metadata must ride the result.
+		t.Fatalf("projectwiki_query thin result must carry thin+fallback, got: %s", out)
 	}
 	read := s.CallTool(ctx, "projectwiki_read", map[string]any{"path": "decisions/auth-model.md"})
 	if !strings.Contains(string(read), "OAuth2") || !strings.Contains(string(read), "fresh") {
@@ -209,11 +212,16 @@ func TestProjectWikiDispatchReads(t *testing.T) {
 	if out := s.CallTool(ctx, "projectwiki_validate", map[string]any{}); !strings.Contains(string(out), `"ok":true`) {
 		t.Fatalf("projectwiki_validate must report ok (the anchor is live), got: %s", out)
 	}
-	if out := s.CallTool(ctx, "projectwiki_lint", map[string]any{}); strings.Contains(string(out), `"error"`) {
+	if out := s.CallTool(ctx, "projectwiki_lint", map[string]any{}); strings.Contains(string(out), `"error":`) {
+		// "error": is the transport envelope; a lint finding's
+		// "severity":"error" is data, not a dispatch failure.
 		t.Fatalf("projectwiki_lint: %s", out)
 	}
 	if out := s.CallTool(ctx, "projectwiki_status", map[string]any{"project": testProject}); !strings.Contains(string(out), "indexed") {
 		t.Fatalf("projectwiki_status must report the indexed count, got: %s", out)
+	} else if !strings.Contains(string(out), `"by_type"`) || !strings.Contains(string(out), `"orphans"`) {
+		// W006: the T7 breakdown (by-type counts, orphans) rides the status result.
+		t.Fatalf("projectwiki_status must carry the T7 breakdown, got: %s", out)
 	}
 }
 

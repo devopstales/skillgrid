@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/devopstales/skillgrid/mnemonic/internal/core/store"
 )
@@ -46,24 +45,15 @@ func Reindex(ctx context.Context, st store.Store, root string, project string) (
 		return nil, fmt.Errorf("projectwiki: delete projectwiki_pages: %w", err)
 	}
 	for _, p := range pages {
-		if err := upsertPage(ctx, st, p, project); err != nil {
+		if err := upsertPageFull(ctx, st, p, project); err != nil {
 			return nil, err
 		}
 	}
+	if err := recomputeInDegree(ctx, st, root, project); err != nil {
+		return nil, err
+	}
 	res.Changed = len(pages)
 	return res, nil
-}
-
-// upsertPage inserts one page row into projectwiki_pages (the source of truth).
-func upsertPage(ctx context.Context, st store.Store, p Page, project string) error {
-	if err := st.ExecDDL(ctx, []string{
-		`INSERT INTO projectwiki_pages
-			(sync_id, project, rel_path, title, type, status, aliases, in_degree, body, body_hash, anchor_count, claim_count, source_count, updated_at, deleted_at)
-		VALUES (` + sqlLit(project) + `, ` + sqlLit(project) + `, ` + sqlLit(p.RelPath) + `, ` + sqlLit(p.Title) + `, ` + sqlLit(p.Type) + `, ` + sqlLit(p.Status) + `, '` + "[]" + "', 0, " + sqlLit(p.Body) + ", " + sqlLit(p.BodyHash) + ", 0, 0, 0, " + sqlLit(time.Now().UTC().Format(time.RFC3339)) + ", NULL)",
-	}); err != nil {
-		return fmt.Errorf("projectwiki: upsert %s: %w", p.RelPath, err)
-	}
-	return nil
 }
 
 // pageDirs is the index-scope whitelist (001 §7): only the page folders are
