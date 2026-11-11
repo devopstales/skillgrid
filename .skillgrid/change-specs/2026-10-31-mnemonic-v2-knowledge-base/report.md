@@ -100,7 +100,7 @@ All four 2026-11-10 gaps are closed by the fix-by-code round; one new content-le
 
 ## TDD Evidence Audit
 
-> Historical tickets predate the machine-checkable table (`testing.tdd: false`, Standard mode); their RED hashes were never recorded, so the RED cells are disclosed `N/A (not recorded)` — the script's accepted absent-but-disclosed form — with real, git-verified GREEN hashes and existing test files. The 2026-11-11 fix round ran RED→GREEN in-session (`TestAssessQuery*/TestLint*/TestStatusBreakdown` failed to compile against the old signatures, then passed); its GREEN hash is recorded when the pending commit lands (SSH signing blocked at render time — see § Human Override note).
+> Historical tickets predate the machine-checkable table (`testing.tdd: false`, Standard mode); their RED hashes were never recorded, so the RED cells are disclosed `N/A (not recorded)` — the script's accepted absent-but-disclosed form — with real, git-verified GREEN hashes and existing test files. The 2026-11-11 fix round ran RED→GREEN in-session (`TestAssessQuery*/TestLint*/TestStatusBreakdown` failed to compile against the old signatures, then passed); its GREEN hash is recorded when the pending commit lands (landed 2026-11-11 as c582984d after the global git signing config was removed).
 
 | Task | SATISFIES | RED (commit + exit) | GREEN (commit + exit) | Test file | Verdict |
 |---|---|---|---|---|---|
@@ -110,7 +110,7 @@ All four 2026-11-10 gaps are closed by the fix-by-code round; one new content-le
 | T-013-1 (engine page types) | validate-page-path-contextual-types | N/A (not recorded, pre-table change) | `6b75555a` exit 0 | `mnemonic/internal/projectwiki/bootstrap_test.go` | OK |
 | T-013-2 (vault scaffold) | bootstrap-scaffolds-contextual-types | N/A (docs/vault ticket, no test) | `357b63b7` exit 0 | N/A (vault files verified by live validate/lint) | OK |
 | T-013-3 (skill write paths) | projectwiki-tool-contract | N/A (docs/skills ticket, no test) | `dec9ae8f` exit 0 | N/A (skill files on disk) | OK |
-| QA fix W003/W006 (2026-11-11) | assess-query-*, lint-*, status-breakdown | N/A (in-session RED observed — compile failure vs old signatures; no hash recorded) | N/A (commit pending SSH signing; hash recorded at commit) | `mnemonic/internal/projectwiki/lint_checks_test.go` | OK |
+| QA fix W003/W006 (2026-11-11) | assess-query-*, lint-*, status-breakdown | N/A (in-session RED observed — compile failure vs old signatures; no hash recorded) | `c582984d` exit 0 | `mnemonic/internal/projectwiki/lint_checks_test.go` | OK |
 
 **Summary:** 7/7 rows have complete TDD evidence as disclosed. (`node scripts/tdd-evidence.mjs` re-run in this gate; hashes verified against the git object store.)
 
@@ -259,7 +259,7 @@ Deterministic checks: `ship_drift` skipped (no base ref); `size_budget` — all 
 
 **Reasoning:** The 2026-11-10 CONCERNS drivers are closed in code, not waived: thin/fallback/degraded are engine-wired and wire-pinned (W003), the full 007 §2 lint set and T7 status breakdown are implemented and tested — a round that also caught and fixed a real Reindex-vs-Index derived-state divergence (W006), `acceptance.feature` (27 scenarios) + the TDD table are backfilled with deterministic 27/27 COMPLIANT traceability (W004), and `tasks.md`/blueprint were reconciled to the shipped design (W005). Full mnemonic suite (21 packages), build, and vet are green after the fix; the live vault smoke exercises status/validate/query on real data. Remaining items are advisory SUGGESTIONs (W007–W009) under advisory-only thresholds, per project precedent.
 
-**Open items:** W007, W008, W009 (all SUGGESTION, non-blocking). Two administrative notes for ship: (1) the fix commits are pending SSH signing (agent key unavailable at render time) — commit hashes for the QA-fix TDD row get recorded when they land; (2) `blueprint.md` ratification as a whole remains the human's ship-gate call (its Key Link amendment is recorded in place).
+**Open items:** W007, W008, W009 (all SUGGESTION, non-blocking). Two administrative notes for ship: (1) the fix landed as 9873c2d8 (spec) + c582984d (code) once the global git signing config was removed; (2) `blueprint.md` ratification as a whole remains the human's ship-gate call (its Key Link amendment is recorded in place).
 
 ## Human Override
 
