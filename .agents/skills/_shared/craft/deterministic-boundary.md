@@ -102,6 +102,6 @@ belongs in a script, not in skill prose.
 ```
 
 `skillgrid:skill-creator` is the invocable process that applies this rule when
-creating or refactoring a skill. `skillgrid:requesting-code-review` flags
+creating or refactoring a skill. `skillgrid:code-review` flags
 violations during review. The `skill-size-budget` ratchet measures the
 consequence (bloat) but does not detect the cause (prose-that-should-be-script).

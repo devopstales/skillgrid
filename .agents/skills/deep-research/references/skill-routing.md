@@ -15,7 +15,7 @@ task. Read the relevant SKILL.md before dispatching.
 | Implementing the experiment code (test-first) | `skillgrid:test-driven-development` |
 | Executing a written plan for the experiment | `skillgrid:subagent-execution` or `skillgrid:simple-execution` |
 | Quality gate before trusting a result | `skillgrid:qa` |
-| Reviewing the experiment code before merging | `skillgrid:requesting-code-review` or `skillgrid:parallel-code-review` |
+| Reviewing the experiment code before merging | `skillgrid:code-review` |
 | Recording architectural decisions from the research | `skillgrid:architectural-decision-records` |
 | Resuming after compaction/session restart | `skillgrid:resume` |
 

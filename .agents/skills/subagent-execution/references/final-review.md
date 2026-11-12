@@ -9,22 +9,24 @@ branch started from, e.g. `git merge-base main HEAD`) and include the printed
 path in the final review dispatch, so the reviewer reads one file instead of
 re-deriving the branch diff with git commands. Dispatch on the most capable
 available model (see `model-selection.md`) using
-`skillgrid:requesting-code-review`'s two-axis templates, in parallel:
-[code-reviewer.md](../../requesting-code-review/references/code-reviewer.md)
-(Standards — glossary, in-force ADRs, smell baseline) and
-[spec-reviewer.md](../../requesting-code-review/references/spec-reviewer.md)
-(Spec — per-scenario BDD, missing/partial, scope creep). Present the two
-reports side by side without merging or reranking. Point them at the ledger's
+`skillgrid:code-review`'s 3-axis templates, in parallel:
+[code-reviewer.md](../../code-review/reviewers/code-reviewer.md)
+(Standards — glossary, in-force ADRs, smell baseline),
+[spec-reviewer.md](../../code-review/reviewers/spec-reviewer.md)
+(Spec — per-scenario BDD, missing/partial, scope creep), and
+[security.md](../../code-review/reviewers/security.md)
+(Security — OWASP 5-step workflow). Present the reports
+side by side without merging or reranking. Point them at the ledger's
 deferred-minor and parked lines so they can triage which must be fixed before
 merge.
 
 **Escalate for large or high-risk branches:** if the whole-branch diff is large
 (50+ changed lines) or high-risk (auth, data migration, money, concurrency,
-public API), escalate the final review from the two-axis pass to
-`skillgrid:parallel-code-review` — it fans out specialist reviewers (Standards,
-Spec, edge cases, verification gaps, security, red team) in parallel, then
-triages and deduplicates their findings. The per-task reviews stay the
-lightweight two-axis pass; only the final whole-branch review escalates.
+public API), `skillgrid:code-review`'s topology becomes the fan-out — specialist
+reviewers (Standards, Spec, edge cases, verification gaps, security, red team)
+run in parallel, then triage and deduplicate their findings. The per-task
+reviews stay the lightweight 3-axis pass; only the final whole-branch review
+escalates.
 
 If the final whole-branch review returns findings, dispatch ONE fix subagent
 with the complete findings list — not one fixer per finding. Per-finding

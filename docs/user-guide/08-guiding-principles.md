@@ -284,7 +284,7 @@ T3's fresh-model rule: at least one reviewer runs on a model different from the 
 
 **Six hard rules:** (1) A human decision always overrides the machine verdict. (2) A change that fails with no human decision is recorded as **not accepted**, never silently accepted. (3) A non-empty `pending` list in the traceability matrix makes the gate **FAIL**, including headless. (4) Passing tests do not substitute for running the system — the goal-backward check is the evidence, not the suite count. (5) A code-quality gate at threshold 0 is N/A. (6) An `ABANDON`-ed gate is a handoff, never a pass — it keeps the gate unmet, routing to FAIL or WAIVED on the human's explicit decision.
 
-**Fix-loop cap:** "3 rounds. If the gate is still FAIL after 3 rounds of fixes, stop and escalate. The finding is likely not a test gap — it's an architectural or scope problem that needs a human decision." Routing: PASS → code review (or `parallel-code-review` for 50+ lines / high-risk); CONCERNS → fix/defer/human-look, re-run; FAIL → fix each with a failing test first; WAIVED → record, proceed.
+**Fix-loop cap:** "3 rounds. If the gate is still FAIL after 3 rounds of fixes, stop and escalate. The finding is likely not a test gap — it's an architectural or scope problem that needs a human decision." Routing: PASS → code review (or the `code-review` fan-out for 50+ lines / high-risk); CONCERNS → fix/defer/human-look, re-run; FAIL → fix each with a failing test first; WAIVED → record, proceed.
 
 ## Goal-backward verification (qa)
 
@@ -497,13 +497,13 @@ This is how a change is traced end-to-end: scenario (BDD) → task `SATISFIES` �
 
 ## The review discipline
 
-### Two-axis review
+### The 3-axis pass
 
-`requesting-code-review` runs **two** `general-purpose` subagents **concurrently** (do not pollute each other's context): **Standards** — "Does the code follow this repo's documented standards?" — and **Spec** — "Does the code implement what was asked?"
+`code-review` runs its selected lenses as **concurrent** `general-purpose` subagents (fresh context per lens, no bias from the others): **Standards** — "Does the code follow this repo's documented standards?" — **Spec** — "Does the code implement what was asked?" — and **Security** — injection, authz, exposure, secrets (OWASP 5-step). Small/low-risk diffs run exactly these three (the 3-axis pass).
 
-"Present the two reports under `## Standards` and `## Spec` headings, side by side, verbatim or lightly cleaned. End with one line per axis: finding count + worst issue *within* that axis. **Never pick a single cross-axis winner** — that's the reranking the separation exists to prevent." "A change can be spec-perfect but violate every convention, or beautifully written but implement the wrong thing; the two axes are deliberately separate."
+"Present the lens reports side by side, verbatim or lightly cleaned, each under its own heading, ending each with the finding count + worst issue *within* that lens. Never pick a single cross-lens winner — that's the reranking the separation exists to prevent. A change can be spec-perfect but violate every convention, beautifully written but implement the wrong thing, or conventionally clean and spec-complete but one SQLi away from a data breach."
 
-**Escalation threshold:** "if the whole-branch diff is large (50+ changed lines) or high-risk (auth, data migration, money, concurrency, public API), escalate the final review from the two-axis pass to `skillgrid:parallel-code-review`."
+**Escalation threshold:** per `_shared/planning/rigor-tiers.md` — if the diff is large (50+ changed lines) or high-risk (auth, data migration, money, concurrency, public API), the topology becomes the fan-out.
 
 ### The smell baseline
 
@@ -531,9 +531,9 @@ A fixed set of 12 Fowler code smells (*Refactoring*, ch.3) that applies even whe
 
 subagent-execution: "A fix round is one fix dispatch plus one scoped re-review. **Five rounds maximum per task.**" Rounds 1–3 resume the original implementer (context intact), sending the open findings verbatim. Rounds 4–5 dispatch a fresh implementer on a more capable model. "The breaker. When round 5's re-review still leaves findings open, stop dispatching. **Adjudicate each open finding yourself.**" Three adjudication outcomes: **park** (reviewer wrong), **park** (real but not load-bearing), **rule** (real and load-bearing — a later task builds on it). "Adjudicate only at the cap. Adjudicating earlier to end a loop is pre-judging with a different name. Every adjudication is a ledger entry — a silent discard is forbidden." "Never fix findings yourself in the controller session — your context stays clean for coordination, and controller fixes skip review."
 
-### The 6-specialist parallel review
+### The specialist fan-out
 
-`parallel-code-review` fans out six specialist reviewers in parallel: **Standards, Spec, Edge cases, Verification gaps, Security, Red team**. Sizing: "< 50 changed lines → run only Standards + Spec (the two-axis set). ≥ 50 changed lines, or high-risk → run all six." "Red team runs last: dispatch it after the other five return, and hand it their merged findings so it hunts for what they missed, not what they found." "The diff is passed as a **path**, not inlined text." Resilience: "if a specialist fails … log its name and continue with the survivors. If **all** specialists fail or return empty, do **not** claim a clean review."
+`code-review`'s topology fans out the specialist reviewers in parallel for large/high-risk diffs: **Standards, Spec, Edge cases, Verification gaps, Security** (the core five), plus conditional **Accessibility** (diff touches UI) / **Performance** (diff touches data access / rendering), and **Red team last**. Sizing: per `_shared/planning/rigor-tiers.md` — "< 50 changed lines, low risk → the 3-axis pass; ≥ 50 or high-risk → the core five." "The red team runs last: dispatch it after the other lenses return, and hand it their merged findings so it hunts for what they missed, not what they found." "The diff is passed as a **path**, not inlined text." Resilience: "if a lens fails, times out, or returns empty, record its name and continue with the survivors. If **all** lenses fail or return empty, the review is 'possibly incomplete', never 'clean'."
 
 **Deduplicate by fingerprint** (`path:line:category`); findings from 2+ specialists pointing at the same defect collapse into one entry, tagged `MULTI-REVIEWER CONFIRMED (a + b)`. "Two findings belong in one entry only when the same defect produced both." The entry's severity is the highest of its members. **The 5-verdict triage** (`high` / `medium` / `low` / `false` / `maybe-false`): "The coordinator verifies; specialists don't grade — they lack the full context to grade severity." Reject any `false`; any `low` whose fix adds more complexity than the harm; or any whose only fix is to edit the spec under review.
 
@@ -557,7 +557,7 @@ subagent-execution decomposes a plan into **leaves (tasks) under branches (share
 
 ## The ticketing rules
 
-`ticketing` maps SDD work to the tracker and runs a status machine. The **status machine**: `backlog → ready → in-progress → review → done` — `backlog` (set by `ticketing` at publish), `ready` ("all blockers done", set at wave start), `in-progress` (set by `subagent-execution` / `simple-execution`), `review` (implementation done), `done` ("review clean, merged", set by `requesting-code-review` on a clean review). Epic: `backlog → in-progress (first ticket starts) → done (all tickets done)`.
+`ticketing` maps SDD work to the tracker and runs a status machine. The **status machine**: `backlog → ready → in-progress → review → done` — `backlog` (set by `ticketing` at publish), `ready` ("all blockers done", set at wave start), `in-progress` (set by `subagent-execution` / `simple-execution`), `review` (implementation done), `done` ("review clean, merged", set by `code-review` on a clean review). Epic: `backlog → in-progress (first ticket starts) → done (all tickets done)`.
 
 **The 5 canonical triage roles** (each maps to a label/status string in the active tracker): `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. "If the user's tracker already uses different label names, record the override per-role in `.skillgrid/config.yaml` — do not rename the roles."
 

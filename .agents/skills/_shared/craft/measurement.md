@@ -54,7 +54,7 @@ quantity plus its source plus its direction, nothing else.
 
 - **Every pipeline skill** that ends by writing or consuming an artifact in the
   spec zone: `brainstorming`, `writing-blueprints`, `slicing`, `qa`,
-  `requesting-code-review`, `ship`.
+  `code-review`, `ship`.
 - Not applied to utility skills with no artifact chain (`resume`, `reflect`
   reads rather than writes a stage artifact; `reflect`'s own health is the
   acceptance verdict already in `report.md`).

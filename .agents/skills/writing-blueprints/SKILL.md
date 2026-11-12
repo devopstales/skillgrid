@@ -130,7 +130,7 @@ Tag a Must-Have truth **`backstop`** when it cannot be confirmed by reading the
 diff alone — it needs a held-out test, a runtime, or state the diff doesn't
 show (a behavior only observable through a real integration, a timing property,
 a cross-component contract). `backstop` truths get a concrete held-out test in
-the plan, and they are the spec-time signal that `skillgrid:parallel-code-review`
+the plan, and they are the spec-time signal that `skillgrid:code-review`
 consumes: its verification-gap lens abstains (routes to `could-not-verify`
 rather than a confident pass) on a check a `backstop` truth designates as
 exogenous. Omit the tag for truths a plain diff read settles.
@@ -385,12 +385,13 @@ Then offer execution choice:
 - **REQUIRED SUB-SKILL:** Use skillgrid:simple-execution
 - Batch execution with checkpoints for review
 
-**Review at the end (both options):** the default is the lightweight two-axis
-pass (`skillgrid:requesting-code-review`). For a large or high-risk blueprint
-(at the review escalation threshold, per `_shared/planning/rigor-tiers.md`),
-escalate the final review to `skillgrid:parallel-code-review` — multi-reviewer
-fan-out. The execution skill decides when to escalate; you just tell the user
-the option exists when the blueprint looks risky.
+**Review at the end (both options):** the default is the lightweight pass of
+`skillgrid:code-review` (the 3-axis pass at small/low-risk). For a large or
+high-risk blueprint (at the review escalation threshold, per
+`_shared/planning/rigor-tiers.md`), the final review escalates to
+`skillgrid:code-review` fan-out — multi-reviewer. The execution skill decides
+when to escalate; you just tell the user the option exists when the blueprint
+looks risky.
 
 ## How to measure it
 

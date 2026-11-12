@@ -247,7 +247,7 @@ function main() {
     }
   }
 
-  // --- review-ledger-lint (ledger schema validation, review-ledger Step 3) ---
+  // --- review-ledger-lint (ledger schema validation, per _shared/craft/review-ledger.md) ---
   {
     const slug = findActiveSlug(root);
     if (slug) {

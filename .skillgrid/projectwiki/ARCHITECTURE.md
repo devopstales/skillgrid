@@ -643,7 +643,7 @@ The core concept: a **versionable, reviewable set of markdown workflow skills** 
 ├── execution/      # subagent-execution, simple-execution, parallel-execution,
 │                   # isolated-workspace, work-unit-commits
 ├── verification/   # qa, test-driven-development, structured-debugging,
-│                   # parallel-code-review, requesting/receiving-code-review, dogfood, …
+│                   # code-review, receiving-code-review, dogfood, …
 ├── knowledge/      # mnemonic, research, code-research, deep-research,
 │                   # architectural-decision-records, grounded-citations, …
 ├── design/         # 22 design/visual skills (design, brand, ui-*, imagegen-*, …)
@@ -727,7 +727,7 @@ rules:
 The single source of truth is `.agents/skills/_shared/rules/sdd-structure.md` ("if a skill disagrees with this file, **this file wins**"):
 
 ```
-brainstorming ─▶ [research | prototype | sketch] ─▶ writing-blueprints ─▶ slicing ─▶ (USER GATE) ─▶ ticketing ─▶ execution ─▶ qa ─▶ requesting-code-review ─▶ receiving-code-review ─▶ ship ─▶ reflect
+brainstorming ─▶ [research | prototype | sketch] ─▶ writing-blueprints ─▶ slicing ─▶ (USER GATE) ─▶ ticketing ─▶ execution ─▶ qa ─▶ code-review ─▶ receiving-code-review ─▶ ship ─▶ reflect
                                                                           optional gates                mandatory
 ```
 
@@ -741,7 +741,7 @@ brainstorming ─▶ [research | prototype | sketch] ─▶ writing-blueprints �
 | slicing | `tasks.md` | vertical tracer-bullet tickets, waves, dependencies, delivery strategy |
 | brainstorming | `adr.md` | ADR Review Manifest (pointers to `decisions/04-adr-NNNN-slug.md`) |
 | qa | `report.md` `## Gate Decision` | four-state: `PASS / CONCERNS / FAIL / WAIVED` |
-| requesting-code-review | `review.md` | audit record, verdict floor `met` / `met-with-fixes` |
+| code-review | `review.md` | audit record, verdict floor `met` / `met-with-fixes` |
 | ship | folder move | `change-specs/…` → `change-archive/…` (integration first) |
 | reflect | `report.md` retro half | terminal; completes GO/NO-GO + lessons |
 

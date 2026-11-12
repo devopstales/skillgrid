@@ -95,7 +95,7 @@ Three passes.
 
 #### Pass 3: OWASP Top 10 Spot-Check
 
-Full OWASP review is owned by `skillgrid:owasp-security` (`.agents/skills/owasp-security/SKILL.md`), dispatched as the Security axis of `skillgrid:requesting-code-review`. In Mode B, this pass is a **lightweight spot-check** that flags suspicious patterns for the Security reviewer to confirm — it does not assert a vulnerability without evidence.
+Full OWASP review is owned by `skillgrid:owasp-security` (`.agents/skills/owasp-security/SKILL.md`), dispatched as the Security axis of `skillgrid:code-review`. In Mode B, this pass is a **lightweight spot-check** that flags suspicious patterns for the Security reviewer to confirm — it does not assert a vulnerability without evidence.
 
 For each changed file that handles user input, check:
 
@@ -109,7 +109,7 @@ For each changed file that handles user input, check:
 
 This is a **spot-check**, not a full SAST run. Flag suspicious patterns for the Security reviewer to confirm — do not assert a vulnerability without evidence.
 
-**Note:** Mode B has no OWASP pass when Trivy is configured — Trivy's `misconfig` scanner covers infrastructure misconfigurations, and the full OWASP review is a manual code-review task that belongs in `skillgrid:requesting-code-review` (Security axis), not in the security scanner.
+**Note:** Mode B has no OWASP pass when Trivy is configured — Trivy's `misconfig` scanner covers infrastructure misconfigurations, and the full OWASP review is a manual code-review task that belongs in `skillgrid:code-review` (Security axis), not in the security scanner.
 
 ## Code Quality Gate
 

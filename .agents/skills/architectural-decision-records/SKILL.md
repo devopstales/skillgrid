@@ -203,7 +203,7 @@ Process (run at the end of the interview, before the blueprint is written):
 - **Underneath `skillgrid:interviewing`** — its primary driver. The interview *is* the grilling session; this skill runs concurrently, writing terms to `.skillgrid/projectwiki/glossary/01-business-terms.md` / `02-technical-terms.md` and offering ADR files (`decisions/04-adr-NNNN-slug.md`, plus a path row in `ASSUMPTIONS.md`) as decisions crystallize, so the paper trail is born in the conversation where the trade-off was actually made.
 - **Underneath `skillgrid:brainstorming`** — during the codebase feasibility check and design presentation, keep the model sharp; at the end of the interview, run the per-change ADR Review Manifest (write `.skillgrid/change-specs/<topic>/adr.md`) so the blueprint is constrained by a *verified* in-force set.
 - **Directly** — when you want the discipline without the full interview.
-- The terms files, the ADR files, and the per-change manifest are then *consumed* by `writing-blueprints`, `slicing`, `subagent-execution`, and `requesting-code-review` (one-line habit: use the vocabulary, and check the work against the in-force ADRs named in the change's `adr.md` manifest).
+- The terms files, the ADR files, and the per-change manifest are then *consumed* by `writing-blueprints`, `slicing`, `subagent-execution`, and `code-review` (one-line habit: use the vocabulary, and check the work against the in-force ADRs named in the change's `adr.md` manifest).
 
 ## Common Rationalizations
 

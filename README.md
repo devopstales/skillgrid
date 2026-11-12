@@ -198,8 +198,7 @@ For the full walkthrough see [docs/user-guide/03-workflow-usage.md](docs/user-gu
 | `test-driven-development` | Implementing any feature/bugfix, before implementation code |
 | `test-driven-verification` | About to claim work is done — run verification, evidence before assertions |
 | `acceptance-test-authoring` | Authoring BDD acceptance tests before implementation |
-| `requesting-code-review` | Completing tasks / before merge — two-axis review |
-| `parallel-code-review` | Large or high-risk diff — 6 specialist reviewers in parallel |
+| `code-review` | Completing tasks / before merge — topology selects the pass: 3-axis for small/low-risk, specialist fan-out for large/high-risk |
 | `receiving-code-review` | Handling review feedback with technical rigor |
 
 ### Close-out

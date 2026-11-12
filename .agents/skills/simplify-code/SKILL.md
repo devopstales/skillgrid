@@ -14,11 +14,11 @@ metadata:
 
 ## Overview
 
-Review recent changes with four focused reviewers running in parallel, aggregate findings, apply what's worth applying. **Cleanup pass, not a bug hunt** — the code already works; remove duplication, flatten needless complexity, cut waste, deepen band-aids. Correctness bugs belong to `skillgrid:requesting-code-review`.
+Review recent changes with four focused reviewers running in parallel, aggregate findings, apply what's worth applying. **Cleanup pass, not a bug hunt** — the code already works; remove duplication, flatten needless complexity, cut waste, deepen band-aids. Correctness bugs belong to `skillgrid:code-review`.
 
 **Core principle:** four narrow reviewers beat one broad reviewer. Each searches the codebase for one problem class — reuse, quality, efficiency, altitude — concurrently, so you pay one review's latency, not four.
 
-Relation to neighbors: `skillgrid:dry-refactoring` is clone-driven (starts from jscpd output); this skill is diff-driven (starts from your recent changes). `skillgrid:ponytail` picks the laziest solution before/instead of writing; this cleans what got written. `skillgrid:parallel-code-review` renders a verdict on a diff; this one applies fixes.
+Relation to neighbors: `skillgrid:dry-refactoring` is clone-driven (starts from jscpd output); this skill is diff-driven (starts from your recent changes). `skillgrid:ponytail` picks the laziest solution before/instead of writing; this cleans what got written. `skillgrid:code-review` renders a verdict on a diff; this one applies fixes.
 
 Fan-out runs via skillgrid subagents (`skillgrid:parallel-execution`, depth ≤ 1).
 
@@ -26,7 +26,7 @@ Fan-out runs via skillgrid subagents (`skillgrid:parallel-execution`, depth ≤ 
 
 User asks to "simplify", "clean up", "review my recent changes". Honor modifiers: **focus** (`reuse` / `quality` / `efficiency` / `altitude` — run only that reviewer or weight toward it), **dry run** ("just report" → present, apply nothing), **scope** (last commit / staged / branch / paths — see Phase 1).
 
-**When NOT to use:** After every edit or tacked onto unrelated tasks — four reviewers cost tokens; explicit ask only. For correctness review — `skillgrid:requesting-code-review`. For clone elimination across the repo (not your diff) — `skillgrid:dry-refactoring`. For choosing what to build — `skillgrid:ponytail`.
+**When NOT to use:** After every edit or tacked onto unrelated tasks — four reviewers cost tokens; explicit ask only. For correctness review — `skillgrid:code-review`. For clone elimination across the repo (not your diff) — `skillgrid:dry-refactoring`. For choosing what to build — `skillgrid:ponytail`.
 
 ## The Process
 

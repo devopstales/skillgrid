@@ -199,20 +199,20 @@ loop, re-run Steps 3–9; WAIVED → Step 7.
 
 ## Step 7 — Code review
 
-- **Skill:** `requesting-code-review`.
-- **Subagents:** exactly 3 parallel reviewers — Standards (glossary terms + in-force ADRs), Spec (per-scenario `PASS/FAIL/MISSING` + Scope Creep + `Spec met? Yes|No|Partially`), Security (CWE + OWASP category + Confidence per finding) — dispatched in parallel with fresh blind contexts; the coordinator (not a subagent) verifies each finding at `file:line`, dedups, rejects unverified, and renders exactly one verdict per axis. Escalation: diff ≥ 50 changed lines or high-risk (or Tier T3) → `parallel-code-review` fan-out (5–7 specialists + red team LAST, sequentially).
+- **Skill:** `code-review`.
+- **Subagents:** exactly 3 parallel reviewers — Standards (glossary terms + in-force ADRs), Spec (per-scenario `PASS/FAIL/MISSING` + Scope Creep + `Spec met? Yes|No|Partially`), Security (CWE + OWASP category + Confidence per finding) — dispatched in parallel with fresh blind contexts; the coordinator (not a subagent) verifies each finding at `file:line`, dedups, rejects unverified, and renders exactly one verdict per axis. Escalation: diff ≥ 50 changed lines or high-risk (or Tier T3) → the `code-review` fan-out (core five + conditional specialists + red team LAST, sequentially).
 - **MCP:** —
 - **CLI:** —
-- **Files:** `review.md` (review notes, from `requesting-code-review/templates/review.md`): `## Passes` (per axis), `## Findings` (Critical/Important/Minor; max 5 Minor per axis), `## Independence` grade table, `## Verdict` — floor across axes `met | met-with-fixes | not met` + `Unfixed Important count (must be 0 to proceed)`. Commit (spec zone).
+- **Files:** `review.md` (review notes, from `code-review/templates/review.md`): `## Passes` (per axis), `## Findings` (Critical/Important/Minor; max 5 Minor per axis), `## Independence` grade table, `## Verdict` — floor across axes `met | met-with-fixes | not met` + `Unfixed Important count (must be 0 to proceed)`. Commit (spec zone).
 - **Gates:** user (unfixed Important blocks proceeding).
 
 ### Step 7.5 — Review ledger
 
-- **Skill:** `review-ledger`. After EVERY review round, before moving on.
+- **Reference:** `_shared/craft/review-ledger.md`. After EVERY review round, before moving on.
 - **Subagents:** 0 (validated later by `scripts/review-ledger-lint.mjs` inside qa-gate).
 - **MCP:** —
 - **CLI:** —
-- **Files:** append to `.skillgrid/change-specs/YYYY-MM-DD-<topic>/review-ledger.md`: `## Round <N> — <YYYY-MM-DD>` + frozen candidate (base/head hashes, file count, `git hash-object` content hash) + reviewer skill name + independence grade + budget + Findings table `| ID | Severity | File:Line | Finding | Disposition | Fix Commit | Lineage |` (IDs `R<N>-F<NNN>`; dispositions `fixed|parked|waived`) + Dispositions list + Round Verdict (`clean|findings-dispositioned|invalidated`).
+- **Files:** append to `.skillgrid/change-specs/YYYY-MM-DD-<topic>/review-ledger.md`: `## Round <N> — <YYYY-MM-DD>` + frozen candidate (base/head hashes, file count, `git hash-object` content hash) + reviewer name + independence grade + budget + Findings table `| ID | Severity | File:Line | Finding | Disposition | Fix Commit | Lineage |` (IDs `R<N>-F<NNN>`; dispositions `fixed|parked|waived`) + Dispositions list + Round Verdict (`clean|findings-dispositioned|invalidated`).
 - **Gates:** —
 - **Commit:** `review: record round <N> (...)` with the `[skillgrid-context]` block — the ledger records findings + dispositions + lineage. A commit landing or file edit mid-review → round `invalidated: <reason>`, re-dispatch on the new candidate. `parked` requires a ruling + named human; `waived` requires named human + accepted risk.
 
@@ -291,7 +291,7 @@ with parseable IDs, protected-ref guard (never commit to `main`/`master`/
 1. `node scripts/phase-router.mjs all` (or `<slug>`) → derived phase from the deepest artifact (artifacts win over `state.yaml`; drift logged to the index log, phase patched).
 2. Read: `state.yaml` → `.skillgrid/meta/.sdd/<plan>/progress.md` ledger (`Task <N>: complete` lines) → the latest commit's `[skillgrid-context]` block.
 3. MCP fallback layer: `mem_search("skillgrid/<topic>")` → `mem_get_observation`.
-4. Tail markers: `report.md` verdict empty/PENDING → `qa`; verdict filled + `review.md` floor unmet → `requesting-code-review`; floor met + still in `change-specs/` → `receiving-code-review` → `ship`; in `change-archive/` with retro empty → `reflect`; retro filled → complete.
+4. Tail markers: `report.md` verdict empty/PENDING → `qa`; verdict filled + `review.md` floor unmet → `code-review`; floor met + still in `change-specs/` → `receiving-code-review` → `ship`; in `change-archive/` with retro empty → `reflect`; retro filled → complete.
 5. Multiple in-flight changes, none named → ask the user which to resume (default: most recent).
 
 ## Subagent summary

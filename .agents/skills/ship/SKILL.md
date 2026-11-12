@@ -86,12 +86,12 @@ Integration steps (integrated-tree tests, environment, base branch, the menu, ar
 
 The integration and the move are mechanical; the **decision** is the artifact. Synthesize the gates into a single **GO / NO-GO**, and write the **rollback plan** — both go into the Return Envelope (reflect persists them to `report.md` in the archive).
 
-**Gather the review signal first.** If the change is **non-trivial** and the review gate above recorded `review-waived` (no prior `parallel-code-review` verdict in `tasks.md`), run **skillgrid:parallel-code-review** on the diff now, before rendering the verdict — the ship decision should rest on a fresh fan-out, not an absence of one. Its output (`REVIEW-PASS` / `BACK-TO-APPLY` + Critical/Warn counts) feeds Verdict rules 2 and 3. Two cases skip the fan-out:
+**Gather the review signal first.** If the change is **non-trivial** and the review gate above recorded `review-waived` (no prior `code-review` verdict in `tasks.md`), run **skillgrid:code-review** on the diff now, before rendering the verdict — the ship decision should rest on a fresh fan-out, not an absence of one. Its output (`REVIEW-PASS` / `BACK-TO-APPLY` + Critical/Warn counts) feeds Verdict rules 2 and 3. Two cases skip the fan-out:
 
 - **Trivial change** (the trivial-skip rule per `_shared/planning/rigor-tiers.md`, review escalation threshold) → no fan-out; the decision rests on the QA gate + a one-line rollback. This is the explicit **skip threshold**.
 - **Prior verdict exists** (`REVIEW-PASS` or an accepted `BACK-TO-APPLY` already in `tasks.md`) → reuse it; don't re-review.
 
-Fan-out selection, per-file lenses, and the red-team pass all follow `parallel-code-review/SKILL.md` — ship does not re-implement them. Record the fan-out result in `tasks.md` so the verdict below cites a real signal.
+Fan-out selection, per-file lenses, and the red-team pass all follow `code-review/SKILL.md` — ship does not re-implement them. Record the fan-out result in `tasks.md` so the verdict below cites a real signal.
 
 **Verdict rules (apply in order; the first that matches wins):**
 

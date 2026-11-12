@@ -31,9 +31,8 @@ convention removes.
 - **QA gate** (`skillgrid:qa`): the four-state verdict is the floor across every
   audit and gate — the weakest one (a FAILing gate, an `UNREADABLE` scope, a
   `MISSING_RED`) sets the ceiling, not the average of the passing ones.
-- **Code review** (`skillgrid:requesting-code-review`,
-  `skillgrid:parallel-code-review`): the overall review verdict is the floor
-  across the axes; one axis that fails caps the whole review.
+- **Code review** (`skillgrid:code-review`): the overall review verdict is the
+  floor across the axes; one axis that fails caps the whole review.
 - **Any scored judgment** that reports a number over several dimensions: report
   the floor explicitly and gate on it.
 

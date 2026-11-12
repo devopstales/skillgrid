@@ -303,10 +303,10 @@ The QA gate answers "was the goal achieved and would verification catch a regres
 
 Once every task is complete and `skillgrid:qa` has passed, run the whole-branch
 review: package the branch diff (`scripts/review-package PLAN_FILE MERGE_BASE HEAD` from this skill's directory),
-dispatch the two-axis review (Standards + Spec) in parallel on the most capable
-model, present the two reports side by side, and escalate to
-`skillgrid:parallel-code-review` at the review escalation threshold (per
-`_shared/planning/rigor-tiers.md`).
+run `skillgrid:code-review` per its topology on the most capable model —
+the 3-axis pass at small/low-risk, the fan-out at the review escalation
+threshold (per `_shared/planning/rigor-tiers.md`) — and present the reports
+side by side.
 Findings get ONE fix subagent + one scoped re-review, then the breaker
 adjudicates — there is no second fix wave.
 

@@ -56,8 +56,8 @@ from the project root. It returns `{phase, next, marker, drift, ledger, blocked,
 | `briefing.md` + `blueprint.md` | `blueprint` | `blueprint-validation` |
 | `tasks.md` (no execution signal) | `slicing` | `slicing` |
 | `tasks.md` + execution signal (`[x]` in tasks.md or `sdd/<plan>/progress.md`) | `execution` | `qa` |
-| `report.md` (verdict not yet filled) | `qa` | `requesting-code-review` |
-| `report.md` verdict filled + `review.md` floor not met | `qa` | `requesting-code-review` |
+| `report.md` (verdict not yet filled) | `qa` | `code-review` |
+| `report.md` verdict filled + `review.md` floor not met | `qa` | `code-review` |
 | `report.md` verdict filled + `review.md` floor met (`met`/`met-with-fixes`), still in `specs/` | `review` | `receiving-code-review` |
 | folder in `change-archive/`, retro sections EMPTY | `reflect` | `reflect` |
 | folder in `change-archive/` AND retro sections filled | `complete` | none |

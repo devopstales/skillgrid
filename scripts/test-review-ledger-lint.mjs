@@ -73,7 +73,7 @@ function validLedger(h) {
   return `# Review Ledger\n\n` +
     `## Round 1 — 2026-01-01\n\n` +
     `**Frozen candidate:** base ${h[0]} → head ${h[1]}, 2 files, hash deadbeef\n` +
-    `**Reviewer:** skillgrid:requesting-code-review\n` +
+    `**Reviewer:** code-review (3-axis pass)\n` +
     `**Independence grade:** A\n` +
     `**Budget:** round 1/2 (tier T2)\n\n` +
     `### Findings\n\n` +
@@ -89,7 +89,7 @@ function validLedger(h) {
     `### Round Verdict\n\nfindings-dispositioned\n\n` +
     `## Round 2 — 2026-01-02\n\n` +
     `**Frozen candidate:** base ${h[1]} → head ${h[1]}, 2 files, hash cafebabe\n` +
-    `**Reviewer:** skillgrid:parallel-code-review\n` +
+    `**Reviewer:** code-review (core-five fan-out)\n` +
     `**Independence grade:** A\n` +
     `**Budget:** round 2/2 (tier T2)\n\n` +
     `### Findings\n\n` +

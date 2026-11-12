@@ -26,7 +26,7 @@ Code review requires technical evaluation, not emotional performance.
 - A review produces multiple findings to triage and fix
 - You're about to agree to, or push back on, a reviewer's suggestion
 
-**When NOT to use:** No feedback exists yet — that's the `skillgrid:requesting-code-review` side. A single agreed, already-verified typo fix also doesn't need the full loop.
+**When NOT to use:** No feedback exists yet — that's the `skillgrid:code-review` side. A single agreed, already-verified typo fix also doesn't need the full loop.
 
 ## The Response Pattern
 
@@ -200,13 +200,9 @@ When feedback IS correct:
 ✅ "Fixed. [Brief description of what changed]"
 ✅ "Good catch - [specific issue]. Fixed in [location]."
 ✅ [Just fix it and show in the code]
-
-❌ "You're absolutely right!"
-❌ "Great point!"
-❌ "Thanks for catching that!"
-❌ "Thanks for [anything]"
-❌ ANY gratitude expression
 ```
+
+**Tone:** the anti-sycophancy rules apply to the reply — no glazing, no apology, no banned validating adjective (per `_shared/craft/review-discipline.md`).
 
 **Why no thanks:** Actions speak. Just fix it. The code itself shows you heard the feedback.
 

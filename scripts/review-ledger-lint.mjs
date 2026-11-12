@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * review-ledger-lint.mjs — deterministic schema validator for a change's
- * review-ledger.md (review-ledger/SKILL.md § Step 3).
+ * review-ledger.md (per `_shared/craft/review-ledger.md`).
  *
  * The ledger is a strict markdown schema the agent currently validates by eye:
  *   1. Every finding has a disposition (a `- **<id>**` bullet in Dispositions).

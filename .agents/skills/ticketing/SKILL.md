@@ -59,7 +59,7 @@ backlog → ready → in-progress → review → done
 | `ready` | All blockers done, can start next wave | `ticketing` (at wave start) |
 | `in-progress` | An implementer is working on it | `subagent-execution` / `simple-execution` |
 | `review` | Implementation done, awaiting review | `subagent-execution` / `simple-execution` |
-| `done` | Review clean, merged | `requesting-code-review` (on clean review) |
+| `done` | Review clean, merged | `code-review` (on clean review) |
 
 **Epic** (the parent) transitions: `backlog` → `in-progress` (first ticket starts) → `done` (all tickets done).
 

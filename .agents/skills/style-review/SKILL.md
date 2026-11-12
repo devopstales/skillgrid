@@ -36,7 +36,7 @@ source file.
 - Before committing prose an agent wrote in a hurry, to catch fabricated
   citations (RULE-H) and banned tell-words (RULE-06) that a first pass missed.
 - Benchmarking two drafts of the same document with the A/B compare shape.
-- **When NOT to use:** code review (use `skillgrid:requesting-code-review`),
+- **When NOT to use:** code review (use `skillgrid:code-review`),
   structure/naming conventions in source files (those live in
   `_shared/rules/code-standards.md`), or a file under 10 sentences where the
   audit overhead is not worth it.

@@ -20,7 +20,7 @@ For each level, run the **named test** that covers it (not the full suite). Reco
 
 ### Step 4: Verification-Gap Audit
 
-Run the audit in [verification-gap.md](verification-gap.md).
+Run the audit in [verification-gap.md](../../_shared/verification/verification-gap.md).
 
 **Ask one question for each changed behavior:** *"If this behavior broke where it's actually used, would verification fail?"*
 
@@ -292,12 +292,12 @@ their exit codes + SCOPE lines, and prints a JSON summary. Read the JSON.
   the gate itself; it is data the execution/ship skills consume.
 - **Review evidence (advisory, not a script check)** — at the point QA routes
   to review (PASS / CONCERNS / WAIVED), a later change's `review.md`
-  (written by `skillgrid:requesting-code-review`) is the durable audit record of
+  (written by `skillgrid:code-review`) is the durable audit record of
   that review. QA does not read or gate on a not-yet-existing `review.md` — but
   if `review.md` is **absent** in the spec folder when QA re-runs in
   re-verification mode (a code-zone change after a prior review), note a
   WARNING: "review evidence stale — `review.md` predates the latest code-zone
-  change; re-run `skillgrid:requesting-code-review`." Advisory, never CRITICAL,
+  change; re-run `skillgrid:code-review`." Advisory, never CRITICAL,
   never affects the four-state verdict.
 
 **Scope:** read `scopes.composite`. This is the worst scope across all

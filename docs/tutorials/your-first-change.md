@@ -310,15 +310,16 @@ passes.
 
 ## Step 9 — Review
 
-`requesting-code-review` dispatches **two parallel reviewers** on two separate
-axes:
+`code-review` dispatches **parallel reviewers** on separate axes; its
+topology step picks the set from the diff's size and risk:
 
 - **Standards** — does the work respect the glossary and in-force ADRs?
 - **Spec** — does the work satisfy the BDD scenarios in `acceptance.feature`?
+- **Security** — injection, authz, exposure, secrets (OWASP 5-step)
 
-For a trivial change this is light; for a risky one, `parallel-code-review`
-fans out **six specialist reviewers** (standards, spec, edge cases,
-verification gaps, security, red team). Triage the findings with
+For a trivial change this is light (the 3-axis pass); for a large or risky one,
+`code-review` fans out the specialist reviewers (core five + conditional
+accessibility / performance, red team last). Triage the findings with
 `receiving-code-review` — verify, push back, no performative agreement. Clean?
 Move on.
 

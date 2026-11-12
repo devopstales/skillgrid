@@ -16,7 +16,7 @@ metadata:
 
 Systematic exploratory QA of a web application in a real browser: plan the sitemap, walk every flow, check the JS console after every navigation and interaction, capture screenshot evidence per issue, classify by severity × category, and deliver a structured report from `templates/dogfood-report-template.md`.
 
-This is the exploratory complement to `skillgrid:qa` (the gate) and `skillgrid:requesting-code-review` (the bug hunt on a diff): those verify a change, this one finds what nobody specified. A genuine correctness bug surfaced here is reported as a separate "found a bug" note — and may become a `skillgrid:structured-debugging` task — not folded into cleanup.
+This is the exploratory complement to `skillgrid:qa` (the gate) and `skillgrid:code-review` (the bug hunt on a diff): those verify a change, this one finds what nobody specified. A genuine correctness bug surfaced here is reported as a separate "found a bug" note — and may become a `skillgrid:structured-debugging` task — not folded into cleanup.
 
 Browser tool names are mapped to skillgrid browser tools (table below); output dir defaults to the skillgrid scratch zone.
 
@@ -26,7 +26,7 @@ Browser tool names are mapped to skillgrid browser tools (table below); output d
 - Pre-release sweep of user-facing flows the acceptance contract doesn't cover
 - Triaging "the app feels broken" with no specific failing test
 
-**When NOT to use:** For verifying a spec'd change — use `skillgrid:qa` (+ `acceptance.feature`). For reviewing a diff — use `skillgrid:requesting-code-review`. When no browser tooling is available in this session — say so and stop, don't narrate a test you can't run.
+**When NOT to use:** For verifying a spec'd change — use `skillgrid:qa` (+ `acceptance.feature`). For reviewing a diff — use `skillgrid:code-review`. When no browser tooling is available in this session — say so and stop, don't narrate a test you can't run.
 
 ## Prerequisites
 

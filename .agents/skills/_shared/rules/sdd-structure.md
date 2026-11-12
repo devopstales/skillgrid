@@ -7,7 +7,7 @@ Single source of truth for filesystem layout, artifact names, and phase order. I
 This is the only full chain. Other skills cite this section in one line and restate only their own previous and next step.
 
 ```
-brainstorming → [research | prototype | sketch] → writing-blueprints → blueprint-validation (critic subagent + user) → acceptance-test-authoring → slicing → (user gate) → ticketing → execution → qa → requesting-code-review → receiving-code-review → ship → reflect
+brainstorming → [research | prototype | sketch] → writing-blueprints → blueprint-validation (critic subagent + user) → acceptance-test-authoring → slicing → (user gate) → ticketing → execution → qa → code-review → receiving-code-review → ship → reflect
 ```
 
 `research`, `prototype`, and `sketch` are optional pre-blueprint gates. **Artifact creation order is permanent and sequential:** briefing → blueprint → blueprint validation → cucumber test file → tasks → slices. Never create the next artifact without the previous one existing. The user gate after `slicing` is mandatory: the user confirms the slice before execution. Fast-track waivers skip earlier planning skills only as `fast-track.md` allows; they do not skip the tail (`qa` through `reflect`).
@@ -36,7 +36,7 @@ brainstorming → [research | prototype | sketch] → writing-blueprints → blu
 | `isolated-workspace` | Worktree isolation before execution |
 | `ponytail` | Lazy-minimal solution discipline (auto, on coding tasks) |
 | `qa` | Quality gate → `report.md` (QA half: test plan + verdict + evidence) |
-| `requesting-code-review` / `parallel-code-review` | Review → `review.md` |
+| `code-review` | Review → `review.md` |
 | `receiving-code-review` | Process findings |
 | `ship` | Integrate to base + move change folder to `change-archive/` |
 | `reflect` | **Terminal** — completes `report.md`'s retro half in place in the archive + session close |
@@ -62,7 +62,7 @@ brainstorming → [research | prototype | sketch] → writing-blueprints → blu
 │       ├── adr.md              # ADR Review Manifest (per-change; pointers to projectwiki/decisions/04-adr-NNNN-slug.md)
 │       ├── findings.md         # research/prototype/sketch consolidated evidence (optional)
 │       ├── report.md           # two-phase: qa writes the QA half (test plan + gate verdict + evidence)
-│       └── review.md           # requesting-code-review audit record; read by ship and reflect
+│       └── review.md           # code-review audit record; read by ship and reflect
 ├── change-archive/             # CLOSED changes (committed, immutable); created lazily by ship (renamed from xarchive/, 2026-11-06)
 │   └── YYYY-MM-DD-<topic>/     #   moved here by ship; reflect completes report.md's retro half in place
 ├── projectwiki/                  # OKF project wiki vault (OKF v0.2, committed, cross-change) — the wiki
@@ -103,7 +103,7 @@ brainstorming → [research | prototype | sketch] → writing-blueprints → blu
 | Marker | Next |
 |---|---|
 | `report.md` absent, or `## Gate Decision` verdict empty / `PENDING` / still the template placeholder | `qa` |
-| QA verdict filled (`PASS` / `CONCERNS` / `FAIL` / `WAIVED`) and `review.md` missing or its `## Verdict` floor not met | `requesting-code-review` |
+| QA verdict filled (`PASS` / `CONCERNS` / `FAIL` / `WAIVED`) and `review.md` missing or its `## Verdict` floor not met | `code-review` |
 | `review.md` floor met (`met` or `met-with-fixes`) and the folder is still under `change-specs/` | `receiving-code-review`, then `ship` |
 | Folder in `change-archive/`, QA verdict filled, retro sections empty | `reflect` |
 | Folder in `change-archive/` and retro sections filled (`## Acceptance Verdict` already chosen, or `## Lessons` / `## Decisions` non-empty) | none — cycle complete |
@@ -126,7 +126,7 @@ The deepest artifact present in the change dir determines the phase. This is the
 | `acceptance.feature` (valid syntax) | `spec-tests` | `slicing` |
 | `tasks.md` (no execution signal) | `slicing` | `subagent-execution` / `simple-execution` |
 | `tasks.md` + execution signal (`[x]` marks or `meta/.sdd/<plan>/progress.md`) | `execution` | `qa` |
-| `report.md` (QA half written) | `qa` | `requesting-code-review` |
+| `report.md` (QA half written) | `qa` | `code-review` |
 | `review.md` (floor met) | `review` | `receiving-code-review` → `ship` |
 | Folder in `change-archive/`, retro sections empty | `reflect` | `reflect` |
 | Folder in `change-archive/`, retro sections filled | `complete` | none |

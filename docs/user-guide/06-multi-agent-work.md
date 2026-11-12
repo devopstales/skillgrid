@@ -26,7 +26,7 @@ Quality drops before the advertised window is full. Prefer more, smaller slices 
 | `simple-execution` | Small slice; inline without spawning |
 | `isolated-workspace` | Worktree isolation when branches would collide |
 | `code-research` | Parallel researcher subagents (researcher / verifier / red-team) |
-| `parallel-code-review` | 6 specialist reviewers in parallel, then triage / dedup / verdict |
+| `code-review` | topology-driven: 3-axis pass for small/low-risk, specialist fan-out (core five + conditional, red team last) for large/high-risk; then triage / dedup / verdict |
 
 ## Parallel dispatch rules
 

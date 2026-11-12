@@ -163,7 +163,7 @@ rules:
       verify: advisory-on-missing
       archive: intentional-partial
   review:
-    - Fire requesting-code-review on high-risk signals (400-line risk High, chained PRs, applicable threat row, last step before archive)
+    - Fire code-review on high-risk signals (400-line risk High, chained PRs, applicable threat row, last step before archive)
     - Run quality-security-review advisory after verify passes (vet/gofmt/trivy + checklist); WARNING/SUGGESTION only, never blocking
     - Receive all findings via review-reception (verify against codebase first, one item at a time, pushback with evidence)
   archive:

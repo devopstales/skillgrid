@@ -358,7 +358,7 @@ export function isNaCell(cell) {
   return /^n\/?a\b/i.test(String(cell).trim());
 }
 
-// --- review-ledger.md parsing (review-ledger/SKILL.md § Step 2 format) ---
+// --- review-ledger.md parsing (per _shared/craft/review-ledger.md) ---
 // Disposition enum. A finding's Disposition column must be one of these.
 export const REVIEW_DISPOSITIONS = new Set(["fixed", "parked", "waived"]);
 
@@ -432,7 +432,7 @@ export const NEXT_SKILL = {
   blueprint: "blueprint-validation",
   slicing: "slicing",
   execution: "qa",
-  qa: "requesting-code-review",
+  qa: "code-review",
   review: "receiving-code-review",
   reflect: "reflect",
   complete: null,

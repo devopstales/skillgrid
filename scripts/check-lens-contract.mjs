@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // check-lens-contract.mjs — machine-checkable completion contract for the
-// parallel-code-review specialist lenses.
+// code-review specialist lenses.
 //
 // "A rule asks; a hook guarantees." This is the guarantee for the review lens
-// output contract. Each lens in .agents/skills/parallel-code-review/reviewers/
+// output contract. Each lens in .agents/skills/code-review/reviewers/
 // promises a specific output shape (a JSON array with required keys, or a
 // structured block). If a lens's declared output drifts from what this script
 // expects, the check FAILS — a stale contract is a broken guarantee, the same
@@ -29,7 +29,7 @@
 // The CLI would wrap this exact logic (extract the per-lens expectation, grep the
 // lens file, compare) and add:
 //   - `--changed <ref>`: run `git diff --name-only <ref> HEAD -- .agents/skills/
-//     parallel-code-review/reviewers/` and check only the touched lenses, so a
+//     code-review/reviewers/` and check only the touched lenses, so a
 //     PR that doesn't touch a lens never fails on it.
 //   - machine-readable status on stdout (a JSON line per lens: name, expected,
 //     found, ok) so CI can render per-lens results and a future `--fail-on-warn`.
@@ -45,7 +45,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const LENSES = path.join(ROOT, ".agents/skills/parallel-code-review/reviewers");
+const LENSES = path.join(ROOT, ".agents/skills/code-review/reviewers");
 const jsonFlag = process.argv[2] === "--json";
 
 // LENS_CONTRACTS: one row per lens, "filename|kind|required-keys-or-pattern".
@@ -55,7 +55,7 @@ const jsonFlag = process.argv[2] === "--json";
 //                   field markers (grep for the literal marker string).
 // A lens file missing a required marker = DRIFT.
 const LENS_CONTRACTS = [
-  { fname: "security.md", kind: "json", spec: "location,issue,attack_or_exposure,fix" },
+  { fname: "security.md", kind: "block", spec: "Reporting Format,Location:,Path:,Impact:,Fix:,Confidence:,CWE-" },
   { fname: "accessibility.md", kind: "json", spec: "location,issue,who_it_blocks,fix" },
   { fname: "performance.md", kind: "json", spec: "location,issue,cost_and_scale,fix" },
   { fname: "edge-case-hunter.md", kind: "json", spec: "location,trigger_condition,guard_snippet,potential_consequence,kind" },

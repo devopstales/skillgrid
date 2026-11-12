@@ -10,7 +10,7 @@ The 28 skills under `.agents/skills/`. Do not duplicate a general capability as 
 | **Workflow stages** | Own a pipeline stage; write `.skillgrid/` artifacts | `onboarding`, `writing-blueprints`, `slicing`, `qa`, `ticketing` |
 | **Discovery** | Reduce ambiguity before locking a blueprint | `interviewing`, `brainstorming`, `prototype`, `sketch`, `research`, `code-research` |
 | **Execution** | Run the plan; commit; resume | `simple-execution`, `subagent-execution`, `parallel-execution`, `work-unit-commits`, `resume` |
-| **Quality** | Evidence-based verification and review | `test-driven-development`, `test-driven-verification`, `acceptance-test-authoring`, `requesting-code-review`, `receiving-code-review`, `parallel-code-review` |
+| **Quality** | Evidence-based verification and review | `test-driven-development`, `test-driven-verification`, `acceptance-test-authoring`, `code-review`, `receiving-code-review` |
 | **Cross-cutting** | Reusable across stages and outside SDD | `mnemonic`, `isolated-workspace`, `structured-debugging`, `architectural-decision-records`, `ponytail` |
 
 Priority: `using-skillgrid` → workflow stage → the general skills that stage loads.
@@ -60,9 +60,8 @@ Priority: `using-skillgrid` → workflow stage → the general skills that stage
 | `test-driven-development` | Iron-law TDD: no production code without a failing test first; red → green → refactor. |
 | `test-driven-verification` | The `#### Gates` contract: every requirement carries `G<n>` oracles (`CHECK:` + `EXPECT:`, `manual`, or `ABANDON` with reason); a gate is met only when freshly run. |
 | `acceptance-test-authoring` | Author BDD acceptance suites: Gherkin-in-Markdown `acceptance.feature`, cucumber-js runner, extraction contract, page-object model, zone rule. BDD is always on. |
-| `requesting-code-review` | Dispatch two parallel reviewer subagents on two separate axes — Standards (glossary/ADRs) and Spec (BDD scenarios) — then triage findings. |
+| `code-review` | Topology-driven review: dispatch parallel reviewer subagents — the 3-axis pass (Standards: glossary/ADRs, Spec: BDD scenarios, Security: OWASP 5-step) for small/low-risk diffs, the core-five fan-out + conditional specialists with red team last for large/high-risk — then triage / dedup / verdict. |
 | `receiving-code-review` | Handle review feedback with technical rigor (verify, push back, no performative agreement); own the triage → fix → validate loop (3-round cap). |
-| `parallel-code-review` | Heavy review: fan out 6 specialist reviewers (standards, spec, edge cases, verification gaps, security, red team) in parallel, then triage / dedup / verdict. |
 
 ## Close-out (ship → reflect)
 

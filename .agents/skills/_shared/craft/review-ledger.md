@@ -2,7 +2,7 @@
 
 Own the persistent review record. Record every review round's findings, dispositions, and fix-commit lineage in a per-change ledger file. The ledger is the audit trail: a shipped bug can be traced back to the review round that caught it (or missed it).
 
-The `review-ledger` skill is demoted to this reference (R41); the `skillgrid:review-ledger` invocation form no longer exists — the fixed points below *cite* this reference.
+The `review-ledger` skill is demoted to this reference (R41); the old invocation form no longer exists — the fixed points below *cite* this reference.
 
 **Core principle:** A finding without a disposition is open. An open finding without a resolving commit is debt. The ledger makes both visible.
 
@@ -30,7 +30,7 @@ Append a round entry to `.skillgrid/change-specs/<topic>/review-ledger.md`. Crea
 ## Round <N> — <YYYY-MM-DD>
 
 **Frozen candidate:** base <hash> → head <hash>, <N> files, hash <hash>
-**Reviewer:** <skillgrid:requesting-code-review | skillgrid:parallel-code-review>
+**Reviewer:** <code-review: 3-axis pass | core-five fan-out>
 **Independence grade:** <A | B | C>
 **Budget:** round <N>/<total> (tier T<n>)
 

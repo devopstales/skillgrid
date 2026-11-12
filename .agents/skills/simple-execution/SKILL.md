@@ -63,7 +63,7 @@ After all tasks are complete, run `skillgrid:qa`. It produces the test plan, goa
 ### Step 2.6: Request Review and Fix Findings
 
 After the QA gate passes:
-1. Request code review (follow `skillgrid:requesting-code-review`)
+1. Request code review (follow `skillgrid:code-review`)
 2. On findings: follow `skillgrid:receiving-code-review` (triage → fix →
    validate → log)
 3. Loop until review is clean or capped per `_shared/planning/rigor-tiers.md` (fix loop cap)

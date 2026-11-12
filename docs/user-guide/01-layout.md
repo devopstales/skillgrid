@@ -40,7 +40,7 @@ Each skill is a directory with a `SKILL.md` plus optional `references/`, `templa
 | **Workflow stages** | `onboarding`, `writing-blueprints`, `slicing`, `qa`, `ticketing` |
 | **Discovery** | `interviewing`, `brainstorming`, `research`, `code-research`, `prototype`, `sketch` |
 | **Execution** | `simple-execution`, `subagent-execution`, `parallel-execution`, `work-unit-commits`, `resume` |
-| **Quality** | `test-driven-development`, `test-driven-verification`, `acceptance-test-authoring`, `requesting-code-review`, `receiving-code-review`, `parallel-code-review` |
+| **Quality** | `test-driven-development`, `test-driven-verification`, `acceptance-test-authoring`, `code-review`, `receiving-code-review` |
 | **Cross-cutting** | `mnemonic`, `isolated-workspace`, `structured-debugging`, `architectural-decision-records`, `ponytail` |
 
 ## `hooks/`
@@ -139,7 +139,7 @@ Skillgrid itself is dependency-free — the hub is Go + bash + markdown. But ski
 
 - **Trivy is advisory-only** in the QA gate by default — findings are reported, not blocking, unless `security.trivy.fail_on` is set (see [QA gate](08-guiding-principles.md#qa-gate)).
 - **BDD is always on.** The `cucumber-js` runner (javascript stack) or the stack-equivalent BDD runner is needed to author and validate `acceptance.feature`; `bdd.enabled` is always true.
-- **Scanner skills are specialist.** They don't open a spec folder and run when the user or an active pipeline skill names them — `qa` and `requesting-code-review` may call a scanner during a delivery change.
+- **Scanner skills are specialist.** They don't open a spec folder and run when the user or an active pipeline skill names them — `qa` and `code-review` may call a scanner during a delivery change.
 - **Findings persist.** Scanner skills store results in Mnemonic (`scan_start` → `scan_store_findings`) so a finding's raw output and normalized records survive across sessions.
 - **No tool is vendored.** Each is installed on demand into the user/global scope (or project-local for the BDD runner), never committed into the hub.
 

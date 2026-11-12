@@ -20,7 +20,7 @@ For the step-by-step execution guide (which skill, subagent, MCP tool, file, and
 ```
 brainstorming → writing-blueprints → slicing → ticketing
   → execution (subagent-execution | simple-execution)
-  → qa → requesting-code-review → receiving-code-review
+  → qa → code-review → receiving-code-review
   → ship → reflect
 ```
 
@@ -40,9 +40,10 @@ brainstorming → writing-blueprints → slicing → ticketing
 - **qa** — the quality gate: test suite, verification-gap and
   TDD-evidence audits, OKF lint, four-state verdict
   (PASS / CONCERNS / FAIL / WAIVED).
-- **requesting-code-review** → **receiving-code-review** — the two-axis
-  review (spec compliance, then code quality) and the evidence-based
-  reception of findings; the review ledger records the round.
+- **code-review** → **receiving-code-review** — the topology-driven review
+  (3-axis pass at small/low-risk, specialist fan-out at large/high-risk) and
+  the evidence-based reception of findings; the review ledger
+  (`_shared/craft/review-ledger.md`) records the round.
 - **ship** — integrate to the base branch, then the mechanical folder
   move `specs/<topic>/` → `xarchive/<topic>/` (`git mv`, `diff -r`
   readback; content never passes through the model), then close the

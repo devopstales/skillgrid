@@ -70,7 +70,7 @@ flowchart TD
     apply --> accept["acceptance-test-authoring"]
 
     apply --> qa["qa (qa-report.md)"]
-    qa --> reqreview["requesting-code-review / parallel-code-review"]
+    qa --> reqreview["code-review"]
     reqreview --> reception["receiving-code-review"]
     reception --> ship["ship (integrate + archive move)"]
     ship --> reflect["reflect (report.md + session close)"]
@@ -120,7 +120,7 @@ Blueprint (`blueprint.md`), slices (`tasks.md`), glossary/ADRs, and the ticket s
 
 1. Agent runs TDD and traces to acceptance scenarios.
 2. Agent runs the `#### Gates` oracles (`test-driven-verification` / `gate-state.js --reverify`).
-3. Code review as needed (`requesting-code-review` / `parallel-code-review` / `receiving-code-review`).
+3. Code review as needed (`code-review` / `receiving-code-review`).
 4. Your QA or review findings become new slices → **apply** again.
 5. QA gate PASS/WAIVED, no open slices, human QA accepted or waived → **ticketing**.
 

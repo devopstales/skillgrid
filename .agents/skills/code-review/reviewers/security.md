@@ -1,5 +1,3 @@
-<!-- Merged (R40): requesting-code-review's full template wins — OWASP 5-step workflow, four-part triage rubric, report format; parallel-code-review's 70-line variant is discarded, its deltas subsumed by this workflow. -->
-
 # Security Reviewer Prompt Template
 
 Use this template for the **Security axis**. The 3-axis pass and the core-five
