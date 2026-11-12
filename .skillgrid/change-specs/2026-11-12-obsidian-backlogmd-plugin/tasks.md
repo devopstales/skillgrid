@@ -38,6 +38,7 @@ Chain strategy: pending
 
 ### TICKET-01 — Scaffold plugin project
 
+- **Tracker ID:** TASK-121
 - **Scope:** Create the TypeScript Obsidian plugin skeleton (package.json, tsconfig, esbuild, manifest, main.ts) with a build that produces main.js.
 - **Acceptance:** `npm install && npm run build` produces main.js with no type errors.
 - **SATISFIES:** (scaffolding — no scenario)
@@ -48,6 +49,7 @@ Chain strategy: pending
 
 ### TICKET-02 — Domain: Task model and pure rules
 
+- **Tracker ID:** TASK-122
 - **Scope:** Implement Task interface, isDone, isBlocked in src/domain with unit tests.
 - **Acceptance:** vitest passes; isBlocked true iff a dependency is not in a done status.
 - **SATISFIES:** task-model
@@ -58,6 +60,7 @@ Chain strategy: pending
 
 ### TICKET-03 — Infrastructure: frontmatter vault adapter (door check)
 
+- **Tracker ID:** TASK-123
 - **Scope:** Implement parseTask/serializeTask/updateFrontmatter with gray-matter; byte-stable round-trip test.
 - **Acceptance:** round-trip test passes (body byte-identical, only edited field changes). If not, stop and switch serializer.
 - **SATISFIES:** frontmatter-roundtrip
@@ -68,6 +71,7 @@ Chain strategy: pending
 
 ### TICKET-04 — Infrastructure: config loader + project discovery
 
+- **Tracker ID:** TASK-124
 - **Scope:** Implement ProjectConfig and discoverProjects honoring backlog_directory.
 - **Acceptance:** discovers folders with config; honors backlog_directory; merges/dedupes manual roots.
 - **SATISFIES:** project-discovery-from-scan, project-discovery-manual-root, project-discovery-dedupe, honors-backlog-directory
@@ -78,6 +82,7 @@ Chain strategy: pending
 
 ### TICKET-05 — Application: commands and queries
 
+- **Tracker ID:** TASK-125
 - **Scope:** Implement listTasks, moveTask, createTask, editTask, linkTasks over ports.
 - **Acceptance:** vitest passes for moveTask and linkTasks; commands delegate to ports.
 - **SATISFIES:** move-task, create-task, edit-task, link-tasks, bidirectional-link-add, bidirectional-link-remove, blocked-icon
@@ -88,6 +93,7 @@ Chain strategy: pending
 
 ### TICKET-06 — Composition root
 
+- **Tracker ID:** TASK-126
 - **Scope:** Wire layers in compose.ts; attach to plugin onload; register views/commands/settings.
 - **Acceptance:** build passes; plugin loads in Obsidian without errors.
 - **SATISFIES:** (wiring — no scenario)
@@ -98,6 +104,7 @@ Chain strategy: pending
 
 ### TICKET-07 — UI: Kanban board view
 
+- **Tracker ID:** TASK-127
 - **Scope:** Implement KanbanView with columns per status, cards, blocked icon, drag-and-drop calling moveTask.
 - **Acceptance:** board renders columns; drag updates status file and re-renders.
 - **SATISFIES:** kanban-columns-from-statuses, kanban-card-in-status-column, drag-move-updates-status, cmd-click-opens-note
@@ -108,6 +115,7 @@ Chain strategy: pending
 
 ### TICKET-08 — UI: Backlog list view
 
+- **Tracker ID:** TASK-128
 - **Scope:** Implement BacklogView with filter box and create button.
 - **Acceptance:** filtering narrows list live; clearing restores all.
 - **SATISFIES:** backlog-list-filter
@@ -118,6 +126,7 @@ Chain strategy: pending
 
 ### TICKET-09 — UI: Task create/edit modal
 
+- **Tracker ID:** TASK-129
 - **Scope:** Implement TaskModal with summary-required validation, dropdowns, type-ahead pickers, autosave.
 - **Acceptance:** create requires summary; edit persists; modal reports saved.
 - **SATISFIES:** create-task-requires-summary, create-task-writes-file, edit-task-autosave
@@ -128,6 +137,7 @@ Chain strategy: pending
 
 ### TICKET-10 — File watcher refresh
 
+- **Tracker ID:** TASK-130
 - **Scope:** Implement debounced file watcher triggering view re-render.
 - **Acceptance:** external edit refreshes board within 1s.
 - **SATISFIES:** watcher-refresh-on-external-edit
@@ -138,6 +148,7 @@ Chain strategy: pending
 
 ### TICKET-11 — Settings tab
 
+- **Tracker ID:** TASK-131
 - **Scope:** Implement declarative settings tab (roots, active project, workflow, repo link+token, render toggle).
 - **Acceptance:** settings persist in data.json; token in secret storage.
 - **SATISFIES:** settings-persist, token-in-secret-storage
@@ -148,6 +159,7 @@ Chain strategy: pending
 
 ### TICKET-12 — Milestones view
 
+- **Tracker ID:** TASK-132
 - **Scope:** Implement milestone grouping/filtering; load from milestones/.
 - **Acceptance:** tasks filter by milestone; milestones listed.
 - **SATISFIES:** milestone-filter, milestone-list-loads
@@ -158,6 +170,7 @@ Chain strategy: pending
 
 ### TICKET-13 — GitHub/GitLab pull
 
+- **Tracker ID:** TASK-133
 - **Scope:** Implement client + pullIssues command; descriptions code-blocked by default.
 - **Acceptance:** first pull creates tasks with source; second pull syncs title/assignee/state only.
 - **SATISFIES:** github-pull-creates-tasks, github-pull-syncs-without-overwrite, github-pull-descriptions-code-blocked
@@ -168,6 +181,7 @@ Chain strategy: pending
 
 ### TICKET-14 — Project switcher + note header button
 
+- **Tracker ID:** TASK-134
 - **Scope:** Implement project switcher dropdown and "Edit task" header button on notes.
 - **Acceptance:** switcher changes active project; header button opens edit modal.
 - **SATISFIES:** commands-registered, cmd-click-opens-note
