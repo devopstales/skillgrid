@@ -31,13 +31,11 @@
     "isolated-workspace": 8738,
     "mnemonic": 16144,
     "onboarding": 43260,
-    "parallel-code-review": 13172,
     "parallel-execution": 9677,
     "ponytail": 11019,
     "qa": 21413,
     "receiving-code-review": 10896,
     "reflect": 22604,
-    "requesting-code-review": 14090,
     "research": 11008,
     "resume": 13244,
     "ship": 17736,
@@ -93,6 +91,7 @@
     "environment-retro": 8545,
     "codebase-design": 6446,
     "playwright-cli": 15179,
-    "rule-distillation": 9217
+    "rule-distillation": 9217,
+    "code-review": 14090
   }
 }
