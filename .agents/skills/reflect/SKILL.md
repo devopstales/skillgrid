@@ -87,6 +87,10 @@ This hierarchy governs how the report **reports** facts. It does not weaken the 
 
 The acceptance verdict you produce is **recorded, not enforced**. A `rejected` verdict does **not** block the archive — it is recorded in the report and surfaced to the human, who decides whether a follow-up change is needed. Never block the cycle on the verdict alone.
 
+### Drift Check (advisory — never blocks)
+
+If the shipped change touched a spec'd design, run `qa`'s drift mode on this change's spec dir (per-change mode) to verify the code matches the design. Drift findings (if any) are noted in report.md's retro half; the retro never fails because of them. Cadence: suggested (per-ship, or the weekly gardener rotation), not enforced.
+
 If a hard gate fails, **STOP and return `blocked`** with the failing gate named. Do not write the report.
 
 ## What to Do
