@@ -63,7 +63,7 @@ Own the quality gate. Produce a test plan with layer selection, verify the goal 
 - When a human asks "is this actually done?"
 
 **When NOT to use:**
-- The change has a single small ticket with a single acceptance scenario — the spec reviewer in `skillgrid:requesting-code-review` already covers it
+- The change has a single small ticket with a single acceptance scenario — the spec reviewer in `skillgrid:code-review` (topology per tier / diff size per its SKILL.md) already covers it
 - You are mid-implementation (QA is a gate at the end, not a running check)
 
 ## The Process
@@ -101,6 +101,21 @@ Produce the **Test Plan** section of `.skillgrid/change-specs/<topic>/report.md`
 
 Audit procedure (goal-backward, verification-gap, traceability, TDD evidence, test quality, security, code quality, deterministic checks, scope, floor): [audit-procedure.md](references/audit-procedure.md).
 
+### Step 9.9: Surface review debt
+
+Per `_shared/craft/review-ledger.md` (§ Debt surfacing):
+
+When `skillgrid:qa` runs for a **new** change, it reads `review-ledger.md` files from **prior archived changes** (`.skillgrid/change-archive/*/review-ledger.md`) and surfaces any findings with disposition `parked`:
+
+```
+Review debt from prior changes:
+- R1-F002 (2026-09-15-auth-migration): parked — "needs DBA sign-off". Open.
+- R2-F001 (2026-09-20-api-rate-limit): parked — "deferred to Q4". Open.
+```
+
+This is **context, not a gate**. Open parked findings do not block the new change's QA verdict. They are surfaced so the human sees the accumulated debt and can decide to address it.
+
+If the new change's scope overlaps a parked finding's file, the QA report adds a WARNING: "This change modifies <file>, which has an open parked finding R<N>-F<NNN> from <change>. Verify the finding still applies or close it."
 
 ### Step 10: Render the Gate
 
@@ -115,7 +130,7 @@ Complete the QA half of `.skillgrid/change-specs/<topic>/report.md` (the Test Pl
 | **FAIL** | ANY of: a truth UNVERIFIED, a scenario with no covering test, a test that ran and failed, a MISSING_RED or STALE in the TDD Evidence table, a CRITICAL assertion-quality finding (tautology, ghost loop, assertion with no production code call), a regression gap with no covering test, a missing-oracle gap (a happy-path scenario with no `G<n>`), a CRITICAL security finding, a code-quality gate FAIL (whole-project coverage / changed-file coverage / mutation / lint / typecheck / P0 / P1 below threshold), a Trivy finding at or above `security.trivy.fail_on` severity (if `fail_on` is set), or a duplication % above `duplication.fail_on` (if `fail_on` > 0). |
 | **WAIVED** | The human explicitly waived a specific gate criterion. The waiver, the criterion, and the accepted risk are recorded in the report. WAIVED is never a machine decision. |
 
-**Decision debt (Assumed blueprints):** if `blueprint.md` carries `**Status: ASSUMED**`, the report records it as a **WARNING** — "assumed decision (blueprint <path>) owes ratification" — and names the ratify path (`skillgrid:writing-blueprints`, Ratify mode). It is never a CRITICAL and never affects the verdict: an assumption is a recorded, authorized decision, not a verification gap. The flag survives to the ship Return Envelope and the final `report.md`.
+**Decision debt (Assumed blueprints):** if `blueprint.md` carries `**Status: ASSUMED**`, the report records it as a **WARNING** — "assumed decision (blueprint <path>) owes ratification" — and names the ratify path (`skillgrid:writing-blueprints`, Ratify mode). A goldfish-parked CRITICAL finding, surfaced via the debt-surfacing step, is the second source of this decision-debt WARNING: the report records it naming the parked finding and its path. It is never a CRITICAL and never affects the verdict: an assumption is a recorded, authorized decision, not a verification gap. The flag survives to the ship Return Envelope and the final `report.md`.
 
 **Hard rules:**
 1. A human decision always overrides the machine verdict.
@@ -147,11 +162,11 @@ Present the gate verdict and the finding counts.
 
 **Update `state.yaml`:** set `changes.<topic>.phase: qa`.
 
-Then route. The tail after this gate is in `_shared/rules/sdd-structure.md`. This skill's next step is `requesting-code-review`.
+Then route. The tail after this gate is in `_shared/rules/sdd-structure.md`. This skill's next step is `code-review`.
 
 | Gate | Next Action |
 |------|-------------|
-| PASS | Proceed to `skillgrid:requesting-code-review` (or `skillgrid:parallel-code-review` at the review escalation threshold, per `_shared/planning/rigor-tiers.md`). Update ticket status → `review`. |
+| PASS | Proceed to `skillgrid:code-review` (topology per tier / diff size per its SKILL.md; the review escalation threshold lives in `_shared/planning/rigor-tiers.md`). Update ticket status → `review`. |
 | CONCERNS | List open items. For each: fix now / defer (to ticket) / human look. Fix the in-scope set with tests, re-run Steps 3-9 for the fixed items (re-verification mode: full check on failed, regression-only on passed). Re-render the gate. |
 | FAIL | List CRITICAL findings and failed gates. Fix each with a failing test first (TDD). Re-run Steps 3-9. Re-render the gate. Cap per `_shared/planning/rigor-tiers.md` (fix loop cap) — then escalate to human. |
 | WAIVED | Record the waiver. Proceed to review. |
