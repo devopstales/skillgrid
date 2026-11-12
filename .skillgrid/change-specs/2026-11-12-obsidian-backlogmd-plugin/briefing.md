@@ -50,9 +50,13 @@ the CLI, and the plugin all agree on the same Markdown source of truth.
 
 1. **R1 — Project discovery (scan + manual root).**
    - **Current:** no Obsidian plugin exists.
-   - **Target:** on load, scan the vault for folders containing
-     `.backlog/config.yml` and register each as a project; settings tab also
-     accepts manual root folders, merged and deduped with scanned ones.
+   - **Target:** on load, scan the vault for folders containing a backlog
+     config (`config.yml` inside the configured backlog directory, default
+     `.backlog/`) and register each as a project; settings tab also accepts
+     manual root folders and a per-project `backlog_directory` override,
+     merged and deduped with scanned ones. Backlog.md supports relocating the
+     backlog folder via `backlog config set backlog_directory <path>`; the
+     plugin honors that setting when present.
    - **Acceptance:** a folder with `config.yml` appears in the switcher after
      scan; a manually added root's subfolders appear too; duplicates collapse.
 
@@ -153,6 +157,14 @@ the CLI, and the plugin all agree on the same Markdown source of truth.
   `updated_date`, `dependencies`, `references`, `documentation`,
   `parent_task_id`) + markdown body as description. Project config in
   `.backlog/config.yml` (statuses, types, priorities, labels, defaults).
+- Backlog.md supports relocating the backlog folder via
+  `backlog config set backlog_directory <path>` (see ADVANCED-CONFIG.md).
+  **Proposal:** skillgrid adopts `.skillgrid/projectwiki/backlog` as the
+  canonical backlog location (`backlog config set backlog_directory
+  .skillgrid/projectwiki/backlog`) so task notes live inside the project wiki
+  vault — committed, indexable by the projectwiki engine, and agent-readable
+  alongside decisions/ADRs. The plugin must honor a configured
+  `backlog_directory` rather than hard-coding `.backlog/`.
 - BoardMD (reference implementation) provides the UX/layering template:
   `src/domain` (pure rules), `src/application` (commands/queries over ports),
   `src/infrastructure` (vault, frontmatter, agent files, GitHub/GitLab),
@@ -166,6 +178,12 @@ the CLI, and the plugin all agree on the same Markdown source of truth.
 - **No generated files.** The plugin does not write `index.json` or `AGENTS.md`;
   the backlog CLI owns those. The plugin is a renderer + editor only, avoiding
   conflicts with the CLI.
+- **Backlog directory location.** Proposed (not yet decided): relocate this
+  repo's own backlog to `.skillgrid/projectwiki/backlog` via
+  `backlog config set backlog_directory .skillgrid/projectwiki/backlog`, so
+  tasks become part of the committed project wiki vault. The plugin must
+  resolve the backlog dir from config rather than assuming `.backlog/`. Final
+  decision deferred to the Owed-Decision Gate / blueprint.
 - **Frontmatter is the source of truth.** All mutations rewrite the task note's
   frontmatter; body preserved.
 - **Bidirectional links are maintained by the plugin** on edit (both sides
