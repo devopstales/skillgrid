@@ -71,7 +71,7 @@ Every child task lists its milestone and blocking relations in its file.
 
 ## Task File Template
 
-Location: `.backlog/tasks/<ID>.md` (ID assigned by the `backlog` CLI). Prefer `backlog task create` / `edit`; use this shape for verification and filesystem fallback.
+Location: `<backlog_directory>/tasks/<ID>.md` (ID assigned by the `backlog` CLI). Prefer `backlog task create` / `edit`; use this shape for verification and filesystem fallback.
 
 ```markdown
 ---
@@ -239,11 +239,11 @@ backlog task edit TASK-N --dep TASK-M   # blocking
 backlog task view TASK-N --plain        # verify required fields
 ```
 
-If the project has templates in config, pass `--template <name>`. On CLI crash, write the **complete** template above under `.backlog/tasks/` (filesystem fallback) — still with type / references / DoD / plan.
+If the project has templates in config, pass `--template <name>`. On CLI crash, write the **complete** template above under `<backlog_directory>/tasks/` (filesystem fallback) — still with type / references / DoD / plan.
 
 ## File placement rules
 
-Active tasks live at `.backlog/tasks/<ID>.md`; on completion move (or copy) to `.backlog/completed/<ID>.md`; archive at `.backlog/archive/<ID>.md`. Prefer the CLI so IDs and metadata stay consistent. Filesystem fallback is allowed only when the CLI is broken, and must still satisfy the required-field gate.
+Active tasks live at `<backlog_directory>/tasks/<ID>.md`; on completion move (or copy) to `<backlog_directory>/completed/<ID>.md`; archive at `<backlog_directory>/archive/<ID>.md`. Prefer the CLI so IDs and metadata stay consistent. Filesystem fallback is allowed only when the CLI is broken, and must still satisfy the required-field gate.
 
 ## Markdown rendering notes
 

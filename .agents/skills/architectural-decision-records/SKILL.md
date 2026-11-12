@@ -225,7 +225,7 @@ Process (run at the end of the interview, before the blueprint is written):
 - The terms file is absorbing implementation details, specs, or scratch — it's becoming a running spec.
 - ADR sequence numbers are reused or out of monotonic order.
 - An ADR body was pasted into `ASSUMPTIONS.md`. The table stores the path.
-- An ADR file has no matching `.backlog/decisions/decision-NNN` copy when `ticketing.type` is `backlogmd`.
+- An ADR file has no matching `<backlog_directory>/decisions/decision-NNN` copy when `ticketing.type` is `backlogmd`.
 
 ## Backlog.md copy
 
@@ -238,7 +238,7 @@ number (`ADR-0024` → `decision-024`). Do **not** use `backlog decision create`
 for these copies: it assigns the next free id and the pair drifts.
 
 ```
-.backlog/decisions/decision-NNN - ADR-NNNN-slug.md
+<backlog_directory>/decisions/decision-NNN - ADR-NNNN-slug.md
 ```
 
 `NNN` is the ADR number zero-padded to the project's `zero_padded_ids` (this
@@ -270,7 +270,7 @@ Rules:
 ## Verification
 
 - [ ] Every new ADR exists as `.skillgrid/projectwiki/decisions/04-adr-NNNN-slug.md` with a monotonic 4-digit number and frontmatter (`status`, `date`, `supersedes`).
-- [ ] When `ticketing.type` is `backlogmd`, `.backlog/decisions/decision-NNN - ADR-NNNN-slug.md` exists, lists the Source path, and carries the same status as the artifact.
+- [ ] When `ticketing.type` is `backlogmd`, `<backlog_directory>/decisions/decision-NNN - ADR-NNNN-slug.md` exists, lists the Source path, and carries the same status as the artifact.
 - [ ] Every new or superseding ADR has a matching pointer row in the `## LOCKED` ADR index, and the "Highest sequence in use" line is updated.
 - [ ] Every new ADR carries `status: accepted` (or `proposed`) and, when replacing a prior decision, a `supersedes` that resolves to a real file.
 - [ ] No accepted ADR file was mutated: `git diff` shows a new file and a new table row, no edits to previously accepted files.

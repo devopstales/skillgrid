@@ -156,7 +156,7 @@ Triage role vocabulary: [references/triage-labels.md](references/triage-labels.m
 
 Run read-only checks first, per the tracker's CLI reference. Stop and ask if any check fails — never continue from failed discovery into publication.
 
-- **Auth**: `gh auth status` / `glab auth status` / `jira config` / `backlog status` / `hermes --version` (Hermes Kanban: the `hermes` binary on PATH; the board and assignee resolve from `ticketing.kanban.*`, and a missing board is created — creation failure is non-fatal, see [hermes-kanban.md](.agents/skills/_shared/rules/ticketing/hermes-kanban.md)).
+- **Auth**: `gh auth status` / `glab auth status` / `jira config` / `backlog overview` / `hermes --version` (Hermes Kanban: the `hermes` binary on PATH; the board and assignee resolve from `ticketing.kanban.*`, and a missing board is created — creation failure is non-fatal, see [hermes-kanban.md](.agents/skills/_shared/rules/ticketing/hermes-kanban.md)).
 - **Repo/instance**: resolve from `git remote -v` or the tracker's config.
 - **Policy**: `CONTRIBUTING.md`, `.github/ISSUE_TEMPLATE/` (GitHub), issue templates (GitLab), project config (Jira), `backlog.config.yml` (Backlog).
 - **Labels**: only apply labels that exist and that repository policy permits. Jira: `jira issue list` + `jira project`. GitHub: `gh api "repos/$REPO/labels"`. GitLab: `glab api "projects/:id/labels"`. Backlog: `backlog.config.yml`.
@@ -177,7 +177,7 @@ Also require Description (Current/Expected), Acceptance Criteria, and `priority:
 
 **SDD tickets:** seed References to `briefing.md` / `tasks.md` / `acceptance.feature`; seed Plan from the blueprint steps; seed DoD from project defaults + change-level DoD. Thin one-line description stubs are **forbidden**. After create, write the ID into `tasks.md` **Tracker ID**. Later phases (execution / review) **must** run the [Ticket Lifecycle](#ticket-lifecycle) — creation without progress/close-out is incomplete.
 
-**CLI crash:** filesystem fallback under `.backlog/tasks/` is allowed only if it still satisfies this gate (see `.agents/skills/_shared/rules/ticketing/backlogmd.md`).
+**CLI crash:** filesystem fallback under `<backlog_directory>/tasks/` is allowed only if it still satisfies this gate (see `.agents/skills/_shared/rules/ticketing/backlogmd.md`).
 
 Read `.agents/skills/_shared/rules/ticketing/backlogmd.md` before every Backlog create.
 

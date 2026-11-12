@@ -17,7 +17,7 @@ ticketing:
   #   board: {project}        # Hermes Kanban board slug (defaults to the project name)
   #   assignee: default       # Hermes profile that executes the tickets
   backlogmd:
-    dir: .backlog
+    dir: .skillgrid/projectwiki/backlog
     task_prefix: "task"
     zero_padded_ids: 3
   gh:

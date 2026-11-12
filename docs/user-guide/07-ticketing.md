@@ -19,7 +19,7 @@ The skill runs a status machine: `backlog → ready → in-progress → review �
 ## Backlog.md (default)
 
 ```bash
-backlog init "<name>" --integration-mode cli --backlog-dir .backlog ...
+backlog init "<name>" --integration-mode cli --backlog-dir .skillgrid/projectwiki/backlog --config-location root ...
 backlog task list --plain
 backlog task view TASK-123 --plain
 ```

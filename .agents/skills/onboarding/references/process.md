@@ -267,7 +267,7 @@ If the user corrects anything, use their value. If they say "looks good" or "yes
 - Do NOT gitignore `.skillgrid/config.yaml`, `.skillgrid/meta/state.yaml`, `.skillgrid/change-specs/`, or the `.skillgrid/` knowledge bundle (committed artifacts)
 
 **6. Tracker bootstrap (if `ticketing.enabled: true`):**
-- If `ticketing.type: backlogmd`: run `backlog init "<project>" --integration-mode cli --backlog-dir .skillgrid/projectwiki/backlog --config-location root --zero-padded-ids 3`, verify with `backlog status`. (The backlog directory lives under the project wiki vault per the skillgrid convention; override with `backlog config set backlog_directory <path>` if needed.) Copy each existing `.skillgrid/projectwiki/decisions/04-adr-NNNN-slug.md` into `<backlog_directory>/decisions/` (shape in `skillgrid:architectural-decision-records` → Backlog.md copy).
+- If `ticketing.type: backlogmd`: run `backlog init "<project>" --integration-mode cli --backlog-dir .skillgrid/projectwiki/backlog --config-location root --zero-padded-ids 3`, verify with `backlog overview`. (The backlog directory lives under the project wiki vault per the skillgrid convention; override with `backlog config set backlog_directory <path>` if needed.) Copy each existing `.skillgrid/projectwiki/decisions/04-adr-NNNN-slug.md` into `<backlog_directory>/decisions/` (shape in `skillgrid:architectural-decision-records` → Backlog.md copy).
 - If `ticketing.type: gh`: verify `gh` CLI is available (`gh --version`)
 - If `ticketing.type: glab`: verify `glab` CLI is available (`glab --version`)
 - If `ticketing.type: jira`: verify `jira` CLI is available (`jira config`)

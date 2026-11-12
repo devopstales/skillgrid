@@ -108,7 +108,7 @@ State: `.skillgrid/meta/state.yaml` (dynamic) — where the project is right now
 
 ### Issue Tracker
 
-Backlog.md — tasks in `.skillgrid/tasks/`, tracked via the `backlog` MCP tools.
+Backlog.md — reference `.agents/skills/_shared/rules/ticketing/` (backlogmd, github, gitlab, jira CLI + formatting standards) for ticketing conventions. Tasks live under `<backlog_directory>` (root `backlog.config.yml` field `backlog_directory`; this repo: `.skillgrid/projectwiki/backlog/`), managed via the `backlog` CLI.
 
 ### Memory
 

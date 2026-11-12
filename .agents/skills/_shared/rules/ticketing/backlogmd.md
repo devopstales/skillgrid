@@ -39,12 +39,12 @@ List windows (`--max-count`, `--skip`), `--json`, and `backlog task list --json 
 
 ## Conventions
 
-- One file per ticket: `.backlog/tasks/<ID>.md`, ID assigned by the backlog CLI.
-- Triage state is a `Status:` line near the top of each file; labels live in `backlog.config.yml` / `.backlog/config.yml`.
+- One file per ticket: `<backlog_directory>/tasks/<ID>.md`, ID assigned by the backlog CLI.
+- Triage state is a `Status:` line near the top of each file; labels live in the root-level `backlog.config.yml`.
 - Triage roles: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix` — keep in sync with [triage-labels.md](../../../ticketing/references/triage-labels.md).
 - Comments and conversation append to the bottom under a `## Comments` heading.
-- Completed work moves to `.backlog/completed/`, archive material to `.backlog/archive/`.
-- ADR copies live under `.backlog/decisions/decision-NNN - ADR-NNNN-slug.md`. The Skillgrid artifact is the record (ADR-0019); write the copy in the same edit as the artifact. See `skillgrid:architectural-decision-records` → Backlog.md copy.
+- Completed work moves to `<backlog_directory>/completed/`, archive material to `<backlog_directory>/archive/`.
+- ADR copies live under `<backlog_directory>/decisions/decision-NNN - ADR-NNNN-slug.md`. The Skillgrid artifact is the record (ADR-0019); write the copy in the same edit as the artifact. See `skillgrid:architectural-decision-records` → Backlog.md copy.
 
 ## Required fields (non-negotiable)
 
@@ -86,7 +86,7 @@ backlog task create '[FEATURE] Brief description (mnemonic)' \
   --plan $'1. Follow briefing.md blueprint\n2. Drive from tasks.md + acceptance.feature\n3. Verify tests on touched packages'
 ```
 
-Prefer the CLI. Direct edits of task, draft, document, decision, or milestone files are not the normal path. Configure project defaults once in `.backlog/config.yml`:
+Prefer the CLI. Direct edits of task, draft, document, decision, or milestone files are not the normal path. Configure project defaults once in the root-level `backlog.config.yml`:
 
 ```yaml
 types: ["feature", "bug", "enhancement", "refactor", "docs", "chore"]
@@ -100,15 +100,15 @@ definition_of_done:
 
 ### Filesystem fallback (CLI crash / SIGILL)
 
-This is the only exception to the no-direct-edit rule. If `backlog` SIGILL/segfaults (known Bun arch mismatch), write the task file under `.backlog/tasks/` matching [backlogmd-formatting.md](backlogmd-formatting.md) **complete** template — still with `type`, `references`, DoD markers, and Implementation Plan. Note the fallback in `## Comments`. Never use fallback as an excuse to omit required fields.
+This is the only exception to the no-direct-edit rule. If `backlog` SIGILL/segfaults (known Bun arch mismatch), write the task file under `<backlog_directory>/tasks/` matching [backlogmd-formatting.md](backlogmd-formatting.md) **complete** template — still with `type`, `references`, DoD markers, and Implementation Plan. Note the fallback in `## Comments`. Never use fallback as an excuse to omit required fields.
 
 ## When a skill says "publish to the issue tracker"
 
-Create a ticket with the `backlog` CLI; the file lands in `.backlog/tasks/`. Run the **post-create verification** above before claiming done.
+Create a ticket with the `backlog` CLI; the file lands in `<backlog_directory>/tasks/`. Run the **post-create verification** above before claiming done.
 
 ## When a skill says "fetch the relevant ticket"
 
-Run `backlog task view <ID> --plain`. Duplicate-search first with `backlog search "<keyword>" --plain` before creating a new ticket. Reading `.backlog/tasks/<ID>.md` is only for understanding a task the CLI already wrote.
+Run `backlog task view <ID> --plain`. Duplicate-search first with `backlog search "<keyword>" --plain` before creating a new ticket. Reading `<backlog_directory>/tasks/<ID>.md` is only for understanding a task the CLI already wrote.
 
 ## Ticketing mapping
 
