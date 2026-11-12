@@ -4,7 +4,7 @@ description: Operate the project's project wiki engine (vault, index, query, val
 license: MIT
 metadata:
   author: devopstales
-  version: "1.3"
+  version: "1.4"
   part-of: skillgrid
   based_on: openwiki:mermaid-diagrams + pi-llm-wiki:llm-wiki + repocodex-agent-playbook
 ---
@@ -110,7 +110,7 @@ sources:                               # provenance: scalar citations or mapping
     source_url: <url>
     source_commit: <sha>
     build_fingerprint: <token>
-anchors: [{ path, all_of | line+version | symbol }]  # when pinning live text
+anchors: [{ path, all_of | line+version | symbol }]  # pin live text — strongest tier that fits (CLAIMS.md)
 claims: [{ subject, literal, path? }]                # REQUIRED for InvariantContract
 ---
 ```
@@ -122,7 +122,12 @@ Body is the why in structural Markdown (headings, lists, tables). Prefer stable 
 ## Pin contract
 
 - One claim = one falsifiable truth with a checkable literal in the owning anchor's matched region.
+- **Pin at the strongest tier the claim allows** (tiers + token minting in `CLAIMS.md`):
+  - `line` + `version` **span token** — the default for *behavioral* claims (logic that can change while every literal stays). The token is the span's content hash plus relocation context, so the pin-check distinguishes **moved** (ok — line drift costs nothing) from **changed** (stale — the live value is reported) from **ambiguous** (unresolved — fail closed).
+  - `symbol` — for API-surface claims (resolved through the code graph; the check is `degraded: true` when the graph is absent).
+  - `all_of` tokens — only for stable, low-churn anchors: config keys, table/column names, error strings, flag names. An edit that keeps the literal passes, so an `all_of`-only page is a `weak_pin` until the behavior is covered by a span or symbol anchor.
 - `projectwiki validate` resolves fresh/stale/unresolved before you rely on a grounded page.
+- **Re-attest sparsely.** The stale report names the exact checks that moved; re-verify only those (confirm / revise-same-subject / retract) and carry every ok claim forward untouched. A stale span is re-pinned only after re-reading the live code — the token is the attestation, not a pointer the engine rewrites.
 - **A broken claim is either a why-change (revise the concept) or drift (re-anchor) — never skip it.**
 - Freshness is attestation, not TTL: a concept is stale when its anchors break, not N days after writing.
 
@@ -162,6 +167,7 @@ Diagrams are part of high-quality generation, not decoration. Where a flow, life
 | "Small finding, not worth a page" | Small non-obvious findings are exactly what fresh sessions can't re-derive. If it surprised you, file it. |
 | "I'll just fix the old ADR to match" | IRON RULE: accepted ADRs are frozen history. New file, `supersedes`, flip the row. |
 | "A diagram would be nice" | A diagram is a claim. Ground it in inspected source, caption it, or leave it out. |
+| "The literal is still there — the pin holds" | `all_of` catches disappearance, not behavior: a refactor that keeps the token passes silently. Behavioral claims get span tokens, where moved, changed, and ambiguous are different results. |
 
 ## Red Flags
 
@@ -172,6 +178,7 @@ Diagrams are part of high-quality generation, not decoration. Where a flow, life
 - `lint` prints `clean` while you expect findings — confirm you are running the current build, not a stale installed binary.
 - An accepted ADR file edited in place; a new `decisions/` file with no LOCKED row.
 - An `InvariantContract` with no `claims[]`, or a claim literal no longer in its anchor region.
+- A behavioral claim pinned with `all_of` tokens only (`weak_pin`) — the literals survive the refactor that changes the behavior.
 - Recall re-read whole directories instead of index → query → open.
 - Hand-edited `index/`, FTS, or `config.json` to "fix" search.
 - A mermaid fence that fails to parse, or a diagram with invented participants.
@@ -229,5 +236,5 @@ Writes (`projectwiki_generate`, `projectwiki_cite_source`) assert ownership via 
 - [ ] Every new/changed concept lives under its type folder with valid frontmatter (`type`, `status`, `claims[]` on invariants) and **2+ outgoing wikilinks** (an ADR: a `## Related` block).
 - [ ] `projectwiki index` was run after all page writes; `status --json` reports `stale: 0`, and the orphan count did not grow (or grew with a deliberate reason).
 - [ ] No accepted ADR mutated; no ADR numbers minted outside the ADR skill.
-- [ ] `projectwiki index` → `projectwiki validate` → `projectwiki lint` after the change: no new findings, `--strict` green, `validate` no drift.
+- [ ] `projectwiki index` → `projectwiki validate` → `projectwiki lint` after the change: no new findings, `--strict` green, `validate` no drift — stale checks re-attested sparsely (confirm / revise-same-subject / retract), ok checks carried forward untouched.
 - [ ] Every external claim has `sources[]` + a stable citation id.
