@@ -1,10 +1,10 @@
 ---
 id: TASK-116.11
 title: 'TICKET-11: review-ledger demoted to _shared/craft reference (D3)'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-12 09:16'
-updated_date: '2026-11-12 09:29'
+updated_date: '2026-11-12 09:47'
 labels: []
 dependencies: []
 references:

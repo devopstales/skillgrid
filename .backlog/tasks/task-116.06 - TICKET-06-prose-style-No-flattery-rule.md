@@ -1,10 +1,10 @@
 ---
 id: TASK-116.06
 title: 'TICKET-06: prose-style No-flattery rule'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-12 09:16'
-updated_date: '2026-11-12 09:29'
+updated_date: '2026-11-12 09:47'
 labels: []
 dependencies:
   - TASK-116.03

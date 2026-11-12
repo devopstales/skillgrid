@@ -3,10 +3,10 @@ id: TASK-116.03
 title: >-
   TICKET-03: shared review-discipline.md (anti-sycophancy + banned vocabulary
   single home)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-12 09:15'
-updated_date: '2026-11-12 09:29'
+updated_date: '2026-11-12 09:47'
 labels: []
 dependencies: []
 references:
