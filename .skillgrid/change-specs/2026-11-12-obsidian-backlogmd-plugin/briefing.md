@@ -50,13 +50,15 @@ the CLI, and the plugin all agree on the same Markdown source of truth.
 
 1. **R1 — Project discovery (scan + manual root).**
    - **Current:** no Obsidian plugin exists.
-   - **Target:** on load, scan the vault for folders containing a backlog
-     config (`config.yml` inside the configured backlog directory, default
-     `.backlog/`) and register each as a project; settings tab also accepts
-     manual root folders and a per-project `backlog_directory` override,
-     merged and deduped with scanned ones. Backlog.md supports relocating the
-     backlog folder via `backlog config set backlog_directory <path>`; the
-     plugin honors that setting when present.
+   - **Target:** on load, scan the vault for a root-level `backlog.config.yml`
+     (the backlog.md advanced-config file) and register its project. The
+     config carries `backlog_directory` (default `.backlog/`); when set to
+     e.g. `.skillgrid/projectwiki/backlog`, all task/milestone/draft/archive/
+     completed/decision/doc folders live under that path (see the directory
+     layout below). The plugin resolves the backlog directory from the config
+     rather than hard-coding `.backlog/`. Settings tab also accepts manual
+     root folders and a per-project `backlog_directory` override, merged and
+     deduped with scanned ones.
    - **Acceptance:** a folder with `config.yml` appears in the switcher after
      scan; a manually added root's subfolders appear too; duplicates collapse.
 
@@ -155,8 +157,27 @@ the CLI, and the plugin all agree on the same Markdown source of truth.
 - Backlog.md task format: YAML frontmatter (`id`, `title`, `status`, `type`,
   `priority`, `labels`, `assignee`, `milestone`/`sprint`, `created_date`,
   `updated_date`, `dependencies`, `references`, `documentation`,
-  `parent_task_id`) + markdown body as description. Project config in
-  `.backlog/config.yml` (statuses, types, priorities, labels, defaults).
+  `parent_task_id`) + markdown body as description.
+- Backlog.md advanced config: a root-level `backlog.config.yml` (v1.53+)
+  with `backlog_directory` (default `.backlog/`). When relocated, the layout
+  becomes:
+  ```
+  <repo-root>/
+  ├── backlog.config.yml          # root config (backlog_directory points below)
+  ├── AGENTS.md                   # backlog.md agent guidelines block
+  └── .skillgrid/projectwiki/backlog/
+      ├── tasks/                  # active tasks
+      ├── completed/              # finished tasks
+      ├── drafts/                 # draft tasks
+      ├── milestones/             # milestone notes
+      ├── decisions/              # backlog decisions
+      ├── docs/                   # backlog docs
+      └── archive/                # archived (drafts/milestones/tasks)
+  ```
+  **Proposal (skillgrid convention):** adopt
+  `backlog_directory: ".skillgrid/projectwiki/backlog"` so task notes live
+  inside the committed project wiki vault — indexable by the projectwiki
+  engine and agent-readable alongside decisions/ADRs.
 - Backlog.md supports relocating the backlog folder via
   `backlog config set backlog_directory <path>` (see ADVANCED-CONFIG.md).
   **Proposal:** skillgrid adopts `.skillgrid/projectwiki/backlog` as the
@@ -182,8 +203,9 @@ the CLI, and the plugin all agree on the same Markdown source of truth.
   repo's own backlog to `.skillgrid/projectwiki/backlog` via
   `backlog config set backlog_directory .skillgrid/projectwiki/backlog`, so
   tasks become part of the committed project wiki vault. The plugin must
-  resolve the backlog dir from config rather than assuming `.backlog/`. Final
-  decision deferred to the Owed-Decision Gate / blueprint.
+  resolve the backlog dir from the root-level `backlog.config.yml`
+  (`backlog_directory`) rather than assuming `.backlog/`. Final decision
+  deferred to the Owed-Decision Gate / blueprint.
 - **Frontmatter is the source of truth.** All mutations rewrite the task note's
   frontmatter; body preserved.
 - **Bidirectional links are maintained by the plugin** on edit (both sides
