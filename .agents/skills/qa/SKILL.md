@@ -173,6 +173,18 @@ Then route. The tail after this gate is in `_shared/rules/sdd-structure.md`. Thi
 
 **Fix loop cap:** per `_shared/planning/rigor-tiers.md` (fix loop cap). If the gate is still FAIL after the cap of fixes, stop and escalate. The finding is likely not a test gap — it's an architectural or scope problem that needs a human decision.
 
+## Drift mode (advisory)
+
+An advisory, user-invoked mode — a periodic ritual, **not** a gate and **not** a phase in `_shared/rules/sdd-structure.md` (R26). It renders a drift report, never the four-state verdict.
+
+1. **Invocation** — drift mode on a spec dir (per-change), or project-wide with no target (scans all `.skillgrid/change-specs/`).
+2. **Intake** — per-change reads `briefing.md` / `blueprint.md` / `adr.md` / `acceptance.feature`; project-wide adds `AGENTS.md` + in-force ADRs + projectwiki pages (detail in `references/drift-report.md`, not here).
+3. **The 4 categories** — Missing Features / Incomplete Models / Logic Shortcuts / Architectural Divergence (one line each; definitions in `references/divergence-categories.md`).
+4. **Sequential processing** — spec dirs one at a time, source-grounded.
+5. **Artifact** — per-change `drift-report.md` in the spec dir (R31 format, `references/drift-report.md`); project-wide `.skillgrid/drift-report-{YYYY-MM-DD}.md`.
+6. **Not a gate** — it renders a drift report, never the four-state verdict; findings reuse the Goldfish resolution workflow (R33).
+7. **Pointer** — full workflow in `references/drift-report.md`; `references/divergence-categories.md`; `references/reconciliation.md` (two-way reconciliation — the user decides the path per finding).
+
 ## How to measure it
 
 Per `_shared/craft/measurement.md`.
