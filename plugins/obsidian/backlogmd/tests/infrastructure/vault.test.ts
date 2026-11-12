@@ -32,4 +32,25 @@ describe("vault adapter", () => {
     expect(p2.task.status).toBe("In Progress");
     expect(p2.body.trim()).toBe("Body line 1\nBody line 2");
   });
+
+  it("parse preserves ordinal and serialize round-trips it", () => {
+    const withOrdinal = `---
+id: TASK-1
+title: "Hello"
+status: "To Do"
+ordinal: 1000
+---
+Body
+`;
+    const p = parseTask("x.md", withOrdinal);
+    expect(p.task.ordinal).toBe(1000);
+    const out = serializeTask(p.task, p.body);
+    expect(parseTask("x.md", out).task.ordinal).toBe(1000);
+    expect(out).toContain("ordinal: 1000");
+  });
+
+  it("parse leaves ordinal undefined when absent", () => {
+    const p = parseTask("x.md", SAMPLE);
+    expect(p.task.ordinal).toBeUndefined();
+  });
 });

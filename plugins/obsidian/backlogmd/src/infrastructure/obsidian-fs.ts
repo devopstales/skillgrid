@@ -1,5 +1,11 @@
-import { App, TFile, TFolder } from "obsidian";
+import { App, DataAdapter, TFile, TFolder } from "obsidian";
 import { FileSystemPort } from "../application/ports";
+import { walkUpForFile } from "./config";
+import fs from "fs";
+
+interface BasePathAdapter extends DataAdapter {
+  getBasePath(): string;
+}
 
 export class ObsidianFileSystem implements FileSystemPort {
   constructor(private app: App) {}
@@ -45,5 +51,29 @@ export class ObsidianFileSystem implements FileSystemPort {
 
   getVaultRoot(): string {
     return "";
+  }
+
+  // Desktop only: FileSystemAdapter exposes getBasePath; the mobile adapter
+  // does not (methods that need it throw/return null, discovery falls back
+  // to in-vault roots).
+  private basePath(): string | null {
+    const a = this.app.vault.adapter as BasePathAdapter;
+    return typeof a.getBasePath === "function" ? a.getBasePath() : null;
+  }
+
+  async getVaultRootAbs(): Promise<string> {
+    const b = this.basePath();
+    if (b === null) throw new Error("adapter has no getBasePath");
+    return b;
+  }
+
+  async findAncestorProjectRoot(maxDepth = 5): Promise<string | null> {
+    const b = this.basePath();
+    if (b === null) return null;
+    return walkUpForFile(b, "backlog.config.yml", maxDepth, (p) => fs.existsSync(p));
+  }
+
+  async readTextAbs(absPath: string): Promise<string> {
+    return fs.promises.readFile(absPath, "utf8");
   }
 }

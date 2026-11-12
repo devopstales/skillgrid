@@ -1,10 +1,15 @@
-import { PluginContext } from "../compose";
+import { ProjectConfig } from "../application/ports";
 
-export function renderProjectSwitcher(container: HTMLElement, ctx: PluginContext, onChange: (i: number) => void): void {
-  const sel = container.createEl("select");
-  ctx.projects.forEach((p, i) => {
+export function renderProjectSwitcher(
+  container: HTMLElement,
+  projects: ProjectConfig[],
+  selected: number,
+  onChange: (i: number) => void,
+): void {
+  const sel = container.createEl("select", { cls: "backlogmd-project-switcher" });
+  projects.forEach((p, i) => {
     const opt = sel.createEl("option", { text: p.name, value: String(i) });
-    if (i === 0) opt.selected = true;
+    if (i === selected) opt.selected = true;
   });
   sel.addEventListener("change", () => onChange(Number(sel.value)));
 }

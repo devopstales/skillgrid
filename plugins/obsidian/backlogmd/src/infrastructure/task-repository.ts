@@ -7,7 +7,7 @@ export class FileTaskRepository implements TaskRepository {
   constructor(private fs: FileSystemPort) {}
 
   private tasksDir(project: ProjectConfig): string {
-    return `${project.rootPath}/${project.backlogDirectory}/tasks`;
+    return `${project.vaultBacklogDir}/tasks`;
   }
 
   async list(project: ProjectConfig): Promise<Task[]> {
@@ -40,7 +40,16 @@ export class FileTaskRepository implements TaskRepository {
 
   async create(project: ProjectConfig, task: Task, body: string): Promise<string> {
     const dir = this.tasksDir(project);
-    const filePath = `${dir}/${task.id}.md`;
+    // Match the backlog CLI convention: `<prefix>-<padded n> - <title-slug>.md`
+    const num = task.id.replace(/[^0-9]/g, "");
+    const slug = task.title
+      .trim()
+      .replace(/[^\p{L}\p{N}.-]+/gu, "-")
+      .replace(/-{2,}/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80);
+    const base = `${project.taskPrefix}-${num.padStart(3, "0")}`;
+    const filePath = slug ? `${dir}/${base} - ${slug}.md` : `${dir}/${base}.md`;
     const t = { ...task, path: filePath };
     const content = serializeTask(t, body);
     await this.fs.writeText(filePath, content);

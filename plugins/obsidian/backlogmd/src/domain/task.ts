@@ -14,6 +14,8 @@ export interface Task {
   references?: string[];
   documentation?: string[];
   parent_task_id?: string;
+  /** Position within a column (Backlog.md `ordinal`, 1000-step convention). */
+  ordinal?: number;
   body?: string;
   path: string;
 }

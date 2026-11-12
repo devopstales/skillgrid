@@ -26,6 +26,7 @@ export function parseTask(path: string, content: string): ParsedTask {
     references: data.references as string[] | undefined,
     documentation: data.documentation as string[] | undefined,
     parent_task_id: data.parent_task_id as string | undefined,
+    ordinal: typeof data.ordinal === "number" ? data.ordinal : undefined,
     body: parsed.content,
     path,
   };
@@ -35,7 +36,7 @@ export function parseTask(path: string, content: string): ParsedTask {
 export function serializeTask(task: Task, body: string): string {
   const data: Record<string, unknown> = {};
   // preserve known fields in a stable order
-  const order = ["id", "title", "status", "type", "priority", "labels", "assignee", "milestone", "sprint", "created_date", "updated_date", "dependencies", "references", "documentation", "parent_task_id"];
+  const order = ["id", "title", "status", "type", "priority", "labels", "assignee", "milestone", "sprint", "created_date", "updated_date", "dependencies", "references", "documentation", "parent_task_id", "ordinal"];
   for (const k of order) {
     const v = (task as unknown as Record<string, unknown>)[k];
     if (v !== undefined) data[k] = v;

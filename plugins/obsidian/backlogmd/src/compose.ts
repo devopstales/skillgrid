@@ -2,10 +2,13 @@ import { Plugin } from "obsidian";
 import { ObsidianFileSystem } from "./infrastructure/obsidian-fs";
 import { discoverProjects } from "./infrastructure/config";
 import { FileTaskRepository } from "./infrastructure/task-repository";
+import { FileMilestoneRepository } from "./infrastructure/milestone-repository";
+import type { MilestoneRepository } from "./application/ports";
 
 export interface PluginContext {
   fs: ObsidianFileSystem;
   repo: FileTaskRepository;
+  milestones: MilestoneRepository;
   projects: Awaited<ReturnType<typeof discoverProjects>>;
   start(): Promise<void>;
 }
@@ -13,9 +16,11 @@ export interface PluginContext {
 export function compose(plugin: Plugin): PluginContext {
   const fs = new ObsidianFileSystem(plugin.app);
   const repo = new FileTaskRepository(fs);
+  const milestones = new FileMilestoneRepository(fs);
   const ctx: PluginContext = {
     fs,
     repo,
+    milestones,
     projects: [],
     async start() {
       // discover projects from vault root folders (top-level)
