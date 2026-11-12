@@ -48,54 +48,54 @@ Chain strategy: size:exception
 
 ## Wave 1 — spec zone (T1-T2)
 
-- [ ] TICKET-01 — acceptance.feature: 43 scenarios materialized from the briefing's `Acceptance scenario:` lines — Task 1. *(spec zone; commit before code zone.)*
-- [ ] TICKET-02 — ADRs 0062-0065 + ASSUMPTIONS LOCKED rows (0063 supersedes 0054; stale 0050-EGM note cleaned) — Task 2. *(spec zone.)*
+- [ ] TICKET-01 (kanban: t_04b7f668) — acceptance.feature: 43 scenarios materialized from the briefing's `Acceptance scenario:` lines — Task 1. *(spec zone; commit before code zone.)*
+- [ ] TICKET-02 (kanban: t_eed942cd) — ADRs 0062-0065 + ASSUMPTIONS LOCKED rows (0063 supersedes 0054; stale 0050-EGM note cleaned) — Task 2. *(spec zone.)*
 
 ## Wave 2 — shared infrastructure + merged code-review skill (T3-T12)
 
-- [ ] TICKET-03 — `_shared/craft/review-discipline.md` (anti-sycophancy + banned-vocabulary single home, R5/R12) — Task 3.
-- [ ] TICKET-04 — 7 review persona briefs in `_shared/elephant-goldfish/` (R11/R37) — Task 4.
-- [ ] TICKET-05 — 6 BRAINSTORM lens briefs in `_shared/elephant-goldfish/` (R1/R11) — Task 5.
-- [ ] TICKET-06 — prose-style No-flattery rule (cites review-discipline, R12) — Task 6.
-- [ ] TICKET-07 — `code-review/SKILL.md`: topology step + shared protocol (Blindness Contract once, six-value verdict table once, resilience rule) + dispatch + output contract (R39) — Task 7. *(one-way D1 start.)*
-- [ ] TICKET-08 — verification-gap canon hoisted to `_shared/verification/verification-gap.md` + interim pointer (R42) — Task 8.
-- [ ] TICKET-09 — 8 `code-review/reviewers/` templates (security merged per R40; gap canon cited) — Task 9.
-- [ ] TICKET-10 — `code-review/templates/review.md` output contract carried byte-structurally (R39) — Task 10.
-- [ ] TICKET-11 — `review-ledger` demoted to `_shared/craft/review-ledger.md` (R41) — Task 11. *(one-way D3.)*
-- [ ] TICKET-12 — qa surfaces review debt (Step 5 moved in) + routing to code-review + R17 parked-finding line (R42/R17) — Task 12.
+- [ ] TICKET-03 (kanban: t_8caef8b1) — `_shared/craft/review-discipline.md` (anti-sycophancy + banned-vocabulary single home, R5/R12) — Task 3.
+- [ ] TICKET-04 (kanban: t_d2825664) — 7 review persona briefs in `_shared/elephant-goldfish/` (R11/R37) — Task 4.
+- [ ] TICKET-05 (kanban: t_2054c09d) — 6 BRAINSTORM lens briefs in `_shared/elephant-goldfish/` (R1/R11) — Task 5.
+- [ ] TICKET-06 (kanban: t_e0095a73) — prose-style No-flattery rule (cites review-discipline, R12) — Task 6.
+- [ ] TICKET-07 (kanban: t_7f025140) — `code-review/SKILL.md`: topology step + shared protocol (Blindness Contract once, six-value verdict table once, resilience rule) + dispatch + output contract (R39) — Task 7. *(one-way D1 start.)*
+- [ ] TICKET-08 (kanban: t_2a098284) — verification-gap canon hoisted to `_shared/verification/verification-gap.md` + interim pointer (R42) — Task 8.
+- [ ] TICKET-09 (kanban: t_b77ac225) — 8 `code-review/reviewers/` templates (security merged per R40; gap canon cited) — Task 9.
+- [ ] TICKET-10 (kanban: t_47616004) — `code-review/templates/review.md` output contract carried byte-structurally (R39) — Task 10.
+- [ ] TICKET-11 (kanban: t_390d2523) — `review-ledger` demoted to `_shared/craft/review-ledger.md` (R41) — Task 11. *(one-way D3.)*
+- [ ] TICKET-12 (kanban: t_569779b8) — qa surfaces review debt (Step 5 moved in) + routing to code-review + R17 parked-finding line (R42/R17) — Task 12.
 
 ## Wave 3 — citation cutover (T13-T16)
 
-- [ ] TICKET-13 — citation migration: ~15 skill sites + 14 docs/projectwiki sites + audit-procedure + receiving-code-review; delete T8's interim pointer (R43) — Task 13.
-- [ ] TICKET-14 — `skill-size-budget.json`: drop 2 names, add `code-review` (R43) — Task 14.
-- [ ] TICKET-15 — AGENTS.md workflow line: `requesting-code-review` -> `code-review` (R43) — Task 15.
-- [ ] TICKET-16 — delete `requesting-code-review/`, `parallel-code-review/`, `review-ledger/` (R43) — Task 16. *(one-way D1: precondition = zero live citations outside the 3 dirs; approved by user "execute" 2026-11-12.)*
+- [ ] TICKET-13 (kanban: t_dbfb63fd) — citation migration: ~15 skill sites + 14 docs/projectwiki sites + audit-procedure + receiving-code-review; delete T8's interim pointer (R43) — Task 13.
+- [ ] TICKET-14 (kanban: t_fbc5747a) — `skill-size-budget.json`: drop 2 names, add `code-review` (R43) — Task 14.
+- [ ] TICKET-15 (kanban: t_55fb6be1) — AGENTS.md workflow line: `requesting-code-review` -> `code-review` (R43) — Task 15.
+- [ ] TICKET-16 (kanban: t_40df70ed) — delete `requesting-code-review/`, `parallel-code-review/`, `review-ledger/` (R43) — Task 16. *(one-way D1: precondition = zero live citations outside the 3 dirs; approved by user "execute" 2026-11-12.)*
 
 ## Wave 4 — tracks A, B, D reference sets (T17-T23, T26, T28-T30)
 
-- [ ] TICKET-17 — `brainstorming/references/shootdown.md`: 6-lens dispatch, freshness STOP rule, synthesis + blocker gate (R1-R3/R36/R37) — Task 17.
-- [ ] TICKET-18 — brainstorming SKILL + paths: shootdown wiring + Anti-Sycophancy section (R2/R5) — Task 18.
-- [ ] TICKET-19 — brainstorming `templates/briefing.md`: `## Shootdown Findings` + disposition gate (R3/R4) — Task 19.
-- [ ] TICKET-20 — `writing-blueprints/references/goldfish-review.md`: 5-stage pipeline + 4 presets + dispatch + record boundary + report artifacts (R6-R8/R13/R36/R37) — Task 20.
-- [ ] TICKET-21 — `references/goldfish-review-loop.md`: sharpening loop, 2-clean-round convergence, cap 5, settled/fixed, churn, turn-taking (R9) — Task 21.
-- [ ] TICKET-22 — `references/goldfish-resolve.md`: Elephant-side 4 actions + 4 rules + interactive gate + parking (R10/R17) — Task 22.
-- [ ] TICKET-23 — `references/harnesses.md`: R36 STOP rule + 4-harness portability table (R36/R38) — Task 23.
-- [ ] TICKET-26 — `references/section-by-section.md`: ingestion, section order, per-section/per-task gates, spec reconciliation, 8 disciplines (R18-R25) — Task 26.
-- [ ] TICKET-28 — `qa/references/drift-report.md`: drift workflow (R26-R31/R33) — Task 28.
-- [ ] TICKET-29 — `qa/references/divergence-categories.md`: 4 categories + heuristics (R27) — Task 29.
-- [ ] TICKET-30 — `qa/references/reconciliation.md`: two paths + dispositions + ledger mapping (R32) — Task 30.
+- [ ] TICKET-17 (kanban: t_42bc2a22) — `brainstorming/references/shootdown.md`: 6-lens dispatch, freshness STOP rule, synthesis + blocker gate (R1-R3/R36/R37) — Task 17.
+- [ ] TICKET-18 (kanban: t_f0761542) — brainstorming SKILL + paths: shootdown wiring + Anti-Sycophancy section (R2/R5) — Task 18.
+- [ ] TICKET-19 (kanban: t_51775564) — brainstorming `templates/briefing.md`: `## Shootdown Findings` + disposition gate (R3/R4) — Task 19.
+- [ ] TICKET-20 (kanban: t_80db1292) — `writing-blueprints/references/goldfish-review.md`: 5-stage pipeline + 4 presets + dispatch + record boundary + report artifacts (R6-R8/R13/R36/R37) — Task 20.
+- [ ] TICKET-21 (kanban: t_393b9333) — `references/goldfish-review-loop.md`: sharpening loop, 2-clean-round convergence, cap 5, settled/fixed, churn, turn-taking (R9) — Task 21.
+- [ ] TICKET-22 (kanban: t_96024d4c) — `references/goldfish-resolve.md`: Elephant-side 4 actions + 4 rules + interactive gate + parking (R10/R17) — Task 22.
+- [ ] TICKET-23 (kanban: t_5b64f429) — `references/harnesses.md`: R36 STOP rule + 4-harness portability table (R36/R38) — Task 23.
+- [ ] TICKET-26 (kanban: t_f2a5731b) — `references/section-by-section.md`: ingestion, section order, per-section/per-task gates, spec reconciliation, 8 disciplines (R18-R25) — Task 26.
+- [ ] TICKET-28 (kanban: t_a5db99c1) — `qa/references/drift-report.md`: drift workflow (R26-R31/R33) — Task 28.
+- [ ] TICKET-29 (kanban: t_1b5283a3) — `qa/references/divergence-categories.md`: 4 categories + heuristics (R27) — Task 29.
+- [ ] TICKET-30 (kanban: t_a45de113) — `qa/references/reconciliation.md`: two paths + dispositions + ledger mapping (R32) — Task 30.
 
 ## Wave 5 — wiring (T24, T25, T27, T31, T32)
 
-- [ ] TICKET-24 — replace `plan-review.md` with the goldfish validation seam in writing-blueprints SKILL (R6/R14/R15) — Task 24. *(one-way D2: seam = 5-stage fresh-context pipeline.)*
-- [ ] TICKET-25 — `templates/blueprint.md`: `## Review Summary` block + Self-Review reminder comment (R13/R14) — Task 25.
-- [ ] TICKET-27 — writing-blueprints SKILL drafting disciplines: ingestion step, section-by-section, spec reconciliation, owner-decides-architecture, alternatives, Tone & Discipline, artifact-first (R18/R19/R21-R25) — Task 27.
-- [ ] TICKET-31 — qa SKILL `## Drift mode (advisory)` section <40 lines (R26/R35) — Task 31.
-- [ ] TICKET-32 — reflect SKILL Drift Check advisory gate item (R34) — Task 32.
+- [ ] TICKET-24 (kanban: t_34d8b14d) — replace `plan-review.md` with the goldfish validation seam in writing-blueprints SKILL (R6/R14/R15) — Task 24. *(one-way D2: seam = 5-stage fresh-context pipeline.)*
+- [ ] TICKET-25 (kanban: t_1a2887dc) — `templates/blueprint.md`: `## Review Summary` block + Self-Review reminder comment (R13/R14) — Task 25.
+- [ ] TICKET-27 (kanban: t_d20d3bae) — writing-blueprints SKILL drafting disciplines: ingestion step, section-by-section, spec reconciliation, owner-decides-architecture, alternatives, Tone & Discipline, artifact-first (R18/R19/R21-R25) — Task 27.
+- [ ] TICKET-31 (kanban: t_3cf0a0b6) — qa SKILL `## Drift mode (advisory)` section <40 lines (R26/R35) — Task 31.
+- [ ] TICKET-32 (kanban: t_601530b1) — reflect SKILL Drift Check advisory gate item (R34) — Task 32.
 
 ## Wave 6 — global verification (T33)
 
-- [ ] TICKET-33 — global verification: zero citations, link resolution, persona shape, single-home, size budgets, BDD parity, ADR rows, docs-only proof, `go build`/`go test` green; append `## Verification` to blueprint — Task 33.
+- [ ] TICKET-33 (kanban: t_ffbcf170) — global verification: zero citations, link resolution, persona shape, single-home, size budgets, BDD parity, ADR rows, docs-only proof, `go build`/`go test` green; append `## Verification` to blueprint — Task 33.
 
 ## Dependency Graph
 
