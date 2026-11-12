@@ -33,7 +33,7 @@ finished text. Judge a draft by its **overall pattern**: one that obeys every
 default in every sentence reads as machine-made. When a rule fights the
 sentence, drop the rule.
 
-## The 21 rules (compact directives)
+## The 22 rules (compact directives)
 
 Canonical rules (Strunk & White 1959, Orwell 1946, Pinker 2014, Gopen & Swan 1990):
 
@@ -61,6 +61,7 @@ Field-observed rules (maintainer observation of LLM output, 2022–2026):
 - **RULE-G Title case**: Use title case for section and subsection headings; articles and short prepositions stay lowercase. A full-sentence bold run-in lead takes sentence case.
 - **RULE-H Citation discipline (firm)**: Support factual claims with verifiable citation or concrete evidence; never fabricate citations.
 - **RULE-I Contractions**: Prefer "it is" / "does not" / "cannot" over "it's" / "doesn't" / "can't" in formal technical prose.
+- **RULE-J No flattery**: Generated prose MUST NOT use complimentary or self-congratulatory language about the work, the author, or the reader (banned-adjective list per [review-discipline.md](../craft/review-discipline.md) — cited, not restated).
 
 ## House style
 
