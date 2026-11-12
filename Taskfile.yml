@@ -1,8 +1,149 @@
-version: '3'
+# Taskfile for skillgrid (https://taskfile.dev).
+#
+#   task              build both binaries into dist/
+#   task all          cross-build linux (amd64+386) and darwin (amd64+arm64)
+#   task test         go vet && go test in both modules
+#   task skill-check  skill-hygiene guard (anatomy invariants + line budgets + hot paths)
+#   task site:build    build the Hugo docs site into site/public
+#   task site:serve    run the Hugo dev server for the docs site
+#   task gh-pages      build the site + publish it to the gh-pages branch
+#   task fmt          gofmt -w both modules
+#   task clean        remove dist/
+#   task install      copy dist/skillgrid-linux-amd64 + dist/mnemonic-linux-amd64 → ~/.skillgrid/bin/
+#   task version      show the version that would be baked in
+#
+# Version is derived from `git describe --tags --always --dirty`.
+# Overrides: SKILLGRID_VERSION=vX.Y.Z (both binaries),
+#            MNEMONIC_VERSION=vX.Y.Z (mnemonic binary only).
+
+version: "3"
+
+vars:
+  CLI_DIR: skillgrid-cli
+  # ADR-0040: mnemonic is the active binary producer (mnemonic/);
+  # the v1 engine module has been removed.
+  MEM2_DIR: mnemonic
+  CLI_BIN: skillgrid
+  MEM_BIN: mnemonic
+  OUT: dist
+  CLI_PKG: "./cmd/skillgrid"
+  MEM_PKG: "./cmd/mnemonic"
+  VERSION:
+    sh: 'echo "${SKILLGRID_VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo 0.1.0-dev)}"'
+  # mnemonic is the active mnemonic producer and carries its own version
+  # line (0.2.0); the skillgrid CLI keeps the repo-derived version.
+  MEM2_VERSION:
+    sh: 'echo "${MNEMONIC_VERSION:-0.2.0}"'
 
 tasks:
+  default:
+    cmds:
+      - task: build
+
+  build:
+    desc: Build both local platform binaries into dist/.
+    cmds:
+      - mkdir -p {{.OUT}}
+      - cd {{.MEM2_DIR}} && go build -ldflags "-s -w -X main.version={{.MEM2_VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}} {{.MEM_PKG}}
+      - cd {{.CLI_DIR}} && go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}} {{.CLI_PKG}}
+      - rm -f ~/.local/bin/{{.MEM_BIN}} ~/.local/bin/{{.CLI_BIN}}
+      - cp {{.OUT}}/{{.MEM_BIN}} ~/.local/bin/
+      - cp {{.OUT}}/{{.CLI_BIN}} ~/.local/bin/
+
+  all:
+    desc: Cross-build linux amd64+386 and darwin amd64+arm64.
+    cmds:
+      - mkdir -p {{.OUT}}
+      - task: build-linux
+      - task: build-darwin
+
+  build-linux:
+    desc: Build linux binaries (amd64 + 386) for both modules.
+    cmds:
+      - cd {{.MEM2_DIR}} && GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.MEM2_VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-linux-amd64 {{.MEM_PKG}}
+      - cd {{.MEM2_DIR}} && GOOS=linux GOARCH=386 go build -ldflags "-s -w -X main.version={{.MEM2_VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-linux-386 {{.MEM_PKG}}
+      - cd {{.CLI_DIR}} && GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}}-linux-amd64 {{.CLI_PKG}}
+      - cd {{.CLI_DIR}} && GOOS=linux GOARCH=386 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}}-linux-386 {{.CLI_PKG}}
+
+  build-darwin:
+    desc: Build macOS binaries (amd64 + arm64) for both modules.
+    cmds:
+      - cd {{.MEM2_DIR}} && GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.MEM2_VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-darwin-amd64 {{.MEM_PKG}}
+      - cd {{.MEM2_DIR}} && GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.version={{.MEM2_VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-darwin-arm64 {{.MEM_PKG}}
+      - cd {{.CLI_DIR}} && GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}}-darwin-amd64 {{.CLI_PKG}}
+      - cd {{.CLI_DIR}} && GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}}-darwin-arm64 {{.CLI_PKG}}
+
+  test:
+    desc: Run go vet and go test ./... in the engine and CLI modules.
+    cmds:
+      - cd {{.MEM2_DIR}} && go vet ./...
+      - cd {{.MEM2_DIR}} && go test ./...
+      - cd {{.CLI_DIR}} && go vet ./...
+      - cd {{.CLI_DIR}} && go test ./...
+
+  skill-check:
+    desc: Skill-hygiene guard — anatomy invariants, line budgets, hot-path ceilings (scripts/check-skillgrid-skills.mjs).
+    cmds:
+      - node scripts/check-skillgrid-skills.mjs
+
+  site:gen:
+    desc: Regenerate site/layouts/partials/guide-content.html from docs/user-guide/ (keep the guide in sync with the docs).
+    cmds:
+      - node scripts/gen-guide-content.mjs
+
+  site:build:
+    desc: Build the Hugo docs site into site/public.
+    cmds:
+      - task: site:gen
+      - hugo --source site
+
+  site:serve:
+    desc: Run the Hugo dev server for the docs site (live reload).
+    cmds:
+      - task: site:gen
+      - hugo server --source site --baseURL "http://localhost:1313/skillgrid/"
+
+  gh-pages:
+    desc: Build the site and publish it to the gh-pages branch (enable Pages on gh-pages in GitHub settings).
+    cmds:
+      - task: site:gen
+      - hugo --source site
+      - git checkout --orphan gh-pages
+      - git rm -rf . 2>/dev/null || true
+      - cp -R site/public/. .
+      - git add -A
+      - 'git commit -m "chore(site): publish skillgrid site" --allow-empty'
+      - git push origin gh-pages --force
+      - git checkout -
+
+  fmt:
+    desc: gofmt -w both modules.
+    cmds:
+      - cd {{.MEM2_DIR}} && gofmt -l -w .
+      - cd {{.CLI_DIR}} && gofmt -l -w .
+
+  clean:
+    desc: Remove dist/.
+    cmds:
+      - rm -rf {{.OUT}}
+
+  version:
+    desc: Show the version that would be baked in.
+    cmds:
+      - echo {{.VERSION}}
+
+  install:
+    desc: Install linux-amd64 binaries into ~/.skillgrid/bin (after `task all`).
+    cmds:
+      - mkdir -p "$HOME/.skillgrid/bin"
+      - cp {{.OUT}}/{{.MEM_BIN}}-linux-amd64 "$HOME/.skillgrid/bin/{{.MEM_BIN}}"
+      - chmod +x "$HOME/.skillgrid/bin/{{.MEM_BIN}}"
+      - cp {{.OUT}}/{{.CLI_BIN}}-linux-amd64 "$HOME/.skillgrid/bin/{{.CLI_BIN}}"
+      - chmod +x "$HOME/.skillgrid/bin/{{.CLI_BIN}}"
+      - echo "installed to $HOME/.skillgrid/bin/"
+
   install-obsidian-plugin:
-    desc: "Build and install the Obsidian Backlog.md plugin into a vault"
+    desc: "Build and install the Obsidian Backlog.md plugin into a vault."
     summary: |
       Builds plugins/obsidian/backlogmd and copies main.js, manifest.json, styles.css
       into <vault>/.obsidian/plugins/backlogmd/.
