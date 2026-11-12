@@ -81,7 +81,9 @@ override it:
    others depend on. There is no existing flow to read — you are
     creating the architecture. Follow the full process: interview the user
     (`skillgrid:interviewing` skill — design tree, rounds, clarity gate), approaches,
-    sectioned design, then write the product requirements reference
+    sectioned design. Run the Goldfish shootdown per `references/shootdown.md`
+    (6 parallel fresh lenses; all 🔴 Blockers dispositioned before the ADR
+    manifest is written). Then write the product requirements reference
     `.skillgrid/projectwiki/reference/00-prd.md` (from `templates/PRD.md`), the root
     understanding record `.skillgrid/projectwiki/ASSUMPTIONS.md` (from `templates/ASSUMPTIONS.md`:
     VERIFIED product statement + INFERRED hypotheses + LOCKED in-force table and
@@ -93,7 +95,9 @@ override it:
 - **New Function** — a new feature, endpoint, or capability added to an
    existing project whose architecture is already in place. Follow the
    full process: interview the user (`skillgrid:interviewing` skill — design tree,
-   rounds, clarity gate), approaches, sectioned design, then write the
+   rounds, clarity gate), approaches, sectioned design. Run the Goldfish
+   shootdown per `references/shootdown.md` (6 parallel fresh lenses; all 🔴
+   Blockers dispositioned before the ADR manifest is written). Then write the
     spec `.skillgrid/change-specs/YYYY-MM-DD-<topic>/briefing.md` from
     `templates/briefing.md`. If
      the feature changes `.skillgrid/projectwiki/reference/00-prd.md` (scope, feature, metric),
@@ -105,13 +109,15 @@ override it:
 
 When in doubt between two paths, take the heavier one. The ratchet is
 one-way: hidden complexity discovered mid-task upgrades the path —
-stop, say so, and step up. Nothing downgrades mid-task.
+stop, say so, and step up. Nothing downgrades mid-task. The shootdown
+rides the ratchet: a bounded task that upgrades to New Function mid-task
+must run the shootdown at the new path.
 
 ## State
 
 The two full paths (New Project, New Function) run long enough to outlive a
-session: interview → approaches → design → feasibility → ADR manifest →
-briefing. The path state — which checklist item you are on, which approach
+session: interview → approaches → design → feasibility → shootdown → ADR
+manifest → briefing. The path state — which checklist item you are on, which approach
 was approved — lives in conversation, which rots.
 
 - **The spec-zone artifacts ARE the phase signal.** `skillgrid:resume`
@@ -139,6 +145,17 @@ was approved — lives in conversation, which rots.
   first incomplete step.
 - **Skip persistence** for the prototype and bounded paths — they are short by
   design and produce no spec dir.
+
+## Anti-Sycophancy & Stress-Testing
+
+The shootdown's six lenses and the main agent's synthesis of their findings
+are governed by the anti-sycophancy and stress-testing rules in
+`_shared/craft/review-discipline.md` — cited, not restated; the
+banned-vocabulary list has exactly one home there and appears nowhere in this
+skill. The rules apply to the shootdown subagents (each lens brief carries
+its isolation mandate) and to the main agent's synthesis: the Elephant
+dedupes and groups findings without softening them — a 🔴 Blocker stays a
+🔴 Blocker until the user disposes of it per `references/shootdown.md`.
 
 ## Anti-Pattern: "Too Simple To Need Approval"
 
