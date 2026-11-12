@@ -17,5 +17,5 @@
 # projectwiki CONVENTIONS
 
 - Concepts in `decisions/`/`invariants/`/`workflows/`/`glossary/`; one concept per why.
-- Same-edit rule: concept + index.md + log.md + reverse-index.md in one commit.
+- Same-edit rule: page edits + `projectwiki index` in one commit (`index/` is engine-written; there is no catalog/log to update by hand).
 - Decisions via `skillgrid:architectural-decision-records`.

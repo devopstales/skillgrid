@@ -49,7 +49,7 @@ fi
 
 # 5. backlog task filenames: ASCII only (em dashes, accented chars, etc.
 #    survive the backlog CLI's slugify and produce unquotable filenames).
-backlog_files=$(git -c core.quotepath=false diff --cached --name-only 2>/dev/null | grep '^\.backlog/tasks/.*\.md$' || true)
+backlog_files=$(git -c core.quotepath=false diff --cached --name-only 2>/dev/null | grep -E '^\.backlog/tasks/.*\.md$|^\.skillgrid/projectwiki/backlog/tasks/.*\.md$' || true)
 if [ -n "$backlog_files" ]; then
     bad=$(echo "$backlog_files" | LC_ALL=C grep '[^ -~]' 2>/dev/null || true)
     if [ -n "$bad" ]; then

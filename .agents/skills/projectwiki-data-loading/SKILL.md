@@ -4,7 +4,7 @@ description: "Load data into the ProjectWiki vault: search/research results and 
 license: MIT
 metadata:
   author: devopstales
-  version: "1.0"
+  version: "1.1"
   part-of: skillgrid
   based_on: hermes:llm-wiki 2.1.0 + hermes:obsidian 1.0.0 (Karpathy LLM Wiki pattern, adapted)
 ---
@@ -69,8 +69,9 @@ Retrieval goes through the engine, not the filesystem (see `skillgrid:projectwik
 ├── preferences/                 # Tier 2: user preferences (013; reflect-written, user-owned)
 ├── decisions/ invariants/ workflows/ architecture/ gotchas/ glossary/
 │                                # Tier 2: the six core type folders (reflect triage homes)
-└── index/                       # Tier 3 (derived): catalog.md / log.md / reverse-index.md /
-                                 #   events.jsonl — engine-rewritten, never hand-edited
+└── index/                       # Tier 3 (derived, engine-written): last-update.json only.
+                                 #   No catalog.md / log.md / reverse-index.md / events.jsonl
+                                 #   exists — never author them.
 ```
 
 - **Tier 1 — External sources are cited, not stored (KB-8).** There is **no `raw/`
@@ -84,15 +85,16 @@ Retrieval goes through the engine, not the filesystem (see `skillgrid:projectwik
   carries ≥2 outgoing links and a `sources:` list (INV-1).
 - **Tier 3 — Derived state.** `index/` + the `projectwiki_*` DB tables: rebuilt by
   `projectwiki index` / `reindex` / `rebuild-meta`, never hand-edited (PW-INV-3). The
-  llm-wiki world's "update `index.md` + `log.md`" step is one command here:
-  `projectwiki index` in the **same edit** as the page write.
+  llm-wiki world maintains `index.md` and `log.md` by hand; here there is **no file
+  projection at all** — the index is the SQLite tables, `index/` carries only
+  `last-update.json`. The equivalent of "update the index" is one command in the
+  **same edit** as the page write: `projectwiki index`.
 
 ## Resuming the Vault (CRITICAL — every session, before any load)
 
 ① **Read `PROJECTWIKI_SCHEMA.md`** — the page contract and folder map.
-② **Orient cheap:** `index/catalog.md` (one-line catalog) + the tail of
-   `index/log.md` — both engine-generated; this tells you *whether* relevant
-   knowledge exists.
+② **Orient cheap:** `projectwiki status --json` — `indexed`, `by_type`, `orphans`,
+   `stale`. There is no catalog or log file to read; this is the state view.
 ③ **`projectwiki query "<topic terms>"`** — stage-1 ranked links; find existing pages
    for anything you are about to create. This is the difference between a growing
    vault and a pile of duplicates.
@@ -122,6 +124,9 @@ When search/research results land (web search, docs, papers, a research run):
 ④ **Cut the reusable parts out:** each idea / pattern / technique that outlives the
    result → its own flat `concepts/` page (cited to the source page). A page is not a
    directory of sub-pages — every part of a result is its own page in its type folder.
+   A finding about this repo's own structure is an `architecture/` page, anchored to
+   the code — **never an appendix to `ARCHITECTURE.md`**, which is a vault-root doc and
+   outside index scope (readable by path, invisible to `query`/`lint`).
 
 ⑤ **Write the `syntheses/` hub** (type `Synthesis`, `status: draft`): question,
    method, TL;DR, findings (each finding links to its source/concept page), answer.
@@ -190,21 +195,28 @@ The engine does what llm-wiki's 13 manual checks do:
 | Orphan pages (no inbound links) | `projectwiki lint` (in-degree ≤ 1, alias-resolved) |
 | Broken wikilinks | `projectwiki lint` |
 | Index completeness | derived by construction — `projectwiki index` (fix: `reindex`) |
-| Frontmatter validation | `projectwiki lint` (missing titles, empty bodies) |
+| Frontmatter validation | `projectwiki lint` (missing title, empty `sources:` on a grounded page, duplicate alias) |
 | Stale content | `stale_after` flag (lint) + `projectwiki validate` pin-checks (grounded pages) |
 | Contradictions | the `⚠️ Contradiction` blocks + `deprecated` pairs (013 §6) — review manually |
 | Source drift (raw sha256) | **build_fingerprint drift on `sources/` pages** — a drifted fingerprint flags exactly one source page (WA-INV-3); re-verify or deprecate it |
-| Page size (>200 lines) | lint |
+| Page size (>200 lines) | advisory here only — split the page; `lint` does not enforce size |
 | Tag audit | n/a — the type folders are the taxonomy |
-| Log rotation | n/a — `index/events.jsonl` is derived, the engine owns it |
+| Log rotation | n/a — no engine-written log exists; `status --json` + `last-update.json` are the state view |
 
-Target: `projectwiki lint: clean` + `projectwiki validate` no drift (grounded pages).
+Real lint codes: `missing_title`, `stale_index`, `orphan`, `weak_cross_reference`,
+`broken_wikilink`, `duplicate_alias`, `missing_sources`, `ungrounded_grounded`,
+`weak_pin`, `past_stale_after`, `contradiction`, `broken_citation`, `coverage_gap`.
+`--fix` repairs empty titles only.
+
+Target: **no new findings** + `projectwiki validate` no drift (grounded pages). `lint`
+without `--strict` always exits 0, and a legacy vault carries a warn baseline (233
+findings at 2026-11-12) — never rewrite pages just to make it print `clean`.
 
 ## Working Notes
 
 - **Search:** `projectwiki query` (default) → `projectwiki search` (raw FTS power
-  path) → `index/catalog.md` (cheap orient). Never `grep` the vault when the engine
-  is up.
+  path) → `projectwiki status --json` (cheap orient; `by_type` + `orphans`). Never
+  `grep` the vault when the engine is up.
 - **Bulk load:** batch per Operation A step ⑥ — one existence pass, one write pass,
   one index.
 - **Archiving:** there is no `_archive/` move. Superseded pages get
@@ -224,7 +236,7 @@ Target: `projectwiki lint: clean` + `projectwiki validate` no drift (grounded pa
 | `WIKI_PATH` / `~/wiki` | `.skillgrid/projectwiki/` (sentinel `config.json`) |
 | `raw/` immutable stored sources | **no raw layer** — `external:` citation + `build_fingerprint` (KB-8) + `web_cache` |
 | `SCHEMA.md` (agent-written) | `PROJECTWIKI_SCHEMA.md` (scaffold — user-owned) |
-| `index.md` / `log.md` (hand-maintained) | `index/catalog.md` / `index/log.md` (derived — `projectwiki index`) |
+| `index.md` / `log.md` (hand-maintained) | **no file counterpart** — the derived index is the `projectwiki_*` DB tables (`projectwiki index`); `index/` holds only `last-update.json` |
 | `entities/` | `glossary/` (terms, tools, products — cited) |
 | `concepts/` | `concepts/` (013) |
 | `comparisons/` + `queries/` | `syntheses/` (013 — the durable query answer) |
@@ -237,8 +249,8 @@ Target: `projectwiki lint: clean` + `projectwiki validate` no drift (grounded pa
 
 ## Pitfalls
 
-- **Always orient first** — schema + catalog + query before any load. Skipping causes
-  duplicates and missed cross-references.
+- **Always orient first** — schema + `status --json` + `query` before any load. Skipping
+  causes duplicates and missed cross-references.
 - **Never hand-edit `index/`** — page + `projectwiki index` in the same edit, or the
   change is incomplete (PW-INV-3).
 - **Never copy source content** — summarize + cite (KB-8); the fingerprint is the
@@ -260,5 +272,6 @@ Target: `projectwiki lint: clean` + `projectwiki validate` no drift (grounded pa
 - [ ] Every loaded source has a `sources/` page with the full `external:` citation (name, version, URL, commit, fingerprint) — a page missing any field is malformed.
 - [ ] Every research result has a `syntheses/` hub linking to all its source + concept pages; every concept page links back.
 - [ ] Reflect results triaged per the table — ADR candidates proposed (not minted), preferences cited to `memory:`, process bugs ticketed (not filed).
-- [ ] `projectwiki index` ran in the same edit as every page write; `projectwiki lint: clean`; `projectwiki validate` no drift on grounded pages.
+- [ ] `projectwiki index` ran in the same edit as every page write; `projectwiki lint` has no **new** findings; `projectwiki validate` no drift on grounded pages; `status --json` shows `stale: 0`.
+- [ ] Every new page has 2+ outgoing wikilinks — `status --json` `orphans` did not grow.
 - [ ] No raw content copied in; no secrets in pages; `.obsidian/` untouched.

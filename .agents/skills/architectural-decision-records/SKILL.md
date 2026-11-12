@@ -133,7 +133,7 @@ gets a pointer row in the `## LOCKED` ADR index in the same edit. The row is a
 short description + the path. The file is the body.
 
 When `ticketing.type` is `backlogmd`, copy the ADR into
-`.backlog/decisions/` in the same edit (see [Backlog.md copy](#backlogmd-copy)).
+`<backlog_directory>/decisions/` (resolved from `backlog.config.yml`) in the same edit (see [Backlog.md copy](#backlogmd-copy)).
 The artifact file stays the record (ADR-0019). The decision file is the tracker
 copy so `backlog decision list` / `backlog search` can find it.
 
@@ -188,7 +188,7 @@ Process (run at the end of the interview, before the blueprint is written):
     the superseded row's "In force" to `no`). A superseding file sets
    `status: accepted` and `supersedes: ADR-NNNN`. Do NOT edit the prior file.
    If `ticketing.type` is `backlogmd`, copy each new or superseding file into
-   `.backlog/decisions/` and refresh the superseded copy's `status` to
+   `<backlog_directory>/decisions/` (resolved from `backlog.config.yml`) and refresh the superseded copy's `status` to
    `superseded`.
 4. **Write the manifest** at `.skillgrid/change-specs/<topic>/adr.md`: state that ADR
    review completed, list the in-force ADRs reviewed, and reference every ADR
@@ -230,7 +230,7 @@ Process (run at the end of the interview, before the blueprint is written):
 ## Backlog.md copy
 
 When `.skillgrid/config.yaml` has `ticketing.type: backlogmd`, every ADR file
-has a tracker copy under `.backlog/decisions/`. Do this in the same edit that
+has a tracker copy under `<backlog_directory>/decisions/` (resolved from `backlog.config.yml`). Do this in the same edit that
 writes the artifact — a missing copy is an incomplete ADR.
 
 Write the decision file yourself so the Backlog id stays aligned with the ADR

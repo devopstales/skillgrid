@@ -37,7 +37,7 @@ Read `.skillgrid/config.yaml` before starting. This skill reads:
 | `ticketing.project_key` | Jira project key (when `ticketing.type: jira`) |
 | `ticketing.kanban.board` | Hermes Kanban board slug (when `ticketing.type: hermes-kanban`; default: the `project` name) |
 | `ticketing.kanban.assignee` | Hermes profile to assign tickets to (when `ticketing.type: hermes-kanban`; default `default`) |
-| `ticketing.backlogmd.dir` | Backlog.md directory (default `.backlog/`) |
+| `ticketing.backlogmd.dir` | Backlog.md directory (default `.backlog/`; skillgrid convention: `.skillgrid/projectwiki/backlog`, resolved from root `backlog.config.yml` `backlog_directory`) |
 | `ticketing.backlogmd.task_prefix` | Backlog.md task ID prefix (default `task`) |
 | `ticketing.backlogmd.zero_padded_ids` | Backlog.md task ID zero-padding (default `3`) |
 | `ticketing.gh.labels` | GitHub triage label strings |

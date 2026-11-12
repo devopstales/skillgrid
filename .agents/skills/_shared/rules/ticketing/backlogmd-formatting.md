@@ -4,7 +4,7 @@
 
 Shared formatting conventions for `backlog.md`-based workflows. Consumed by the `ticketing` skill when the resolved tracker is Backlog.md (see `backlogmd.md` (same directory) for CLI conventions).
 
-**Backlog.md is file-based.** One ticket = one markdown file under `.backlog/tasks/<ID>.md`. There's no server — the file *is* the tracker.
+**Backlog.md is file-based.** One ticket = one markdown file under `<backlog_directory>/tasks/<ID>.md`, where `<backlog_directory>` is resolved from the root-level `backlog.config.yml` field `backlog_directory` (default `.backlog/`; skillgrid convention `.skillgrid/projectwiki/backlog`). There's no server — the file *is* the tracker.
 
 ## Choosing Milestone vs Task
 

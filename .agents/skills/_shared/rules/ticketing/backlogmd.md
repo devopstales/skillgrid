@@ -2,7 +2,7 @@
 
 # Issue tracker: Backlog.md
 
-Issues and specs for this repo live as markdown files managed by the `backlog` CLI. Storage: `.backlog/tasks/<ID>.md` (configured via `backlog_directory: .backlog` in `backlog.config.yml`).
+Issues and specs for this repo live as markdown files managed by the `backlog` CLI. Storage location is resolved from the root-level `backlog.config.yml` field `backlog_directory` (default `.backlog/`). When set to `.skillgrid/projectwiki/backlog`, all task/milestone/draft/archive/completed/decision/doc folders live under that path. Always resolve the directory from config before reading or writing; never hard-code `.backlog/`.
 
 **Formatting** (project/initiative and task file templates, frontmatter schema, required fields, `Blocked by` / `Blocks` arrays, component split, file placement rules): see [backlogmd-formatting.md](backlogmd-formatting.md).
 

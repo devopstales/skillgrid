@@ -24,7 +24,7 @@ backlog task list --plain
 backlog task view TASK-123 --plain
 ```
 
-- Storage: `.backlog/tasks/<ID>.md`
+- Storage: `<backlog_directory>/tasks/<ID>.md` (resolved from `backlog.config.yml`; default `.backlog/`, skillgrid convention `.skillgrid/projectwiki/backlog`)
 - Do **not** edit task files by hand — use the `backlog` CLI
 - Session start: `backlog instructions overview`
 
