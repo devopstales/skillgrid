@@ -65,6 +65,12 @@ Findings reuse the Goldfish resolution workflow (Task 22, cited not restated:
 **primary reviewer**: a fresh subagent (R36/R37) whose "verify code vs doc"
 audit vectors are directly applicable.
 
+Freshness check first: R36's STOP rule applies before the first
+`codebase-details` dispatch (verbatim rule in
+`.agents/skills/writing-blueprints/references/harnesses.md` — a same-context
+run MUST NOT count). The dispatch prompt re-asserts the four-part isolation
+contract (R37) verbatim.
+
 Categorization is the R10 four actions (CONTEST / ESCALATE / PROPOSE-FIX /
 DECLINE) with the same interactive gate (auto-accept / continue / interactive
 break down / comment on file / custom instruction). After a finding is
