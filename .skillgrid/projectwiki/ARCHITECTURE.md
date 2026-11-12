@@ -113,8 +113,9 @@ The engine is its own Go module (`mnemonic/`, module `github.com/devopstales/ski
 ├── docs/               Hugo docs site source (user-guide/, tutorials/, skill-anatomy.md)
 ├── config.d/           Install-time distribution config: indexing.yaml, mcp.yaml, tools.yaml
 ├── agents/             Dispatch-role subagent defs per harness (opencode/, cursor/)
-├── .skillgrid/         THIS repo's own state zone (it dogfoods itself)
-├── .backlog/           Local markdown ticket tracker (backlogmd)
+├── .skillgrid/         THIS repo's own state zone (it dogfoods itself); the projectwiki vault
+│   └── projectwiki/backlog/   Local markdown ticket tracker (backlogmd)
+├── backlog.config.yml  Backlog.md root config (backlog_directory -> .skillgrid/projectwiki/backlog)
 └── Taskfile.yml        task driver: build / test / skill-check / site / install
 ```
 

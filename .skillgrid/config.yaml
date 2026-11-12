@@ -27,7 +27,7 @@ ticketing:
     board: skillgrid
     assignee: default
   backlogmd:
-    dir: .backlog
+    dir: .skillgrid/projectwiki/backlog
     task_prefix: "task"
     zero_padded_ids: 3
 
