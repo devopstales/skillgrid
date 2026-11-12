@@ -1396,3 +1396,21 @@ Applicability-driven (canonical: `_shared/references/threat-matrix.md`). This ch
 ## Review Summary
 
 (To be filled by the goldfish validation seam — this change's own validation runs the new pipeline per Task 24: verdict (READY FOR EXECUTION / NEEDS REVISION), rounds run + convergence state, findings by severity (normalized vocabulary), parked findings (path + severity), reviewed date. This is the first blueprint drafted under the old seam; its own review uses the new one.)
+
+## Verification
+
+T33 run 2026-11-12 in the main checkout (release/2 @ 8a352cb1, all 32 implementation tasks landed).
+
+**Step 1 — Zero live citations of deleted skills: PASS.** Observed 13 (the probe also counts historical mentions; the invariant is zero *live* citations). All 13 are historical: 7 in the superseded ADR-0065 body (which documents the consolidation), 5 in backlog ticket titles (`.backlog/tasks/task-116.10/13/15/16*` — the T16 title names the deleted dirs), 1 in `code-review/SKILL.md` frontmatter `based_on:` provenance line.
+
+**Step 2 — Link resolution: PASS.** No `BROKEN:` lines. All 19 `CHECK:` lines (relative-to-cwd artifacts) hand-verified: 17 unique targets exist, including every new reference (shootdown.md, goldfish-review/-loop/-resolve.md, harnesses.md, section-by-section.md, drift-report.md, divergence-categories.md, reconciliation.md). Two ambiguous tokens confirmed: a backticked prose path in section-by-section.md (task-structure.md at skill-root) and a substring of the full-path citation in drift-report.md.
+
+**Step 3 — Persona brief shape + budget: PASS.** 13 files, all ≤72 lines (cap 150). The 3-section probe passes for the 7 review briefs; the 6 BRAINSTORM lens files carry the lens shape (Attack question / Isolation mandate / Blocker rule / Output format) and pass the authoritative `scripts/check-lens-contract.mjs` (`Lens contract: PASS`). The blueprint probe is miscalibrated for the lens shape; the lens-contract script is the governing check.
+
+**Step 4 — Single-home checks: PASS.** Banned-adjective list: one home, `_shared/craft/review-discipline.md`; `prose-style.md` cites it (cited, not restated); the `design-taste-frontend(-v1)` hits are unrelated design-sense "banned" in pre-existing external skills. Six-value verdict table: one home, `code-review/SKILL.md`; `reviewers/verification-gap.md`, `writing-blueprints/SKILL.md`, and `goldfish-resolve.md` each cite 2–3 value names inline, none restate the table.
+
+**Step 5 — Drift budget + overall size budget + BDD: PASS.** Drift section = 13 lines (<40). `skill-size-budget.mjs check` → "All 107 skills within ceiling." (exit 0). BDD structural check → `OK: 43 scenarios` (briefing `Acceptance scenario:` count == feature `^Scenario:` count).
+
+**Step 6 — ADR + state check: PASS.** ASSUMPTIONS.md rows matching `04-adr-006[2-5]` = 4; the `04-adr-0054` row present, marked "(superseded by 0063)". `git diff --name-only 24a498ee^..HEAD | grep -c '\.go$'` → 0 (43-commit range, incl. four unrelated docs-only knowledge-base commits).
+
+**Step 7 — Build/test unchanged: PASS (same state as pre-change).** `go build ./mnemonic/... ./skillgrid-cli/...` clean; `go test -count=1`: 24 packages ok, 1 failure — `TestHermesSelectionFlow` (skillgrid-cli/internal/install, hermes config missing `MNEMONIC_MCP_EXCLUDE`). Pre-existing: the identical test fails at the pre-change base (a34ff016) and zero `.go` files changed in this change. Out of scope for a docs-only change.
