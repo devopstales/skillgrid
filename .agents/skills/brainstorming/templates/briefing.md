@@ -80,6 +80,29 @@ technical planning lives:]
   type shape), inline it here and note it came from a prototype. Trim to the
   decision-rich parts.]
 
+## Shootdown Findings
+
+[The Goldfish shootdown record — the six fresh lenses ran against the
+anchored hypothesis after the codebase feasibility check and before the ADR
+manifest (per `references/shootdown.md` in the `brainstorming` skill).
+`briefing.md` is the single source of truth (ADR-0013): no separate
+`concepts_brief.md`. Bounded/prototype changes carry an explicit
+`Skipped: bounded/prototype path` note here instead of a table.]
+
+**Anchored hypothesis:** [2-3 sentences, as confirmed by the user at the
+readiness gate.]
+
+| Severity | Lens | Description | Disposition | Note |
+|----------|------|-------------|-------------|------|
+| 🔴 Blocker | [lens name] | [finding] | [resolved / accepted-with-note / downgraded-to-non-goal] | [the note] |
+| 🟡 Major | [lens name] | [finding] | [recorded — does not block] | [the note] |
+| 🟢 Nit | [lens name] | [finding] | [recorded — does not block] | [the note] |
+
+**Overall verdict:** [survived / survived-with-notes / needs-revision]
+
+Gate: all 🔴 Blocker findings dispositioned before the spec is written — an
+undispositioned blocker blocks the write.
+
 ## Testing Decisions
 
 - **What makes a good test:** [Only test external behavior, not implementation
