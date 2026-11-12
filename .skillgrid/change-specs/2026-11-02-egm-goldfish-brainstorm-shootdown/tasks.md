@@ -1,6 +1,6 @@
 # EGM Goldfish — Tasks
 
-> **STATUS:** `sliced` (2026-11-12)
+> **STATUS:** `in-progress` (2026-11-12)
 
 > Sliced from `blueprint.md` (per `skillgrid:slicing`). One ticket per blueprint
 > task (33 tasks = 33 tickets, the repo's 1:1 precedent). Full ticket scope,

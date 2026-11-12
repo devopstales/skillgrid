@@ -1,6 +1,6 @@
 # EGM Goldfish: Shootdown + Plan Review + Drafting Disciplines + Drift Report — Design Briefing (requirements & intent)
 
-> **STATUS:** `draft` (2026-11-02; amended 2026-11-11 — Amendments A1 + A2)
+> **STATUS:** `in-progress` (2026-11-02; amended 2026-11-11 — Amendments A1 + A2)
 
 > **Role:** the *what* — validated design/spec: problem, intent, requirements,
 > success criteria. The companion `blueprint.md` is the *how*. Do not rename.
