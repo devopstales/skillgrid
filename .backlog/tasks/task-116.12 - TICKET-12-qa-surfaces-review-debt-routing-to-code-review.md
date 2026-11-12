@@ -1,10 +1,10 @@
 ---
 id: TASK-116.12
 title: 'TICKET-12: qa surfaces review debt + routing to code-review'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-12 09:17'
-updated_date: '2026-11-12 09:29'
+updated_date: '2026-11-12 10:09'
 labels: []
 dependencies:
   - TASK-116.11

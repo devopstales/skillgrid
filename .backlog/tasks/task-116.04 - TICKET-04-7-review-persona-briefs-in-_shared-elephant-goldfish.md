@@ -1,10 +1,10 @@
 ---
 id: TASK-116.04
 title: 'TICKET-04: 7 review persona briefs in _shared/elephant-goldfish'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-12 09:15'
-updated_date: '2026-11-12 09:29'
+updated_date: '2026-11-12 09:51'
 labels: []
 dependencies:
   - TASK-116.07

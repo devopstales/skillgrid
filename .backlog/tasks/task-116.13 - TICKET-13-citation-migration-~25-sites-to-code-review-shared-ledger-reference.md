@@ -3,10 +3,10 @@ id: TASK-116.13
 title: >-
   TICKET-13: citation migration: ~25 sites to code-review + shared ledger
   reference
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-12 09:17'
-updated_date: '2026-11-12 09:29'
+updated_date: '2026-11-12 10:58'
 labels: []
 dependencies:
   - TASK-116.04

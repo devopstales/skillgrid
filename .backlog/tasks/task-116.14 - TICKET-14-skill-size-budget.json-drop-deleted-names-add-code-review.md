@@ -1,10 +1,10 @@
 ---
 id: TASK-116.14
 title: 'TICKET-14: skill-size-budget.json: drop deleted names, add code-review'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-12 09:17'
-updated_date: '2026-11-12 09:29'
+updated_date: '2026-11-12 10:58'
 labels: []
 dependencies:
   - TASK-116.13
