@@ -13,6 +13,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-execution (recommended) or simple-execution to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+<!-- Self-Review reminder: before the User Review Gate, the drafting agent runs the Self-Review checklist (writing-blueprints SKILL.md → "Self-Review") — including check 6, Spec Reconciliation against briefing.md per references/section-by-section.md → "Spec Reconciliation (R21)" — while the blueprint is still PROPOSED. -->
+
 **Status:** PROPOSED
 
 **Tier:** T2
@@ -167,3 +169,30 @@ git commit -m "feat: add specific feature"
 - [ ] **Step 3: Write minimal implementation**
 - [ ] **Step 4: Run test to verify it passes**
 - [ ] **Step 5: Commit**
+
+## Review Summary
+
+[The goldfish pipeline writes its verdict here — the blueprint's final
+section. Do not hand-edit after the pipeline runs; the resolution record is
+the ledger round entry (per `_shared/craft/review-ledger.md`), not this
+block.
+
+**Verdict:** READY FOR EXECUTION / NEEDS REVISION
+
+**Rounds run:** [N] — convergence: [2 consecutive clean rounds / cap
+reached / churn accepted]
+
+**Findings by severity** (normalized at the record boundary per
+`references/goldfish-review.md` — reviewer vocabulary Blocker/Major/Nit
+becomes CRITICAL/WARNING/SUGGESTION here, nowhere else):
+- CRITICAL: [count — one line per finding, or "none"]
+- WARNING: [count — one line per finding, or "none"]
+- SUGGESTION: [count — one line per finding, or "none"]
+
+**Parked findings** (path + severity — surfaced as WARNING at qa time,
+never CRITICAL):
+- [`review/critic_report.md` — F-3, WARNING] — [one-line description]
+- [or "none"]
+
+**Reviewed:** YYYY-MM-DD
+]
