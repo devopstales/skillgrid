@@ -102,7 +102,8 @@ The engine is its own Go module (`mnemonic/`, module `github.com/devopstales/ski
 │                       command + per-agent setup (internal/setup,
 │                       internal/ui, internal/harnessconfig). cmd/skillgrid.
 ├── plugins/            Per-agent plugin assets: opencode/ (5 native TS plugins),
-│                       kilo/, cursor/mcp.json
+│                       kilo/, cursor/mcp.json, plus obsidian/ (Obsidian plugins,
+│                       e.g. backlogmd — a separate TypeScript project per plugin)
 ├── .agents/skills/     THE SKILL GRID — 7 category dirs + _shared/ reference library
 ├── .cursor-plugin/     Cursor plugin manifest (plugin.json, marketplace.json)
 ├── rules/              Cursor-native rule: mnemonic.mdc (always-apply memory protocol)
@@ -465,13 +466,18 @@ A second, *human-readable* storage world — the SDD state zone, canonical in `_
 │   ├── config.json      #   vault sentinel (page types)
 │   ├── ASSUMPTIONS.md   #   DURABLE — VERIFIED / INFERRED / LOCKED + ADR index
 │   ├── ARCHITECTURE.md  #   this file (live system architecture)
-│   ├── index/           #   derived projections (catalog.md, log.md) — engine-owned
+│   ├── index/           #   derived, engine-written (last-update.json only) — never hand-edit
+│   ├── templates/       #   scaffold page shapes — out of index scope
 │   ├── decisions/       #   ADR files (04-adr-NNNN-slug.md)
 │   ├── invariants/      #   locked constraints
 │   ├── glossary/        #   terms (01-business-terms.md, 02-technical-terms.md)
 │   ├── workflows/       #   SDD pipeline + domain flows
 │   ├── gotchas/         #   hard-won operational findings
-│   └── architecture/    #   component-level notes
+│   ├── architecture/    #   component-level notes
+│   ├── sources/         #   SourceSummary — per-external-source summaries
+│   ├── concepts/        #   Concept — reusable findings cut from a synthesis
+│   ├── syntheses/       #   Synthesis — research result hubs (draft → stable)
+│   └── preferences/     #   Preference — project-scoped user preferences
 ├── change-specs/        # ACTIVE change folders (YYYY-MM-DD-<topic>/)
 │   └── 2026-10-02-mnemonic-llm-provider/
 │       ├── briefing.md  acceptance.feature  blueprint.md  tasks.md  adr.md
