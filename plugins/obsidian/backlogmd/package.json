@@ -1,0 +1,24 @@
+{
+  "name": "backlogmd",
+  "version": "0.1.0",
+  "description": "Obsidian plugin: render and edit backlog.md task files as a board",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "gray-matter": "^4.0.3",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "builtin-modules": "^3.3.0",
+    "esbuild": "^0.21.0",
+    "obsidian": "latest",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}
