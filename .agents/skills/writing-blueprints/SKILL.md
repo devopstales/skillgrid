@@ -99,6 +99,53 @@ When a blueprint is large enough to warrant phase separation (typically 4+ phase
 
 For smaller changes, use the standard single-folder layout. See the [Multi-phase changes](../../../docs/user-guide/01-layout.md#multi-phase-changes) section in the Layout reference.
 
+## Ingest Predecessor Context
+
+At the start of the workflow — after reading config, before any drafting —
+run the ingestion step per
+[section-by-section.md](references/section-by-section.md): read `briefing.md`
+in full, `findings.md` if present, `adr.md` if present; present a 2–3
+sentence summary of the briefing's key decisions to the user; the user
+confirms the drafting context before the first section is written.
+
+## Section-by-Section Drafting
+
+The blueprint is drafted section-by-section per
+[section-by-section.md](references/section-by-section.md) — not written in
+one pass and reviewed at the end:
+
+- **Drafting order (R19):** the fixed section order, each section carrying
+  its content contract (pointed at the SKILL.md section that defines it).
+  The final document's layout follows `templates/blueprint.md`.
+- **Per-section gate (R19):** after each section, the single-select
+  approval gate — approve-and-proceed / request-revisions. The chat summary
+  (which section was drafted, the 2–3 key decisions in it, the path to
+  `blueprint.md`) precedes the gate — no empty chat bubbles. The user can
+  revisit any earlier section at any point.
+- **Per-task gate (R20):** in the Tasks section, Task N+1 is not written
+  until Task N is approved. The task template (Files / Interfaces /
+  SATISFIES / Steps with code) is structurally unchanged — only the
+  approval cadence changes.
+- **Alternatives from the briefing (R23):** before writing the blueprint,
+  read the briefing's `Approaches Considered` section; note rejected
+  alternatives in the blueprint, one line each
+  (`Rejected: [approach] — [reason]`); if the section is absent, note
+  `No alternatives recorded in briefing` rather than inventing them. Do not
+  rely on memory — if drafting runs in a new session, re-read the briefing.
+- **Artifact-first (R25):** **Do not dump the blueprint in chat.** Write to
+  `blueprint.md` with the file tool and give the user the path; highlight
+  2–3 key decisions in chat (one line each) and ask for review.
+
+## Tone & Discipline
+
+The tone of the drafting conversation and the blueprint's prose follows
+`_shared/craft/review-discipline.md` (cited, not restated): stress-test by
+default, critique-first, no glazing, no banned adjectives, no apologies,
+plain-English standard. The rules govern the *tone* — not the blueprint's
+structure, which the No Placeholders / No Restating rules govern. The
+banned-adjective list lives in exactly one place:
+`_shared/craft/review-discipline.md`.
+
 ## File Structure
 
 Before defining tasks, map out which files will be created or modified and what each one is responsible for. This is where decomposition decisions get locked in.
@@ -224,7 +271,10 @@ Bite-sized steps, the plan document header, task structure, and the no-placehold
 
 ## Self-Review
 
-After writing the complete plan, look at the spec with fresh eyes and check the plan against it. This is a checklist you run yourself — not a subagent dispatch.
+After the blueprint is fully drafted (section-by-section, per
+`## Section-by-Section Drafting`), look at the spec with fresh eyes and
+check the plan against it. This is a checklist you run yourself — not a
+subagent dispatch.
 
 **1. Spec coverage:** Skim each section/requirement in the spec. Can you point to a task that implements it? List any gaps.
 
@@ -235,6 +285,8 @@ After writing the complete plan, look at the spec with fresh eyes and check the 
 **4. Placeholder scan:** Search your plan for red flags — any of the patterns in [task-structure.md](references/task-structure.md) under "No Placeholders". Fix them.
 
 **5. Type consistency:** Do the types, method signatures, and property names you used in later tasks match what you defined in earlier tasks? A function called `clearLayers()` in Task 3 but `clearFullLayers()` in Task 7 is a bug.
+
+**6. Spec reconciliation:** re-read `briefing.md` and compare it against the blueprint per [section-by-section.md](references/section-by-section.md) — a **contradiction** (the briefing decided a question, the blueprint decides it differently) is reported every time, quoting both; an **addition** (the blueprint decides something the briefing never raised) is reported only if it changes architecture, an external interface, or a dependency. Contradictions are listed first. Do NOT change the blueprint to match the briefing on your own — drafting reads code the brainstorm did not. If nothing diverges, say so in one line.
 
 If you find issues, fix them inline. No need to re-review — just fix and move on. If you find a spec requirement with no task, add the task.
 
@@ -270,15 +322,14 @@ however small it looks.
 
 **No owed decisions** → proceed to the Goldfish review.
 
-**Owed decisions exist** → present the panel (recommended first, one-line why;
-never a neutral menu, never a silent decision):
+**Owed decisions exist** → present the panel:
 
 > This blueprint owes a decision before it can be executed: `<name the
 > specific load-bearing choice, e.g. "which date a "today" total is computed
 > from — session time or the user's last-read row">`. How do you want to
 > handle it?
 >
-> 1. **Resolve first** (recommended) — settle the decision in
+> 1. **Resolve first** — settle the decision in
 >    brainstorming/interviewing now, then return to this blueprint. The build
 >    has a real decision, not a guess.
 > 2. **Not a real decision** — you've judged there's nothing load-bearing
@@ -290,6 +341,18 @@ never a neutral menu, never a silent decision):
 >    later run builds against it instead of guessing again. It stays flagged
 >    as owing ratification until `skillgrid:writing-blueprints` (Ratify mode)
 >    settles it. The flag never blocks execution.
+
+**Presenting the options (R22):** when the owed decision is a **load-bearing**
+choice (data model, component boundaries, storage, protocol) with ≥2
+defensible options, present each with its **mechanism, trade-offs, and the
+conditions under which it fails**. The agent does not rank the options, does
+not mark a default, does not pick one — the owner chooses. If the owner says
+"just pick one," restate the trade-offs and present the same gate again.
+**Mechanical** choices (file naming, formatting, variable names) are decided
+by the agent without a gate — only architectural choices go to the owner. The
+gate's input-coverage mechanics (the value-source enumeration above) are
+unchanged — this is the tone shift from "here's my recommendation, please
+confirm" to "here are the options and their failure conditions, you decide."
 
 ### The Assumed block
 
