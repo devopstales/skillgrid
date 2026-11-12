@@ -149,6 +149,8 @@ Subagent (general-purpose):
     Path:       <entry point> -> <intermediate hops> -> <sink>
     Impact:     who can trigger it, what they get, which trust boundary it crosses
     Fix:        the concrete change, with a code snippet when it isn't obvious
+    Why:        why the fix closes the path — the mechanism that makes the sink
+                unreachable or the input harmless
     Confidence: Confirmed | Likely | Needs verification (say what you couldn't see)
     ```
 
@@ -174,6 +176,7 @@ Subagent (general-purpose):
     - Trace every candidate from entry point to sink before reporting
     - Run every candidate through the four-part triage rubric
     - Cite the concrete path (*this input reaches this sink*)
+    - Say why the fix closes the path — a fix with no mechanism a reviewer can check is a guess
     - Name the CWE and the OWASP/LLM/ASI category
     - Distinguish Confirmed from Likely from Needs verification
     - Say plainly when a finding is defense-in-depth, not directly exploitable
@@ -212,6 +215,7 @@ Location:   handlers/search.go:42
 Path:       req.URL.Query().Get("q") -> buildQuery() -> db.Query()
 Impact:     any authenticated user can extract arbitrary columns from any table
 Fix:        parameterize: db.Query("SELECT * FROM posts WHERE title LIKE ?", "%"+q+"%")
+Why:        the value binds as a parameter, so user input is data, not query text
 Confidence: Confirmed
 
 [Medium] Open redirect in /login?next= (CWE-601, OWASP A01:2025)
@@ -219,6 +223,7 @@ Location:   handlers/login.go:87
 Path:       req.URL.Query().Get("next") -> http.Redirect()
 Impact:     attacker can redirect to any host after login; enables credential phishing
 Fix:        allowlist next against a known-host set before redirecting
+Why:        only allowlisted hosts are reachable, so a user value can't pick the target
 Confidence: Likely
 
 Assessment: 2 findings: 0 Critical, 1 High, 1 Medium.
