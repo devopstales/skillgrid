@@ -189,6 +189,22 @@ Each smell: *what it is* → *how to fix*:
 | **Middle Man** — a unit that mostly just delegates onward | cut it, call the real target direct |
 | **Refused Bequest** — an implementer ignoring or overriding most of what it inherits | drop the inheritance, use composition |
 
+**Performance heuristics.** The design smells above never see runtime cost, so
+a short performance pass rides along under the same two rules (the repo
+overrides; skip what tooling enforces) — labelled heuristics, "possible N+1",
+never a hard violation:
+
+| Smell | Fix |
+|---|---|
+| **N+1 access** — a query, lookup, or call issued per item in a loop | one batched call for the whole set, or a join |
+| **Missing index for a new query pattern** — a new query filters or sorts on an unindexed column | index it, or query through an existing one |
+| **Quadratic-or-worse work over unbounded input** — nested loops, repeated recomputation of an invariant | hoist it, bound the input, or use the right data structure |
+| **Unbounded growth** — a cache, buffer, or collection that accumulates without eviction; large allocations in a hot path | bound it, or evict what it holds |
+| **Blocking I/O on a hot path** — a synchronous or pool-blocking call in per-request, per-render, or per-item work | make it async, cap the fan-out, or move it off the path |
+
+At T3 the `skillgrid:parallel-code-review` performance specialist owns this in
+depth; at T2 this table is the net that catches the obvious regressions.
+
 The `skillgrid:requesting-code-review` and `skillgrid:parallel-code-review`
 skills apply this two-axis contract and smell baseline.
 
