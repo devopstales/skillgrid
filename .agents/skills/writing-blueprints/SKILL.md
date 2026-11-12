@@ -29,39 +29,37 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Save plans to:** `.skillgrid/change-specs/YYYY-MM-DD-<feature-name>/blueprint.md`
 
-**Blueprint validation (after writing, before proceeding) — the critic stage is
-tier-gated; the user-decide loop is always mandatory:**
+**Blueprint validation (after drafting, before proceeding) — the validation
+seam is the goldfish pipeline; the user-decide loop is always mandatory:**
 
-The two stages run in a **decide-then-fix loop, not a one-shot gate**: the
-critic's findings (or the user's own read of the blueprint) are routed back to
-the user *while the blueprint is still PROPOSED and cheap to change*. For each
-finding the user decides the resolution path, the blueprint is updated to
-reflect it, and only the *final* updated blueprint is approved. A critique
-surfaced only after the blueprint is committed — with no user decision feeding
-back into it — has missed its purpose.
+Validation runs in this fixed order:
 
-1. **Critic subagent (conditional).** Dispatch a dedicated critic subagent with
-   the blueprint content. The critic reviews for: architectural gaps, missing
-   edge cases, untested assumptions, scope creep, and unclear interfaces. It
-   returns a structured critique (issues + severity).
-   - **Mandatory** when `Tier: T2` or `T3`, or the change is not a fast-track
-     class, or a one-way-door decision is present.
-   - **Optional / skippable** for a `T0` or `T1` change, or a fast-track
-     `trivial` / `small` class (per `_shared/planning/fast-track.md`): the user
-     (or the controller) may skip it, recording `Critic: skipped (T0/T1 or
-     fast-track)` in the blueprint header. The Self-Review checklist still runs
-     — it is in-controller and always on.
-2. **User review (always mandatory).** Present the blueprint + critic findings
-   (or, when the critic was skipped, the blueprint + the Self-Review findings)
-   to the user. For each issue, present options with benefits and weaknesses.
-   Use the agent's answer-select tool for the user to choose a resolution path.
-   **Update the blueprint to reflect each decision, then re-present the final
-   blueprint.** The user must approve the final blueprint before
-   `acceptance.feature` is written.
+1. **Self-Review** — the in-controller checklist (always on; it runs first).
+2. **Owed-Decision Gate** — the input-coverage check; owed load-bearing
+   choices go to the owner.
+3. **Goldfish review** (`references/goldfish-review.md`, run on
+   `blueprint.md`) — the 5-stage fresh-context pipeline (preset
+   single-select), iterated under the sharpening loop per
+   `references/goldfish-review-loop.md` (convergence: 2 consecutive clean
+   rounds, cap 5, turn-taking), findings resolved per
+   `references/goldfish-resolve.md`.
+4. **User Review Gate** — the decide-then-fix loop: findings are routed back
+   to the user *while the blueprint is still PROPOSED and cheap to change*;
+   for each finding the user decides the resolution path, the blueprint is
+   updated to reflect it, and only the *final* updated blueprint is approved.
+5. **Execution Handoff** — commit + `state.yaml` phase update; slicing
+   decision for ≥3 tasks; subagent-driven vs inline.
 
 Never proceed to the next artifact without the user approving the final
-blueprint. The critic stage itself may be skipped only under the T0/T1 /
-fast-track condition above (and must be recorded as skipped).
+blueprint. A critique surfaced only after the blueprint is committed — with
+no user decision feeding back into it — has missed its purpose.
+
+The single generic critic subagent and the old 6-check plan review (with its
+one-pass cap) are replaced by the goldfish reference set — nothing is lost:
+the old checks map onto the pipeline's stages (failure modes + edge cases,
+feasibility, and test strategy → Stage 9; scope coherence → Stages 5/8;
+ordering and ADR compliance → Stage 7; the stage list is in
+`references/goldfish-review.md`).
 
 **Role (do not rename):** `blueprint.md` is the *how* (implementation plan —
 steps, files, code, verification); the companion `briefing.md` is the *what*
@@ -242,7 +240,7 @@ If you find issues, fix them inline. No need to re-review — just fix and move 
 
 ## Owed-Decision Gate (input coverage)
 
-After self-review passes and before the Plan Review gate, run the **input
+After self-review passes and before the Goldfish review, run the **input
 coverage check** to catch decisions nobody made yet.
 
 **Do NOT judge this by introspection** ("do I feel like I'm inventing
@@ -270,7 +268,7 @@ which helper to call. The moment a choice determines a value's source or a
 behavior an acceptance criterion constrains, it is load-bearing by definition,
 however small it looks.
 
-**No owed decisions** → proceed to the Plan Review gate.
+**No owed decisions** → proceed to the Goldfish review.
 
 **Owed decisions exist** → present the panel (recommended first, one-line why;
 never a neutral menu, never a silent decision):
@@ -353,13 +351,21 @@ or `skillgrid:reflect`'s report.
 only path out of the state — that is what keeps an override honest without
 ever blocking the work.
 
-## Plan Review
+## Goldfish Review
 
-Fresh-eyes structural review before execution handoff: [plan-review.md](references/plan-review.md).
+The validation seam (step 3 of the Overview's validation order): the 5-stage
+fresh-context pipeline per [goldfish-review.md](references/goldfish-review.md),
+run on `blueprint.md`. The invocation passes `TargetFile` = `blueprint.md`,
+`GoldfishContext` = `briefing.md` + referenced files, `Step` = inferred from
+the path classification (Interactive for New Project, Consolidated for New
+Function with ≥3 tasks). Rounds iterate under the sharpening loop per
+[goldfish-review-loop.md](references/goldfish-review-loop.md); each round's
+findings resolve per [goldfish-resolve.md](references/goldfish-resolve.md).
+Stage reports commit under the change folder's `review/` directory.
 
 ## Execution Handoff
 
-After the plan review gate passes, check if slicing is needed:
+After the Goldfish review passes, check if slicing is needed:
 
 **If the blueprint has 3+ tasks worth of work** — invoke `skillgrid:slicing` to break it into vertical tracer-bullet tickets with dependency edges and execution waves. Slicing produces `tasks.md` alongside the blueprint.
 
@@ -430,7 +436,7 @@ Per `_shared/craft/measurement.md`.
 - [ ] The Must-Haves (Goal-Backward Verification) section is present and covers every spec requirement with verifiable truths, artifacts, and key links.
 - [ ] A placeholder scan (the No Placeholders patterns) returns zero hits across all tasks.
 - [ ] Every one-way-door decision is listed in the Must-Haves section and tagged `> ⚠ one-way:` on the task that implements it.
-- [ ] Self-Review and the Plan Review gate both ran and produced a verdict (READY FOR EXECUTION, or findings fixed inline).
-- [ ] The critic stage ran (T2/T3, non-fast-track, or one-way-door present) **or** is recorded as `Critic: skipped (T0/T1 or fast-track)` in the header — never silently absent.
-- [ ] The user-decide-then-fix loop ran: critic/user findings were routed to the user *while the blueprint was still PROPOSED*, each resolved, the blueprint updated to reflect the decisions, and the final blueprint approved by the user.
+- [ ] Self-Review ran and the Goldfish review produced a verdict — READY FOR EXECUTION (findings resolved or parked per the loop), not NEEDS REVISION.
+- [ ] The goldfish pipeline ran under a single-select preset and its stage reports are committed under the change folder's `review/` directory — never silently absent.
+- [ ] The user-decide-then-fix loop ran: goldfish/user findings were routed to the user *while the blueprint was still PROPOSED*, each resolved, the blueprint updated to reflect the decisions, and the final blueprint approved by the user.
 - [ ] The Execution Handoff is present — slicing decision made and an execution approach (Subagent-Driven or Inline) is offered, so the plan is ready to hand off.
