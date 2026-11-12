@@ -1,14 +1,81 @@
 # EGM Goldfish: Shootdown + Plan Review + Drafting Disciplines + Drift Report — Design Briefing (requirements & intent)
 
-> **STATUS:** `draft` (2026-11-02)
+> **STATUS:** `draft` (2026-11-02; amended 2026-11-11 — Amendments A1 + A2)
 
 > **Role:** the *what* — validated design/spec: problem, intent, requirements,
 > success criteria. The companion `blueprint.md` is the *how*. Do not rename.
 
+> **Amendment A1 (2026-11-11)** — consolidation, approved by the owner:
+> 1. **No new top-level skills.** Track B's `goldfish-review` becomes a
+>    reference set inside `writing-blueprints` (replacing
+>    `references/plan-review.md`); Track D's `drift-report` becomes a mode of
+>    `qa` (advisory, never the four-state gate). This restores ADR-0054's
+>    subflow placement and resolves this spec's internal contradiction (its
+>    "Approaches Considered" rejected a new top-level skill that R6 then
+>    mandated).
+> 2. **`review-ledger` is the persistent record.** Goldfish rounds are ledger
+>    rounds (finding IDs, dispositions, fix-commit lineage, frozen candidate,
+>    debt lifecycle). `goldfish_review_report.md` is dropped; the ledger's
+>    round entry + the R13 consolidated chat response replace it.
+> 3. **Triage is an adapter, not a new system.** R10's categories map onto
+>    `parallel-code-review` Step 3 verdicts + `receiving-code-review` buckets
+>    (CONTEST = `false`, ESCALATE = `could-not-verify` → human look,
+>    PROPOSE-FIX = fix now, DECLINE = low/noise); `goldfish-resolve.md` cites
+>    both and adds only the doc-review deltas.
+> 4. **Isolation cites, then extends.** R36/R37 cite
+>    `requesting-code-review`'s Blindness Contract + independence grades
+>    (A/B/C) for part 1 and add the three new parts (read-only, no project
+>    instructions, no network); the Grade-C-degrades fallback becomes R36's
+>    stop rule.
+> 5. **Severity normalizes at the record boundary.** Stage reports may use
+>    EGM's Blocker/Major/Nit internally; anything entering the ledger, `qa`,
+>    or the chat response is `CRITICAL`/`WARNING`/`SUGGESTION`.
+> 6. **One persona home.** `_shared/elephant-goldfish/` holds 13 briefs (7
+>    review + 6 BRAINSTORM-mode lens); the separate `brainstorming/agents/`
+>    directory is dropped.
+> 7. **Path corrections.** The flat `.agents/skills/<name>/` layout (no
+>    `planning/`/`verification/` subdirs) and `.skillgrid/projectwiki/`
+>    artifact paths replace the spec's stale paths. The three ADRs claim
+>    0062–0064 (0061 is highest in use); 0063 supersedes ADR-0054.
+> 8. **Light edits named.** `qa` (drift-mode section + one decision-debt
+>    line), `review-ledger` (one line: goldfish rounds are ledger rounds), and
+>    `receiving-code-review` (one cite of `review-discipline.md`) are additive
+>    one-liners; R16's untouched list is amended accordingly.
+> The OpenCode plugin (`.opencode/plugins/goldfish/index.ts`) is a deferral
+> candidate — see Open Questions.
+>
+> **Amendment A2 (2026-11-11)** — verification-skill consolidation, owner
+> approved ("we have too many validation skills"):
+> 1. **One review skill.** `requesting-code-review` +
+>    `parallel-code-review` merge into `code-review` — a single skill whose
+>    topology step selects the fan-out by diff size / risk / rigor tier
+>    (small low-risk → the 3-axis pass; large or high-risk → the full
+>    specialist fan-out). The Blindness Contract + independence grades and
+>    the six-value verdict table become the shared protocol; the two
+>    security reviewer templates merge into one. Observable behavior is
+>    unchanged (R39–R40).
+> 2. **The ledger is a reference, not a skill.** `review-ledger` is demoted
+>    to `_shared/craft/review-ledger.md` (round format, frozen candidate,
+>    dispositions, debt lifecycle). The per-change `review-ledger.md`
+>    *artifact* is unchanged. Its "surface review debt at qa time" step
+>    moves into `qa` (R41–R42).
+> 3. **Citation remap.** Every citation in this spec and in the repo to
+>    `requesting-code-review`, `parallel-code-review`, or `review-ledger`
+>    *as skills* refers to their post-Track-E forms: `code-review` and
+>    `_shared/craft/review-ledger.md`. Citations to the `review-ledger.md`
+>    *artifact* are unaffected. `qa` (gate) and `receiving-code-review`
+>    (fix loop) keep their roles. All citation sites update in R43,
+>    including the `AGENTS.md` workflow line.
+> 4. **ADR.** A1's ADR count of three (0062–0064) becomes four: ADR-0065
+>    records the consolidation.
+>
+> Track E requirements: R39–R43.
+
 ## Problem / Intent
 
-This change ports the **Elephant-Goldfish Model (EGM)** onto skillgrid in four
-tracks. Tracks A and B address the same root failure mode — **same-context
+This change ports the **Elephant-Goldfish Model (EGM)** onto skillgrid in
+four tracks (A–D), plus a fifth, Track E, that consolidates the
+verification skills the new tracks cite (Amendment A2). Tracks A and B address the same root failure mode — **same-context
 rubber-stamping** — at two different points in the pipeline. Track C addresses
 a different failure mode — **one-shot drafting without incremental
 verification** — at the same pipeline stage as Track B (blueprint writing) but
@@ -37,15 +104,19 @@ assumptions already in context, so they rubber-stamp the very blind spots they
 are meant to catch — unstated assumptions, terms a fresh reader cannot
 resolve, altitude drops, and gaps that make the plan unbuildable by a
 zero-context implementer. Track B ports EGM's `egm-review` + `egm-review-loop`
-+ `egm-resolve` as a **new top-level skill** (`skillgrid:goldfish-review`) with
++ `egm-resolve` as a **Goldfish review reference set inside
+`writing-blueprints`** (A1 — the original draft specified this as a new
+top-level skill, `skillgrid:goldfish-review`) with
 a 5-stage fresh-context pipeline, 4 execution presets, a multi-round
 sharpening loop (convergence = 2 consecutive clean rounds, cap = 5), and an
 Elephant-side resolution workflow (CONTEST/ESCALATE/PROPOSE-FIX/DECLINE with
-interactive gate). `writing-blueprints` invokes `skillgrid:goldfish-review` on
-`blueprint.md` in its validation seam — the skill is independently invocable
-(review any design doc, not just blueprints), but in this change it is
-invoked by `writing-blueprints`. The sharpening loop and resolution workflow
-are reference files inside `goldfish-review`, not separate skills — they are
+interactive gate). `writing-blueprints` runs the Goldfish review on
+`blueprint.md` in its validation seam — the reference set is
+independently runnable (review any design doc, not just blueprints), but in
+this change it is
+invoked by `writing-blueprints`. The sharpening loop, resolution, and
+harness files are reference files inside `writing-blueprints`, not separate
+skills — they are
 tightly coupled to the orchestrator and not independently useful.
 
 **Track C — Drafting disciplines (during blueprint writing, on the
@@ -71,10 +142,23 @@ they make flawed assumptions that lead to broken implementations. EGM's
 `egm-drift-report` skill solves this by auditing checked-in design documents
 against source code to identify architectural divergence in four categories
 (Missing Features, Incomplete Models, Logic Shortcuts, Architectural
-Divergence). Track D ports this as a new `skillgrid:drift-report` skill — a
+Divergence). Track D ports this as a **drift mode of `qa`** (A1 — the
+original draft specified a new `skillgrid:drift-report` skill) — a
 periodic ritual (not a per-change gate) that compares spec artifacts against
 the codebase and produces an actionable drift report. It reuses
-`goldfish-review`'s resolution workflow (R10) for findings.
+the Goldfish resolution workflow (R10) for findings.
+
+**Track E — Verification skill consolidation (enabler, not a gate; A2).**
+The goldfish tracks cite `code-review`'s triage verdicts, its Blindness
+Contract, and the shared ledger record (post-Track-E names — A2 remap).
+Track E consolidates those after-code skills so the citations land on
+stable names: `requesting-code-review` + `parallel-code-review` merge into
+a single `code-review` skill (topology selected by diff size / risk / rigor
+tier), `review-ledger` becomes a shared reference
+(`_shared/craft/review-ledger.md`), and its qa-time debt-surfacing step
+moves into `qa`. Gate, ledger, and triage semantics are unchanged; the
+roster shrinks from four validation skills to two invocable skills plus one
+shared reference.
 
 **The four tracks are complementary gates:**
 - Track A (shootdown) asks **"is this idea worth building at all?"** before any
@@ -89,17 +173,25 @@ the codebase and produces an actionable drift report. It reuses
   written — it validates the *code*.
 
 All four are subflows or rituals at different pipeline stages. None replaces
-the others.
+the others. Track E is not a gate — it consolidates the skills the gates and
+the new tracks cite (A2).
 
 ## Purpose & Success Criteria
 
 - **Purpose:** give `brainstorming` a fresh-context, multi-lens shootdown
-  (Track A), create a new `skillgrid:goldfish-review` skill with a 5-stage
-  fresh-context pipeline + sharpening loop + resolution workflow (Track B),
-  and give `writing-blueprints` section-by-section drafting with per-section
-  approval gates plus eight drafting disciplines (Track C). Track B is a new
-  top-level skill (independently invocable, reusable across design docs);
-  Tracks A and C are subflows of existing skills. No new pipeline phase.
+  (Track A), give `writing-blueprints` a 5-stage fresh-context Goldfish
+  review — a reference set replacing `references/plan-review.md` — with a
+  sharpening loop + resolution workflow (Track B), and give
+  `writing-blueprints` section-by-section drafting with per-section approval
+  gates plus eight drafting disciplines (Track C). Track D adds a drift
+  report mode to `qa` (periodic code-vs-design audit). All four tracks are
+  subflows or modes of existing skills — no new top-level skill, no new
+  pipeline phase (Amendment A1). The Track B reference set remains runnable
+  standalone on any design doc (blueprint, briefing, ADR). Track E
+  (Amendment A2) consolidates the after-code review skills —
+  `requesting-code-review` + `parallel-code-review` merge into one
+  `code-review` skill and `review-ledger` becomes a shared reference; no new
+  invocable skill, the roster shrinks.
 - **Success criteria:**
   - **Track A:** a New Project or New Function brainstorm spawns at least six
     **fresh** subagents (one per lens) that were not given the author's
@@ -107,41 +199,59 @@ the others.
     `briefing.md` is written. Blocker findings must be dispositioned (resolved /
     accepted-with-note / downgraded-to-non-goal) before the spec is written.
   - **Track B:** a blueprint with ≥3 tasks (or any one-way-door) is reviewed by
-    `skillgrid:goldfish-review` — a 5-stage fresh-context pipeline (zoom-out /
+    the Goldfish review (the `writing-blueprints` reference set,
+    `references/goldfish-review.md`) — a 5-stage fresh-context pipeline (zoom-out /
     comprehension / critic / intermediate zoom-out / implementation-readiness)
     with a multi-round sharpening loop (convergence = 2 consecutive clean
     rounds, cap = 5) and an Elephant-side resolution workflow, before
     `acceptance.feature` is written. The comprehension reviewer's paraphrase
     of the blueprint is written to an artifact; any section it could not
     paraphrase, or any term it had to guess, is a recorded finding. The review
-    is independently invocable (`/goldfish-review <path>`) but is invoked by
-    `writing-blueprints` in this change.
+    is runnable standalone on any design doc but is invoked by
+    `writing-blueprints` in this change; its rounds are recorded in
+    `review-ledger` (A1).
   - **Track C:** the blueprint is drafted section-by-section with per-section
     approval gates. Each task in the Tasks section gets its own approval gate.
     The agent reconciles the blueprint against `briefing.md` (contradictions +
     significant additions) before Self-Review. Architectural decisions (data
     model, component boundaries, storage, protocol) are presented to the owner
     without ranking or default — the owner picks.
-  - **Track D:** `/drift-report <spec-dir>` (per-change) or `/drift-report`
-    (project-wide) compares spec artifacts (`briefing.md`, `blueprint.md`,
+  - **Track D:** `qa`'s drift mode — on a spec dir (per-change) or
+    project-wide — compares spec artifacts (`briefing.md`, `blueprint.md`,
     `adr.md`, `acceptance.feature`) against the codebase and produces a drift
     report with findings in 4 categories (Missing Features, Incomplete Models,
     Logic Shortcuts, Architectural Divergence). Findings are dispositioned
-    using `goldfish-review`'s resolution workflow (R10). The report is
-    committed to the spec dir. It is a periodic ritual, not a per-change gate.
+    using the Goldfish resolution workflow (R10) and recorded in
+    `review-ledger` (A1). The report is committed to the spec dir. It is a
+    periodic ritual, not a per-change gate, and never renders `qa`'s
+    four-state verdict.
   - Review findings are dispositioned and the review is committed in the spec
     zone before execution handoff (Track B) or before `writing-blueprints` is
     invoked (Track A).
-  - `qa`, `requesting-code-review`, `review-ledger`, and `parallel-code-review`
-    are **unchanged** — the after-code half is untouched.
+  - The after-code half's **semantics** are untouched: gate, ledger, and
+    triage behavior are unchanged (A1, R16). Track E (A2) restructures the
+    after-code *skills* — `requesting-code-review` + `parallel-code-review`
+    → `code-review`, `review-ledger` → shared reference (R39–R43) — without
+    changing their observable contracts.
+  - **Track E:** one `code-review` skill replaces the two review skills —
+    its topology step reproduces the old 3-axis pass for small low-risk
+    diffs and the old full specialist fan-out for large or high-risk ones;
+    `review-ledger` is a shared reference (`_shared/craft/review-ledger.md`)
+    with the same round format and debt lifecycle; `qa` carries the
+    debt-surfacing step; zero citations to the deleted skill names remain
+    outside the change archive; the skill-size-budget check passes.
 - **Out of scope:**
-  - No change to `qa`, the after-code quality gate.
-  - One new top-level skill (`skillgrid:goldfish-review`) — Track B. It is
-    independently invocable and reusable across design docs, not just
-    blueprints. Tracks A and C are subflows of existing skills.
+  - No change to `qa`'s four-state gate semantics — the after-code gate is
+    untouched; `qa` gains only the additive drift mode, one decision-debt
+    line (A1), and the review-debt surfacing step moved in from the demoted
+    `review-ledger` skill (A2, R42).
+  - No new top-level skills (A1) — Track B is a reference set inside
+    `writing-blueprints`, Track D a mode of `qa`; Tracks A and C are subflows
+    of existing skills. The Track B reference set remains runnable standalone
+    on any design doc.
   - No separate `goldfish-review-loop` or `goldfish-resolve` skill — they are
-    reference files inside `goldfish-review` (tightly coupled to the
-    orchestrator, not independently useful).
+    reference files inside the `writing-blueprints` Goldfish set (tightly
+    coupled to the orchestrator, not independently useful).
   - No `egm-bootstrap` (per-directory README contracts), no separate
     `concepts_brief.md` artifact, no synthesizer subagent-of-subagents layer.
   - No change to the blueprint template's task structure (Files / Interfaces /
@@ -154,7 +264,7 @@ the others.
     blueprint's task steps include actual code (failing test, implementation,
     commit) by design.
   - No enforcement of drift-report cadence (weekly gardener rotation is
-    suggested, not required). The skill is invocable on-demand.
+    suggested, not required). The mode is invocable on-demand.
   - No automatic drift detection in CI (the drift report is an agent-driven
     ritual, not a CI check).
   - No new third-party dependency (prose-only change; the only code is skill
@@ -162,7 +272,7 @@ the others.
 
 ## Context
 
-- `brainstorming` (`.agents/skills/planning/brainstorming/SKILL.md`) is the
+- `brainstorming` (`.agents/skills/brainstorming/SKILL.md`) is the
   skill Track A upgrades. Its New Project / New Function paths already have the
   seam: interview → approaches → design → **codebase feasibility check** → ADR
   manifest → acceptance contract → spec. Track A inserts the shootdown between
@@ -170,28 +280,32 @@ the others.
   replaces nothing — it is additive. The existing structured `question` tool
   mandate (used by `interviewing`) stays intact; the anti-sycophancy rules apply
   to *tone*, not *tooling*.
-- `writing-blueprints` (`.agents/skills/planning/writing-blueprints/SKILL.md`,
-  `large` tier, 26KB) is the skill Tracks B and C upgrade. Track B replaces the
-  validation seam: **Self-Review** → **Critic subagent** → **Owed-Decision Gate**
-  → **Plan Review** (`references/plan-review.md`) becomes **Self-Review** →
-  **Owed-Decision Gate** → **`skillgrid:goldfish-review`** → **Execution
-  Handoff**. The single generic Critic subagent and the structural Plan Review
-  are replaced by the 5-stage `goldfish-review` skill. Track C upgrades the
+- `writing-blueprints` (`.agents/skills/writing-blueprints/SKILL.md`,
+  `large` tier, ~28KB of a 38KB ceiling) is the skill Tracks B and C upgrade.
+  Track B replaces the validation seam: **Self-Review** → **Critic subagent**
+  → **Owed-Decision Gate** → **Plan Review** (`references/plan-review.md`)
+  becomes **Self-Review** → **Owed-Decision Gate** → **Goldfish review**
+  (`references/goldfish-review.md`) → **Execution Handoff**. The single
+  generic Critic subagent and the structural Plan Review are replaced by the
+  5-stage Goldfish reference set. Track C upgrades the
   drafting process: the one-shot model is replaced by section-by-section
   drafting with per-section approval gates, plus explicit ingestion, spec
   reconciliation, owner-decides-architecture, and anti-sycophancy rules.
-- `skillgrid:goldfish-review` (NEW, `.agents/skills/planning/goldfish-review/`)
-  is the new top-level skill for Track B. It is independently invocable
-  (`/goldfish-review <path>`) and reusable across design docs (blueprints,
-  briefings, ADRs). It contains: `SKILL.md` (5-stage pipeline + 4 presets +
-  checkpoint gates + pause/resume), `references/goldfish-review-loop.md`
-  (sharpening loop: multi-round, convergence, settled/fixed tracking, churn,
+- The **Goldfish review** (NEW reference set inside `writing-blueprints`,
+  A1) is Track B's mechanism. It is invoked by `writing-blueprints` in the
+  validation seam and remains runnable standalone on any design doc
+  (blueprint, briefing, ADR). It contains: `references/goldfish-review.md`
+  (5-stage pipeline + 4 presets + checkpoint gates + pause/resume +
+  execution constraints), `references/goldfish-review-loop.md` (sharpening
+  loop: multi-round, convergence, settled/fixed tracking, churn,
   turn-taking), `references/goldfish-resolve.md` (Elephant-side resolution:
-  CONTEST/ESCALATE/PROPOSE-FIX/DECLINE categorization rules + interactive gate
-  + report format). It is invoked by `writing-blueprints` in the validation
-  seam, but can also be invoked standalone.
-- `references/plan-review.md` (existing) is **replaced** by
-  `skillgrid:goldfish-review`. Its 6 checks (failure modes / scope /
+  categorization per `code-review`'s triage step (R39) +
+  `receiving-code-review`
+  buckets with the doc-review deltas + interactive gate + ledger-recorded
+  report), `references/harnesses.md` (harness portability table). Its rounds
+  are recorded in `review-ledger` (A1).
+- `references/plan-review.md` (existing) is **replaced** by the Goldfish
+  review reference set. Its 6 checks (failure modes / scope /
   feasibility / ordering / test strategy / ADR compliance) are subsumed by the
   5-stage pipeline. The file is deleted (or marked superseded) in this change.
 - skillgrid's split is a **file boundary** (`briefing.md` = what, `blueprint.md`
@@ -213,32 +327,42 @@ the others.
   `design_critic`, `implementation_readiness`, `codebase_details`,
   `structural`. Folded into `review-discipline.md`: `style`. Dropped:
   `synthesizer` (the main agent synthesizes inline).
-  Track A (shootdown) uses all 6 lenses. Track B (plan review) uses 3 stages
-  (zoom-out / comprehension / critic = design-critic + implementation-readiness
-  + codebase-details). Track C (drafting disciplines) ports `egm-draft`'s
+  Track A (shootdown) uses its own 6 BRAINSTORM-mode lens briefs. Track B
+  (plan review) uses the 5-stage pipeline (zoom-out / comprehension /
+  critic = design-critic + structural + style / intermediate zoom-out /
+  implementation-readiness = implementation-readiness + codebase-details +
+  style). Track C (drafting disciplines) ports `egm-draft`'s
   section-by-section model + 8 drafting disciplines; it uses no Goldfish
   personas (it is a process change, not a review change).
 
 ## Approaches Considered
 
-- **Chosen:** Three-track upgrade. Track A inserts a 6-lens Goldfish shootdown
-  into `brainstorming`'s New Project / New Function paths (after feasibility
-  check, before spec). Track B creates a new `skillgrid:goldfish-review`
-  skill (5-stage pipeline + 4 presets + sharpening loop + resolution
-  workflow) that `writing-blueprints` invokes in its validation seam. Track C
-  upgrades the `writing-blueprints` drafting process with section-by-section
-  drafting + 8 drafting disciplines from `egm-draft`. Tracks A and B share a
-  `_shared/elephant-goldfish/` persona-brief directory and one shared
-  `review-discipline.md`. The `goldfish-review` skill contains its own
-  `references/goldfish-review-loop.md` and `references/goldfish-resolve.md`
-  (not separate skills — tightly coupled to the orchestrator). SKILL.md edits
-  stay thin; protocol detail lives in `references/shootdown.md` (Track A),
-  `goldfish-review/` (Track B), and `references/section-by-section.md`
-  (Track C).
-- **Rejected:** Add a new top-level `goldfish-review` skill for Track B —
-  duplicates the seam, adds a phase and a resume marker, and forces a change to
-  `sdd-structure.md`'s phase table. The review is a subflow of blueprint
-  validation, not a new pipeline phase.
+- **Chosen:** Four-track upgrade, no new top-level skills (A1). Track A
+  inserts a 6-lens Goldfish shootdown into `brainstorming`'s New Project /
+  New Function paths (after feasibility check, before spec). Track B adds a
+  Goldfish review reference set (5-stage pipeline + 4 presets + sharpening
+  loop + resolution workflow) to `writing-blueprints`, invoked in its
+  validation seam and runnable standalone on any design doc. Track C upgrades
+  the `writing-blueprints` drafting process with section-by-section drafting
+  + 8 drafting disciplines from `egm-draft`. Track D adds a drift report mode
+  to `qa` (advisory, periodic, never the four-state gate). Tracks A and B
+  share a `_shared/elephant-goldfish/` persona-brief directory (13 briefs: 7
+  review + 6 lens) and one shared `review-discipline.md`. Findings are
+  recorded in the shared ledger reference, triaged via `code-review` (R39) +
+  `receiving-code-review` conventions, and isolated per
+  `code-review`'s Blindness Contract extended with read-only /
+  no-project-instructions / no-network (A1). SKILL.md edits stay thin;
+  protocol detail lives in `references/shootdown.md` (Track A),
+  `writing-blueprints/references/goldfish-*.md` (Track B),
+  `references/section-by-section.md` (Track C), and `qa/references/drift-*.md`
+  (Track D).
+- **Rejected (reinstated as Chosen by Amendment A1, 2026-11-11):** Add a new
+  top-level `goldfish-review` skill for Track B — duplicates the seam, grows
+  the skill roster (the owner's constraint: "we have too many skills"), and
+  deviates from ADR-0054's subflow placement. The review is a subflow of
+  blueprint validation, not a new pipeline phase. A1 consolidates Track B
+  into `writing-blueprints` references and Track D into a `qa` mode — zero
+  new top-level skills.
 - **Rejected:** Add a new top-level `goldfish-brainstorm` skill for Track A —
   same reasoning. The shootdown is a subflow of `brainstorming`'s existing New
   Project / New Function paths, not a new pipeline phase.
@@ -400,37 +524,49 @@ the others.
 
 ### Track B — Goldfish Review Skill
 
-6. **R6 — New top-level skill: `skillgrid:goldfish-review`.**
+6. **R6 — Goldfish review: reference set inside `writing-blueprints` (A1).**
    - **Current:** no standalone Goldfish review skill. The before-code review
      is a subflow of `writing-blueprints` (Self-Review + Critic subagent +
      Plan Review).
-   - **Target:** new skill at
-     `.agents/skills/planning/goldfish-review/` with:
-     - `SKILL.md` — the 5-stage pipeline, 4 execution presets, checkpoint
-       gates, pause/resume protocol, and execution constraints (artifact-first,
-       plain-English, anti-sycophancy). Independently invocable:
-       `/goldfish-review <TargetFile> [GoldfishContext] [Step]`.
-     - `references/goldfish-review-loop.md` — the sharpening loop: multi-round
+   - **Target:** a reference set inside
+     `.agents/skills/writing-blueprints/references/` (no new top-level skill —
+     A1; restores ADR-0054's subflow placement) with:
+     - `goldfish-review.md` — the 5-stage pipeline, 4 execution presets,
+       checkpoint gates, pause/resume protocol, and execution constraints
+       (artifact-first, plain-English, anti-sycophancy). Runnable standalone
+       on any design doc: the agent runs the reference set on
+       `<TargetFile> [GoldfishContext] [Step]` directly.
+     - `goldfish-review-loop.md` — the sharpening loop: multi-round
        iteration (up to 5), convergence rules (2 consecutive clean rounds),
        settled vs fixed finding tracking, churn detection, turn-taking
-       (idle between rounds, user confirms "run another round"), unconditional
-       line-range re-scan before each round.
-     - `references/goldfish-resolve.md` — the Elephant-side resolution
-       workflow: CONTEST/ESCALATE/PROPOSE-FIX/DECLINE categorization rules
-       (contest must be checkable, don't add context for subagents, don't
-       contest comprehension gaps, don't change severity), interactive gate
-       (auto-accept / continue / interactive breakdown / comment on file /
-       custom instruction), report format (`goldfish_review_report.md` with AI
-       suggestion + justification + proposed edit per finding).
-     The loop and resolve are reference files (not separate skills) — they are
-     tightly coupled to the orchestrator and not independently useful.
+       (idle between rounds, user confirms "run another round"), and a
+       frozen-candidate hash of the target doc re-checked before each round
+       (A1: a hash of the doc at round start; edits invalidate the round and
+       re-dispatch — subsumes the original line-range re-scan).
+     - `goldfish-resolve.md` — the Elephant-side resolution workflow:
+       categorization per `code-review`'s triage step (R39) verdicts +
+       `receiving-code-review` buckets (CONTEST = `false` with checkable
+       evidence, ESCALATE = `could-not-verify` → human look, PROPOSE-FIX =
+       fix now, DECLINE = low/noise) plus the doc-review deltas (don't add
+       context for subagents, don't contest comprehension gaps, don't change
+       severity), interactive gate (auto-accept / continue / interactive
+       breakdown / comment on file / custom instruction), and the
+       ledger-recorded report (per-finding AI suggestion + justification +
+       proposed edit in the `review-ledger.md` round entry — no separate
+       `goldfish_review_report.md`).
+     - `harnesses.md` — the harness portability table (R38).
+     The loop, resolve, and harness files are reference files — tightly
+     coupled to the orchestrator, not independently useful.
      `goldfish-resolve` runs in the Elephant context (the main agent), not a
      subagent — it needs institutional knowledge to write good fixes.
-   - **Acceptance:** `SKILL.md` exists with the 5-stage pipeline + 4 presets;
+   - **Acceptance:** `writing-blueprints/references/goldfish-review.md`
+     exists with the 5-stage pipeline + 4 presets;
      `references/goldfish-review-loop.md` exists with convergence rules;
      `references/goldfish-resolve.md` exists with categorization rules +
-     interactive gate; the skill is invocable via `/goldfish-review <path>`.
-   - **Acceptance scenario:** `happy path goldfish-review-skill` →
+     interactive gate; `references/harnesses.md` exists; the reference set is
+     runnable standalone on a named design doc. No new top-level skill is
+     created.
+   - **Acceptance scenario:** `happy path goldfish-review-reference-set` →
      `acceptance.feature`.
 
 7. **R7 — Five-stage fresh-context pipeline.**
@@ -457,7 +593,8 @@ the others.
      satisfying R7. Stage 8 is the key addition over the old 3-stage model:
      it re-checks the whole doc after Stages 6+7 findings are addressed,
      catching weeds or scope creep introduced by fixes.
-   - **Acceptance:** `goldfish-review/SKILL.md` names all five stages and their
+   - **Acceptance:** `writing-blueprints/references/goldfish-review.md`
+     names all five stages and their
      targets; the stage list is not a single combined prompt; Stage 8 re-runs
      zoom-out on the updated doc after Stage 7 remediation.
    - **Acceptance scenario:** `happy path five-stage-pipeline` →
@@ -465,7 +602,8 @@ the others.
 
 8. **R8 — Four execution presets.**
    - **Current:** the review always runs the full pass. No mode selection.
-   - **Target:** `goldfish-review` supports 4 presets, selected by the user or
+   - **Target:** the Goldfish review reference set supports 4 presets,
+     selected by the user or
      inferred from the invocation context:
      - **Interactive** (checkpoint after each stage): full 5-stage pipeline
        with user checkpoint gates between stages. Default for New Project /
@@ -483,7 +621,8 @@ the others.
      The preset is a single-select gate (if not provided at invocation). The
      topological dependency 5→6→7→8→9 is preserved — multi-select is
      prohibited.
-   - **Acceptance:** `goldfish-review/SKILL.md` documents all 4 presets; the
+   - **Acceptance:** `writing-blueprints/references/goldfish-review.md`
+     documents all 4 presets; the
      preset gate is single-select; the topological order is preserved.
    - **Acceptance scenario:** `happy path four-presets` →
      `acceptance.feature`.
@@ -511,8 +650,11 @@ the others.
      - **Turn-taking:** after each round's resolution, the loop goes idle and
        waits for the user to confirm "run another round." The agent does not
        auto-loop.
-     - **Line-range re-scan:** before each round, unconditionally re-read
-       `blueprint.md` to recalculate line numbers (they shift after edits).
+     - **Frozen-candidate re-check (A1, replaces the original line-range
+       re-scan):** before each round, re-read `blueprint.md` (line numbers
+       shift after edits) and re-hash it; if the hash changed since the
+       round started, the round is invalidated per the `review-ledger`
+       frozen-candidate rule and re-dispatched.
    - **Acceptance:** `references/goldfish-review-loop.md` documents all 6
      rules; the loop does not auto-advance (turn-taking); convergence requires
      2 clean rounds; settled findings are not re-opened.
@@ -527,7 +669,13 @@ the others.
       - **Categorize** each finding into exactly one: **CONTEST** (inaccurate;
         cite evidence the reviewer could read) / **ESCALATE** (inaccurate but
         evidence is out-of-doc) / **PROPOSE FIX** (valid; name the edit) /
-        **DECLINE** (nit; record, don't fix).
+        **DECLINE** (nit; record, don't fix). (A1: this is an adapter over the
+        existing triage vocabulary, not a new system — CONTEST =
+        `code-review` triage verdict `false` (R39; say what disproves it),
+        ESCALATE = `could-not-verify` → `receiving-code-review`'s human-look
+        bucket, PROPOSE FIX = the fix-now bucket, DECLINE = low/noise.
+        `goldfish-resolve.md` cites both conventions and adds only the
+        doc-review deltas.)
       - **Rules:** a contest must be checkable ("this was intentional" is not
         evidence). Do not add context only to satisfy a reviewer (if only a
         zero-context subagent needs it → ESCALATE). Do not contest a
@@ -538,31 +686,43 @@ the others.
         (item-by-item walkthrough: Accept / Skip / Discuss per item) /
         **Comment on file** (user edits the report directly) / **Custom
         instruction**.
-      - **Report:** `goldfish_review_report.md` with per-finding AI suggestion
-        + justification + proposed edit.
+      - **Report (A1):** the `review-ledger.md` round entry with per-finding
+        AI suggestion + justification + proposed edit in the Dispositions —
+        no separate `goldfish_review_report.md`.
       The resolution runs in the Elephant context — the agent has the
       institutional knowledge to write good fixes and defend design choices.
    - **Acceptance:** `references/goldfish-resolve.md` documents the 4
      categories + 4 rules + 5 gate options; the resolution runs in the main
-     agent context (not a subagent); the report format matches the spec.
+     agent context (not a subagent); the ledger round entry carries the
+     per-finding report (A1).
    - **Acceptance scenario:** `happy path elephant-resolution` →
      `acceptance.feature`.
 
-11. **R11 — Persona briefs live in `_shared/elephant-goldfish/`.**
+11. **R11 — Persona briefs: one home, 13 files, in `_shared/elephant-goldfish/` (A1).**
     - **Current:** no shared reviewer-persona files.
-    - **Target:** new files
-      `_shared/elephant-goldfish/{zoom-out,comprehension,design-critic,
-      structural,style,implementation-readiness,codebase-details}.md`, each a
-      self-contained read-only persona brief (role, isolation mandate, audit
-      vectors, output format). The `style` persona is a standalone file (used
-      by Stages 7 and 9). All six lenses used by Track A (shootdown) are
-      present: `zoom-out` (YAGNI), `design-critic` (cost economics),
-      `comprehension` (UX), `implementation-readiness` (migration),
-      `codebase-details` (observability), `structural` (tech debt). Stage 7
-      uses `design-critic` + `structural` + `style`. Stage 9 uses
-      `implementation-readiness` + `codebase-details` + `style`.
-    - **Acceptance:** each file exists, is ≤150 lines, names its audit vectors,
-      and its output format matches the finding schema. No `synthesizer.md`.
+    - **Target:** new files in a single persona home
+      `.agents/skills/_shared/elephant-goldfish/` (A1: the separate
+      `brainstorming/agents/` directory is dropped):
+      - 7 review briefs — `zoom-out.md`, `comprehension.md`,
+        `design-critic.md`, `structural.md`, `style.md`,
+        `implementation-readiness.md`, `codebase-details.md` — each a
+        self-contained read-only persona brief (role, isolation mandate, audit
+        vectors, output format). The `style` persona is a standalone file
+        (used by Stages 7 and 9). Stage 7 uses `design-critic` + `structural`
+        + `style`. Stage 9 uses `implementation-readiness` +
+        `codebase-details` + `style`.
+      - 6 BRAINSTORM-mode lens briefs — `lens-contrarian-yagni.md`,
+        `lens-cost-economics.md`, `lens-ux-ergonomics.md`,
+        `lens-migration-compat.md`, `lens-observability-sre.md`,
+        `lens-tech-debt.md` — the Track A attack questions (R1) as their own
+        rubrics, dispatched with the `Mode: BRAINSTORM` flag. They are not the
+        review personas mapped over (the original draft's lens-to-persona
+        mapping, e.g. "comprehension = UX", was a stretch; the lens briefs are
+        the load-bearing rubrics).
+    - **Acceptance:** all 13 files exist, each is ≤150 lines, names its audit
+      vectors (or attack question, for lens briefs), and its output format
+      matches the finding schema. No `synthesizer.md`. No
+      `brainstorming/agents/` directory.
     - **Acceptance scenario:** `happy path persona-briefs-present` →
       `acceptance.feature`.
 
@@ -574,10 +734,12 @@ the others.
       counter-argument per assertion, no glazing, banned validating adjectives,
       no apologies, banned decorative adverbs) into one citable reference.
       `prose-style.md` gains one short "No flattery" rule that points at it.
-      Every goldfish persona brief cites `review-discipline.md`. `goldfish-
-      review/SKILL.md` cites it. Track A cites it.
+      Every goldfish persona brief cites `review-discipline.md`. The Goldfish
+      review reference (`writing-blueprints/references/goldfish-review.md`)
+      cites it. Track A cites it.
     - **Acceptance:** `review-discipline.md` exists and is cited by every file
-      in `_shared/elephant-goldfish/` AND by `goldfish-review/SKILL.md`;
+      in `_shared/elephant-goldfish/` AND by
+      `writing-blueprints/references/goldfish-review.md`;
       `prose-style.md` contains a "No flattery" section; the banned-adjective
       list is in exactly one place (`review-discipline.md`).
     - **Acceptance scenario:** `happy path review-discipline-cited` →
@@ -585,34 +747,43 @@ the others.
 
 13. **R13 — Reports are committed artifacts in the change folder.**
     - **Current:** the single Critic pass has no committed report artifact.
-    - **Target:** each `goldfish-review` stage writes its findings to
+    - **Target:** each Goldfish review stage writes its findings to
       `.skillgrid/change-specs/<topic>/review/<stage>.md` (`zoom_out_report.md`,
       `comprehension_report.md`, `critic_report.md`,
       `intermediate_zoom_out_report.md`, `implementation_readiness_report.md`).
-      The resolution report is `goldfish_review_report.md`. The consolidated
+      The resolution record is the `review-ledger.md` round entry (A1):
+      per-finding AI suggestion + justification + proposed edit go in the
+      ledger's Dispositions, with finding IDs, dispositions, and fix-commit
+      lineage per the ledger contract — no separate
+      `goldfish_review_report.md`. The consolidated
       report (if Consolidated preset) is `consolidated_review_report.md`.
       Track A's shootdown findings land in `briefing.md`'s `## Shootdown
       Findings` section (not a separate file). A failed/timed-out reviewer is
-      recorded as `not run` (never counted as zero findings) and retried once.
+      recorded as `not run` (never counted as zero findings) and retried once
+      — `code-review`'s resilience rule (R39): log the failed lens by
+      name, never claim a clean review.
       The review is committed in the spec zone (spec-before-code zone guard).
       **Chat-response contract (all presets):** the agent works WITH the user,
       not just for them — a review that ends in silence plus a file path is a
       failed delivery. After the final stage (Interactive) or after
       consolidation (Consolidated), the agent posts a **consolidated chat
       response** containing: (1) stage/reviewer status table
-      (`completed` / `not run`), (2) severity breakdown (🔴/🟡/🟢 counts),
-      (3) every 🔴 Blocker and 🟡 Major finding in one or two lines each
-      (description + affected scope + the agent's proposed disposition: fix /
-      contest / decline), (4) the path to the full report
-      (`consolidated_review_report.md` or the `review/` dir for the per-stage
-      files). The full report is NOT dumped in chat (the artifact-first rule
+      (`completed` / `not run`), (2) severity breakdown in the normalized
+      vocabulary (CRITICAL / WARNING / SUGGESTION counts — A1; the 🔴/🟡/🟢
+      markers may appear as visual shorthand only), (3) every CRITICAL and
+      WARNING finding in one or two lines each (description + affected scope
+      + the agent's proposed disposition: fix / contest / decline), (4) the
+      path to the full report (`consolidated_review_report.md` or the
+      `review/` dir for the per-stage files) plus the `review-ledger.md`
+      round entry. The full report is NOT dumped in chat (the artifact-first rule
       still holds — this is a working summary, not a paste of the file). The
       same contract applies to Track A's shootdown synthesis: the chat shows
-      the severity table + each 🔴 Blocker with its disposition options, not
-      just a pointer at `briefing.md`.
-    - **Acceptance:** after a `goldfish-review` of a ≥3-task blueprint, the
+      the severity table (normalized vocabulary, A1) + each CRITICAL finding
+      with its disposition options, not just a pointer at `briefing.md`.
+    - **Acceptance:** after a Goldfish review of a ≥3-task blueprint, the
       stage report files exist (or a `not run` marker for a failed stage) and
-      are committed before `acceptance.feature` is written. After a Track A
+      a `review-ledger.md` round entry exists (A1), both committed before
+      `acceptance.feature` is written. After a Track A
       shootdown, `briefing.md`'s `## Shootdown Findings` section is populated
       and committed. After any review run, the chat turn ends with the
       consolidated response (status + severity + Blocker/Major findings +
@@ -621,56 +792,77 @@ the others.
     - **Acceptance scenario:** `happy path review-artifacts-committed` →
       `acceptance.feature`.
 
-14. **R14 — `writing-blueprints` invokes `skillgrid:goldfish-review`.**
+14. **R14 — `writing-blueprints` invokes the Goldfish review.**
     - **Current:** `writing-blueprints` has its own validation block (Self-
       Review + Critic subagent + Plan Review).
     - **Target:** the validation block is rewritten: **Self-Review** →
-      **Owed-Decision Gate** → **`skillgrid:goldfish-review`** (invoked on
-      `blueprint.md`) → **User Review Gate** → **Execution Handoff**. The
-      single generic Critic subagent and the structural Plan Review
-      (`references/plan-review.md`) are **replaced** by `goldfish-review`.
-      `references/plan-review.md` is deleted (or marked superseded). The
-      `goldfish-review` invocation passes: `TargetFile` = `blueprint.md`,
+      **Owed-Decision Gate** → **Goldfish review** (`references/goldfish-
+      review.md`, run on `blueprint.md`) → **User Review Gate** → **Execution
+      Handoff**. The single generic Critic subagent and the structural Plan
+      Review (`references/plan-review.md`) are **replaced** by the Goldfish
+      review reference set. `references/plan-review.md` is deleted (or marked
+      superseded). The invocation passes: `TargetFile` = `blueprint.md`,
       `GoldfishContext` = `briefing.md` + referenced files, `Step` = inferred
       from the path classification (Interactive for New Project, Consolidated
       for New Function with ≥3 tasks).
     - **Acceptance:** `writing-blueprints/SKILL.md`'s validation block names
-      `skillgrid:goldfish-review`; `references/plan-review.md` is deleted or
-      marked superseded; the invocation passes the correct TargetFile and
-      GoldfishContext.
+      the Goldfish review reference set (`references/goldfish-review.md`);
+      `references/plan-review.md` is deleted or marked superseded; the
+      invocation passes the correct TargetFile and GoldfishContext.
     - **Acceptance scenario:** `happy path writing-blueprints-invokes-
       goldfish-review` → `acceptance.feature`.
 
 15. **R15 — SKILL.md stays within tier and thin.**
-    - **Current:** `writing-blueprints` SKILL.md is 26KB of a 38KB (`large`)
-      ceiling; `brainstorming` SKILL.md is ~14KB of a 22KB (`medium`) ceiling.
+    - **Current:** `writing-blueprints` SKILL.md is ~28KB of a 38KB (`large`)
+      ceiling; `brainstorming` is ~17.8KB of a 38KB (`large`) ceiling; `qa`
+      is ~24KB of a 38KB (`large`) ceiling. (A1: the original draft's "~14KB
+      of a 22KB (`medium`)" for `brainstorming` predates the tier change.)
     - **Target:** the Goldfish protocol detail (stage list, persona dispatch,
-      presets, loop, resolution) lives in `goldfish-review/SKILL.md` + its
-      `references/` (Track B). The shootdown detail lives in
-      `references/shootdown.md` (Track A). The drafting detail lives in
-      `references/section-by-section.md` (Track C). The `writing-blueprints`
-      SKILL.md change is a pointer to `skillgrid:goldfish-review` plus short
-      rewrites. After the change, `skill-size-budget.mjs check` still exits 0
-      for all three skills.
-    - **Acceptance:** `node .agents/skills/verification/qa/scripts/skill-size-
-      budget.mjs check` exits 0 for `brainstorming`, `writing-blueprints`, and
-      `goldfish-review`; the SKILL.md diffs are net-neutral or small.
+      presets, loop, resolution, harness table) lives in
+      `writing-blueprints/references/goldfish-*.md` (Track B). The shootdown
+      detail lives in `brainstorming/references/shootdown.md` (Track A). The
+      drafting detail lives in
+      `writing-blueprints/references/section-by-section.md` (Track C). The
+      drift detail lives in `qa/references/drift-*.md` (Track D). The
+      `writing-blueprints` SKILL.md change is a pointer to its Goldfish
+      reference set plus short rewrites; the `qa` SKILL.md change is a short
+      Drift mode section plus one decision-debt line (A1). After the change,
+      `skill-size-budget.mjs check` still exits 0 for all affected skills.
+    - **Acceptance:** `node .agents/skills/qa/scripts/skill-size-budget.mjs
+      check` exits 0 for `brainstorming`, `writing-blueprints`, `qa`, and
+      `code-review` (Track E); the SKILL.md diffs are net-neutral or small.
     - **Acceptance scenario:** `happy path skill-size-within-tier` →
       `acceptance.feature`.
 
-16. **R16 — The after-code half is untouched.**
+16. **R16 — The after-code half's semantics are untouched (A1: light edits
+    named; A2: Track E named).**
     - **Current:** `qa`, `requesting-code-review`, `parallel-code-review`,
       `review-ledger` own the code-review half.
     - **Target:** this change modifies `brainstorming` (SKILL.md +
       `references/` + `templates/`), `writing-blueprints` (SKILL.md +
-      `references/` — `plan-review.md` deleted), `_shared/craft/` (new
-      `review-discipline.md`), `_shared/elephant-goldfish/` (new persona
-      briefs), `_shared/rules/prose-style.md`, and creates
-      `goldfish-review/` (new skill). It does not edit `qa`,
-      `requesting-code-review`, `parallel-code-review`, or `review-ledger`,
-      and does not add a phase or resume marker to `sdd-structure.md`.
+      `references/` — `plan-review.md` deleted; new Goldfish +
+      section-by-section reference set), `qa` (SKILL.md: additive Drift mode
+      section + one decision-debt line + the review-debt surfacing step moved
+      in from the demoted ledger skill, R42; `references/`: new drift set),
+      `_shared/craft/` (new `review-discipline.md`),
+      `_shared/elephant-goldfish/` (13 new persona briefs), and
+      `_shared/rules/prose-style.md` (one "No flattery" rule). Track E (A2)
+      additionally restructures the after-code skills without changing their
+      observable contracts (R39–R43): `requesting-code-review` +
+      `parallel-code-review` → `code-review`; `review-ledger` →
+      `_shared/craft/review-ledger.md`; all citations updated. Light additive
+      edits only: `receiving-code-review` (one cite of
+      `review-discipline.md`). No new phase or resume marker in
+      `sdd-structure.md` (its review-skill citations update per R43). No gate
+      semantics, ledger contract, or triage bucket changes anywhere.
     - **Acceptance:** `git diff --name-only` for the change lists only the
-      files in R16's scope; `sdd-structure.md` is not modified.
+      files in R16's scope (including Track E's R39–R43 file set);
+      `sdd-structure.md` receives only R43 citation updates (no phase or
+      resume marker change); the `qa`/`receiving-code-review` diffs are
+      additive one-liners or short sections (no behavior change to existing
+      paths); `code-review`'s output contract matches the old skills'
+      (`review.md`, `REVIEW-PASS`/`BACK-TO-APPLY` counts, ledger round
+      entries).
     - **Acceptance scenario:** `happy path after-code-untouched` →
       `acceptance.feature`.
 
@@ -678,13 +870,19 @@ the others.
     - **Current:** a blueprint review finding resolved "defer" is a note in the
       blueprint's Global Constraints; `qa` does not see it as decision-debt.
     - **Target:** a CRITICAL Goldfish finding that is dispositioned **parked**
-      (not fixed, not waived, not contested-away) is recorded in the blueprint
-      as an open design gap. `qa`'s existing decision-debt path (which already
-      surfaces `**Status: ASSUMED**` blueprints as a WARNING) also surfaces an
-      open parked blueprint-review finding as a WARNING. This is the only link
-      between the two seams — it does not move the review into `qa`. Track A's
-      shootdown findings do NOT feed into `qa` directly; they feed into the
-      spec, which feeds into the blueprint, which feeds into `qa`.
+      (not fixed, not waived, not contested-away) is recorded as `parked` in
+      the `review-ledger.md` round entry (A1: the ledger is the record) and
+      noted in the blueprint as an open design gap. `qa` surfaces it via its
+      own debt-surfacing step (R42 — moved in from the demoted ledger skill)
+      — the same path code-review parked findings already take — as a WARNING
+      under the
+      existing decision-debt pattern (which already surfaces `**Status:
+      ASSUMED**` blueprints as a WARNING). The `qa` edit is one sentence
+      naming goldfish-parked findings as a second source of that WARNING
+      (A1). This is the only link between the two seams — it does not move
+      the review into `qa`. Track A's shootdown findings do NOT feed into
+      `qa` directly; they feed into the spec, which feeds into the
+      blueprint, which feeds into `qa`.
     - **Acceptance:** a blueprint with one parked CRITICAL finding, when `qa`
       runs, shows a WARNING naming the parked finding and its path; the gate
       verdict is otherwise unaffected (WARNING, never CRITICAL).
@@ -854,30 +1052,36 @@ the others.
 
 ### Track D — Drift Report
 
-26. **R26 — New top-level skill: `skillgrid:drift-report`.**
+26. **R26 — Drift report: a mode of `qa` (A1).**
     - **Current:** no mechanism to detect that the codebase has diverged from
       its design documents after implementation.
-    - **Target:** new skill at
-      `.agents/skills/verification/drift-report/` with:
-      - `SKILL.md` — the drift detection protocol: intake, sequential
-        processing, source grounding, 4 divergence categories, difference
-        filtering, artifact output, two-way reconciliation. Independently
-        invocable: `/drift-report <spec-dir>` (per-change) or `/drift-report`
-        (project-wide, scans all `.skillgrid/change-specs/`).
-      - `references/divergence-categories.md` — the 4 categories (Missing
+    - **Target:** a mode of `qa` (which already owns code-vs-spec
+      verification — A1: no new top-level skill) with:
+      - `qa/references/drift-report.md` — the drift detection protocol:
+        intake, sequential processing, source grounding, 4 divergence
+        categories, difference filtering, artifact output, two-way
+        reconciliation. Invocable on a spec dir (per-change) or
+        project-wide (scans all `.skillgrid/change-specs/`).
+      - `qa/references/divergence-categories.md` — the 4 categories (Missing
         Features, Incomplete Models, Logic Shortcuts, Architectural
         Divergence) with examples and detection heuristics.
-      - `references/reconciliation.md` — the two-way reconciliation protocol
-        (code was intentional → update doc; design was violated → file task or
-        fix code).
-      The skill is under `verification/` (it verifies code against docs, like
-      `qa`). It is NOT a phase in `sdd-structure.md` — it's a periodic ritual,
-      not a per-change gate. It reuses `goldfish-review`'s resolution workflow
-      (R10) for findings.
-    - **Acceptance:** `SKILL.md` exists with the drift detection protocol;
-      `references/divergence-categories.md` exists with the 4 categories;
-      `references/reconciliation.md` exists with the two-way protocol; the
-      skill is invocable via `/drift-report <path>`.
+      - `qa/references/reconciliation.md` — the two-way reconciliation
+        protocol (code was intentional → update doc; design was violated →
+        file task or fix code). Dispositions map onto ledger dispositions
+        (doc-updated / code-fixed ≈ `fixed`; task-filed ≈ `fixed` with the
+        ticket as the artifact; accepted-drift ≈ `parked` with a ruling), so
+        drift debt surfaces at QA via the ledger.
+      A short **Drift mode** section is added to `qa/SKILL.md` (R15/R16).
+      The mode is NOT a gate: it renders a drift report, never the four-state
+      verdict (R16). It is NOT a phase in `sdd-structure.md` — a periodic
+      ritual, not a per-change gate. It reuses the Goldfish resolution
+      workflow (R10) for findings.
+    - **Acceptance:** `qa/references/drift-report.md` exists with the drift
+      detection protocol; `qa/references/divergence-categories.md` exists
+      with the 4 categories; `qa/references/reconciliation.md` exists with
+      the two-way protocol; `qa/SKILL.md` contains the Drift mode section;
+      the mode is runnable on a spec dir or project-wide. No new top-level
+      skill is created.
     - **Acceptance scenario:** `happy path drift-report-skill` →
       `acceptance.feature`.
 
@@ -908,19 +1112,21 @@ the others.
 
 28. **R28 — Target artifacts.**
     - **Current:** no defined target set for drift detection.
-    - **Target:** the drift report reads and compares:
-      - **Per-change** (`/drift-report <spec-dir>`): `briefing.md`
+    - **Target:** the drift mode reads and compares:
+      - **Per-change** (drift mode on a spec dir): `briefing.md`
         (requirements, Must-Haves), `blueprint.md` (file structure, tasks,
         interfaces), `adr.md` (in-force ADRs), `acceptance.feature` (BDD
         scenarios) from the specified spec dir.
-      - **Project-wide** (`/drift-report`): all `.skillgrid/change-specs/` dirs +
-        `.skillgrid/ARCHITECTURE.md` (structure) + `AGENTS.md` (operational
-        rules) + `.skillgrid/artifacts/04-adr-*.md` (in-force ADRs).
+      - **Project-wide** (drift mode, no arg): all
+        `.skillgrid/change-specs/` dirs + `AGENTS.md` (operational rules) +
+        `.skillgrid/projectwiki/decisions/04-adr-*.md` (in-force ADRs) +
+        projectwiki vault pages that pin design (`.skillgrid/projectwiki/`
+        — `architecture/`, `invariants/`, `workflows/`, `glossary/`).
       The comparison is: does the code match the documented design? Not: is
-      the design good? (That's `goldfish-review`'s job, R7.)
-    - **Acceptance:** `/drift-report <spec-dir>` reads the 4 spec artifacts;
-      `/drift-report` (no arg) scans all spec dirs + ARCHITECTURE.md +
-      AGENTS.md; the report is scoped to the target set.
+      the design good? (That's the Goldfish review's job, R7.)
+    - **Acceptance:** drift mode on a spec dir reads the 4 spec artifacts;
+      project-wide mode scans all spec dirs + AGENTS.md + in-force ADRs +
+      projectwiki pages; the report is scoped to the target set.
     - **Acceptance scenario:** `happy path target-artifacts` →
       `acceptance.feature`.
 
@@ -999,11 +1205,10 @@ the others.
     - **Acceptance scenario:** `happy path two-way-reconciliation` →
       `acceptance.feature`.
 
-33. **R33 — Reuses `goldfish-review` resolution workflow.**
-    - **Current:** `goldfish-review` (R10) has a resolution workflow (CONTEST/
-      ESCALATE/PROPOSE-FIX/DECLINE + interactive gate) but it is only used for
-      plan review findings.
-    - **Target:** the drift report reuses the same resolution workflow for its
+33. **R33 — Reuses the Goldfish resolution workflow.**
+    - **Current:** the Goldfish resolution workflow (R10) exists but is only
+      used for plan review findings.
+    - **Target:** the drift mode reuses the same resolution workflow for its
       findings. The `codebase-details` persona (from
       `_shared/elephant-goldfish/`, R11) is the primary reviewer — its
       "verify code vs doc" audit vectors are directly applicable. The
@@ -1011,7 +1216,7 @@ the others.
       add context for subagents, don't contest a comprehension gap, don't
       change a severity. The interactive gate (auto-accept / continue /
       interactive breakdown / comment / custom) is the same.
-    - **Acceptance:** the drift report's findings use the R10 categorization
+    - **Acceptance:** the drift mode's findings use the R10 categorization
       (CONTEST/ESCALATE/PROPOSE-FIX/DECLINE); the `codebase-details` persona
       is the primary reviewer; the interactive gate matches R10.
     - **Acceptance scenario:** `happy path drift-reuses-resolution` →
@@ -1021,26 +1226,26 @@ the others.
     - **Current:** `reflect` (the post-ship retro skill) has a checklist but
       no drift check.
     - **Target:** `reflect`'s checklist gains an **advisory** item: "Run
-      `/drift-report` on this change's spec dir to verify the code matches the
-      design." The item is advisory (not blocking) — the reflect report notes
-      drift findings (if any) but does not fail the retro. The cadence is
-      suggested (weekly gardener rotation or per-ship), not enforced.
+      `qa`'s drift mode on this change's spec dir to verify the code matches
+      the design." The item is advisory (not blocking) — the reflect report
+      notes drift findings (if any) but does not fail the retro. The cadence
+      is suggested (weekly gardener rotation or per-ship), not enforced.
     - **Acceptance:** `reflect/SKILL.md`'s checklist contains the drift check
-      item; it is marked advisory (not blocking); the reflect report notes
-      drift findings if present.
+      item (pointing at `qa`'s drift mode); it is marked advisory (not
+      blocking); the reflect report notes drift findings if present.
     - **Acceptance scenario:** `happy path reflect-drift-check` →
       `acceptance.feature`.
 
-35. **R35 — SKILL.md stays within tier and thin.**
-    - **Current:** N/A (new skill).
-    - **Target:** the drift report protocol detail (divergence categories,
-      reconciliation, source grounding) lives in `references/`. The SKILL.md
-      is thin: invocation, intake, the 4-category summary, the sequential
-      processing rule, the artifact path, the pointer to `references/`.
-      `skill-size-budget.mjs check` exits 0 for `drift-report`.
-    - **Acceptance:** `node .agents/skills/verification/qa/scripts/skill-size-
-      budget.mjs check` exits 0 for `drift-report`; the SKILL.md is < 100
-      lines.
+35. **R35 — Drift mode stays thin; sizes within tier.**
+    - **Current:** N/A (new mode).
+    - **Target:** the drift protocol detail (divergence categories,
+      reconciliation, source grounding) lives in `qa/references/`. The Drift
+      mode section in `qa/SKILL.md` is thin (< ~40 lines): invocation,
+      intake, the 4-category summary, the sequential processing rule, the
+      artifact path, the not-a-gate statement, the pointer to
+      `qa/references/`. `skill-size-budget.mjs check` exits 0 for `qa`.
+    - **Acceptance:** `node .agents/skills/qa/scripts/skill-size-budget.mjs
+      check` exits 0 for `qa`; the Drift mode section is < 40 lines.
     - **Acceptance scenario:** `happy path drift-skill-size` →
       `acceptance.feature`.
 
@@ -1056,7 +1261,7 @@ the others.
       a Goldfish review."* The check applies at the first dispatch point of each
       track:
       - Track A: before the six-lens shootdown is spawned.
-      - Track B: before Stage 5 of `goldfish-review` is dispatched.
+      - Track B: before Stage 5 of the Goldfish review is dispatched.
       - Track D: before the first `codebase-details` reviewer is dispatched.
       A review run in the author's own context is not a Goldfish review and MUST
       NOT count toward satisfying R1 or R7 (already stated there; R36 makes the
@@ -1065,8 +1270,9 @@ the others.
       and names the EGM rule it is enforcing. No partial run, no "we'll count
       this one as a review anyway."
     - **Acceptance:** `brainstorming/references/shootdown.md`,
-      `goldfish-review/SKILL.md`, and `drift-report/SKILL.md` each contain the
-      stop rule verbatim (or its normative equivalent); a same-context run
+      `writing-blueprints/references/goldfish-review.md`, and
+      `qa/references/drift-report.md` each contain the stop rule verbatim (or
+      its normative equivalent); a same-context run
       recorded as "review complete" in any of the three tracks is a defect.
     - **Acceptance scenario:** `happy path no-subagent-stop` →
       `acceptance.feature`.
@@ -1093,15 +1299,21 @@ the others.
          pages, or call MCP tools. Documentation the review needs is saved as a
          file in the workspace and passed by path.
       The contract is stated in each persona brief's `## Isolation mandate`
-      section (R11) and re-asserted in the dispatch prompt. A harness that
+      section (R11) and re-asserted in the dispatch prompt. Part 1 cites
+      `code-review`'s Blindness Contract and independence grades
+      (R39; A1) rather than restating it; goldfish adds parts 2-4 and
+      replaces the Grade-C-degrades fallback with R36's stop rule. A harness
+      that
       cannot enforce part 3 (no project instructions) must either (a) enforce
       it via its own mechanism (adapter / agent config) or (b) say so in the
       review report header ("harness did not exclude project instructions —
       findings may carry author context"); it must not silently pass.
     - **Acceptance:** each persona brief in `_shared/elephant-goldfish/` has a
       `## Isolation mandate` naming all four parts; the dispatch prompt in
-      `brainstorming/references/shootdown.md`, `goldfish-review/SKILL.md`, and
-      `drift-report/SKILL.md` re-asserts the four parts verbatim; the review
+      `brainstorming/references/shootdown.md`,
+      `writing-blueprints/references/goldfish-review.md`, and
+      `qa/references/drift-report.md` re-asserts the four parts verbatim; the
+      review
       report format (R10, R13) includes a one-line harness-isolation attestation
       (which of the four parts the harness enforced vs. could not).
     - **Acceptance scenario:** `happy path goldfish-isolation-contract` →
@@ -1154,7 +1366,12 @@ the others.
       3. **`session.hook("prompt")`** — denies `webfetch`/`websearch` tool
          availability in Goldfish sessions (contract part 4, no network).
       The plugin is part of this change's OpenCode adapter (it ships in
-      `.opencode/plugins/goldfish/`, loaded automatically). The persona brief's
+      `.opencode/plugins/goldfish/`, loaded automatically). (A1 deferral
+      candidate: `.opencode/` does not yet exist in this repo and the plugin
+      is the only TypeScript artifact in an otherwise prose-only change — if
+      deferred to a follow-up, the OpenCode row degrades to persona-mandate +
+      partial-enforcement attestation until the plugin lands; see Open
+      Questions.) The persona brief's
       isolation mandate stays as defense-in-depth: the plugin is the
       enforcement, the mandate is the fallback if the plugin fails to load.
       The report-header attestation changes from "harness could not exclude
@@ -1162,137 +1379,294 @@ the others.
       prompt remains" — full enforcement, not partial.
       The skill must not break when a fifth harness appears: the adapter is a
       file, the skill is a protocol. Adding a harness = adding an adapter
-      file + a row in the harness table in `goldfish-review/references/
-      harnesses.md` (NEW — the port of EGM's `docs/harnesses.md`, scoped to
-      the four supported harnesses + a "contributing a new harness" section).
-    - **Acceptance:** `goldfish-review/references/harnesses.md` exists with a
+      file + a row in the harness table in
+      `writing-blueprints/references/harnesses.md` (NEW — the port of EGM's
+      `docs/harnesses.md`, scoped to the four supported harnesses + a
+      "contributing a new harness" section).
+    - **Acceptance:** `writing-blueprints/references/harnesses.md` exists with
+      a
       table covering Claude Code, OpenCode, Cursor, Pi (subagent tool,
       read-only mechanism, project-instruction exclusion mechanism,
       partial-enforcement note where applicable); each skill's dispatch
       section names the protocol, not a specific harness; no harness-specific
       string (`Agent`, `invoke_subagent`, `omitClaudeMd`) appears in
       `SKILL.md` or persona briefs — only in `references/harnesses.md` and the
-      adapter files. The OpenCode adapter (`.opencode/plugins/goldfish/`)
-      loads and strips instruction sources from a Goldfish child session in a
-      smoke test (a reviewer spawned under the goldfish agent does not see the
-      project `AGENTS.md` in its context); the attestation in a real
-      `goldfish-review` run on OpenCode reads "stripped by goldfish plugin,
-      provider base prompt remains."
+      adapter files. If the OpenCode adapter (`.opencode/plugins/goldfish/`)
+      is in scope (see Open Questions), it loads and strips instruction
+      sources from a Goldfish child session in a smoke test (a reviewer
+      spawned under the goldfish agent does not see the project `AGENTS.md`
+      in its context); the attestation in a real Goldfish review run on
+      OpenCode reads "stripped by goldfish plugin, provider base prompt
+      remains." If deferred, the OpenCode attestation reads "harness could
+      not exclude project instructions — persona mandate only" until the
+      plugin lands.
     - **Acceptance scenario:** `happy path harness-portability` →
       `acceptance.feature`.
-    - **Current:** N/A (new skill).
-    - **Target:** the drift report protocol detail (divergence categories,
-      reconciliation, source grounding) lives in `references/`. The SKILL.md
-      is thin: invocation, intake, the 4-category summary, the sequential
-      processing rule, the artifact path, the pointer to `references/`.
-      `skill-size-budget.mjs check` exits 0 for `drift-report`.
-    - **Acceptance:** `node .agents/skills/verification/qa/scripts/skill-size-
-      budget.mjs check` exits 0 for `drift-report`; the SKILL.md is < 100
-      lines.
-    - **Acceptance scenario:** `happy path drift-skill-size` →
+
+### Track E — Verification Skill Consolidation (A2)
+
+39. **R39 — One review skill: merge `requesting-code-review` +
+    `parallel-code-review` into `code-review`.**
+    - **Current:** two skills share the same target (the diff) and the same
+      dispatch mechanism (fresh subagent per lens, template-driven):
+      `requesting-code-review` (T2; the 3-axis pass — Standards + Spec +
+      Security; writes `review.md`; owns the Blindness Contract +
+      independence grades) and `parallel-code-review` (T3; up to 8
+      specialists; six-value verdicts; red team last). Parallel imports
+      requesting's two-axis templates, and its "<50 changed lines →
+      Standards + Spec only" mode is exactly the requesting pass.
+    - **Target:** a single skill at `.agents/skills/code-review/`. Its
+      **topology step** (replaces the two-skill choice) selects the fan-out
+      from diff size / risk / rigor tier:
+      - **<50 changed lines, low risk** → the 3-axis pass (Standards + Spec
+        + Security).
+      - **≥50 changed lines, or high-risk** (auth, data migration, money,
+        concurrency, public API) → the core five (Standards, Spec, Edge
+        cases, Verification gaps, Security), plus conditional Accessibility
+        (diff touches UI) / Performance (diff touches data access /
+        rendering) specialists.
+      - **Red team always last** (reads the other specialists' merged
+        findings); the tier floor per `_shared/planning/rigor-tiers.md`
+        still applies (T3: at least one fresh-model reviewer).
+      Selection rules carry over verbatim from both skills — nothing is
+      lost. The shared protocol section (appears exactly once in the merged
+      skill): the Blindness Contract (no-leaks + independence grade A/B/C,
+      grade-C-diagnostic-only) and the six-value verdict table
+      (`high` / `medium` / `low` / `false` / `maybe-false` /
+      `could-not-verify`, mapped to ledger severities), plus the resilience
+      rule (a failed lens is logged by name; all-lenses-failed = "possibly
+      incomplete", never "clean"). The output contract is preserved: the
+      `review.md` audit record (template carried over) +
+      `REVIEW-PASS` / `BACK-TO-APPLY` + Critical/Warn counts (the contract
+      `ship` consumes) + the ledger round entry (R41).
+    - **Acceptance:** `.agents/skills/code-review/SKILL.md` exists; the two
+      old skill directories are deleted; the topology step reproduces both
+      old selection behaviors (small diff → 3-axis; large/high-risk →
+      fan-out + conditional specialists); the Blindness Contract + grades +
+      verdict table each appear exactly once; `ship`'s review-signal path
+      works against the carried-over output.
+    - **Acceptance scenario:** `happy path code-review-topology` →
+      `acceptance.feature`.
+
+40. **R40 — Merge the two security reviewer templates.**
+    - **Current:** `requesting-code-review/references/security-reviewer.md`
+      (230 lines: full OWASP 5-step workflow + four-part triage rubric +
+      report format) and `parallel-code-review/reviewers/security.md` (a
+      70-line variant) — two templates for the same OWASP sweep.
+    - **Target:** one `code-review/reviewers/security.md` — the full OWASP
+      5-step workflow + four-part triage rubric + report format (citing the
+      `owasp-security` skill), so the 3-axis pass and the full fan-out
+      dispatch the same security specialist.
+    - **Acceptance:** one security template exists under
+      `code-review/reviewers/`; it contains the 5-step workflow + rubric +
+      report format; both topologies reference it.
+    - **Acceptance scenario:** `happy path security-template-merge` →
+      `acceptance.feature`.
+
+41. **R41 — Demote `review-ledger` to a shared reference.**
+    - **Current:** `review-ledger` is a standalone skill (v1.0) that
+      dispatches nothing, renders no verdict, and gates nothing — a
+      round-entry format, frozen-candidate + invalidation rule, disposition
+      vocabulary, lineage, and debt lifecycle, invoked from exactly three
+      fixed points (after a review round, at park, at qa time).
+    - **Target:** `_shared/craft/review-ledger.md` — the same contract
+      (round format, frozen candidate + invalidation, dispositions
+      fixed / parked / waived, lineage, debt lifecycle
+      open→addressed→closed / expired, the 3-changes-stale flag) as a
+      shared reference. The per-change `review-ledger.md` **artifact** is
+      unchanged. Code-review rounds (R39), Goldfish rounds (R10), and
+      drift-mode findings (R33) record ledger rounds per this reference.
+    - **Acceptance:** `_shared/craft/review-ledger.md` exists with the full
+      contract; the `review-ledger/` skill directory is deleted;
+      `code-review` and `writing-blueprints/references/goldfish-resolve.md`
+      cite it.
+    - **Acceptance scenario:** `happy path ledger-as-reference` →
+      `acceptance.feature`.
+
+42. **R42 — `qa` carries the debt surfacing; routing updates; the
+    verification-gap canon is hoisted.**
+    - **Current:** the at-qa-time review-debt surfacing lives in the ledger
+      skill's Step 5 (not in `qa`'s process); `qa`'s routing table and
+      "When NOT to use" cite both review skills; the three-gap-shape canon
+      exists twice (`qa/references/verification-gap.md` audit vs. the
+      parallel specialist's prompt).
+    - **Target:** `qa`'s process gains a named "surface review debt" step —
+      read prior archived changes' `review-ledger.md` files, surface open
+      `parked` findings (context, not a gate), WARNING on file overlap —
+      carried over verbatim from the ledger's Step 5 (R17's Goldfish path
+      rides the same step). `qa`'s routing table + "When NOT to use" cite
+      `code-review` (topology per tier / diff size). The verification-gap
+      canon (three gap shapes + evidence rule) is hoisted to
+      `_shared/verification/verification-gap.md` and cited from both `qa`'s
+      audit and the code-review specialist.
+    - **Acceptance:** `qa/SKILL.md` contains the debt-surfacing step; no
+      `qa` file cites a deleted skill name; the canon exists in one
+      `_shared/verification/` file.
+    - **Acceptance scenario:** `happy path qa-debt-surfacing` →
+      `acceptance.feature`.
+
+43. **R43 — Clean cutover: citations, budget, no aliases.**
+    - **Current:** ~15 citation sites name the deleted skills
+      (`_shared/planning/rigor-tiers.md`, `_shared/verification/floor.md`,
+      `_shared/rules/code-standards.md`, `_shared/rules/sdd-structure.md`,
+      `_shared/craft/deterministic-boundary.md`,
+      `_shared/craft/measurement.md`, `_shared/agent-config/block.md`,
+      `ship/SKILL.md`, `subagent-execution/SKILL.md` +
+      `references/final-review.md`, `simple-execution/SKILL.md`,
+      `simplify-code/SKILL.md`, `style-review/SKILL.md`,
+      `dogfood/SKILL.md`, `deep-research/references/skill-routing.md`);
+      `_shared/skill-size-budget.json` lists them by name; the `AGENTS.md`
+      workflow line names `requesting-code-review`.
+    - **Target:** every citation site updates to `code-review` /
+      `_shared/craft/review-ledger.md`; the `AGENTS.md` workflow line reads
+      `code-review` (phases unchanged); the budget json carries one
+      `code-review` entry at the post-merge ceiling. No alias, no shim, no
+      back-compat dispatch — clean cutover.
+    - **Acceptance:** zero surviving `skillgrid:` citations to
+      `requesting-code-review`, `parallel-code-review`, or `review-ledger`
+      anywhere in the repo (outside `.skillgrid/change-archive/`); the three
+      old skill directories do not exist; `node .agents/skills/qa/scripts/
+      skill-size-budget.mjs check` exits 0.
+    - **Acceptance scenario:** `happy path review-consolidation-cutover` →
       `acceptance.feature`.
 
 ## Implementation Decisions
 
 - **Modules to build/modify:**
   - **Track A (brainstorming):**
-    - NEW `.agents/skills/planning/brainstorming/references/shootdown.md`
-      (the phase instructions: spawn 6 parallel subagents, 6 lens definitions
-      with core questions, severity triage, synthesis rules, blocker-must-
-      resolve gate).
-    - NEW `.agents/skills/planning/brainstorming/agents/{contrarian-yagni,
-      cost-economics,ux-ergonomics,migration-compat,observability-sre,
-      tech-debt}.md` (6 BRAINSTORM-only persona files, trimmed from EGM's
-      dual-mode personas).
-    - MODIFY `.agents/skills/planning/brainstorming/SKILL.md` (add shootdown to
-      New Project / New Function paths + add Anti-Sycophancy & Stress-Testing
+    - NEW `.agents/skills/brainstorming/references/shootdown.md` (the phase
+      instructions: spawn 6 parallel subagents, 6 lens definitions with core
+      questions, severity triage, synthesis rules, blocker-must-resolve gate,
+      R36 stop rule, R37 contract in the dispatch prompt).
+    - MODIFY `.agents/skills/brainstorming/SKILL.md` (add shootdown to New
+      Project / New Function paths + add Anti-Sycophancy & Stress-Testing
       section).
-    - MODIFY `.agents/skills/planning/brainstorming/references/paths.md`
-      (insert shootdown step into checklists + update process-flow diagram).
-    - MODIFY `.agents/skills/planning/brainstorming/templates/briefing.md`
-      (add `## Shootdown Findings` section).
-  - **Track B (new `goldfish-review` skill + `writing-blueprints` integration):**
-    - NEW `.agents/skills/planning/goldfish-review/SKILL.md` (the 5-stage
-      pipeline, 4 presets, checkpoint gates, pause/resume, execution
-      constraints).
-    - NEW `.agents/skills/planning/goldfish-review/references/goldfish-review-
-      loop.md` (sharpening loop: multi-round, convergence, settled/fixed
-      tracking, churn, turn-taking, line-range re-scan).
-    - NEW `.agents/skills/planning/goldfish-review/references/goldfish-resolve.
-      md` (Elephant-side resolution: CONTEST/ESCALATE/PROPOSE-FIX/DECLINE
-      rules + interactive gate + report format).
-    - MODIFY `.agents/skills/planning/writing-blueprints/SKILL.md` (rewrite the
-      validation block to invoke `skillgrid:goldfish-review`; delete or mark
-      superseded `references/plan-review.md`).
-    - DELETE (or mark superseded) `.agents/skills/planning/writing-blueprints/
-      references/plan-review.md`.
+    - MODIFY `.agents/skills/brainstorming/references/paths.md` (insert
+      shootdown step into checklists + update process-flow diagram).
+    - MODIFY `.agents/skills/brainstorming/templates/briefing.md` (add
+      `## Shootdown Findings` section).
+  - **Track B (Goldfish review reference set inside `writing-blueprints`,
+    A1):**
+    - NEW `.agents/skills/writing-blueprints/references/goldfish-review.md`
+      (the 5-stage pipeline, 4 presets, checkpoint gates, pause/resume,
+      execution constraints, R36 stop rule, R37 contract in the dispatch
+      prompt).
+    - NEW `.agents/skills/writing-blueprints/references/goldfish-review-loop.
+      md` (sharpening loop: multi-round, convergence, settled/fixed tracking,
+      churn, turn-taking, frozen-candidate re-check).
+    - NEW `.agents/skills/writing-blueprints/references/goldfish-resolve.md`
+      (Elephant-side resolution: adapter over `code-review`'s triage step
+      (R39) + `receiving-code-review`
+      buckets + doc-review deltas + interactive gate
+      + ledger-recorded report).
+    - NEW `.agents/skills/writing-blueprints/references/harnesses.md` (port of
+      EGM's `docs/harnesses.md`, scoped to Claude Code, OpenCode, Cursor, Pi:
+      subagent tool, read-only mechanism, project-instruction exclusion
+      mechanism, partial-enforcement notes, + "contributing a new harness"
+      section).
+    - MODIFY `.agents/skills/writing-blueprints/SKILL.md` (rewrite the
+      validation block to invoke the Goldfish review reference set; delete or
+      mark superseded `references/plan-review.md`).
+    - DELETE (or mark superseded)
+      `.agents/skills/writing-blueprints/references/plan-review.md`.
   - **Track C (writing-blueprints — drafting process):**
-    - NEW `.agents/skills/planning/writing-blueprints/references/section-by-
-      section.md` (the section order table, approval gate mechanics, per-task
-      gate, empty write-in guard, no-chat-dumps rule, revisit-old-sections
-      rule).
-    - MODIFY `.agents/skills/planning/writing-blueprints/SKILL.md` (add:
-      ingestion step, section-by-section drafting section, spec reconciliation
-      to Self-Review, owner-decides-architecture to Owed-Decision Gate,
+    - NEW `.agents/skills/writing-blueprints/references/section-by-section.md`
+      (the section order table, approval gate mechanics, per-task gate, empty
+      write-in guard, no-chat-dumps rule, revisit-old-sections rule).
+    - MODIFY `.agents/skills/writing-blueprints/SKILL.md` (add: ingestion
+      step, section-by-section drafting section, spec reconciliation to
+      Self-Review, owner-decides-architecture to Owed-Decision Gate,
       alternatives-from-briefing, tone & discipline, artifact-first delivery).
-    - MODIFY `.agents/skills/planning/writing-blueprints/templates/blueprint.
-      md` (add Self-Review reminder comment in header: section order +
-      reconciliation check).
+    - MODIFY `.agents/skills/writing-blueprints/templates/blueprint.md` (add
+      Self-Review reminder comment in header: section order + reconciliation
+      check).
   - **Shared:**
-    - NEW `.agents/skills/_shared/elephant-goldfish/{zoom-out,comprehension,
-      design-critic,structural,style,implementation-readiness,codebase-
-      details}.md` (7 persona briefs, shared by Tracks A and B; Track C uses
-      no Goldfish personas. `style` is a standalone file used by Stages 7 and
-      9).
+    - NEW `.agents/skills/_shared/elephant-goldfish/` — 13 persona briefs
+      (A1: single home; the `brainstorming/agents/` directory is dropped):
+      7 review briefs (`zoom-out`, `comprehension`, `design-critic`,
+      `structural`, `style`, `implementation-readiness`,
+      `codebase-details`) + 6 BRAINSTORM-mode lens briefs
+      (`lens-contrarian-yagni`, `lens-cost-economics`, `lens-ux-ergonomics`,
+      `lens-migration-compat`, `lens-observability-sre`, `lens-tech-debt`).
+      Track C uses no Goldfish personas.
     - NEW `.agents/skills/_shared/craft/review-discipline.md` (anti-sycophancy
-      + stress-testing rules, shared by both tracks).
+      + stress-testing rules, shared by all tracks; single home for the
+      banned-adjective list).
     - MODIFY `.agents/skills/_shared/rules/prose-style.md` (add "No flattery"
-      section pointing at `review-discipline.md`).
-  - **Track D (drift-report):**
-    - NEW `.agents/skills/verification/drift-report/SKILL.md` (the drift
-      detection protocol: intake, sequential processing, source grounding,
-      4 categories, filtering, artifact output, reconciliation).
-    - NEW `.agents/skills/verification/drift-report/references/divergence-
-      categories.md` (the 4 categories with examples + detection heuristics).
-    - NEW `.agents/skills/verification/drift-report/references/reconciliation.
-      md` (the two-way reconciliation protocol).
-    - MODIFY `.agents/skills/verification/reflect/SKILL.md` (add advisory
-      drift check to the checklist).
-  - **Cross-track (Goldfish isolation & harness portability, R36-R38):**
-    - NEW `.agents/skills/planning/goldfish-review/references/harnesses.md`
-      (port of EGM's `docs/harnesses.md`, scoped to Claude Code, OpenCode,
-      Cursor, Pi: subagent tool, read-only mechanism, project-instruction
-      exclusion mechanism, partial-enforcement notes, + "contributing a new
-      harness" section).
-    - MODIFY each persona brief in
-      `.agents/skills/_shared/elephant-goldfish/` to carry a `## Isolation
-      mandate` section naming all four parts of the R37 contract (fresh
-      context, read-only, no project instructions, no network/MCP).
-    - MODIFY `brainstorming/references/shootdown.md`,
-      `goldfish-review/SKILL.md`, and `drift-report/SKILL.md` dispatch
-      sections: re-assert the R37 contract in every dispatch prompt + the R36
-      stop rule at the first dispatch point.
-    - Review report format (R10 / R13 / R31) gains a one-line
-      harness-isolation attestation: which of the four parts the harness
-      enforced natively vs. which it could not (attested in the report
-      header).
-    - NEW `.opencode/plugins/goldfish/index.ts` (OpenCode adapter: `context`
-      hook that strips instruction sources from Goldfish child sessions,
-      `tool.transform` denying edit/write/shell, `session.hook("prompt")`
-      denying web tools). Ships in `.opencode/plugins/`, loads automatically.
-      The persona-brief isolation mandate remains as fallback if the plugin
-      fails to load.
-  - **Light qa edit:**
-    - MODIFY (light) `.agents/skills/verification/qa/SKILL.md` decision-debt
-      paragraph — surface a parked blueprint-review finding as a WARNING.
-      (This is the one R14-scoped file `qa` edit; it is additive, one sentence,
-      and does not change the four-state gate.)
+      rule pointing at `review-discipline.md`).
+  - **Track D (drift mode of `qa`, A1):**
+    - NEW `.agents/skills/qa/references/drift-report.md` (the drift detection
+      protocol: intake, sequential processing, source grounding, 4
+      categories, filtering, artifact output, reconciliation, R36 stop rule,
+      R37 contract in the dispatch prompt).
+    - NEW `.agents/skills/qa/references/divergence-categories.md` (the 4
+      categories with examples + detection heuristics).
+    - NEW `.agents/skills/qa/references/reconciliation.md` (the two-way
+      reconciliation protocol; dispositions map onto ledger dispositions).
+    - MODIFY `.agents/skills/qa/SKILL.md` (add the Drift mode section —
+      thin, < ~40 lines, not-a-gate — per R15/R26/R35).
+    - MODIFY `.agents/skills/reflect/SKILL.md` (add advisory drift check to
+      the checklist, pointing at `qa`'s drift mode).
+  - **Light edits (A1; additive, no behavior change to existing paths):**
+    - MODIFY (light) `.agents/skills/qa/SKILL.md` decision-debt paragraph —
+      name goldfish-parked CRITICAL findings (surfaced via `qa`'s own
+      debt-surfacing step, R42) as a second source of the decision-debt
+      WARNING. One sentence; does not change the four-state gate.
+    - MODIFY (light) `_shared/craft/review-ledger.md` (post-Track-E home,
+      R41) — one line: goldfish-review rounds are ledger rounds (the
+      Reviewer column accepts the Goldfish review; the debt-surfacing step
+      covers parked goldfish findings).
+    - MODIFY (light) `.agents/skills/receiving-code-review/SKILL.md` — one
+      cite of `_shared/craft/review-discipline.md` (its no-gratitude examples
+      become the cited instance).
+    - NEW (deferral candidate, A1) `.opencode/plugins/goldfish/index.ts`
+      (OpenCode adapter: `context` hook that strips instruction sources from
+      Goldfish child sessions, `tool.transform` denying edit/write/shell,
+      `session.hook("prompt")` denying web tools). See Open Questions.
+  - **Track E (verification skill consolidation, A2):**
+    - NEW `.agents/skills/code-review/SKILL.md` (the merged skill: topology
+      step, shared protocol — Blindness Contract + independence grades +
+      six-value verdict table, fan-out + red-team ordering, resilience rule,
+      `review.md` output contract, fix-loop routing per R39).
+    - NEW `.agents/skills/code-review/reviewers/` — 8 specialist templates:
+      `code-reviewer.md`, `spec-reviewer.md` (moved from
+      `requesting-code-review/references/`), `security.md` (the two security
+      templates merged, R40), `edge-case-hunter.md`, `verification-gap.md`,
+      `accessibility.md`, `performance.md`, `red-team.md` (moved from
+      `parallel-code-review/reviewers/`).
+    - NEW `.agents/skills/code-review/templates/review.md` (moved from
+      `requesting-code-review/templates/`).
+    - NEW `_shared/craft/review-ledger.md` (the ledger contract moved out of
+      the `review-ledger` skill: round format, frozen candidate +
+      invalidation, dispositions, lineage, debt lifecycle, per R41).
+    - NEW `_shared/verification/verification-gap.md` (the three-gap-shape
+      canon + evidence rule, hoisted from `qa/references/verification-gap.md`
+      and the code-review specialist, per R42).
+    - MODIFY `.agents/skills/qa/SKILL.md` (debt-surfacing step moved in from
+      the ledger skill's Step 5; routing table + "When NOT to use" cite
+      `code-review`) and `.agents/skills/qa/references/audit-procedure.md`
+      (cites the hoisted verification-gap canon + `code-review`).
+    - MODIFY citation sites (R43): `_shared/planning/rigor-tiers.md`,
+      `_shared/verification/floor.md`, `_shared/rules/code-standards.md`,
+      `_shared/rules/sdd-structure.md`,
+      `_shared/craft/deterministic-boundary.md`,
+      `_shared/craft/measurement.md`, `_shared/agent-config/block.md`,
+      `ship/SKILL.md`, `subagent-execution/SKILL.md` +
+      `references/final-review.md`, `simple-execution/SKILL.md`,
+      `simplify-code/SKILL.md`, `style-review/SKILL.md`,
+      `dogfood/SKILL.md`, `deep-research/references/skill-routing.md`,
+      `AGENTS.md` (workflow line), `_shared/skill-size-budget.json`.
+    - DELETE `.agents/skills/requesting-code-review/`,
+      `.agents/skills/parallel-code-review/`,
+      `.agents/skills/review-ledger/` (clean cutover — no aliases, R43).
 - **Interfaces (module names / shapes, no file paths):**
   - Persona brief contract: each file is markdown, ≤150 lines, with sections
     `# <Role>`, `## Isolation mandate`, `## Audit vectors`, `## Output format`.
     Output format is the finding schema below.
-  - Finding schema (all lenses, both tracks): `Severity: Blocker|Major|Nit` /
+  - Finding schema (all lenses, all tracks): `Severity: Blocker|Major|Nit` /
     `Affected scope: <heading or line range>` / `Description` / `Rationale`.
+    At the record boundary (ledger entry, `qa`, chat response) the severity
+    normalizes to `CRITICAL|WARNING|SUGGESTION` (A1).
   - Dispatch contract: the orchestrating skill spawns one `reviewer` subagent
     (fallback `general`) per lens/stage, prompt = persona brief path + target
     path + reading list + "Mode: BRAINSTORM" (Track A) or "Mode: REVIEW"
@@ -1301,16 +1675,21 @@ the others.
   - **Track A:** anchored hypothesis (user-confirmed) + relevant existing
     code/files → 6 parallel fresh subagents (one per lens) → main agent
     synthesizes inline (dedupe, group by severity) → **consolidated chat
-    response** (severity table + each 🔴 Blocker with disposition options)
-    → user dispositions 🔴 Blockers → `briefing.md` `## Shootdown Findings`
+    response** (severity table, normalized vocabulary + each CRITICAL finding
+    with disposition options)
+    → user dispositions CRITICALs → `briefing.md` `## Shootdown Findings`
     section → commit → `writing-blueprints`.
-  - **Track B:** `writing-blueprints` invokes `skillgrid:goldfish-review` on
+  - **Track B:** `writing-blueprints` runs the Goldfish review
+    (`references/goldfish-review.md`) on
     `blueprint.md` → 5-stage pipeline (each stage: spawn fresh reviewers →
     collect findings → Elephant-side resolution (categorize + interactive gate
-    + apply fixes) → re-scan line ranges → next round) → convergence (2 clean
+    + apply fixes) → frozen-candidate re-check → next round) → convergence (2
+    clean
     rounds) or cap (5) or churn → `.skillgrid/change-specs/<topic>/review/<stage>.
-    md` + `goldfish_review_report.md` → **consolidated chat response** (status
-    + severity + Blocker/Major findings + report path) → commit → User Review
+    md` + `review-ledger.md` round entry (A1) → **consolidated chat response**
+    (status
+    + severity + CRITICAL/WARNING findings + report path + ledger entry) →
+    commit → User Review
     Gate → Execution Handoff. A parked CRITICAL → `qa` WARNING (R17).
   - **Track C:** `briefing.md` (+ `findings.md` + `adr.md`) → ingestion
     confirmation → section-by-section drafting (each section written to
@@ -1319,14 +1698,24 @@ the others.
     conversation is governed by `review-discipline.md` (tone). The blueprint
     is the single source of truth — no `design_draft.md` scratch file.
   - **Track D:** `briefing.md` + `blueprint.md` + `adr.md` + `acceptance.
-    feature` (per-change) or all spec dirs + `ARCHITECTURE.md` + `AGENTS.md`
+    feature` (per-change) or all spec dirs + `AGENTS.md` + in-force ADRs +
+    projectwiki pages
     (project-wide) → sequential processing (one spec dir at a time) → source
     grounding (code search to resolve references) → 4-category divergence
     detection → difference filtering → `drift-report.md` (with harness-
     isolation attestation in the header) → resolution (reuses R10:
     CONTEST/ESCALATE/PROPOSE-FIX/DECLINE + interactive gate) → two-way
-    reconciliation (update doc OR file task/fix code) → commit. Periodic
+    reconciliation (update doc OR file task/fix code) → `review-ledger.md`
+    round entry (A1) → commit. Periodic
     ritual, not a per-change gate.
+  - **Track E:** `requesting-code-review` + `parallel-code-review` +
+    `review-ledger` → `code-review` (topology-selected fan-out, shared
+    protocol, `review.md` + ledger-round output) + `_shared/craft/
+    review-ledger.md` (record contract) + `_shared/verification/
+    verification-gap.md` (shared canon) + `qa` debt-surfacing step → all
+    citations updated (R43) → the three old skill directories deleted.
+    Observable behavior unchanged: same dispatches, same outputs, same
+    ledger format.
   - **Cross-track (all dispatch points):** before any reviewer is spawned, the
     orchestrating skill checks that the harness can spawn a fresh-context
     subagent (R36). If not: stop, tell the user, name the EGM rule. If yes:
@@ -1336,7 +1725,9 @@ the others.
 - **Error handling:** a reviewer that times out / returns no report → retry
   once → record `not run` (never zero findings). A stage whose reviewer is
   `not run` caps that stage's verdict at "not verified," not "clean."
-- **Dependencies:** no new third-party dependency. Prose + markdown only.
+- **Dependencies:** no new third-party dependency. Prose + markdown only —
+  plus the OpenCode adapter plugin (TypeScript, no dependencies) if it is not
+  deferred (see Open Questions, A1).
 
 ## Testing Decisions
 
@@ -1356,11 +1747,12 @@ the others.
     per the existing Plan Review rule).
   - A bounded or prototype brainstorm (Track A shootdown skipped).
   - A failed reviewer (`not run`).
-  - A blueprint that already has an `ASSUMED` block (R15 must not double-count
+  - A blueprint that already has an `ASSUMED` block (R17 must not double-count
     the decision-debt WARNING).
   - A shootdown where all six lenses return zero findings (the `## Shootdown
     Findings` section records "no findings" rather than being omitted).
-  - A shootdown where a 🔴 Blocker is dispositioned "resolved" (the design is
+  - A shootdown where a CRITICAL finding is dispositioned "resolved" (the
+    design is
     revised and the feasibility check is re-run before the spec is written).
   - A blueprint where the user requests revisions on a section (the agent
     applies revisions, re-presents the gate; the revision loop is capped at
@@ -1387,48 +1779,83 @@ the others.
     accepted).
   - A fixed finding raised again by a new reviewer in a later round (the agent
     re-opens it — the fix failed or a later edit reintroduced the issue).
-  - A `goldfish-review` invoked standalone (not by `writing-blueprints`) on a
-    `briefing.md` or ADR (the skill is independently invocable; the preset is
-    selected by the user).
-  - A drift report on a clean spec dir (produces "No drift detected" — the
+  - The Goldfish review reference set invoked standalone (not by
+    `writing-blueprints`) on a `briefing.md` or ADR (runnable standalone per
+    R6; the preset is selected by the user).
+  - A drift mode run on a clean spec dir (produces "No drift detected" — the
     report file still exists, with the clean verdict).
-  - A drift report where a reference in `blueprint.md` is unresolvable (the
+  - A drift mode run where a reference in `blueprint.md` is unresolvable (the
     file or symbol doesn't exist in the codebase — reported as a Missing
     Feature finding + a prompt to add an explicit link to the doc).
-  - A project-wide drift report with many spec dirs (sequential processing
+  - A project-wide drift run with many spec dirs (sequential processing
     prevents context overflow; the report has one section per spec dir).
   - A drift finding where the user chooses "code was intentional" (the doc
     is updated, not the code — the reconciliation records "doc-updated").
   - A drift finding where the user chooses "design was violated" (a Backlog
     task is filed or the code is fixed — the reconciliation records
     "task-filed" or "code-fixed").
-  - A drift report run from `reflect` (the advisory item triggers
-    `/drift-report <spec-dir>`; the reflect report notes the findings).
+  - A drift mode run from `reflect` (the advisory item triggers `qa`'s drift
+    mode on the spec dir; the reflect report notes the findings).
+  - A diff <50 lines that touches UI (the topology adds the Accessibility
+    specialist on top of the 3-axis pass — the carried-over surface rule).
+  - A T2 tier with a high-risk diff (the topology escalates to the full
+    fan-out despite the tier — the tier selects the floor, risk escalates).
+  - A zero-finding review round (the ledger round is recorded "clean" —
+    carried over).
+  - A commit lands mid-round (the frozen candidate is invalidated; the round
+    is re-dispatched; the invalidated round stays in the ledger — carried
+    over).
+  - A new change touches a file with an open parked finding (`qa`'s
+    debt-surfacing step adds the WARNING — R17's path).
+  - `ship` with `review-waived` on a non-trivial change (the review-signal
+    path runs `code-review` now and consumes the carried-over
+    `REVIEW-PASS`/`BACK-TO-APPLY` output).
+  - A Goldfish round recorded against the shared ledger reference (R10/R33
+    use `_shared/craft/review-ledger.md` — same round format as code-review
+    rounds).
 
 ## Impact on Global Docs
 
-- `.skillgrid/artifacts/00-prd.md`: None
-- `.skillgrid/ASSUMPTIONS.md`: add two ADR pointer rows under `§ LOCKED`:
+- `.skillgrid/artifacts/00-prd.md`: None (this repo has no PRD artifact — A1;
+  the original draft referenced a `00-prd.md` that does not exist)
+- `.skillgrid/projectwiki/ASSUMPTIONS.md`: add four ADR pointer rows under
+  `§ LOCKED` (A1 — the original draft said "two" but listed three; A2 adds
+  the fourth):
   1. "before-design idea validation is a fresh-context 6-lens Goldfish
      shootdown (subflow of brainstorming), not a new pipeline phase."
-     Record: `artifacts/04-adr-00XX-goldfish-brainstorm-shootdown.md`.
-  2. "before-code plan review is a fresh-context multi-persona Goldfish review
-     (subflow of writing-blueprints), not a new pipeline phase and not part of
-     qa." Record: `artifacts/04-adr-00XX-goldfish-plan-review.md`.
-  3. "blueprint drafting is section-by-section with per-section approval gates
-     (subflow of writing-blueprints); architectural decisions are presented to
-     the owner without ranking or default." Record:
-     `artifacts/04-adr-00XX-goldfish-drafting-disciplines.md`.
-- `.skillgrid/ARCHITECTURE.md`: None (no new component/data store; the change
-  is to the planning skills' reference set).
+     Record:
+     `.skillgrid/projectwiki/decisions/04-adr-0062-goldfish-brainstorm-
+     shootdown.md`.
+  2. "before-code plan review is a fresh-context 5-stage multi-persona
+     Goldfish review (reference set inside writing-blueprints — supersedes
+     ADR-0054's 3-stage subflow), not a new pipeline phase, not a new
+     top-level skill (A1), and not part of qa." Record:
+     `.skillgrid/projectwiki/decisions/04-adr-0063-goldfish-plan-review.md`.
+  3. "blueprint drafting is section-by-section with per-section approval
+     gates (subflow of writing-blueprints); architectural decisions are
+     presented to the owner without ranking or default; the drift report is a
+     mode of qa (periodic, advisory), not a new top-level skill (A1)."
+     Record:
+     `.skillgrid/projectwiki/decisions/04-adr-0064-goldfish-drafting-
+     disciplines.md`.
+  4. "The after-code review is one skill (`code-review`) whose topology
+     selects the fan-out; the review ledger is a shared reference, not a
+     skill." Record:
+     `.skillgrid/projectwiki/decisions/04-adr-0065-verification-skill-
+     consolidation.md`.
+- `.skillgrid/ARCHITECTURE.md`: does not exist in this repo (A1) — nothing to
+  update (no new component/data store; the change is to the skills' reference
+  set).
+- `AGENTS.md`: the workflow line's `requesting-code-review` →
+  `code-review` (A2, R43 — the workflow's phases are unchanged).
 
 ## Clarity Report
 
 | Dimension           | Score | Min  | Status | Notes                              |
 |---------------------|-------|------|--------|------------------------------------|
-| Goal Clarity        | 0.88  | 0.75 | ok     | two-track scope is explicit         |
-| Boundary Clarity    | 0.82  | 0.70 | ok     | before-design + before-code; qa     |
-|                     |       |      |        | untouched                           |
+| Goal Clarity        | 0.88  | 0.75 | ok     | five-track scope explicit (A1/A2)   |
+| Boundary Clarity    | 0.82  | 0.70 | ok     | before-design + before-code; review |
+|                     |       |      |        | skills restructured (A2)            |
 | Constraint Clarity  | 0.80  | 0.65 | ok     | tier ceilings, no new dep, no       |
 |                     |       |      |        | phase                               |
 | Acceptance Criteria | 0.81  | 0.70 | ok     | all 35 requirements falsifiable     |
@@ -1477,6 +1904,16 @@ the others.
 |       |                                   | (R11) with Track B. Different failure mode    |
 |       |                                   | (post-implementation, periodic) but cohesive  |
 |       |                                   | change: "port EGM onto skillgrid"             |
+| 14    | Skill count: consolidate into     | No new top-level skills (A1, 2026-11-11):     |
+|       | existing skills?                  | Track B → writing-blueprints reference set;   |
+|       |                                   | Track D → qa mode; ledger is the record;      |
+|       |                                   | triage/severity/isolation cite existing       |
+|       |                                   | conventions                                   |
+| 15    | Too many validation skills —      | Track E (A2, 2026-11-11): merge the two       |
+|       | consolidate the review skills?    | review skills into `code-review` (topology    |
+|       |                                   | by size/risk/tier); demote `review-ledger` to |
+|       |                                   | a shared reference; `qa` +                    |
+|       |                                   | `receiving-code-review` keep their roles      |
 
 ## Open Questions & Assumptions
 
@@ -1504,6 +1941,17 @@ the others.
   reviewer over `briefing.md` (the what-side) or only `blueprint.md`. Default
   for this change: `blueprint.md` only; `briefing.md` review is an optional
   addition the critic stage may note but not block on.
+- **Assumption (A2):** the merged review skill is named `code-review`
+  (describes the action, not the actor; both old names are superseded). The
+  owner may rename; all R43 citations follow the chosen name.
+- **Question (open, A1):** whether the OpenCode Goldfish plugin
+  (`.opencode/plugins/goldfish/index.ts`) lands in this change or is deferred
+  to a follow-up. `.opencode/` does not yet exist in this repo, and the
+  plugin is the only TypeScript artifact in an otherwise prose-only change,
+  for a harness that is not configured in this repo. Recommendation: defer;
+  R38's OpenCode row degrades to persona-mandate + partial-enforcement
+  attestation until it lands (the conditional smoke test then applies to the
+  first real Goldfish run on OpenCode, not to this change).
 - **Question (open, non-blocking):** whether the shootdown's 6 lenses should be
   configurable (user can skip a lens they don't care about) or fixed. Default
   for this change: fixed (all 6 always run) — the lenses are cheap (read-only
@@ -1512,17 +1960,30 @@ the others.
 
 ## Decisions (ADR)
 
-- `artifacts/04-adr-00XX-goldfish-brainstorm-shootdown.md` — before-design
-  idea validation is a fresh-context 6-lens Goldfish shootdown subflow of
-  brainstorming; it validates the premise before the spec is written.
-- `artifacts/04-adr-00XX-goldfish-plan-review.md` — before-code plan review is
-  a fresh-context multi-persona Goldfish subflow of writing-blueprints; the
-  after-code half (qa / code review) is a separate, unchanged gate.
-- `artifacts/04-adr-00XX-goldfish-drafting-disciplines.md` — blueprint
-  drafting is section-by-section with per-section approval gates (subflow of
-  writing-blueprints); architectural decisions are presented to the owner
-  without ranking or default; the blueprint is the single source of truth (no
-  `design_draft.md` scratch file).
+- `.skillgrid/projectwiki/decisions/04-adr-0062-goldfish-brainstorm-
+  shootdown.md` — before-design idea validation is a fresh-context 6-lens
+  Goldfish shootdown subflow of brainstorming; it validates the premise
+  before the spec is written.
+- `.skillgrid/projectwiki/decisions/04-adr-0063-goldfish-plan-review.md` —
+  **supersedes ADR-0054** — before-code plan review is a fresh-context 5-stage
+  multi-persona Goldfish reference set inside writing-blueprints (subflow,
+  not a new top-level skill — A1), with a sharpening loop and Elephant-side
+  resolution recorded in `review-ledger`; the after-code half (qa / code
+  review) is a separate, unchanged gate.
+- `.skillgrid/projectwiki/decisions/04-adr-0064-goldfish-drafting-
+  disciplines.md` — blueprint drafting is section-by-section with per-section
+  approval gates (subflow of writing-blueprints); architectural decisions are
+  presented to the owner without ranking or default; the blueprint is the
+  single source of truth (no `design_draft.md` scratch file); the drift
+  report is a mode of `qa` (periodic, advisory), not a new top-level skill
+  (A1).
+- `.skillgrid/projectwiki/decisions/04-adr-0065-verification-skill-
+  consolidation.md` — the after-code review is a single skill
+  (`code-review`) whose topology step selects the fan-out by diff size /
+  risk / rigor tier; the review ledger is a shared reference
+  (`_shared/craft/review-ledger.md`), not a skill; `qa` (gate) and
+  `receiving-code-review` (fix loop) keep their roles; observable review
+  behavior is unchanged.
 
 ## Terms
 
@@ -1534,7 +1995,7 @@ the others.
   fresh, zero-context subagents that have seen only the target artifact and the
   files it references. Validates the *plan* before code is written.
 - **Sharpening loop:** the multi-round review→resolve→re-review cycle that
-  `goldfish-review` runs per stage. Convergence = 2 consecutive clean rounds
+  the Goldfish review runs per stage. Convergence = 2 consecutive clean rounds
   (no new Blocker/Major finding that is not settled). Cap = 5 rounds. Churn =
   a new finding at the scope of an applied fix that would be resolved by
   reverting the fix. Turn-taking: the loop goes idle between rounds and waits
@@ -1570,7 +2031,8 @@ the others.
   the user explicitly confirmed at the brainstorming readiness gate, before the
   shootdown is spawned. It is the input to all six lenses.
 - **Consolidated chat response:** the working summary the agent posts in chat
-  at the end of any review run (goldfish-review, all presets, and the Track A
+  at the end of any review run (the Goldfish review, all presets, and the
+  Track A
   shootdown): stage/reviewer status, severity breakdown, every Blocker and
   Major finding in 1-2 lines with the proposed disposition, and the path to
   the full report. The agent works WITH the user, not just for them — the full
@@ -1591,5 +2053,9 @@ the others.
   with mechanism + trade-offs + failure conditions, without ranking or default.
   The owner picks. Mechanical choices (naming, formatting) are decided by the
   agent.
+- **Review topology:** the size/risk/tier-driven selection of review fan-out
+  within the single `code-review` skill (the 3-axis pass for small low-risk
+  diffs; the full specialist fan-out for large or high-risk ones; conditional
+  domain specialists by surface; red team last) — A2, R39.
 - No new terms added to the terms files; the above are local to this change and
   defined here.
