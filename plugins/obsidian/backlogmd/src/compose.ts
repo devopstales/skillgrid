@@ -10,7 +10,7 @@ export interface PluginContext {
   repo: FileTaskRepository;
   milestones: MilestoneRepository;
   projects: Awaited<ReturnType<typeof discoverProjects>>;
-  start(): Promise<void>;
+  start(manualRoots: string[]): Promise<void>;
 }
 
 export function compose(plugin: Plugin): PluginContext {
@@ -22,9 +22,8 @@ export function compose(plugin: Plugin): PluginContext {
     repo,
     milestones,
     projects: [],
-    async start() {
+    async start(manualRoots: string[]) {
       // discover projects from vault root folders (top-level)
-      const root = "/";
       const roots: string[] = [];
       // Obsidian vault root children folders
       const vault = plugin.app.vault;
@@ -32,7 +31,9 @@ export function compose(plugin: Plugin): PluginContext {
       for (const c of rootFolder.children) {
         if (c.children !== undefined) roots.push(c.path || c.name);
       }
-      // manual roots from settings could be added later
+      for (const r of manualRoots) {
+        if (!roots.includes(r)) roots.push(r);
+      }
       ctx.projects = await discoverProjects(fs, ["/"], roots);
     },
   };

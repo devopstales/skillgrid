@@ -14,8 +14,9 @@ export default class BacklogMdPlugin extends Plugin {
   settings = DEFAULT_SETTINGS;
 
   async onload() {
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
     this.ctx = compose(this);
-    await this.ctx.start();
+    await this.ctx.start(this.settings.manualRoots);
     console.log(
       "[backlogmd] discovered projects:",
       this.ctx.projects.map((p) => `${p.name} (${p.vaultBacklogDir})`).join(", ") || "(none)",
@@ -41,7 +42,7 @@ export default class BacklogMdPlugin extends Plugin {
       if (project) void this.ctx.milestones.list(project).then((all) => new MilestoneModal(this.app, this.ctx, project, all).open());
     } });
 
-    this.addSettingTab(new BacklogMdSettingTab(this.app, this, this.ctx, this.settings));
+    this.addSettingTab(new BacklogMdSettingTab(this.app, this, this.settings));
 
     new FileWatcher(this.app, () => {
       const reRender = (type: string) => {

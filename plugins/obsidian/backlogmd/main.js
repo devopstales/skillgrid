@@ -6942,13 +6942,15 @@ function compose(plugin) {
     repo,
     milestones,
     projects: [],
-    async start() {
-      const root = "/";
+    async start(manualRoots) {
       const roots = [];
       const vault = plugin.app.vault;
       const rootFolder = vault.getRoot();
       for (const c of rootFolder.children) {
         if (c.children !== void 0) roots.push(c.path || c.name);
+      }
+      for (const r of manualRoots) {
+        if (!roots.includes(r)) roots.push(r);
       }
       ctx.projects = await discoverProjects(fs2, ["/"], roots);
     }
@@ -7911,28 +7913,30 @@ var PullIssuesModal = class extends import_obsidian7.Modal {
 var import_obsidian8 = require("obsidian");
 var DEFAULT_SETTINGS = {
   manualRoots: [],
-  activeProject: "",
   githubTokenKey: "backlogmd-github-token"
 };
 var BacklogMdSettingTab = class extends import_obsidian8.PluginSettingTab {
-  ctx;
+  plugin;
   settings;
-  constructor(app, plugin, ctx, settings) {
+  constructor(app, plugin, settings) {
     super(app, plugin);
-    this.ctx = ctx;
+    this.plugin = plugin;
     this.settings = settings;
   }
   display() {
     const { containerEl } = this;
     containerEl.empty();
+    const save = () => void this.plugin.saveData(this.settings);
     new import_obsidian8.Setting(containerEl).setName("Manual roots").setDesc("Comma-separated vault folders").addText((t) => {
       t.setValue(this.settings.manualRoots.join(", ")).onChange((v) => {
         this.settings.manualRoots = v.split(",").map((s) => s.trim()).filter(Boolean);
+        save();
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("GitHub token (secret storage key)").addText((t) => {
+    new import_obsidian8.Setting(containerEl).setName("GitHub token (secret storage key)").setDesc("Obsidian secret storage key the pull dialog reads the token from").addText((t) => {
       t.setValue(this.settings.githubTokenKey).onChange((v) => {
         this.settings.githubTokenKey = v;
+        save();
       });
     });
   }
@@ -7969,8 +7973,9 @@ var BacklogMdPlugin = class extends import_obsidian10.Plugin {
   ctx;
   settings = DEFAULT_SETTINGS;
   async onload() {
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
     this.ctx = compose(this);
-    await this.ctx.start();
+    await this.ctx.start(this.settings.manualRoots);
     console.log(
       "[backlogmd] discovered projects:",
       this.ctx.projects.map((p) => `${p.name} (${p.vaultBacklogDir})`).join(", ") || "(none)"
@@ -7993,7 +7998,7 @@ var BacklogMdPlugin = class extends import_obsidian10.Plugin {
       const project = this.projectFromViews();
       if (project) void this.ctx.milestones.list(project).then((all) => new MilestoneModal(this.app, this.ctx, project, all).open());
     } });
-    this.addSettingTab(new BacklogMdSettingTab(this.app, this, this.ctx, this.settings));
+    this.addSettingTab(new BacklogMdSettingTab(this.app, this, this.settings));
     new FileWatcher(this.app, () => {
       const reRender = (type2) => {
         for (const l of this.app.workspace.getLeavesOfType(type2)) {
