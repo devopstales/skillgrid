@@ -23,6 +23,7 @@
 
 .backlogmd-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
 .backlogmd-project-switcher { min-width: 140px; }
+.backlogmd-milestone-select { min-width: 200px; max-width: 320px; }
 .backlogmd-filter { flex: 1; min-width: 160px; max-width: 360px; }
 .backlogmd-new-task { white-space: nowrap; }
 

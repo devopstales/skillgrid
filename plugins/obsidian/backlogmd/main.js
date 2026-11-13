@@ -7153,8 +7153,15 @@ var KanbanView = class extends import_obsidian3.ItemView {
   ctx;
   projectIndex = 0;
   filter = "";
+  /** null = auto (active milestone if any, else all); a string = the user's
+   * explicit dropdown pick ("" = All tasks). */
+  boardMilestone = null;
+  /** Resolved board selection after the last render (active fallback when
+   * the board shows All); the new-task modal defaults to it. */
+  selectedMilestoneId = null;
   boardEl = null;
   boardHeaderEl = null;
+  milestoneSelectEl = null;
   indicatorEl = null;
   renderSeq = 0;
   constructor(leaf, ctx) {
@@ -7181,30 +7188,42 @@ var KanbanView = class extends import_obsidian3.ItemView {
       throw e;
     }
   }
-  renderBoardHeader(project, active, boardTasks) {
+  renderBoardHeader(project, selected, boardTasks) {
     const header = this.boardHeaderEl;
     if (!header) return;
     header.empty();
-    if (active) {
-      header.createEl("span", { text: "active", cls: "backlogmd-chip backlogmd-chip-active" });
-      header.createEl("span", { text: `${active.id} ${active.title}`, cls: "backlogmd-section-title" });
+    if (selected) {
+      const state = effectiveState(selected, boardTasks, project.doneStatuses);
+      header.createEl("span", { text: state, cls: `backlogmd-chip${state === "active" ? " backlogmd-chip-active" : ""}` });
+      header.createEl("span", { text: `${selected.id} ${selected.title}`, cls: "backlogmd-section-title" });
       const bits = [];
-      if (active.end_date) {
-        const dl = daysLeft(active);
-        if (dl !== null) bits.push(dl >= 0 ? `ends ${active.end_date} \xB7 ${dl}d left` : `overdue by ${-dl}d`);
+      if (selected.end_date) {
+        const dl = daysLeft(selected);
+        if (dl !== null) bits.push(dl >= 0 ? `ends ${selected.end_date} \xB7 ${dl}d left` : `overdue by ${-dl}d`);
       }
       const done = boardTasks.filter((t) => project.doneStatuses.includes(t.status)).length;
       bits.push(`${done}/${boardTasks.length} done`);
       header.createEl("span", { text: bits.join(" \xB7 "), cls: "backlogmd-section-meta" });
     } else {
       header.createEl("span", { text: "All tasks", cls: "backlogmd-section-title" });
-      header.createEl("span", { text: `${boardTasks.length} \xB7 no active milestone`, cls: "backlogmd-section-meta" });
+      header.createEl("span", { text: `${boardTasks.length} tasks`, cls: "backlogmd-section-meta" });
     }
+  }
+  populateMilestoneSelect(milestones, value) {
+    const sel = this.milestoneSelectEl;
+    if (!sel) return;
+    sel.empty();
+    sel.createEl("option", { value: "", text: "All tasks" });
+    for (const m of [...milestones].sort((a, b) => a.id.localeCompare(b.id, void 0, { numeric: true }))) {
+      sel.createEl("option", { value: m.id, text: `${m.id} \xB7 ${m.title}` });
+    }
+    sel.value = value;
   }
   async renderInner() {
     const container = this.containerEl.children[1];
     container.empty();
     this.boardEl = null;
+    this.milestoneSelectEl = null;
     const project = this.ctx.projects[this.projectIndex];
     if (!project) {
       container.createEl("div", { text: "No backlog project found.", cls: "backlogmd-empty" });
@@ -7213,7 +7232,14 @@ var KanbanView = class extends import_obsidian3.ItemView {
     const toolbar = container.createDiv({ cls: "backlogmd-toolbar" });
     renderProjectSwitcher(toolbar, this.ctx.projects, this.projectIndex, (i) => {
       this.projectIndex = i;
+      this.boardMilestone = null;
       void this.render();
+    });
+    const milestoneSel = toolbar.createEl("select", { cls: "backlogmd-milestone-select" });
+    this.milestoneSelectEl = milestoneSel;
+    milestoneSel.addEventListener("change", () => {
+      this.boardMilestone = milestoneSel.value;
+      void this.renderBoard(project);
     });
     const filter = toolbar.createEl("input", { type: "text", cls: "backlogmd-filter", placeholder: "Filter by id, title, type, assignee, label" });
     filter.value = this.filter;
@@ -7238,8 +7264,14 @@ var KanbanView = class extends import_obsidian3.ItemView {
     const milestones = await this.ctx.milestones.list(project);
     if (seq2 !== this.renderSeq) return;
     const active = milestones.find((m) => m.state === "active") ?? null;
-    const boardTasks = active ? tasks.filter((t) => t.milestone === active.id) : tasks;
-    this.renderBoardHeader(project, active, boardTasks);
+    let sel = this.boardMilestone;
+    if (sel === null) sel = active ? active.id : "";
+    if (sel && !milestones.some((m) => m.id === sel)) sel = "";
+    const selected = sel ? milestones.find((m) => m.id === sel) ?? null : null;
+    this.selectedMilestoneId = selected ? selected.id : active ? active.id : null;
+    this.populateMilestoneSelect(milestones, selected ? selected.id : "");
+    const boardTasks = selected ? tasks.filter((t) => t.milestone === selected.id) : tasks;
+    this.renderBoardHeader(project, selected, boardTasks);
     const byId = new Map(tasks.map((t) => [t.id, t]));
     const q = this.filter.trim().toLowerCase();
     const matches = (t) => !q || t.id.toLowerCase().includes(q) || t.title.toLowerCase().includes(q) || (t.type ?? "").toLowerCase().includes(q) || (t.assignee ?? []).join(" ").toLowerCase().includes(q) || (t.labels ?? []).join(" ").toLowerCase().includes(q) || (t.milestone ?? "").toLowerCase().includes(q);
@@ -7300,9 +7332,8 @@ var KanbanView = class extends import_obsidian3.ItemView {
     return card;
   }
   openModal(project, task) {
-    void Promise.all([this.ctx.repo.list(project), this.ctx.milestones.list(project)]).then(([all, milestones]) => {
-      const active = milestones.find((m) => m.state === "active");
-      const modal = new TaskModal(this.app, this.ctx, project, task, all, active?.id);
+    void Promise.all([this.ctx.repo.list(project), this.ctx.milestones.list(project)]).then(([all]) => {
+      const modal = new TaskModal(this.app, this.ctx, project, task, all, this.selectedMilestoneId ?? void 0);
       const origClose = modal.onClose.bind(modal);
       modal.onClose = () => {
         origClose();

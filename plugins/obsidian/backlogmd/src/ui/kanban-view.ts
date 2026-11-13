@@ -4,7 +4,7 @@ import { ProjectConfig, TaskRepository } from "../application/ports";
 import { Task } from "../domain/task";
 import { isBlocked } from "../domain/task";
 import type { Milestone } from "../domain/milestone";
-import { daysLeft } from "../domain/milestone";
+import { daysLeft, effectiveState } from "../domain/milestone";
 import { moveTask, reorderColumn } from "../application/move-task";
 import { renderProjectSwitcher } from "./project-switcher";
 import { TaskModal } from "./task-modal";
@@ -20,8 +20,15 @@ export class KanbanView extends ItemView {
   private ctx: PluginContext;
   projectIndex = 0;
   private filter = "";
+  /** null = auto (active milestone if any, else all); a string = the user's
+   * explicit dropdown pick ("" = All tasks). */
+  private boardMilestone: string | null = null;
+  /** Resolved board selection after the last render (active fallback when
+   * the board shows All); the new-task modal defaults to it. */
+  private selectedMilestoneId: string | null = null;
   private boardEl: HTMLElement | null = null;
   private boardHeaderEl: HTMLElement | null = null;
+  private milestoneSelectEl: HTMLSelectElement | null = null;
   private indicatorEl: HTMLElement | null = null;
   private renderSeq = 0;
 
@@ -54,31 +61,44 @@ export class KanbanView extends ItemView {
     }
   }
 
-  private renderBoardHeader(project: ProjectConfig, active: Milestone | null, boardTasks: Task[]): void {
+  private renderBoardHeader(project: ProjectConfig, selected: Milestone | null, boardTasks: Task[]): void {
     const header = this.boardHeaderEl;
     if (!header) return;
     header.empty();
-    if (active) {
-      header.createEl("span", { text: "active", cls: "backlogmd-chip backlogmd-chip-active" });
-      header.createEl("span", { text: `${active.id} ${active.title}`, cls: "backlogmd-section-title" });
+    if (selected) {
+      const state = effectiveState(selected, boardTasks, project.doneStatuses);
+      header.createEl("span", { text: state, cls: `backlogmd-chip${state === "active" ? " backlogmd-chip-active" : ""}` });
+      header.createEl("span", { text: `${selected.id} ${selected.title}`, cls: "backlogmd-section-title" });
       const bits: string[] = [];
-      if (active.end_date) {
-        const dl = daysLeft(active);
-        if (dl !== null) bits.push(dl >= 0 ? `ends ${active.end_date} · ${dl}d left` : `overdue by ${-dl}d`);
+      if (selected.end_date) {
+        const dl = daysLeft(selected);
+        if (dl !== null) bits.push(dl >= 0 ? `ends ${selected.end_date} · ${dl}d left` : `overdue by ${-dl}d`);
       }
       const done = boardTasks.filter((t) => project.doneStatuses.includes(t.status)).length;
       bits.push(`${done}/${boardTasks.length} done`);
       header.createEl("span", { text: bits.join(" · "), cls: "backlogmd-section-meta" });
     } else {
       header.createEl("span", { text: "All tasks", cls: "backlogmd-section-title" });
-      header.createEl("span", { text: `${boardTasks.length} · no active milestone`, cls: "backlogmd-section-meta" });
+      header.createEl("span", { text: `${boardTasks.length} tasks`, cls: "backlogmd-section-meta" });
     }
+  }
+
+  private populateMilestoneSelect(milestones: Milestone[], value: string): void {
+    const sel = this.milestoneSelectEl;
+    if (!sel) return;
+    sel.empty();
+    sel.createEl("option", { value: "", text: "All tasks" });
+    for (const m of [...milestones].sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }))) {
+      sel.createEl("option", { value: m.id, text: `${m.id} · ${m.title}` });
+    }
+    sel.value = value;
   }
 
   private async renderInner(): Promise<void> {
     const container = this.containerEl.children[1] as HTMLElement;
     container.empty();
     this.boardEl = null;
+    this.milestoneSelectEl = null;
 
     const project = this.ctx.projects[this.projectIndex];
     if (!project) {
@@ -89,7 +109,14 @@ export class KanbanView extends ItemView {
     const toolbar = container.createDiv({ cls: "backlogmd-toolbar" });
     renderProjectSwitcher(toolbar, this.ctx.projects, this.projectIndex, (i) => {
       this.projectIndex = i;
+      this.boardMilestone = null;
       void this.render();
+    });
+    const milestoneSel = toolbar.createEl("select", { cls: "backlogmd-milestone-select" }) as HTMLSelectElement;
+    this.milestoneSelectEl = milestoneSel;
+    milestoneSel.addEventListener("change", () => {
+      this.boardMilestone = milestoneSel.value;
+      void this.renderBoard(project);
     });
     const filter = toolbar.createEl("input", { type: "text", cls: "backlogmd-filter", placeholder: "Filter by id, title, type, assignee, label" });
     filter.value = this.filter;
@@ -117,8 +144,14 @@ export class KanbanView extends ItemView {
     const milestones = await this.ctx.milestones.list(project);
     if (seq !== this.renderSeq) return; // a newer render owns the DOM now
     const active = milestones.find((m) => m.state === "active") ?? null;
-    const boardTasks = active ? tasks.filter((t) => t.milestone === active.id) : tasks;
-    this.renderBoardHeader(project, active, boardTasks);
+    let sel = this.boardMilestone;
+    if (sel === null) sel = active ? active.id : ""; // auto: follow the active milestone
+    if (sel && !milestones.some((m) => m.id === sel)) sel = ""; // pick for a deleted milestone -> All
+    const selected = sel ? milestones.find((m) => m.id === sel) ?? null : null;
+    this.selectedMilestoneId = selected ? selected.id : active ? active.id : null;
+    this.populateMilestoneSelect(milestones, selected ? selected.id : "");
+    const boardTasks = selected ? tasks.filter((t) => t.milestone === selected.id) : tasks;
+    this.renderBoardHeader(project, selected, boardTasks);
     const byId = new Map(tasks.map((t) => [t.id, t]));
     const q = this.filter.trim().toLowerCase();
     const matches = (t: Task): boolean =>
@@ -198,9 +231,8 @@ export class KanbanView extends ItemView {
   }
 
   private openModal(project: ProjectConfig, task: Task | null): void {
-    void Promise.all([this.ctx.repo.list(project), this.ctx.milestones.list(project)]).then(([all, milestones]) => {
-      const active = milestones.find((m) => m.state === "active");
-      const modal = new TaskModal(this.app, this.ctx, project, task, all, active?.id);
+    void Promise.all([this.ctx.repo.list(project), this.ctx.milestones.list(project)]).then(([all]) => {
+      const modal = new TaskModal(this.app, this.ctx, project, task, all, this.selectedMilestoneId ?? undefined);
       const origClose = modal.onClose.bind(modal);
       modal.onClose = () => {
         origClose();
