@@ -7826,22 +7826,32 @@ async function fetchIssues(token, owner, repo) {
     headers: { Authorization: `token ${token}`, Accept: "application/vnd.github+json" }
   });
   if (!res.ok) throw new Error(`GitHub ${res.status}`);
-  return await res.json();
+  const all = await res.json();
+  return all.filter((i) => i.pull_request === void 0);
 }
 
 // src/application/pull-issues.ts
+function nextTaskId2(existing, prefix) {
+  const re = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[-_ ]?(\\d+)$`, "i");
+  let max = 0;
+  for (const t of existing) {
+    const m = t.id.match(re);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `${prefix}-${String(max + 1).padStart(3, "0")}`;
+}
 async function pullIssues(repo, project, token, owner, repository) {
   const issues = await fetchIssues(token, owner, repository);
-  const existing = await repo.list(project);
-  const bySource = new Map(existing.filter((t) => t.references?.some((r) => r.includes("github:"))).map((t) => [t.id, t]));
+  const existing = [...await repo.list(project)];
   for (const issue of issues) {
     const sourceRef = `github:${owner}/${repository}#${issue.number}`;
     const match = existing.find((t) => t.references?.includes(sourceRef));
     if (match) {
-      const newStatus = issue.state === "closed" ? project.doneStatuses[0] ?? match.status : match.status;
-      await repo.write(project, { ...match, title: issue.title, assignee: issue.assignee ? [issue.assignee] : match.assignee, status: issue.state === "closed" ? project.doneStatuses[0] ?? match.status : match.status }, match.body ?? "");
+      const closed = issue.state === "closed";
+      const newStatus = closed ? project.doneStatuses[0] ?? match.status : match.status;
+      await repo.write(project, { ...match, title: issue.title, assignee: issue.assignee ? [issue.assignee] : match.assignee, status: newStatus }, match.body ?? "");
     } else {
-      const id = `${project.taskPrefix.toUpperCase()}-${existing.length + 1}`;
+      const id = nextTaskId2(existing, project.taskPrefix);
       const task = {
         id,
         title: issue.title,
@@ -7854,6 +7864,7 @@ ${issue.body}
         path: ""
       };
       await repo.create(project, task, task.body ?? "");
+      existing.push(task);
     }
   }
 }

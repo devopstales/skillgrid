@@ -11,5 +11,7 @@ export async function fetchIssues(token: string, owner: string, repo: string): P
     headers: { Authorization: `token ${token}`, Accept: "application/vnd.github+json" },
   });
   if (!res.ok) throw new Error(`GitHub ${res.status}`);
-  return (await res.json()) as GhIssue[];
+  // the /issues endpoint returns pull requests too — drop them
+  const all = (await res.json()) as (GhIssue & { pull_request?: unknown })[];
+  return all.filter((i) => i.pull_request === undefined);
 }
