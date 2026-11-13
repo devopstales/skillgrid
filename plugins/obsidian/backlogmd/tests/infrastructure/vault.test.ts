@@ -53,4 +53,14 @@ Body
     const p = parseTask("x.md", SAMPLE);
     expect(p.task.ordinal).toBeUndefined();
   });
+
+  it("parse throws on malformed YAML frontmatter (error path, not silent corruption)", () => {
+    const malformed = `---
+id: OB-1
+status: [unclosed
+---
+Body
+`;
+    expect(() => parseTask("tasks/OB-1.md", malformed)).toThrow();
+  });
 });
