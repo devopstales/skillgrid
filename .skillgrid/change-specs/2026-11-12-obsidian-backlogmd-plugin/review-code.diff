@@ -1,0 +1,3381 @@
+diff --git a/plugins/obsidian/backlogmd/esbuild.config.mjs b/plugins/obsidian/backlogmd/esbuild.config.mjs
+new file mode 100644
+index 00000000..fbd908d6
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/esbuild.config.mjs
+@@ -0,0 +1,24 @@
++import esbuild from "esbuild";
++import process from "process";
++import builtins from "builtin-modules";
++
++const prod = process.argv[2] === "production";
++
++const ctx = await esbuild.context({
++  entryPoints: ["src/main.ts"],
++  bundle: true,
++  external: ["obsidian", "electron", ...builtins],
++  format: "cjs",
++  target: "es2022",
++  logLevel: "info",
++  sourcemap: prod ? false : "inline",
++  treeShaking: true,
++  outfile: "main.js",
++});
++
++if (prod) {
++  await ctx.rebuild();
++  process.exit(0);
++} else {
++  await ctx.watch();
++}
+\ No newline at end of file
+diff --git a/plugins/obsidian/backlogmd/manifest.json b/plugins/obsidian/backlogmd/manifest.json
+new file mode 100644
+index 00000000..d68ceeca
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/manifest.json
+@@ -0,0 +1,9 @@
++{
++  "id": "backlogmd",
++  "name": "Backlog.md Board",
++  "version": "0.1.0",
++  "minAppVersion": "1.13.0",
++  "description": "Render and edit backlog.md task files as a kanban board and backlog list.",
++  "author": "skillgrid",
++  "isDesktopOnly": true
++}
+\ No newline at end of file
+diff --git a/plugins/obsidian/backlogmd/package.json b/plugins/obsidian/backlogmd/package.json
+new file mode 100644
+index 00000000..8583bb9f
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/package.json
+@@ -0,0 +1,24 @@
++{
++  "name": "backlogmd",
++  "version": "0.1.0",
++  "description": "Obsidian plugin: render and edit backlog.md task files as a board",
++  "main": "main.js",
++  "scripts": {
++    "dev": "node esbuild.config.mjs",
++    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
++    "test": "vitest run",
++    "test:watch": "vitest"
++  },
++  "dependencies": {
++    "gray-matter": "^4.0.3",
++    "js-yaml": "^4.1.0"
++  },
++  "devDependencies": {
++    "@types/node": "^20.0.0",
++    "builtin-modules": "^3.3.0",
++    "esbuild": "^0.21.0",
++    "obsidian": "latest",
++    "typescript": "^5.4.0",
++    "vitest": "^1.6.0"
++  }
++}
+\ No newline at end of file
+diff --git a/plugins/obsidian/backlogmd/src/application/create-task.ts b/plugins/obsidian/backlogmd/src/application/create-task.ts
+new file mode 100644
+index 00000000..c6e1b4e0
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/application/create-task.ts
+@@ -0,0 +1,47 @@
++import { ProjectConfig, TaskRepository } from "./ports";
++import { Task } from "../domain/task";
++
++export interface CreateTaskInput {
++  summary: string;
++  body?: string;
++  type?: string;
++  priority?: string;
++  status?: string;
++  assignee?: string[];
++  milestone?: string;
++  dependencies?: string[];
++}
++
++/** Next zero-padded ID: max numeric suffix of existing tasks + 1
++ *  (count-based IDs collide after deletions). */
++export function nextTaskId(existing: Task[], prefix: string): string {
++  let max = 0;
++  for (const t of existing) {
++    const m = t.id.match(/(\d+)\s*$/);
++    if (m) max = Math.max(max, parseInt(m[1], 10));
++  }
++  return `${prefix.toUpperCase()}-${String(max + 1).padStart(3, "0")}`;
++}
++
++export async function createTask(
++  repo: TaskRepository,
++  project: ProjectConfig,
++  input: CreateTaskInput,
++  existing: Task[],
++): Promise<string> {
++  const id = nextTaskId(existing, project.taskPrefix);
++  const ordinal = existing.length ? Math.max(...existing.map((t) => t.ordinal ?? 0)) + 1000 : 1000;
++  const task: Task = {
++    id,
++    title: input.summary,
++    status: input.status ?? project.statuses[0] ?? "To Do",
++    type: input.type || undefined,
++    priority: input.priority || undefined,
++    assignee: input.assignee?.length ? input.assignee : undefined,
++    milestone: input.milestone || undefined,
++    dependencies: input.dependencies?.length ? input.dependencies : undefined,
++    ordinal,
++    path: "",
++  };
++  return repo.create(project, task, input.body ?? "");
++}
+diff --git a/plugins/obsidian/backlogmd/src/application/edit-task.ts b/plugins/obsidian/backlogmd/src/application/edit-task.ts
+new file mode 100644
+index 00000000..0b9527e6
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/application/edit-task.ts
+@@ -0,0 +1,13 @@
++import { ProjectConfig, TaskRepository } from "./ports";
++import { Task } from "../domain/task";
++
++export async function editTask(
++  repo: TaskRepository,
++  project: ProjectConfig,
++  task: Task,
++  patch: Partial<Task>,
++  body?: string,
++): Promise<void> {
++  const updated: Task = { ...task, ...patch, updated_date: new Date().toISOString().slice(0, 10) };
++  await repo.write(project, updated, body ?? task.body ?? "");
++}
+\ No newline at end of file
+diff --git a/plugins/obsidian/backlogmd/src/application/link-tasks.ts b/plugins/obsidian/backlogmd/src/application/link-tasks.ts
+new file mode 100644
+index 00000000..974a5dc4
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/application/link-tasks.ts
+@@ -0,0 +1,25 @@
++import { ProjectConfig, TaskRepository } from "./ports";
++import { Task } from "../domain/task";
++
++export async function linkTasks(
++  repo: TaskRepository,
++  project: ProjectConfig,
++  a: Task,
++  b: Task,
++  add: boolean,
++): Promise<void> {
++  const aDeps = new Set(a.dependencies ?? []);
++  const bBlocked = new Set(b.dependencies ?? []); // reuse dependencies as blocked_by mirror? We'll store blocked_by in dependencies of counterpart? Simpler: store in dependencies both ways per briefing (bidirectional).
++  // Briefing: link adds to dependencies of source and blocked_by of target. We store blocked_by as a separate field not in Task interface; instead mirror via dependencies on both sides for simplicity.
++  if (add) {
++    aDeps.add(b.id);
++    bBlocked.add(a.id);
++  } else {
++    aDeps.delete(b.id);
++    bBlocked.delete(a.id);
++  }
++  const newA: Task = { ...a, dependencies: [...aDeps], updated_date: a.updated_date };
++  const newB: Task = { ...b, dependencies: [...bBlocked], updated_date: b.updated_date };
++  await repo.write(project, newA, a.body ?? "");
++  await repo.write(project, newB, b.body ?? "");
++}
+\ No newline at end of file
+diff --git a/plugins/obsidian/backlogmd/src/application/milestone.ts b/plugins/obsidian/backlogmd/src/application/milestone.ts
+new file mode 100644
+index 00000000..cacceb90
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/application/milestone.ts
+@@ -0,0 +1,81 @@
++import type { ProjectConfig, TaskRepository, MilestoneRepository } from "./ports";
++import type { Milestone } from "../domain/milestone";
++import { today } from "../domain/milestone";
++import type { Task } from "../domain/task";
++
++/** Next milestone id: max numeric suffix of existing + 1 (`m-7`). */
++export function nextMilestoneId(existing: Milestone[]): string {
++  let max = 0;
++  for (const m of existing) {
++    const n = parseInt(m.id.replace(/[^0-9]/g, ""), 10);
++    if (!Number.isNaN(n)) max = Math.max(max, n);
++  }
++  return `m-${max + 1}`;
++}
++
++/** Mark a milestone active. Any other explicitly active milestone is
++ *  completed first (with its carry-over), keeping a single active sprint. */
++export async function startMilestone(
++  tasks: TaskRepository,
++  milestones: MilestoneRepository,
++  project: ProjectConfig,
++  ms: Milestone,
++): Promise<void> {
++  const all = await milestones.list(project);
++  const taskList = await tasks.list(project);
++  for (const other of all) {
++    if (other.id !== ms.id && other.state === "active") {
++      await completeMilestone(tasks, milestones, project, other, taskList);
++    }
++  }
++  const updated: Milestone = { ...ms, state: "active", start_date: ms.start_date ?? today() };
++  await milestones.write(project, updated, ms.body ?? "");
++}
++
++/** Mark a milestone completed: record which tasks finished, carry the
++ *  unfinished ones back to the unplanned backlog (their `milestone` is
++ *  cleared), so the CLI's derive-from-tasks view stays consistent. */
++export async function completeMilestone(
++  tasks: TaskRepository,
++  milestones: MilestoneRepository,
++  project: ProjectConfig,
++  ms: Milestone,
++  taskList?: Task[],
++): Promise<void> {
++  const all = taskList ?? (await tasks.list(project));
++  const done = new Set(project.doneStatuses);
++  const msTasks = all.filter((t) => t.milestone === ms.id);
++  const completedTasks = msTasks.filter((t) => done.has(t.status)).map((t) => t.id);
++  const carriedOver = msTasks.filter((t) => !done.has(t.status));
++  for (const t of carriedOver) {
++    const updated: Task = { ...t, milestone: undefined, updated_date: today() };
++    await tasks.write(project, updated, t.body ?? "");
++  }
++  const updated: Milestone = {
++    ...ms,
++    state: "completed",
++    end_date: ms.end_date ?? today(),
++    completed_tasks: completedTasks,
++    carried_over_tasks: carriedOver.map((t) => t.id),
++  };
++  await milestones.write(project, updated, ms.body ?? "");
++}
++
++/** Plan a task into a milestone (or clear its plan with null). Planning
++ *  appends the task to the end of the target section's ordinal range. */
++export async function planTask(
++  tasks: TaskRepository,
++  project: ProjectConfig,
++  task: Task,
++  milestoneId: string | null,
++  taskList?: Task[],
++): Promise<void> {
++  let ordinal = task.ordinal;
++  if (milestoneId) {
++    const all = taskList ?? (await tasks.list(project));
++    const peers = all.filter((t) => t.milestone === milestoneId);
++    ordinal = (peers.length ? Math.max(...peers.map((p) => p.ordinal ?? 0)) : 0) + 1000;
++  }
++  const updated: Task = { ...task, milestone: milestoneId ?? undefined, ordinal, updated_date: today() };
++  await tasks.write(project, updated, task.body ?? "");
++}
+diff --git a/plugins/obsidian/backlogmd/src/application/move-task.ts b/plugins/obsidian/backlogmd/src/application/move-task.ts
+new file mode 100644
+index 00000000..f25b36e5
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/application/move-task.ts
+@@ -0,0 +1,25 @@
++import { ProjectConfig, TaskRepository } from "./ports";
++import { Task } from "../domain/task";
++
++export async function moveTask(
++  repo: TaskRepository,
++  project: ProjectConfig,
++  task: Task,
++  newStatus: string,
++  ordinal?: number,
++): Promise<void> {
++  const updated: Task = { ...task, status: newStatus, ordinal, updated_date: new Date().toISOString().slice(0, 10) };
++  await repo.write(project, updated, task.body ?? "");
++}
++
++/** Rewrite the column's tasks in the given order, reassigning 1000-step ordinals. */
++export async function reorderColumn(
++  repo: TaskRepository,
++  project: ProjectConfig,
++  ordered: Task[],
++): Promise<void> {
++  for (let i = 0; i < ordered.length; i++) {
++    const updated: Task = { ...ordered[i], ordinal: i * 1000 + 1000 };
++    await repo.write(project, updated, ordered[i].body ?? "");
++  }
++}
+diff --git a/plugins/obsidian/backlogmd/src/application/ports.ts b/plugins/obsidian/backlogmd/src/application/ports.ts
+new file mode 100644
+index 00000000..8a8055a5
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/application/ports.ts
+@@ -0,0 +1,51 @@
++import type { Milestone } from "../domain/milestone";
++
++export interface ProjectConfig {
++  name: string;
++  rootPath: string;
++  backlogDirectory: string;
++  /** Vault-relative path of the backlog directory — the location the
++   *  repository reads/writes task files. Equals rootPath/backlogDirectory for
++   *  in-vault projects; for skillgrid-style layouts (project root above the
++   *  vault root) it is the in-vault tail of the repo-relative backlogDirectory. */
++  vaultBacklogDir: string;
++  statuses: string[];
++  types: string[];
++  priorities: string[];
++  doneStatuses: string[];
++  taskPrefix: string;
++}
++
++export interface FileSystemPort {
++  exists(path: string): Promise<boolean>;
++  readText(path: string): Promise<string>;
++  listDirs(path: string): Promise<string[]>;
++  listFiles(path: string): Promise<string[]>;
++  writeText(path: string, content: string): Promise<void>;
++  /** Absolute path of the vault root (""-relative path space maps onto it). */
++  getVaultRootAbs(): Promise<string>;
++  /** Nearest ancestor of the vault root (including the vault root itself, up
++   *  to maxDepth levels) that contains `backlog.config.yml`, as an absolute
++   *  path; null when none exists. Skillgrid layout: the repo root sits above
++   *  the projectwiki vault. */
++  findAncestorProjectRoot(maxDepth?: number): Promise<string | null>;
++  /** Read a file by absolute path (outside the vault path space). */
++  readTextAbs(absPath: string): Promise<string>;
++}
++
++export interface MilestoneRepository {
++  list(project: ProjectConfig): Promise<Milestone[]>;
++  write(project: ProjectConfig, m: Milestone, body: string): Promise<void>;
++  create(project: ProjectConfig, m: Milestone, body: string): Promise<string>;
++}
++
++export interface VaultPort {
++  getVaultRoot(): string;
++}
++
++export interface TaskRepository {
++  list(project: ProjectConfig): Promise<import("../domain/task").Task[]>;
++  get(project: ProjectConfig, id: string): Promise<import("../domain/task").Task | null>;
++  write(project: ProjectConfig, task: import("../domain/task").Task, body: string): Promise<void>;
++  create(project: ProjectConfig, task: import("../domain/task").Task, body: string): Promise<string>;
++}
+\ No newline at end of file
+diff --git a/plugins/obsidian/backlogmd/src/application/pull-issues.ts b/plugins/obsidian/backlogmd/src/application/pull-issues.ts
+new file mode 100644
+index 00000000..8979c89d
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/application/pull-issues.ts
+@@ -0,0 +1,51 @@
++import { ProjectConfig, TaskRepository } from "./ports";
++import { Task } from "../domain/task";
++import { fetchIssues } from "../infrastructure/github";
++
++/** Next free `<prefix>-NNN` id: highest existing numeric suffix (any case,
++ * this or related ids) + 1, zero-padded to 3 digits. */
++export function nextTaskId(existing: Task[], prefix: string): string {
++  const re = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[-_ ]?(\\d+)$`, "i");
++  let max = 0;
++  for (const t of existing) {
++    const m = t.id.match(re);
++    if (m) max = Math.max(max, parseInt(m[1], 10));
++  }
++  return `${prefix}-${String(max + 1).padStart(3, "0")}`;
++}
++
++export async function pullIssues(
++  repo: TaskRepository,
++  project: ProjectConfig,
++  token: string,
++  owner: string,
++  repository: string,
++): Promise<void> {
++  const issues = await fetchIssues(token, owner, repository);
++  const existing = [...(await repo.list(project))]; // working copy: repos may alias
++
++  for (const issue of issues) {
++    const sourceRef = `github:${owner}/${repository}#${issue.number}`;
++    const match = existing.find((t) => t.references?.includes(sourceRef));
++    if (match) {
++      // sync title, assignee, open/closed state only — never overwrite
++      // sprint/rank/points/priority/parent/links/description
++      const closed = issue.state === "closed";
++      const newStatus = closed ? (project.doneStatuses[0] ?? match.status) : match.status;
++      await repo.write(project, { ...match, title: issue.title, assignee: issue.assignee ? [issue.assignee] : match.assignee, status: newStatus }, match.body ?? "");
++    } else {
++      const id = nextTaskId(existing, project.taskPrefix);
++      const task: Task = {
++        id,
++        title: issue.title,
++        status: issue.state === "closed" ? (project.doneStatuses[0] ?? project.statuses[0]) : project.statuses[0] ?? "To Do",
++        assignee: issue.assignee ? [issue.assignee] : undefined,
++        references: [sourceRef],
++        body: issue.body ? `\`\`\`\n${issue.body}\n\`\`\`` : "",
++        path: "",
++      };
++      await repo.create(project, task, task.body ?? "");
++      existing.push(task);
++    }
++  }
++}
+diff --git a/plugins/obsidian/backlogmd/src/compose.ts b/plugins/obsidian/backlogmd/src/compose.ts
+new file mode 100644
+index 00000000..3f1d90ad
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/compose.ts
+@@ -0,0 +1,41 @@
++import { Plugin } from "obsidian";
++import { ObsidianFileSystem } from "./infrastructure/obsidian-fs";
++import { discoverProjects } from "./infrastructure/config";
++import { FileTaskRepository } from "./infrastructure/task-repository";
++import { FileMilestoneRepository } from "./infrastructure/milestone-repository";
++import type { MilestoneRepository } from "./application/ports";
++
++export interface PluginContext {
++  fs: ObsidianFileSystem;
++  repo: FileTaskRepository;
++  milestones: MilestoneRepository;
++  projects: Awaited<ReturnType<typeof discoverProjects>>;
++  start(manualRoots: string[]): Promise<void>;
++}
++
++export function compose(plugin: Plugin): PluginContext {
++  const fs = new ObsidianFileSystem(plugin.app);
++  const repo = new FileTaskRepository(fs);
++  const milestones = new FileMilestoneRepository(fs);
++  const ctx: PluginContext = {
++    fs,
++    repo,
++    milestones,
++    projects: [],
++    async start(manualRoots: string[]) {
++      // discover projects from vault root folders (top-level)
++      const roots: string[] = [];
++      // Obsidian vault root children folders
++      const vault = plugin.app.vault;
++      const rootFolder = vault.getRoot() as unknown as { children: { path: string; name: string; children?: unknown }[] };
++      for (const c of rootFolder.children) {
++        if (c.children !== undefined) roots.push(c.path || c.name);
++      }
++      for (const r of manualRoots) {
++        if (!roots.includes(r)) roots.push(r);
++      }
++      ctx.projects = await discoverProjects(fs, ["/"], roots);
++    },
++  };
++  return ctx;
++}
+\ No newline at end of file
+diff --git a/plugins/obsidian/backlogmd/src/domain/milestone.ts b/plugins/obsidian/backlogmd/src/domain/milestone.ts
+new file mode 100644
+index 00000000..444bb606
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/domain/milestone.ts
+@@ -0,0 +1,77 @@
++import matter from "gray-matter";
++import { Task } from "./task";
++
++/** Backlog.md milestone file — in skillgrid the milestone plays boardmd's
++ *  sprint role. `state`, dates, goal and the completion record are optional
++ *  extensions the plugin writes; the CLI derives completion from task states
++ *  and ignores the extra fields. */
++export interface Milestone {
++  id: string;
++  title: string;
++  state?: "planned" | "active" | "completed";
++  start_date?: string;
++  end_date?: string;
++  goal?: string;
++  completed_tasks?: string[];
++  carried_over_tasks?: string[];
++  body?: string;
++  path: string;
++}
++
++export interface ParsedMilestone {
++  milestone: Milestone;
++  body: string;
++}
++
++export function parseMilestone(path: string, content: string): ParsedMilestone {
++  const parsed = matter(content);
++  const data = parsed.data as Record<string, unknown>;
++  const milestone: Milestone = {
++    id: String(data.id ?? ""),
++    title: String(data.title ?? ""),
++    state: data.state as Milestone["state"] | undefined,
++    start_date: data.start_date as string | undefined,
++    end_date: data.end_date as string | undefined,
++    goal: data.goal as string | undefined,
++    completed_tasks: data.completed_tasks as string[] | undefined,
++    carried_over_tasks: data.carried_over_tasks as string[] | undefined,
++    body: parsed.content,
++    path,
++  };
++  return { milestone, body: parsed.content };
++}
++
++export function serializeMilestone(m: Milestone, body: string): string {
++  const data: Record<string, unknown> = {};
++  const order = ["id", "title", "state", "start_date", "end_date", "goal", "completed_tasks", "carried_over_tasks"];
++  for (const k of order) {
++    const v = (m as unknown as Record<string, unknown>)[k];
++    if (v !== undefined) data[k] = v;
++  }
++  return matter.stringify(body, data);
++}
++
++/** Explicit state wins; otherwise derive the CLI's way: a milestone with
++ *  tasks, all of them done, is completed. */
++export function effectiveState(m: Milestone, tasks: Task[], doneStatuses: string[]): "planned" | "active" | "completed" {
++  if (m.state) return m.state;
++  const msTasks = tasks.filter((t) => t.milestone === m.id);
++  if (msTasks.length > 0 && msTasks.every((t) => doneStatuses.includes(t.status))) return "completed";
++  return "planned";
++}
++
++/** Whole calendar days until end_date (date-only math, no time-of-day bias);
++ *  null when not set or unparseable, negative when past. */
++export function daysLeft(m: Milestone): number | null {
++  if (!m.end_date) return null;
++  const [y, mo, d] = m.end_date.split("-").map(Number);
++  if (!y || !mo || !d) return null;
++  const end = Date.UTC(y, mo - 1, d);
++  const now = new Date();
++  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
++  return Math.round((end - today) / 86400000);
++}
++
++export function today(): string {
++  return new Date().toISOString().slice(0, 10);
++}
+diff --git a/plugins/obsidian/backlogmd/src/domain/status.ts b/plugins/obsidian/backlogmd/src/domain/status.ts
+new file mode 100644
+index 00000000..0e895c04
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/domain/status.ts
+@@ -0,0 +1,7 @@
++export function normalizeStatus(s: string): string {
++  return s.trim();
++}
++
++export function isTerminal(status: string, doneStatuses: string[]): boolean {
++  return doneStatuses.includes(status);
++}
+\ No newline at end of file
+diff --git a/plugins/obsidian/backlogmd/src/domain/task.ts b/plugins/obsidian/backlogmd/src/domain/task.ts
+new file mode 100644
+index 00000000..ec270479
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/domain/task.ts
+@@ -0,0 +1,34 @@
++export interface Task {
++  id: string;
++  title: string;
++  status: string;
++  type?: string;
++  priority?: string;
++  labels?: string[];
++  assignee?: string[];
++  milestone?: string;
++  sprint?: string;
++  created_date?: string;
++  updated_date?: string;
++  dependencies?: string[];
++  references?: string[];
++  documentation?: string[];
++  parent_task_id?: string;
++  /** Position within a column (Backlog.md `ordinal`, 1000-step convention). */
++  ordinal?: number;
++  body?: string;
++  path: string;
++}
++
++export function isDone(task: Task, doneStatuses: string[]): boolean {
++  return doneStatuses.includes(task.status);
++}
++
++export function isBlocked(task: Task, tasksById: Map<string, Task>, doneStatuses: string[]): boolean {
++  const deps = task.dependencies ?? [];
++  return deps.some((dep) => {
++    const d = tasksById.get(dep);
++    if (!d) return false;
++    return !doneStatuses.includes(d.status);
++  });
++}
+\ No newline at end of file
+diff --git a/plugins/obsidian/backlogmd/src/infrastructure/config.ts b/plugins/obsidian/backlogmd/src/infrastructure/config.ts
+new file mode 100644
+index 00000000..d31a1423
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/infrastructure/config.ts
+@@ -0,0 +1,166 @@
++import { ProjectConfig, FileSystemPort } from "../application/ports";
++import yaml from "js-yaml";
++import path from "path";
++
++interface RawConfig {
++  project_name?: string;
++  statuses?: string[];
++  types?: string[];
++  priorities?: string[];
++  done_statuses?: string[];
++  task_prefix?: string;
++  backlog_directory?: string;
++}
++
++interface BacklogAdvancedConfig {
++  project_name?: string;
++  backlog_directory?: string;
++  default_status?: string;
++  statuses?: string[];
++  labels?: string[];
++  types?: string[];
++  priorities?: string[];
++  done_statuses?: string[];
++  task_prefix?: string;
++}
++
++const DEFAULT_BACKLOG_DIR = ".backlog";
++const DEFAULT_STATUSES = ["To Do", "In Progress", "Done"];
++const DEFAULT_DONE_STATUSES = ["Done", "done"];
++
++/** Walk up from startDir (inclusive) at most maxDepth levels, returning the
++ *  first directory containing fileName; null when none does. */
++export function walkUpForFile(
++  startDir: string,
++  fileName: string,
++  maxDepth: number,
++  exists: (p: string) => boolean,
++): string | null {
++  let dir = startDir;
++  for (let i = 0; i <= maxDepth; i++) {
++    if (exists(path.join(dir, fileName))) return dir;
++    const parent = path.dirname(dir);
++    if (parent === dir) break;
++    dir = parent;
++  }
++  return null;
++}
++
++export async function loadProjectConfig(fs: FileSystemPort, rootPath: string): Promise<ProjectConfig | null> {
++  // Advanced layout: root-level backlog.config.yml
++  const advPath = `${rootPath}/backlog.config.yml`;
++  let backlogDir = DEFAULT_BACKLOG_DIR;
++  let adv: BacklogAdvancedConfig = {};
++  if (await fs.exists(advPath)) {
++    const text = await fs.readText(advPath);
++    adv = (yaml.load(text) as BacklogAdvancedConfig) ?? {};
++    if (adv.backlog_directory) backlogDir = adv.backlog_directory;
++  }
++
++  const configPath = `${rootPath}/${backlogDir}/config.yml`;
++  // also try config.yaml
++  let legacy: RawConfig = {};
++  const candidates = [configPath, `${rootPath}/${backlogDir}/config.yaml`];
++  for (const c of candidates) {
++    if (await fs.exists(c)) {
++      const text = await fs.readText(c);
++      legacy = (yaml.load(text) as RawConfig) ?? {};
++      break;
++    }
++  }
++
++  // If neither advanced nor legacy config exists, not a project
++  const hasAny = (await fs.exists(advPath)) || (await fs.exists(`${rootPath}/${backlogDir}/config.yml`)) || (await fs.exists(`${rootPath}/${backlogDir}/config.yaml`));
++  if (!hasAny) return null;
++
++  const statuses = legacy.statuses ?? adv.statuses ?? DEFAULT_STATUSES;
++  const doneStatuses = legacy.done_statuses ?? adv.done_statuses ?? DEFAULT_DONE_STATUSES;
++  const base = rootPath ? `${rootPath}/${backlogDir}` : backlogDir;
++  return {
++    name: adv.project_name ?? legacy.project_name ?? rootPath.split("/").pop() ?? "project",
++    rootPath,
++    backlogDirectory: backlogDir,
++    vaultBacklogDir: base,
++    statuses,
++    types: legacy.types ?? adv.types ?? [],
++    priorities: legacy.priorities ?? adv.priorities ?? [],
++    doneStatuses,
++    taskPrefix: legacy.task_prefix ?? adv.task_prefix ?? "task",
++  };
++}
++
++/** Skillgrid layout: the project root (holding backlog.config.yml) sits ABOVE
++ *  the vault root (the projectwiki vault is a nested folder of the repo). The
++ *  root config's backlog_directory must point back into the vault, or the
++ *  backlog files are invisible to Obsidian and the ancestor is rejected. */
++export async function loadAncestorProjectConfig(
++  fs: FileSystemPort,
++  rootAbs: string,
++  vaultRel: string,
++): Promise<ProjectConfig | null> {
++  const adv: BacklogAdvancedConfig =
++    (yaml.load(await fs.readTextAbs(path.join(rootAbs, "backlog.config.yml"))) as BacklogAdvancedConfig) ?? {};
++  const backlogDir = adv.backlog_directory ?? DEFAULT_BACKLOG_DIR;
++  // The backlog files must resolve to a location inside the vault, or they are
++  // invisible to Obsidian (vaultRel "" means project root == vault root).
++  if (vaultRel && !backlogDir.startsWith(`${vaultRel}/`)) return null;
++  const inVault = vaultRel ? backlogDir.slice(vaultRel.length + 1) : backlogDir;
++  if (!(await fs.exists(inVault))) return null;
++  return {
++    name: adv.project_name ?? (path.basename(rootAbs) || "project"),
++    rootPath: "",
++    backlogDirectory: backlogDir,
++    vaultBacklogDir: inVault,
++    statuses: adv.statuses ?? DEFAULT_STATUSES,
++    types: adv.types ?? [],
++    priorities: adv.priorities ?? [],
++    doneStatuses: adv.done_statuses ?? DEFAULT_DONE_STATUSES,
++    taskPrefix: adv.task_prefix ?? "task",
++  };
++}
++
++export async function discoverProjects(fs: FileSystemPort, scanRoots: string[], manualRoots: string[]): Promise<ProjectConfig[]> {
++  const results: ProjectConfig[] = [];
++  const seen = new Set<string>();
++
++  const add = (cfg: ProjectConfig | null) => {
++    if (cfg && !seen.has(`${cfg.rootPath}::${cfg.vaultBacklogDir}`)) {
++      seen.add(`${cfg.rootPath}::${cfg.vaultBacklogDir}`);
++      results.push(cfg);
++    }
++  };
++
++  const tryRoot = async (root: string) => {
++    add(await loadProjectConfig(fs, root));
++  };
++
++  // 1. Skillgrid layout: project root is an ancestor of the vault root
++  try {
++    const rootAbs = await fs.findAncestorProjectRoot();
++    if (rootAbs) {
++      const vaultAbs = await fs.getVaultRootAbs();
++      const vaultRel = path.relative(rootAbs, vaultAbs).split(path.sep).join("/");
++      add(await loadAncestorProjectConfig(fs, rootAbs, vaultRel));
++    }
++  } catch {
++    // adapter without abs-path support (mobile) — fall through to in-vault discovery
++  }
++
++  // 2. Manual roots
++  for (const root of manualRoots) await tryRoot(root.replace(/^\/+/, ""));
++
++  // 3. Scan roots: try each top-level subfolder as a project root
++  for (const scanRoot of scanRoots) {
++    let dirs: string[] = [];
++    try {
++      dirs = await fs.listDirs(scanRoot);
++    } catch {
++      continue;
++    }
++    for (const d of dirs) {
++      await tryRoot(`${scanRoot}/${d}`.replace(/^\/+/, ""));
++    }
++  }
++
++  return results;
++}
+diff --git a/plugins/obsidian/backlogmd/src/infrastructure/github.ts b/plugins/obsidian/backlogmd/src/infrastructure/github.ts
+new file mode 100644
+index 00000000..5f267fcd
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/infrastructure/github.ts
+@@ -0,0 +1,17 @@
++export interface GhIssue {
++  number: number;
++  title: string;
++  state: string;
++  assignee?: string | null;
++  body?: string;
++}
++
++export async function fetchIssues(token: string, owner: string, repo: string): Promise<GhIssue[]> {
++  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues?state=all&per_page=100`, {
++    headers: { Authorization: `token ${token}`, Accept: "application/vnd.github+json" },
++  });
++  if (!res.ok) throw new Error(`GitHub ${res.status}`);
++  // the /issues endpoint returns pull requests too — drop them
++  const all = (await res.json()) as (GhIssue & { pull_request?: unknown })[];
++  return all.filter((i) => i.pull_request === undefined);
++}
+\ No newline at end of file
+diff --git a/plugins/obsidian/backlogmd/src/infrastructure/milestone-repository.ts b/plugins/obsidian/backlogmd/src/infrastructure/milestone-repository.ts
+new file mode 100644
+index 00000000..4e485bae
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/infrastructure/milestone-repository.ts
+@@ -0,0 +1,45 @@
++import type { ProjectConfig, FileSystemPort, MilestoneRepository } from "../application/ports";
++import type { Milestone } from "../domain/milestone";
++import { parseMilestone, serializeMilestone } from "../domain/milestone";
++
++export class FileMilestoneRepository implements MilestoneRepository {
++  constructor(private fs: FileSystemPort) {}
++
++  private dir(project: ProjectConfig): string {
++    return `${project.vaultBacklogDir}/milestones`;
++  }
++
++  async list(project: ProjectConfig): Promise<Milestone[]> {
++    const dir = this.dir(project);
++    let files: string[] = [];
++    try {
++      files = await this.fs.listFiles(dir);
++    } catch {
++      return [];
++    }
++    const out: Milestone[] = [];
++    for (const f of files.filter((x) => x.endsWith(".md"))) {
++      const content = await this.fs.readText(`${dir}/${f}`);
++      out.push(parseMilestone(`${dir}/${f}`, content).milestone);
++    }
++    return out;
++  }
++
++  async write(project: ProjectConfig, m: Milestone, body: string): Promise<void> {
++    const filePath = m.path || `${this.dir(project)}/${m.id}.md`;
++    await this.fs.writeText(filePath, serializeMilestone({ ...m, path: filePath }, body));
++  }
++
++  async create(project: ProjectConfig, m: Milestone, body: string): Promise<string> {
++    const dir = this.dir(project);
++    const slug = m.title
++      .trim()
++      .replace(/[^\p{L}\p{N}.-]+/gu, "-")
++      .replace(/-{2,}/g, "-")
++      .replace(/^-+|-+$/g, "")
++      .slice(0, 80);
++    const filePath = slug ? `${dir}/${m.id} - ${slug}.md` : `${dir}/${m.id}.md`;
++    await this.fs.writeText(filePath, serializeMilestone({ ...m, path: filePath }, body));
++    return filePath;
++  }
++}
+diff --git a/plugins/obsidian/backlogmd/src/infrastructure/obsidian-fs.ts b/plugins/obsidian/backlogmd/src/infrastructure/obsidian-fs.ts
+new file mode 100644
+index 00000000..13147882
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/infrastructure/obsidian-fs.ts
+@@ -0,0 +1,79 @@
++import { App, DataAdapter, TFile, TFolder } from "obsidian";
++import { FileSystemPort } from "../application/ports";
++import { walkUpForFile } from "./config";
++import fs from "fs";
++
++interface BasePathAdapter extends DataAdapter {
++  getBasePath(): string;
++}
++
++export class ObsidianFileSystem implements FileSystemPort {
++  constructor(private app: App) {}
++
++  private normalize(p: string): string {
++    return p.replace(/^\/+/, "");
++  }
++
++  async exists(path: string): Promise<boolean> {
++    return this.app.vault.adapter.exists(this.normalize(path));
++  }
++
++  async readText(path: string): Promise<string> {
++    return this.app.vault.adapter.read(this.normalize(path));
++  }
++
++  async writeText(path: string, content: string): Promise<void> {
++    const p = this.normalize(path);
++    if (await this.app.vault.adapter.exists(p)) {
++      await this.app.vault.adapter.write(p, content);
++    } else {
++      await this.app.vault.adapter.write(p, content);
++    }
++  }
++
++  async listDirs(path: string): Promise<string[]> {
++    const p = this.normalize(path);
++    const folder = this.app.vault.getAbstractFileByPath(p);
++    if (folder instanceof TFolder) {
++      return folder.children.filter((c) => c instanceof TFolder).map((c) => c.name);
++    }
++    return [];
++  }
++
++  async listFiles(path: string): Promise<string[]> {
++    const p = this.normalize(path);
++    const folder = this.app.vault.getAbstractFileByPath(p);
++    if (folder instanceof TFolder) {
++      return folder.children.filter((c) => c instanceof TFile).map((c) => c.name);
++    }
++    return [];
++  }
++
++  getVaultRoot(): string {
++    return "";
++  }
++
++  // Desktop only: FileSystemAdapter exposes getBasePath; the mobile adapter
++  // does not (methods that need it throw/return null, discovery falls back
++  // to in-vault roots).
++  private basePath(): string | null {
++    const a = this.app.vault.adapter as BasePathAdapter;
++    return typeof a.getBasePath === "function" ? a.getBasePath() : null;
++  }
++
++  async getVaultRootAbs(): Promise<string> {
++    const b = this.basePath();
++    if (b === null) throw new Error("adapter has no getBasePath");
++    return b;
++  }
++
++  async findAncestorProjectRoot(maxDepth = 5): Promise<string | null> {
++    const b = this.basePath();
++    if (b === null) return null;
++    return walkUpForFile(b, "backlog.config.yml", maxDepth, (p) => fs.existsSync(p));
++  }
++
++  async readTextAbs(absPath: string): Promise<string> {
++    return fs.promises.readFile(absPath, "utf8");
++  }
++}
+\ No newline at end of file
+diff --git a/plugins/obsidian/backlogmd/src/infrastructure/task-repository.ts b/plugins/obsidian/backlogmd/src/infrastructure/task-repository.ts
+new file mode 100644
+index 00000000..819153e9
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/infrastructure/task-repository.ts
+@@ -0,0 +1,58 @@
++import { ProjectConfig, TaskRepository, FileSystemPort } from "../application/ports";
++import { Task } from "../domain/task";
++import { parseTask, serializeTask } from "./vault";
++import path from "path";
++
++export class FileTaskRepository implements TaskRepository {
++  constructor(private fs: FileSystemPort) {}
++
++  private tasksDir(project: ProjectConfig): string {
++    return `${project.vaultBacklogDir}/tasks`;
++  }
++
++  async list(project: ProjectConfig): Promise<Task[]> {
++    const dir = this.tasksDir(project);
++    let files: string[] = [];
++    try {
++      files = await this.fs.listFiles(dir);
++    } catch {
++      return [];
++    }
++    const tasks: Task[] = [];
++    for (const f of files.filter((x) => x.endsWith(".md"))) {
++      const content = await this.fs.readText(`${dir}/${f}`);
++      tasks.push(parseTask(`${dir}/${f}`, content).task);
++    }
++    return tasks;
++  }
++
++  async get(project: ProjectConfig, id: string): Promise<Task | null> {
++    const tasks = await this.list(project);
++    return tasks.find((t) => t.id === id) ?? null;
++  }
++
++  async write(project: ProjectConfig, task: Task, body: string): Promise<void> {
++    const dir = this.tasksDir(project);
++    const filePath = task.path || `${dir}/${task.id}.md`;
++    const content = serializeTask({ ...task, path: filePath }, body);
++    await this.fs.writeText(filePath, content);
++  }
++
++  async create(project: ProjectConfig, task: Task, body: string): Promise<string> {
++    const dir = this.tasksDir(project);
++    // Match the backlog CLI convention: `<prefix>-<padded n> - <title-slug>.md`
++    const num = task.id.replace(/[^0-9]/g, "");
++    const slug = task.title
++      .trim()
++      .replace(/[^\p{L}\p{N}.-]+/gu, "-")
++      .replace(/-{2,}/g, "-")
++      .replace(/^-+|-+$/g, "")
++      .slice(0, 80);
++    const base = `${project.taskPrefix}-${num.padStart(3, "0")}`;
++    const filePath = slug ? `${dir}/${base} - ${slug}.md` : `${dir}/${base}.md`;
++    const t = { ...task, path: filePath };
++    const content = serializeTask(t, body);
++    await this.fs.writeText(filePath, content);
++    return filePath;
++  }
++}
+\ No newline at end of file
+diff --git a/plugins/obsidian/backlogmd/src/infrastructure/vault.ts b/plugins/obsidian/backlogmd/src/infrastructure/vault.ts
+new file mode 100644
+index 00000000..35461059
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/infrastructure/vault.ts
+@@ -0,0 +1,51 @@
++import matter from "gray-matter";
++import { Task } from "../domain/task";
++
++export interface ParsedTask {
++  task: Task;
++  body: string;
++  raw: string;
++}
++
++export function parseTask(path: string, content: string): ParsedTask {
++  const parsed = matter(content);
++  const data = parsed.data as Record<string, unknown>;
++  const task: Task = {
++    id: String(data.id ?? ""),
++    title: String(data.title ?? ""),
++    status: String(data.status ?? ""),
++    type: data.type as string | undefined,
++    priority: data.priority as string | undefined,
++    labels: data.labels as string[] | undefined,
++    assignee: data.assignee as string[] | undefined,
++    milestone: data.milestone as string | undefined,
++    sprint: data.sprint as string | undefined,
++    created_date: data.created_date as string | undefined,
++    updated_date: data.updated_date as string | undefined,
++    dependencies: data.dependencies as string[] | undefined,
++    references: data.references as string[] | undefined,
++    documentation: data.documentation as string[] | undefined,
++    parent_task_id: data.parent_task_id as string | undefined,
++    ordinal: typeof data.ordinal === "number" ? data.ordinal : undefined,
++    body: parsed.content,
++    path,
++  };
++  return { task, body: parsed.content, raw: content };
++}
++
++export function serializeTask(task: Task, body: string): string {
++  const data: Record<string, unknown> = {};
++  // preserve known fields in a stable order
++  const order = ["id", "title", "status", "type", "priority", "labels", "assignee", "milestone", "sprint", "created_date", "updated_date", "dependencies", "references", "documentation", "parent_task_id", "ordinal"];
++  for (const k of order) {
++    const v = (task as unknown as Record<string, unknown>)[k];
++    if (v !== undefined) data[k] = v;
++  }
++  return matter.stringify(body, data);
++}
++
++export function updateFrontmatter(content: string, patch: Record<string, unknown>): string {
++  const parsed = matter(content);
++  const data = { ...parsed.data, ...patch };
++  return matter.stringify(parsed.content, data);
++}
+\ No newline at end of file
+diff --git a/plugins/obsidian/backlogmd/src/infrastructure/watcher.ts b/plugins/obsidian/backlogmd/src/infrastructure/watcher.ts
+new file mode 100644
+index 00000000..cec0f0fe
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/infrastructure/watcher.ts
+@@ -0,0 +1,28 @@
++import { App, TFile } from "obsidian";
++
++export class FileWatcher {
++  private timer: ReturnType<typeof setTimeout> | null = null;
++  private cb: () => void;
++
++  constructor(app: App, cb: () => void) {
++    this.cb = cb;
++    app.vault.on("modify", (file) => {
++      if (file instanceof TFile && file.extension === "md") this.schedule();
++    });
++    app.vault.on("create", (file) => {
++      if (file instanceof TFile && file.extension === "md") this.schedule();
++    });
++    app.vault.on("delete", (file) => {
++      if (file instanceof TFile && file.extension === "md") this.schedule();
++    });
++  }
++
++  private schedule() {
++    if (this.timer) clearTimeout(this.timer);
++    this.timer = setTimeout(() => this.cb(), 300);
++  }
++
++  destroy() {
++    if (this.timer) clearTimeout(this.timer);
++  }
++}
+\ No newline at end of file
+diff --git a/plugins/obsidian/backlogmd/src/js-yaml.d.ts b/plugins/obsidian/backlogmd/src/js-yaml.d.ts
+new file mode 100644
+index 00000000..ec3f1223
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/js-yaml.d.ts
+@@ -0,0 +1,6 @@
++declare module "js-yaml" {
++  export function load(input: string): unknown;
++  export function dump(obj: unknown): string;
++  const yaml: { load: (input: string) => unknown; dump: (obj: unknown) => string };
++  export default yaml;
++}
+\ No newline at end of file
+diff --git a/plugins/obsidian/backlogmd/src/main.ts b/plugins/obsidian/backlogmd/src/main.ts
+new file mode 100644
+index 00000000..d739245a
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/main.ts
+@@ -0,0 +1,90 @@
++import { Plugin } from "obsidian";
++import { compose, PluginContext } from "./compose";
++import { KanbanView, KANBAN_VIEW_TYPE } from "./ui/kanban-view";
++import { BacklogView, BACKLOG_VIEW_TYPE } from "./ui/backlog-view";
++import { MilestoneView, MILESTONE_VIEW_TYPE } from "./ui/milestone-view";
++import { TaskModal } from "./ui/task-modal";
++import { PullIssuesModal } from "./ui/pull-issues-modal";
++import { MilestoneModal } from "./ui/milestone-modal";
++import { BacklogMdSettingTab, DEFAULT_SETTINGS } from "./settings/settings-tab";
++import { FileWatcher } from "./infrastructure/watcher";
++import { syncTaskHeaderButtons } from "./ui/task-note-header";
++
++export default class BacklogMdPlugin extends Plugin {
++  ctx!: PluginContext;
++  settings = DEFAULT_SETTINGS;
++
++  async onload() {
++    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
++    this.ctx = compose(this);
++    await this.ctx.start(this.settings.manualRoots);
++    console.log(
++      "[backlogmd] discovered projects:",
++      this.ctx.projects.map((p) => `${p.name} (${p.vaultBacklogDir})`).join(", ") || "(none)",
++    );
++
++    this.registerView(KANBAN_VIEW_TYPE, (leaf) => new KanbanView(leaf, this.ctx));
++    this.registerView(BACKLOG_VIEW_TYPE, (leaf) => new BacklogView(leaf, this.ctx));
++    this.registerView(MILESTONE_VIEW_TYPE, (leaf) => new MilestoneView(leaf, this.ctx));
++
++    this.addCommand({ id: "open-kanban", name: "Open sprint board", callback: () => this.activateView(KANBAN_VIEW_TYPE) });
++    this.addCommand({ id: "open-backlog", name: "Open backlog", callback: () => this.activateView(BACKLOG_VIEW_TYPE) });
++    this.addCommand({ id: "open-milestones", name: "Open milestones", callback: () => this.activateView(MILESTONE_VIEW_TYPE) });
++    this.addCommand({ id: "create-task", name: "Create task", callback: () => {
++      const project = this.projectFromViews();
++      if (project) void this.ctx.repo.list(project).then((all) => new TaskModal(this.app, this.ctx, project, null, all).open());
++    } });
++    this.addCommand({ id: "pull-issues", name: "Pull issues from GitHub repository", callback: () => {
++      const project = this.projectFromViews();
++      if (project) new PullIssuesModal(this.app, this.ctx, project, this.settings.githubTokenKey).open();
++    } });
++    this.addCommand({ id: "create-milestone", name: "Create milestone (sprint)", callback: () => {
++      const project = this.projectFromViews();
++      if (project) void this.ctx.milestones.list(project).then((all) => new MilestoneModal(this.app, this.ctx, project, all).open());
++    } });
++
++    this.addSettingTab(new BacklogMdSettingTab(this.app, this, this.settings));
++
++    // "Edit task" header button on task notes
++    this.registerEvent(this.app.workspace.on("file-open", () => syncTaskHeaderButtons(this.app, this.ctx)));
++    this.app.workspace.onLayoutReady(() => syncTaskHeaderButtons(this.app, this.ctx));
++
++    new FileWatcher(this.app, () => {
++      const reRender = (type: string) => {
++        // A leaf can be mid-restore at this point (view not swapped yet) —
++        // only re-render views that are actually one of ours and ready.
++        for (const l of this.app.workspace.getLeavesOfType(type)) {
++          const v = l.view as { render?: () => Promise<void> } | null | undefined;
++          if (v && typeof v.render === "function") void v.render();
++        }
++      };
++      reRender(KANBAN_VIEW_TYPE);
++      reRender(BACKLOG_VIEW_TYPE);
++      reRender(MILESTONE_VIEW_TYPE);
++    });
++  }
++
++  // Follow the project selected in an open board/backlog view, else the first project.
++  private projectFromViews() {
++    const k = this.app.workspace.getLeavesOfType(KANBAN_VIEW_TYPE)[0]?.view as unknown as KanbanView | undefined;
++    const b = this.app.workspace.getLeavesOfType(BACKLOG_VIEW_TYPE)[0]?.view as unknown as BacklogView | undefined;
++    const view = k ?? b;
++    const idx = view ? view.projectIndex : 0;
++    return this.ctx.projects[idx] ?? this.ctx.projects[0] ?? null;
++  }
++
++  async activateView(type: string) {
++    const leaves = this.app.workspace.getLeavesOfType(type);
++    if (leaves.length > 0) {
++      this.app.workspace.revealLeaf(leaves[0]);
++      return;
++    }
++    const leaf = this.app.workspace.getRightLeaf(false);
++    if (leaf) {
++      await leaf.setViewState({ type, active: true });
++      this.app.workspace.revealLeaf(leaf);
++    }
++  }
++
++  onunload() {}
++}
+\ No newline at end of file
+diff --git a/plugins/obsidian/backlogmd/src/settings/settings-tab.ts b/plugins/obsidian/backlogmd/src/settings/settings-tab.ts
+new file mode 100644
+index 00000000..e6451f3c
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/settings/settings-tab.ts
+@@ -0,0 +1,43 @@
++import { App, Plugin, PluginSettingTab, Setting } from "obsidian";
++
++export interface BacklogMdSettings {
++  manualRoots: string[];
++  githubTokenKey: string;
++}
++
++export const DEFAULT_SETTINGS: BacklogMdSettings = {
++  manualRoots: [],
++  githubTokenKey: "backlogmd-github-token",
++};
++
++export class BacklogMdSettingTab extends PluginSettingTab {
++  private plugin: Plugin;
++  private settings: BacklogMdSettings;
++
++  constructor(app: App, plugin: Plugin, settings: BacklogMdSettings) {
++    super(app, plugin);
++    this.plugin = plugin;
++    this.settings = settings;
++  }
++
++  display(): void {
++    const { containerEl } = this;
++    containerEl.empty();
++
++    const save = () => void this.plugin.saveData(this.settings);
++
++    new Setting(containerEl).setName("Manual roots").setDesc("Comma-separated vault folders").addText((t) => {
++      t.setValue(this.settings.manualRoots.join(", ")).onChange((v) => {
++        this.settings.manualRoots = v.split(",").map((s) => s.trim()).filter(Boolean);
++        save();
++      });
++    });
++
++    new Setting(containerEl).setName("GitHub token (secret storage key)").setDesc("Obsidian secret storage key the pull dialog reads the token from").addText((t) => {
++      t.setValue(this.settings.githubTokenKey).onChange((v) => {
++        this.settings.githubTokenKey = v;
++        save();
++      });
++    });
++  }
++}
+diff --git a/plugins/obsidian/backlogmd/src/ui/backlog-view.ts b/plugins/obsidian/backlogmd/src/ui/backlog-view.ts
+new file mode 100644
+index 00000000..8e780580
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/ui/backlog-view.ts
+@@ -0,0 +1,283 @@
++import { ItemView, TFile, WorkspaceLeaf } from "obsidian";
++import { PluginContext } from "../compose";
++import type { ProjectConfig } from "../application/ports";
++import type { Task } from "../domain/task";
++import { isBlocked } from "../domain/task";
++import type { Milestone } from "../domain/milestone";
++import { effectiveState, daysLeft } from "../domain/milestone";
++import { startMilestone, completeMilestone, planTask } from "../application/milestone";
++import { reorderColumn } from "../application/move-task";
++import { renderProjectSwitcher } from "./project-switcher";
++import { TaskModal } from "./task-modal";
++import { MilestoneModal } from "./milestone-modal";
++
++export const BACKLOG_VIEW_TYPE = "backlogmd-backlog";
++
++interface Section {
++  milestoneId: string | null; // null = unplanned backlog
++  milestone?: Milestone;
++  tasks: Task[];
++}
++
++const byOrdinal = (a: Task, b: Task): number =>
++  (a.ordinal ?? Number.MAX_SAFE_INTEGER) - (b.ordinal ?? Number.MAX_SAFE_INTEGER) ||
++  (a.created_date ?? "").localeCompare(b.created_date ?? "") ||
++  a.id.localeCompare(b.id);
++
++const msNumber = (id: string): number => parseInt(id.replace(/[^0-9]/g, ""), 10) || 0;
++
++export class BacklogView extends ItemView {
++  private ctx: PluginContext;
++  projectIndex = 0;
++  private filter = "";
++  private sectionsEl: HTMLElement | null = null;
++  private indicatorEl: HTMLElement | null = null;
++  private renderSeq = 0;
++
++  constructor(leaf: WorkspaceLeaf, ctx: PluginContext) {
++    super(leaf);
++    this.ctx = ctx;
++  }
++
++  getViewType(): string {
++    return BACKLOG_VIEW_TYPE;
++  }
++  getDisplayText(): string {
++    return "Backlog List";
++  }
++
++  async onOpen(): Promise<void> {
++    await this.render();
++  }
++
++  async onClose(): Promise<void> {
++    this.removeIndicator();
++  }
++
++  async render(): Promise<void> {
++    const container = this.containerEl.children[1] as HTMLElement;
++    container.empty();
++    this.sectionsEl = null;
++
++    const project = this.ctx.projects[this.projectIndex];
++    if (!project) {
++      container.createEl("div", { text: "No project", cls: "backlogmd-empty" });
++      return;
++    }
++
++    const toolbar = container.createDiv({ cls: "backlogmd-toolbar" });
++    renderProjectSwitcher(toolbar, this.ctx.projects, this.projectIndex, (i) => {
++      this.projectIndex = i;
++      void this.render();
++    });
++    const input = toolbar.createEl("input", { type: "text", cls: "backlogmd-filter", placeholder: "Filter by id, title, type, assignee" });
++    input.value = this.filter;
++    input.addEventListener("input", () => {
++      this.filter = input.value;
++      void this.renderSections(project);
++    });
++    const newTask = toolbar.createEl("button", { text: "+ New task", cls: "backlogmd-new-task" });
++    newTask.addEventListener("click", () => this.openTaskModal(project, null));
++    const newMilestone = toolbar.createEl("button", { text: "+ Milestone", cls: "backlogmd-new-task" });
++    newMilestone.addEventListener("click", () => {
++      void this.ctx.milestones.list(project).then((all) => {
++        const modal = new MilestoneModal(this.app, this.ctx, project, all);
++        const origClose = modal.onClose.bind(modal);
++        modal.onClose = () => {
++          origClose();
++          void this.renderSections(project);
++        };
++        modal.open();
++      });
++    });
++
++    this.sectionsEl = container.createDiv({ cls: "backlogmd-sections" });
++    await this.renderSections(project);
++  }
++
++  private buildSections(project: ProjectConfig, tasks: Task[], milestones: Milestone[]): Section[] {
++    const done = new Set(project.doneStatuses);
++    const active = milestones.find((m) => m.state === "active");
++    const sections: Section[] = [];
++    if (active) {
++      sections.push({ milestoneId: active.id, milestone: active, tasks: tasks.filter((t) => t.milestone === active.id).sort(byOrdinal) });
++    }
++    const planned = milestones
++      .filter((m) => effectiveState(m, tasks, [...done]) !== "completed" && m.id !== active?.id)
++      .sort((a, b) => msNumber(a.id) - msNumber(b.id) || a.id.localeCompare(b.id));
++    for (const m of planned) {
++      sections.push({ milestoneId: m.id, milestone: m, tasks: tasks.filter((t) => t.milestone === m.id).sort(byOrdinal) });
++    }
++    sections.push({
++      milestoneId: null,
++      tasks: tasks.filter((t) => !t.milestone).sort(byOrdinal),
++    });
++    return sections;
++  }
++
++  private async renderSections(project: ProjectConfig): Promise<void> {
++    const seq = ++this.renderSeq;
++    const host = this.sectionsEl;
++    if (!host) return;
++    host.empty();
++    this.removeIndicator();
++
++    const tasks = await this.ctx.repo.list(project);
++    const milestones = await this.ctx.milestones.list(project);
++    if (seq !== this.renderSeq) return; // a newer render owns the DOM now
++    const byId = new Map(tasks.map((t) => [t.id, t]));
++    const q = this.filter.trim().toLowerCase();
++    const matches = (t: Task): boolean =>
++      !q ||
++      t.id.toLowerCase().includes(q) ||
++      t.title.toLowerCase().includes(q) ||
++      (t.type ?? "").toLowerCase().includes(q) ||
++      (t.assignee ?? []).join(" ").toLowerCase().includes(q) ||
++      (t.labels ?? []).join(" ").toLowerCase().includes(q);
++
++    for (const section of this.buildSections(project, tasks, milestones)) {
++      const visible = section.tasks.filter(matches);
++      const el = host.createDiv({ cls: "backlogmd-section" });
++
++      const header = el.createDiv({ cls: "backlogmd-section-header" });
++      if (section.milestone) {
++        const state = section.milestone.state === "active" ? "active" : "planned";
++        header.createEl("span", { text: state, cls: `backlogmd-chip ${state === "active" ? "backlogmd-chip-active" : ""}` });
++        header.createEl("span", { text: section.milestone.id, cls: "backlogmd-section-id" });
++        header.createEl("span", { text: section.milestone.title, cls: "backlogmd-section-title" });
++        const metaBits: string[] = [];
++        if (section.milestone.end_date) {
++          const dl = daysLeft(section.milestone);
++          metaBits.push(dl !== null ? `ends ${section.milestone.end_date} (${dl >= 0 ? `${dl}d left` : `${-dl}d over`})` : "");
++        }
++        const doneCount = section.tasks.filter((t) => project.doneStatuses.includes(t.status)).length;
++        metaBits.push(`${doneCount}/${section.tasks.length} done`);
++        header.createEl("span", { text: metaBits.filter(Boolean).join(" · "), cls: "backlogmd-section-meta" });
++        if (section.milestone.goal) header.createEl("span", { text: section.milestone.goal, cls: "backlogmd-section-goal", title: "Goal" });
++        const actions = header.createDiv({ cls: "backlogmd-section-actions" });
++        if (section.milestone.state !== "active") {
++          const start = actions.createEl("button", { text: "Start", cls: "backlogmd-section-btn" });
++          start.addEventListener("click", async () => {
++            await startMilestone(this.ctx.repo, this.ctx.milestones, project, section.milestone!);
++            await this.renderSections(project);
++          });
++        }
++        const complete = actions.createEl("button", { text: "Complete", cls: "backlogmd-section-btn" });
++        complete.addEventListener("click", async () => {
++          await completeMilestone(this.ctx.repo, this.ctx.milestones, project, section.milestone!, tasks);
++          await this.renderSections(project);
++        });
++      } else {
++        header.createEl("span", { text: "Backlog", cls: "backlogmd-section-title" });
++        header.createEl("span", { text: `${section.tasks.length}`, cls: "backlogmd-section-meta" });
++      }
++
++      const rowsEl = el.createDiv({ cls: "backlogmd-rows" });
++      for (const t of visible) {
++        rowsEl.appendChild(this.renderRow(project, t, byId));
++      }
++
++      rowsEl.addEventListener("dragover", (e) => {
++        e.preventDefault();
++        this.showIndicator(rowsEl, e.clientY, e.dataTransfer?.getData("text/plain") ?? null);
++      });
++      rowsEl.addEventListener("drop", async (e) => {
++        e.preventDefault();
++        this.removeIndicator();
++        const id = e.dataTransfer?.getData("text/plain");
++        if (!id) return;
++        await this.handleDrop(project, section, tasks, id, e.clientY, rowsEl);
++      });
++    }
++  }
++
++  private renderRow(project: ProjectConfig, task: Task, byId: Map<string, Task>): HTMLElement {
++    const row = createEl("div", { cls: "backlogmd-row" });
++    row.dataset.id = task.id;
++    const blocked = isBlocked(task, byId, project.doneStatuses);
++    if (blocked) row.addClass("blocked");
++
++    row.createEl("span", { text: task.id, cls: "backlogmd-card-id" });
++    if (task.type) row.createEl("span", { text: task.type, cls: "backlogmd-badge" });
++    row.createEl("span", { text: task.title, cls: "backlogmd-row-title" });
++    const right = row.createDiv({ cls: "backlogmd-row-right" });
++    if (task.priority) right.createEl("span", { text: task.priority, cls: `backlogmd-badge backlogmd-p-${task.priority}` });
++    if (task.assignee?.length) right.createEl("span", { text: task.assignee.join(", "), cls: "backlogmd-assignee" });
++    if (blocked) right.createEl("span", { text: "⛔", cls: "backlogmd-blocked", title: "Blocked by unfinished dependencies" });
++    right.createEl("span", { text: task.status, cls: "backlogmd-row-status" });
++
++    row.setAttribute("draggable", "true");
++    row.addEventListener("dragstart", (e) => {
++      e.dataTransfer?.setData("text/plain", task.id);
++      row.addClass("dragging");
++    });
++    row.addEventListener("dragend", () => row.removeClass("dragging"));
++    row.addEventListener("click", (e) => {
++      if (e.metaKey || e.ctrlKey) {
++        const file = this.app.vault.getAbstractFileByPath(task.path);
++        if (file instanceof TFile) this.app.workspace.getLeaf(true).openFile(file);
++      } else {
++        this.openTaskModal(project, task);
++      }
++    });
++    return row;
++  }
++
++  private dropIndex(rowsEl: HTMLElement, clientY: number, draggedId: string | null): number {
++    const rows = Array.from(rowsEl.querySelectorAll<HTMLElement>(".backlogmd-row")).filter((r) => r.dataset.id !== draggedId);
++    for (let i = 0; i < rows.length; i++) {
++      const r = rows[i].getBoundingClientRect();
++      if (clientY < r.top + r.height / 2) return i;
++    }
++    return rows.length;
++  }
++
++  private showIndicator(rowsEl: HTMLElement, clientY: number, draggedId: string | null): void {
++    this.removeIndicator();
++    const index = this.dropIndex(rowsEl, clientY, draggedId);
++    const line = createEl("div", { cls: "backlogmd-drop-line" });
++    this.indicatorEl = line;
++    const rows = Array.from(rowsEl.querySelectorAll<HTMLElement>(".backlogmd-row")).filter((r) => r.dataset.id !== draggedId);
++    if (index >= rows.length) rowsEl.appendChild(line);
++    else if (rows[index]) rowsEl.insertBefore(line, rows[index]);
++  }
++
++  private removeIndicator(): void {
++    this.indicatorEl?.remove();
++    this.indicatorEl = null;
++  }
++
++  private async handleDrop(project: ProjectConfig, section: Section, allTasks: Task[], id: string, clientY: number, rowsEl: HTMLElement): Promise<void> {
++    const dragged = allTasks.find((t) => t.id === id);
++    if (!dragged) return;
++
++    if ((dragged.milestone ?? null) === section.milestoneId) {
++      // Re-rank within the section (only when the full section is visible).
++      if (this.filter.trim()) return;
++      const index = this.dropIndex(rowsEl, clientY, id);
++      const from = section.tasks.findIndex((t) => t.id === id);
++      if (from === -1) return;
++      const ordered = [...section.tasks];
++      ordered.splice(from, 1);
++      ordered.splice(index, 0, dragged);
++      if (ordered.every((t, i) => t === section.tasks[i])) return;
++      await reorderColumn(this.ctx.repo, project, ordered);
++    } else {
++      await planTask(this.ctx.repo, project, dragged, section.milestoneId, allTasks);
++    }
++    await this.renderSections(project);
++  }
++
++  private openTaskModal(project: ProjectConfig, task: Task | null): void {
++    void Promise.all([this.ctx.repo.list(project), this.ctx.milestones.list(project)]).then(([all, milestones]) => {
++      const active = milestones.find((m) => m.state === "active");
++      const modal = new TaskModal(this.app, this.ctx, project, task, all, active?.id);
++      const origClose = modal.onClose.bind(modal);
++      modal.onClose = () => {
++        origClose();
++        void this.renderSections(project);
++      };
++      modal.open();
++    });
++  }
++}
+diff --git a/plugins/obsidian/backlogmd/src/ui/kanban-view.ts b/plugins/obsidian/backlogmd/src/ui/kanban-view.ts
+new file mode 100644
+index 00000000..5ad642ab
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/ui/kanban-view.ts
+@@ -0,0 +1,301 @@
++import { ItemView, WorkspaceLeaf, TFile } from "obsidian";
++import { PluginContext } from "../compose";
++import { ProjectConfig, TaskRepository } from "../application/ports";
++import { Task } from "../domain/task";
++import { isBlocked } from "../domain/task";
++import type { Milestone } from "../domain/milestone";
++import { daysLeft, effectiveState } from "../domain/milestone";
++import { moveTask, reorderColumn } from "../application/move-task";
++import { renderProjectSwitcher } from "./project-switcher";
++import { TaskModal } from "./task-modal";
++
++export const KANBAN_VIEW_TYPE = "backlogmd-kanban";
++
++const byOrdinal = (a: Task, b: Task): number =>
++  (a.ordinal ?? Number.MAX_SAFE_INTEGER) - (b.ordinal ?? Number.MAX_SAFE_INTEGER) ||
++  (a.created_date ?? "").localeCompare(b.created_date ?? "") ||
++  a.id.localeCompare(b.id);
++
++export class KanbanView extends ItemView {
++  private ctx: PluginContext;
++  projectIndex = 0;
++  private filter = "";
++  /** null = auto (active milestone if any, else all); a string = the user's
++   * explicit dropdown pick ("" = All tasks). */
++  private boardMilestone: string | null = null;
++  /** Resolved board selection after the last render (active fallback when
++   * the board shows All); the new-task modal defaults to it. */
++  private selectedMilestoneId: string | null = null;
++  private boardEl: HTMLElement | null = null;
++  private boardHeaderEl: HTMLElement | null = null;
++  private milestoneSelectEl: HTMLSelectElement | null = null;
++  private indicatorEl: HTMLElement | null = null;
++  private renderSeq = 0;
++
++  constructor(leaf: WorkspaceLeaf, ctx: PluginContext) {
++    super(leaf);
++    this.ctx = ctx;
++  }
++
++  getViewType(): string {
++    return KANBAN_VIEW_TYPE;
++  }
++  getDisplayText(): string {
++    return "Backlog Kanban";
++  }
++
++  async onOpen(): Promise<void> {
++    await this.render();
++  }
++
++  async onClose(): Promise<void> {
++    this.removeIndicator();
++  }
++
++  async render(): Promise<void> {
++    try {
++      await this.renderInner();
++    } catch (e) {
++      console.error("[backlogmd] kanban render failed:", (e as Error).stack ?? String(e));
++      throw e;
++    }
++  }
++
++  private renderBoardHeader(project: ProjectConfig, selected: Milestone | null, boardTasks: Task[]): void {
++    const header = this.boardHeaderEl;
++    if (!header) return;
++    header.empty();
++    if (selected) {
++      const state = effectiveState(selected, boardTasks, project.doneStatuses);
++      header.createEl("span", { text: state, cls: `backlogmd-chip${state === "active" ? " backlogmd-chip-active" : ""}` });
++      header.createEl("span", { text: `${selected.id} ${selected.title}`, cls: "backlogmd-section-title" });
++      const bits: string[] = [];
++      if (selected.end_date) {
++        const dl = daysLeft(selected);
++        if (dl !== null) bits.push(dl >= 0 ? `ends ${selected.end_date} · ${dl}d left` : `overdue by ${-dl}d`);
++      }
++      const done = boardTasks.filter((t) => project.doneStatuses.includes(t.status)).length;
++      bits.push(`${done}/${boardTasks.length} done`);
++      header.createEl("span", { text: bits.join(" · "), cls: "backlogmd-section-meta" });
++    } else {
++      header.createEl("span", { text: "All tasks", cls: "backlogmd-section-title" });
++      header.createEl("span", { text: `${boardTasks.length} tasks`, cls: "backlogmd-section-meta" });
++    }
++  }
++
++  private populateMilestoneSelect(milestones: Milestone[], value: string): void {
++    const sel = this.milestoneSelectEl;
++    if (!sel) return;
++    sel.empty();
++    sel.createEl("option", { value: "", text: "All tasks" });
++    for (const m of [...milestones].sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }))) {
++      sel.createEl("option", { value: m.id, text: `${m.id} · ${m.title}` });
++    }
++    sel.value = value;
++  }
++
++  private async renderInner(): Promise<void> {
++    const container = this.containerEl.children[1] as HTMLElement;
++    container.empty();
++    this.boardEl = null;
++    this.milestoneSelectEl = null;
++
++    const project = this.ctx.projects[this.projectIndex];
++    if (!project) {
++      container.createEl("div", { text: "No backlog project found.", cls: "backlogmd-empty" });
++      return;
++    }
++
++    const toolbar = container.createDiv({ cls: "backlogmd-toolbar" });
++    renderProjectSwitcher(toolbar, this.ctx.projects, this.projectIndex, (i) => {
++      this.projectIndex = i;
++      this.boardMilestone = null;
++      void this.render();
++    });
++    const milestoneSel = toolbar.createEl("select", { cls: "backlogmd-milestone-select" }) as HTMLSelectElement;
++    this.milestoneSelectEl = milestoneSel;
++    milestoneSel.addEventListener("change", () => {
++      this.boardMilestone = milestoneSel.value;
++      void this.renderBoard(project);
++    });
++    const filter = toolbar.createEl("input", { type: "text", cls: "backlogmd-filter", placeholder: "Filter by id, title, type, assignee, label" });
++    filter.value = this.filter;
++    filter.addEventListener("input", () => {
++      this.filter = filter.value;
++      void this.renderBoard(project);
++    });
++    const newBtn = toolbar.createEl("button", { text: "+ New task", cls: "backlogmd-new-task" });
++    newBtn.addEventListener("click", () => this.openModal(project, null));
++
++    this.boardHeaderEl = container.createDiv({ cls: "backlogmd-board-header" });
++    this.boardEl = container.createDiv({ cls: "backlogmd-board" });
++    await this.renderBoard(project);
++  }
++
++  private async renderBoard(project: ProjectConfig): Promise<void> {
++    const seq = ++this.renderSeq;
++    const board = this.boardEl;
++    if (!board) return;
++    board.empty();
++    this.removeIndicator();
++
++    const repo = this.ctx.repo;
++    const tasks = await repo.list(project);
++    const milestones = await this.ctx.milestones.list(project);
++    if (seq !== this.renderSeq) return; // a newer render owns the DOM now
++    const active = milestones.find((m) => m.state === "active") ?? null;
++    let sel = this.boardMilestone;
++    if (sel === null) sel = active ? active.id : ""; // auto: follow the active milestone
++    if (sel && !milestones.some((m) => m.id === sel)) sel = ""; // pick for a deleted milestone -> All
++    const selected = sel ? milestones.find((m) => m.id === sel) ?? null : null;
++    this.selectedMilestoneId = selected ? selected.id : active ? active.id : null;
++    this.populateMilestoneSelect(milestones, selected ? selected.id : "");
++    const boardTasks = selected ? tasks.filter((t) => t.milestone === selected.id) : tasks;
++    this.renderBoardHeader(project, selected, boardTasks);
++    const byId = new Map(tasks.map((t) => [t.id, t]));
++    const q = this.filter.trim().toLowerCase();
++    const matches = (t: Task): boolean =>
++      !q ||
++      t.id.toLowerCase().includes(q) ||
++      t.title.toLowerCase().includes(q) ||
++      (t.type ?? "").toLowerCase().includes(q) ||
++      (t.assignee ?? []).join(" ").toLowerCase().includes(q) ||
++      (t.labels ?? []).join(" ").toLowerCase().includes(q) ||
++      (t.milestone ?? "").toLowerCase().includes(q);
++
++    for (const status of project.statuses) {
++      const allInCol = boardTasks.filter((t) => t.status === status).sort(byOrdinal);
++      const visible = allInCol.filter(matches);
++
++      const col = board.createDiv({ cls: "backlogmd-column" });
++      const header = col.createDiv({ cls: "backlogmd-column-header" });
++      header.createEl("h3", { text: status, cls: "backlogmd-column-title" });
++      header.createEl("span", { text: String(visible.length), cls: "backlogmd-count" });
++
++      const listEl = col.createDiv({ cls: "backlogmd-cards" });
++      for (const task of visible) {
++        listEl.appendChild(this.renderCard(project, task, byId));
++      }
++
++      listEl.addEventListener("dragover", (e) => {
++        e.preventDefault();
++        this.showIndicator(listEl, e.clientY, e.dataTransfer?.getData("text/plain") ?? null);
++      });
++      listEl.addEventListener("drop", async (e) => {
++        e.preventDefault();
++        this.removeIndicator();
++        const id = e.dataTransfer?.getData("text/plain");
++        if (!id) return;
++        await this.handleDrop(repo, project, allInCol, status, id, e.clientY, listEl);
++      });
++    }
++  }
++
++  private renderCard(project: ProjectConfig, task: Task, byId: Map<string, Task>): HTMLElement {
++    // window.createEl (global), not document.createDiv — Node.createEl
++    // appends to its receiver, and document cannot take element children.
++    const card = createEl("div", { cls: "backlogmd-card" });
++    card.dataset.id = task.id;
++    const blocked = isBlocked(task, byId, project.doneStatuses);
++    if (blocked) card.addClass("blocked");
++
++    const top = card.createDiv({ cls: "backlogmd-card-top" });
++    top.createEl("span", { text: task.id, cls: "backlogmd-card-id" });
++    if (task.type) top.createEl("span", { text: task.type, cls: "backlogmd-badge" });
++    if (task.priority) top.createEl("span", { text: task.priority, cls: `backlogmd-badge backlogmd-p-${task.priority}` });
++    if (blocked) top.createEl("span", { text: "⛔", cls: "backlogmd-blocked", title: "Blocked by unfinished dependencies" });
++
++    card.createEl("div", { text: task.title, cls: "backlogmd-card-title" });
++
++    const meta = card.createDiv({ cls: "backlogmd-card-meta" });
++    if (task.milestone) meta.createEl("span", { text: task.milestone, cls: "backlogmd-milestone" });
++    if (task.assignee?.length) meta.createEl("span", { text: task.assignee.join(", "), cls: "backlogmd-assignee" });
++    if (task.labels?.length) meta.createEl("span", { text: task.labels.map((l) => `#${l}`).join(" "), cls: "backlogmd-labels" });
++    if (task.dependencies?.length) meta.createEl("span", { text: task.dependencies.join(", "), cls: "backlogmd-deps" });
++
++    card.setAttribute("draggable", "true");
++    card.addEventListener("dragstart", (e) => {
++      e.dataTransfer?.setData("text/plain", task.id);
++      card.addClass("dragging");
++    });
++    card.addEventListener("dragend", () => card.removeClass("dragging"));
++    card.addEventListener("click", (e) => {
++      if (e.metaKey || e.ctrlKey) {
++        const file = this.app.vault.getAbstractFileByPath(task.path);
++        if (file instanceof TFile) this.app.workspace.getLeaf(true).openFile(file);
++      } else {
++        this.openModal(project, task);
++      }
++    });
++    return card;
++  }
++
++  private openModal(project: ProjectConfig, task: Task | null): void {
++    void Promise.all([this.ctx.repo.list(project), this.ctx.milestones.list(project)]).then(([all]) => {
++      const modal = new TaskModal(this.app, this.ctx, project, task, all, this.selectedMilestoneId ?? undefined);
++      const origClose = modal.onClose.bind(modal);
++      modal.onClose = () => {
++        origClose();
++        void this.renderBoard(project);
++      };
++      modal.open();
++    });
++  }
++
++  /** Index where a card dropped at clientY would land, excluding the dragged card. */
++  private dropIndex(listEl: HTMLElement, clientY: number, draggedId: string | null): number {
++    const cards = Array.from(listEl.querySelectorAll<HTMLElement>(".backlogmd-card")).filter((c) => c.dataset.id !== draggedId);
++    for (let i = 0; i < cards.length; i++) {
++      const r = cards[i].getBoundingClientRect();
++      if (clientY < r.top + r.height / 2) return i;
++    }
++    return cards.length;
++  }
++
++  private showIndicator(listEl: HTMLElement, clientY: number, draggedId: string | null): void {
++    this.removeIndicator();
++    const index = this.dropIndex(listEl, clientY, draggedId);
++    const line = createEl("div", { cls: "backlogmd-drop-line" });
++    this.indicatorEl = line;
++    const cards = Array.from(listEl.querySelectorAll<HTMLElement>(".backlogmd-card")).filter((c) => c.dataset.id !== draggedId);
++    if (index >= cards.length) listEl.appendChild(line);
++    else listEl.insertBefore(line, cards[index]);
++  }
++
++  private removeIndicator(): void {
++    this.indicatorEl?.remove();
++    this.indicatorEl = null;
++  }
++
++  private async handleDrop(
++    repo: TaskRepository,
++    project: ProjectConfig,
++    allInCol: Task[],
++    status: string,
++    id: string,
++    clientY: number,
++    listEl: HTMLElement,
++  ): Promise<void> {
++    const dragged =
++      allInCol.find((t) => t.id === id) ?? (await repo.list(project)).find((t) => t.id === id);
++    if (!dragged) return;
++
++    if (dragged.status === status) {
++      // Reorder within the column. With a filter active the visible list is a
++      // subset, so reorder only when the full column is visible.
++      if (this.filter.trim()) return;
++      const index = this.dropIndex(listEl, clientY, id);
++      const from = allInCol.findIndex((t) => t.id === id);
++      if (from === -1) return;
++      const ordered = [...allInCol];
++      ordered.splice(from, 1);
++      ordered.splice(index, 0, dragged);
++      if (ordered.every((t, i) => t === allInCol[i])) return; // no-op drop
++      await reorderColumn(repo, project, ordered);
++    } else {
++      const ordinal = allInCol.length ? Math.max(...allInCol.map((t) => t.ordinal ?? 0)) + 1000 : 1000;
++      await moveTask(repo, project, dragged, status, ordinal);
++    }
++    await this.renderBoard(project);
++  }
++}
+diff --git a/plugins/obsidian/backlogmd/src/ui/milestone-modal.ts b/plugins/obsidian/backlogmd/src/ui/milestone-modal.ts
+new file mode 100644
+index 00000000..3657da32
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/ui/milestone-modal.ts
+@@ -0,0 +1,65 @@
++import { App, Modal, Notice, Setting } from "obsidian";
++import { PluginContext } from "../compose";
++import type { ProjectConfig } from "../application/ports";
++import type { Milestone } from "../domain/milestone";
++import { nextMilestoneId } from "../application/milestone";
++
++export class MilestoneModal extends Modal {
++  private title = "";
++  private goal = "";
++  private endDate = "";
++
++  constructor(
++    app: App,
++    private ctx: PluginContext,
++    private project: ProjectConfig,
++    private existing: Milestone[],
++  ) {
++    super(app);
++  }
++
++  onOpen(): void {
++    const { contentEl } = this;
++    contentEl.createEl("h2", { text: "Create milestone (sprint)" });
++
++    new Setting(contentEl).setName("Title").setDesc("Required").addText((t) => {
++      t.setPlaceholder("e.g. 2026-11-20-auth-hardening").setValue(this.title).onChange((v) => (this.title = v));
++    });
++    new Setting(contentEl).setName("Goal").setDesc("What this sprint is for").addTextArea((t) => {
++      t.setPlaceholder("One sentence").setValue(this.goal).onChange((v) => (this.goal = v));
++      t.inputEl.rows = 2;
++    });
++    new Setting(contentEl).setName("End date").setDesc("yyyy-mm-dd, optional").addText((t) => {
++      t.setPlaceholder("2026-11-20").setValue(this.endDate).onChange((v) => (this.endDate = v));
++    });
++
++    new Setting(contentEl).addButton((b) => {
++      b.setButtonText("Create");
++      b.setCta();
++      b.onClick(async () => {
++        if (!this.title.trim()) return;
++        const id = nextMilestoneId(this.existing);
++        const m: Milestone = {
++          id,
++          title: this.title.trim(),
++          goal: this.goal.trim() || undefined,
++          end_date: this.endDate.trim() || undefined,
++          state: "planned",
++          path: "",
++        };
++        const body = `\n## Description\n\nMilestone: ${m.title}\n${this.goal.trim() ? `\nGoal: ${this.goal.trim()}\n` : ""}`;
++        try {
++          await this.ctx.milestones.create(this.project, m, body);
++          new Notice(`Created milestone ${id}`);
++          this.close();
++        } catch (e) {
++          new Notice(`Create failed: ${e instanceof Error ? e.message : String(e)}`);
++        }
++      });
++    });
++  }
++
++  onClose(): void {
++    this.contentEl.empty();
++  }
++}
+diff --git a/plugins/obsidian/backlogmd/src/ui/milestone-view.ts b/plugins/obsidian/backlogmd/src/ui/milestone-view.ts
+new file mode 100644
+index 00000000..dfa5b3d7
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/ui/milestone-view.ts
+@@ -0,0 +1,112 @@
++import { ItemView, WorkspaceLeaf } from "obsidian";
++import { PluginContext } from "../compose";
++import { ProjectConfig } from "../application/ports";
++import { Milestone, effectiveState, daysLeft } from "../domain/milestone";
++import { renderProjectSwitcher } from "./project-switcher";
++
++export const MILESTONE_VIEW_TYPE = "backlogmd-milestones";
++
++const byMilestoneId = (a: Milestone, b: Milestone): number =>
++  a.id.localeCompare(b.id, undefined, { numeric: true });
++
++/** Milestone list loaded from backlog/milestones/: state chip, end date,
++ *  done x/y; clicking a milestone filters the task list below it. */
++export class MilestoneView extends ItemView {
++  private ctx: PluginContext;
++  projectIndex = 0;
++  private listEl: HTMLElement | null = null;
++  private renderSeq = 0;
++
++  constructor(leaf: WorkspaceLeaf, ctx: PluginContext) {
++    super(leaf);
++    this.ctx = ctx;
++  }
++
++  getViewType(): string {
++    return MILESTONE_VIEW_TYPE;
++  }
++  getDisplayText(): string {
++    return "Milestones";
++  }
++
++  async onOpen(): Promise<void> {
++    await this.render();
++  }
++
++  async render(): Promise<void> {
++    try {
++      await this.renderInner();
++    } catch (e) {
++      console.error("[backlogmd] milestones render failed:", (e as Error).stack ?? String(e));
++      throw e;
++    }
++  }
++
++  private async renderInner(): Promise<void> {
++    const container = this.containerEl.children[1] as HTMLElement;
++    container.empty();
++    this.listEl = null;
++
++    const project = this.ctx.projects[this.projectIndex];
++    if (!project) {
++      container.createEl("div", { text: "No backlog project found.", cls: "backlogmd-empty" });
++      return;
++    }
++
++    const toolbar = container.createDiv({ cls: "backlogmd-toolbar" });
++    renderProjectSwitcher(toolbar, this.ctx.projects, this.projectIndex, (i) => {
++      this.projectIndex = i;
++      void this.render();
++    });
++
++    this.listEl = container.createDiv({ cls: "backlogmd-milestone-list" });
++    await this.renderList(project);
++  }
++
++  private async renderList(project: ProjectConfig): Promise<void> {
++    const host = this.listEl;
++    if (!host) return;
++    const seq = ++this.renderSeq;
++    host.empty();
++
++    const [tasks, milestones] = await Promise.all([this.ctx.repo.list(project), this.ctx.milestones.list(project)]);
++    if (seq !== this.renderSeq) return; // a newer render owns the DOM now
++
++    if (milestones.length === 0) {
++      host.createEl("div", { text: "No milestones in backlog/milestones/.", cls: "backlogmd-empty" });
++      return;
++    }
++
++    for (const m of [...milestones].sort(byMilestoneId)) {
++      const msTasks = tasks.filter((t) => t.milestone === m.id);
++      const state = effectiveState(m, msTasks, project.doneStatuses);
++      const done = msTasks.filter((t) => project.doneStatuses.includes(t.status)).length;
++
++      const row = host.createDiv({ cls: "backlogmd-milestone-row" });
++      const header = row.createDiv({ cls: "backlogmd-milestone-header" });
++      header.createEl("span", { text: state, cls: `backlogmd-chip${state === "active" ? " backlogmd-chip-active" : ""}` });
++      header.createEl("span", { text: m.id, cls: "backlogmd-section-id" });
++      header.createEl("span", { text: m.title, cls: "backlogmd-section-title" });
++      const bits: string[] = [];
++      if (m.end_date) {
++        const dl = daysLeft(m);
++        bits.push(dl !== null ? (dl >= 0 ? `ends ${m.end_date} · ${dl}d left` : `overdue by ${-dl}d`) : `ends ${m.end_date}`);
++      }
++      bits.push(`${done}/${msTasks.length} done`);
++      header.createEl("span", { text: bits.join(" · "), cls: "backlogmd-section-meta" });
++
++      const details = row.createDiv({ cls: "backlogmd-milestone-tasks" });
++      details.style.display = "none";
++      for (const t of msTasks) {
++        const line = details.createDiv({ cls: "backlogmd-milestone-task" });
++        line.createEl("span", { text: t.id, cls: "backlogmd-card-id" });
++        line.createEl("span", { text: t.status, cls: "backlogmd-row-status" });
++        line.createEl("span", { text: t.title, cls: "backlogmd-row-title" });
++      }
++
++      header.addEventListener("click", () => {
++        details.style.display = details.style.display === "none" ? "" : "none";
++      });
++    }
++  }
++}
+diff --git a/plugins/obsidian/backlogmd/src/ui/project-switcher.ts b/plugins/obsidian/backlogmd/src/ui/project-switcher.ts
+new file mode 100644
+index 00000000..5ba9dddb
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/ui/project-switcher.ts
+@@ -0,0 +1,15 @@
++import { ProjectConfig } from "../application/ports";
++
++export function renderProjectSwitcher(
++  container: HTMLElement,
++  projects: ProjectConfig[],
++  selected: number,
++  onChange: (i: number) => void,
++): void {
++  const sel = container.createEl("select", { cls: "backlogmd-project-switcher" });
++  projects.forEach((p, i) => {
++    const opt = sel.createEl("option", { text: p.name, value: String(i) });
++    if (i === selected) opt.selected = true;
++  });
++  sel.addEventListener("change", () => onChange(Number(sel.value)));
++}
+diff --git a/plugins/obsidian/backlogmd/src/ui/pull-issues-modal.ts b/plugins/obsidian/backlogmd/src/ui/pull-issues-modal.ts
+new file mode 100644
+index 00000000..79e8f253
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/ui/pull-issues-modal.ts
+@@ -0,0 +1,62 @@
++import { App, Modal, Notice, Setting } from "obsidian";
++import { PluginContext } from "../compose";
++import { ProjectConfig } from "../application/ports";
++import { pullIssues } from "../application/pull-issues";
++
++export class PullIssuesModal extends Modal {
++  private owner = "";
++  private repository = "";
++  private token = "";
++
++  constructor(
++    app: App,
++    private ctx: PluginContext,
++    private project: ProjectConfig,
++    private tokenKey: string,
++  ) {
++    super(app);
++  }
++
++  async onOpen(): Promise<void> {
++    const { contentEl } = this;
++    contentEl.createEl("h2", { text: "Pull issues from GitHub" });
++    contentEl.createEl("p", {
++      text: "Imports repository issues into the project's tasks (one-way). Later pulls keep title, assignee and open/closed state in step; local planning fields are never overwritten.",
++      cls: "backlogmd-modal-desc",
++    });
++
++    const hasStored = (await this.app.secretStorage.getSecret(this.tokenKey)) !== null;
++
++    new Setting(contentEl).setName("Owner").addText((t) => t.setPlaceholder("owner").setValue(this.owner).onChange((v) => (this.owner = v)));
++    new Setting(contentEl).setName("Repository").addText((t) => t.setPlaceholder("repo").setValue(this.repository).onChange((v) => (this.repository = v)));
++    new Setting(contentEl).setName("Token").setDesc("Optional for public repos; stored in Obsidian secret storage").addText((t) => {
++      t.setPlaceholder(hasStored ? "stored — leave blank to keep" : "ghp_…");
++      t.inputEl.type = "password";
++      t.onChange((v) => (this.token = v));
++    });
++
++    new Setting(contentEl).addButton((b) => {
++      b.setButtonText("Pull");
++      b.setCta();
++      b.onClick(async () => {
++        const owner = this.owner.trim();
++        const repository = this.repository.trim();
++        if (!owner || !repository) return;
++        const stored = (await this.app.secretStorage.getSecret(this.tokenKey)) ?? "";
++        const token = this.token.trim() || stored;
++        if (this.token.trim()) await this.app.secretStorage.setSecret(this.tokenKey, this.token.trim());
++        try {
++          await pullIssues(this.ctx.repo, this.project, token, owner, repository);
++          new Notice(`Pulled issues from ${owner}/${repository}`);
++          this.close();
++        } catch (e) {
++          new Notice(`Pull failed: ${e instanceof Error ? e.message : String(e)}`);
++        }
++      });
++    });
++  }
++
++  onClose(): void {
++    this.contentEl.empty();
++  }
++}
+diff --git a/plugins/obsidian/backlogmd/src/ui/task-modal.ts b/plugins/obsidian/backlogmd/src/ui/task-modal.ts
+new file mode 100644
+index 00000000..a49eb92c
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/ui/task-modal.ts
+@@ -0,0 +1,139 @@
++import { App, Modal, Setting } from "obsidian";
++import { PluginContext } from "../compose";
++import { ProjectConfig } from "../application/ports";
++import { Task } from "../domain/task";
++import { createTask, CreateTaskInput } from "../application/create-task";
++import { editTask } from "../application/edit-task";
++
++function listValue(values: string[] | undefined): string {
++  return (values ?? []).join(", ");
++}
++
++function parseList(value: string): string[] {
++  return value.split(",").map((s) => s.trim()).filter(Boolean);
++}
++
++export class TaskModal extends Modal {
++  private ctx: PluginContext;
++  private project: ProjectConfig;
++  private task: Task | null;
++  private allTasks: Task[];
++  private summary = "";
++  private body = "";
++  private type = "";
++  private priority = "";
++  private status = "";
++  private assignee = "";
++  private milestone = "";
++  private dependencies = "";
++
++  constructor(app: App, ctx: PluginContext, project: ProjectConfig, task: Task | null, allTasks: Task[], defaultMilestone?: string) {
++    super(app);
++    this.ctx = ctx;
++    this.project = project;
++    this.task = task;
++    this.allTasks = allTasks;
++    if (task) {
++      this.summary = task.title;
++      this.body = task.body ?? "";
++      this.type = task.type ?? "";
++      this.priority = task.priority ?? "";
++      this.status = task.status;
++      this.assignee = listValue(task.assignee);
++      this.milestone = task.milestone ?? "";
++      this.dependencies = listValue(task.dependencies);
++    } else {
++      this.status = project.statuses[0] ?? "To Do";
++      this.milestone = defaultMilestone ?? "";
++    }
++  }
++
++  private addDatalist(input: HTMLTextAreaElement, id: string, options: string[]): void {
++    const list = this.contentEl.createEl("datalist");
++    list.id = id;
++    for (const o of options) list.createEl("option", { value: o });
++    input.setAttribute("list", id);
++  }
++
++  onOpen(): void {
++    const { contentEl } = this;
++    contentEl.createEl("h2", { text: this.task ? `Edit ${this.task.id}` : "Create task" });
++
++    new Setting(contentEl).setName("Summary").setDesc("Required").addText((t) => {
++      t.setPlaceholder("Task title").setValue(this.summary).onChange((v) => (this.summary = v));
++    });
++
++    new Setting(contentEl).setName("Description").setDesc("Markdown, saved as the task body").addTextArea((t) => {
++      t.setPlaceholder("What needs to happen?").setValue(this.body).onChange((v) => (this.body = v));
++      t.inputEl.rows = 6;
++    });
++
++    new Setting(contentEl).setName("Type").addDropdown((d) => {
++      d.addOption("", "");
++      for (const ty of this.project.types) d.addOption(ty, ty);
++      d.setValue(this.type).onChange((v) => (this.type = v));
++    });
++
++    new Setting(contentEl).setName("Priority").addDropdown((d) => {
++      d.addOption("", "");
++      for (const p of this.project.priorities) d.addOption(p, p);
++      d.setValue(this.priority).onChange((v) => (this.priority = v));
++    });
++
++    new Setting(contentEl).setName("Status").addDropdown((d) => {
++      for (const s of this.project.statuses) d.addOption(s, s);
++      d.setValue(this.status).onChange((v) => (this.status = v));
++    });
++
++    new Setting(contentEl).setName("Assignee").setDesc("Comma-separated").addText((t) => {
++      t.setPlaceholder("@user, @user2").setValue(this.assignee).onChange((v) => (this.assignee = v));
++    });
++
++    new Setting(contentEl).setName("Milestone").addText((t) => {
++      t.setPlaceholder("m-0").setValue(this.milestone).onChange((v) => (this.milestone = v));
++    });
++
++    new Setting(contentEl).setName("Dependencies").setDesc("Comma-separated task IDs that must be done first — unfinished ones flag this task as blocked").addTextArea((t) => {
++      t.setPlaceholder("TASK-001, TASK-002").setValue(this.dependencies).onChange((v) => (this.dependencies = v));
++      t.inputEl.rows = 2;
++      this.addDatalist(t.inputEl, "backlogmd-task-ids", this.allTasks.map((x) => x.id));
++    });
++
++    new Setting(contentEl).addButton((b) => {
++      b.setButtonText(this.task ? "Save" : "Create");
++      b.setCta();
++      b.onClick(async () => {
++        if (!this.summary.trim()) return;
++        const patch = {
++          title: this.summary.trim(),
++          type: this.type || undefined,
++          priority: this.priority || undefined,
++          status: this.status,
++          assignee: parseList(this.assignee),
++          milestone: this.milestone.trim() || undefined,
++          dependencies: parseList(this.dependencies),
++        };
++        if (this.task) {
++          await editTask(this.ctx.repo, this.project, this.task, patch, this.body);
++        } else {
++          const input: CreateTaskInput = {
++            summary: this.summary.trim(),
++            body: this.body,
++            type: this.type || undefined,
++            priority: this.priority || undefined,
++            status: this.status,
++            assignee: parseList(this.assignee),
++            milestone: this.milestone.trim() || undefined,
++            dependencies: parseList(this.dependencies),
++          };
++          await createTask(this.ctx.repo, this.project, input, this.allTasks);
++        }
++        this.close();
++      });
++    });
++  }
++
++  onClose(): void {
++    this.contentEl.empty();
++  }
++}
+diff --git a/plugins/obsidian/backlogmd/src/ui/task-note-header.ts b/plugins/obsidian/backlogmd/src/ui/task-note-header.ts
+new file mode 100644
+index 00000000..9b405f22
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/src/ui/task-note-header.ts
+@@ -0,0 +1,42 @@
++import { App, MarkdownView, TFile, setIcon } from "obsidian";
++import { PluginContext } from "../compose";
++import { ProjectConfig } from "../application/ports";
++import { TaskModal } from "./task-modal";
++
++const MARKER = "backlogmd-edit-task";
++
++function projectForPath(projects: ProjectConfig[], path: string): ProjectConfig | null {
++  for (const project of projects) {
++    if (path.startsWith(`${project.vaultBacklogDir}/tasks/`)) return project;
++  }
++  return null;
++}
++
++/** Keeps an "Edit task" header button on every markdown view showing a task
++ *  note (opens the edit modal for it) and removes it from all others. Call on
++ *  file-open and layout-ready. Task lookup is by file path, not by id parsed
++ *  from the file name — frontmatter ids differ from file names in case. */
++export function syncTaskHeaderButtons(app: App, ctx: PluginContext): void {
++  for (const leaf of app.workspace.getLeavesOfType("markdown")) {
++    const view = leaf.view as MarkdownView;
++    // headerEl is a MarkdownView runtime property missing from the obsidian type defs
++    const headerHost = view as MarkdownView & { headerEl?: HTMLElement };
++    const headerEl = headerHost.headerEl;
++    if (!headerEl) continue;
++    headerEl.querySelectorAll(`.${MARKER}`).forEach((n) => n.remove());
++
++    const file = view.file;
++    if (!(file instanceof TFile)) continue;
++    const project = projectForPath(ctx.projects, file.path);
++    if (!project) continue;
++
++    const btn = headerEl.createEl("div", { cls: `clickable-icon ${MARKER}`, title: "Edit task" });
++    setIcon(btn, "pencil");
++    btn.addEventListener("click", () => {
++      void ctx.repo.list(project).then((all) => {
++        const t = all.find((x) => x.path === file.path);
++        if (t) new TaskModal(app, ctx, project, t, all).open();
++      });
++    });
++  }
++}
+diff --git a/plugins/obsidian/backlogmd/styles.css b/plugins/obsidian/backlogmd/styles.css
+new file mode 100644
+index 00000000..b7460feb
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/styles.css
+@@ -0,0 +1,62 @@
++.backlogmd-board-header { display: flex; gap: 8px; align-items: baseline; margin-bottom: 8px; flex-wrap: wrap; }
++.backlogmd-board-header .backlogmd-section-title { font-size: 16px; }
++
++.backlogmd-sections { display: flex; flex-direction: column; gap: 14px; }
++.backlogmd-section-header { display: flex; gap: 8px; align-items: baseline; margin-bottom: 6px; flex-wrap: wrap; }
++.backlogmd-section-id { font-family: var(--font-monospace); font-size: 11px; color: var(--text-muted); }
++.backlogmd-section-title { font-size: 14px; font-weight: 600; }
++.backlogmd-section-meta { font-size: 12px; color: var(--text-muted); }
++.backlogmd-section-goal { font-size: 12px; color: var(--text-muted); font-style: italic; }
++.backlogmd-section-actions { margin-left: auto; display: flex; gap: 6px; }
++.backlogmd-section-btn { font-size: 11px; padding: 2px 10px; }
++.backlogmd-chip { font-size: 10px; padding: 1px 8px; border-radius: 8px; background: var(--background-modifier-border); color: var(--text-muted); text-transform: capitalize; }
++.backlogmd-chip-active { background: var(--interactive-accent); color: var(--text-on-accent); }
++
++.backlogmd-milestone-list { display: flex; flex-direction: column; gap: 8px; }
++.backlogmd-milestone-row { border: 1px solid var(--background-modifier-border); border-radius: 8px; padding: 8px; }
++.backlogmd-milestone-header { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; cursor: pointer; }
++.backlogmd-milestone-tasks { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--background-modifier-border); display: flex; flex-direction: column; gap: 4px; }
++.backlogmd-milestone-task { display: flex; gap: 8px; align-items: baseline; }
++.backlogmd-milestone-task .backlogmd-row-title { flex: 1; font-size: 12px; }
++
++.backlogmd-rows { min-height: 10px; }
++.backlogmd-row { display: flex; gap: 8px; align-items: baseline; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; cursor: grab; }
++.backlogmd-row.blocked { border-left: 3px solid var(--text-error); }
++.backlogmd-row.dragging { opacity: 0.4; }
++.backlogmd-row-title { flex: 1; font-size: 13px; }
++.backlogmd-row-right { display: flex; gap: 6px; align-items: baseline; font-size: 11px; color: var(--text-muted); white-space: nowrap; }
++.backlogmd-row-status { font-size: 11px; color: var(--text-muted); }
++.backlogmd-assignee { font-size: 11px; color: var(--text-muted); }
++
++.backlogmd-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
++.backlogmd-project-switcher { min-width: 140px; }
++.backlogmd-milestone-select { min-width: 200px; max-width: 320px; }
++.backlogmd-filter { flex: 1; min-width: 160px; max-width: 360px; }
++.backlogmd-new-task { white-space: nowrap; }
++
++.backlogmd-board { display: flex; gap: 12px; overflow-x: auto; align-items: flex-start; }
++.backlogmd-column { min-width: 240px; max-width: 280px; background: var(--background-secondary); border-radius: 8px; padding: 8px; flex-shrink: 0; }
++.backlogmd-column-header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
++.backlogmd-column-title { margin: 4px 0; font-size: 14px; font-weight: 600; }
++.backlogmd-count { color: var(--text-muted); font-size: 12px; background: var(--background-modifier-border); border-radius: 10px; padding: 0 8px; }
++.backlogmd-cards { min-height: 12px; }
++
++.backlogmd-card { background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 6px; padding: 8px; margin-bottom: 8px; cursor: grab; }
++.backlogmd-card.blocked { border-left: 3px solid var(--text-error); }
++.backlogmd-card.dragging { opacity: 0.4; }
++.backlogmd-card-top { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; flex-wrap: wrap; }
++.backlogmd-card-id { font-family: var(--font-monospace); font-size: 11px; color: var(--text-muted); }
++.backlogmd-card-title { font-size: 13px; margin-bottom: 4px; }
++.backlogmd-card-meta { display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px; color: var(--text-muted); }
++.backlogmd-badge { font-size: 10px; padding: 1px 6px; border-radius: 8px; background: var(--background-modifier-border); color: var(--text-muted); text-transform: capitalize; }
++.backlogmd-p-high { background: var(--background-modifier-error); color: var(--text-normal); }
++.backlogmd-p-critical { background: var(--background-modifier-error); color: var(--text-normal); }
++.backlogmd-p-medium { background: var(--background-modifier-warning); color: var(--text-normal); }
++.backlogmd-blocked { margin-left: auto; font-size: 12px; }
++.backlogmd-drop-line { height: 3px; border-radius: 2px; background: var(--interactive-accent); margin: 2px 4px; }
++
++.backlogmd-list { display: flex; flex-direction: column; gap: 6px; }
++.backlogmd-list-row { display: flex; gap: 8px; align-items: baseline; cursor: pointer; }
++.backlogmd-status { color: var(--text-muted); white-space: nowrap; }
++.backlogmd-modal-desc { color: var(--text-muted); font-size: 13px; }
++.backlogmd-empty { color: var(--text-muted); font-style: italic; }
+diff --git a/plugins/obsidian/backlogmd/tests/application/create-task.test.ts b/plugins/obsidian/backlogmd/tests/application/create-task.test.ts
+new file mode 100644
+index 00000000..0d6076bd
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/tests/application/create-task.test.ts
+@@ -0,0 +1,85 @@
++import { describe, it, expect } from "vitest";
++import { nextTaskId, createTask } from "../../src/application/create-task";
++import { TaskRepository, ProjectConfig } from "../../src/application/ports";
++import { Task } from "../../src/domain/task";
++
++const t = (id: string, ordinal?: number): Task => ({ id, title: id, status: "To Do", ordinal, path: "" });
++
++class MemoryRepo implements TaskRepository {
++  written: { task: Task; body: string }[] = [];
++  async list() {
++    return [];
++  }
++  async get() {
++    return null;
++  }
++  async write(_project: ProjectConfig, task: Task, body: string) {
++    this.written.push({ task, body });
++  }
++  async create(_project: ProjectConfig, task: Task, body: string) {
++    this.written.push({ task, body });
++    return `tasks/${task.id}.md`;
++  }
++}
++
++const project: ProjectConfig = {
++  name: "p",
++  rootPath: "",
++  backlogDirectory: ".backlog",
++  vaultBacklogDir: ".backlog",
++  statuses: ["To Do", "In Progress", "Done"],
++  types: [],
++  priorities: [],
++  doneStatuses: ["Done"],
++  taskPrefix: "OB",
++};
++
++describe("nextTaskId", () => {
++  it("starts at 001 when no tasks exist", () => {
++    expect(nextTaskId([], "task")).toBe("TASK-001");
++  });
++
++  it("takes max numeric suffix + 1 (not count — deletions leave gaps)", () => {
++    expect(nextTaskId([t("TASK-001"), t("TASK-002"), t("TASK-007")], "task")).toBe("TASK-008");
++  });
++
++  it("zero-pads to three digits", () => {
++    expect(nextTaskId([t("TASK-009")], "task")).toBe("TASK-010");
++  });
++
++  it("ignores IDs without a numeric suffix", () => {
++    expect(nextTaskId([t("EPIC-ALPHA"), t("TASK-003")], "task")).toBe("TASK-004");
++  });
++
++  it("uppercases the prefix", () => {
++    expect(nextTaskId([], "TASK")).toBe("TASK-001");
++  });
++});
++
++describe("createTask", () => {
++  it("writes a new task with the next prefixed id, default status, and body", async () => {
++    const repo = new MemoryRepo();
++    const existing = [t("OB-001", 1000), t("OB-003", 3000)];
++    const ret = await createTask(repo, project, { summary: "New work", body: "nb" }, existing);
++    expect(repo.written).toHaveLength(1);
++    const w = repo.written[0];
++    expect(w.task.id).toBe("OB-004"); // max numeric suffix + 1, gap-aware
++    expect(w.task.title).toBe("New work");
++    expect(w.task.status).toBe("To Do"); // project.statuses[0]
++    expect(w.task.ordinal).toBe(4000); // max ordinal + 1000
++    expect(w.task.type).toBeUndefined();
++    expect(w.task.priority).toBeUndefined();
++    expect(w.task.assignee).toBeUndefined();
++    expect(w.body).toBe("nb");
++    expect(ret).toBe("tasks/OB-004.md"); // create() return passes through
++  });
++
++  it("starts at ordinal 1000 and prefix-001 when no tasks exist", async () => {
++    const repo = new MemoryRepo();
++    await createTask(repo, project, { summary: "First" }, []);
++    const w = repo.written[0];
++    expect(w.task.id).toBe("OB-001");
++    expect(w.task.ordinal).toBe(1000);
++    expect(w.body).toBe(""); // no body given -> empty string
++  });
++});
+diff --git a/plugins/obsidian/backlogmd/tests/application/edit-task.test.ts b/plugins/obsidian/backlogmd/tests/application/edit-task.test.ts
+new file mode 100644
+index 00000000..c52157f0
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/tests/application/edit-task.test.ts
+@@ -0,0 +1,63 @@
++import { describe, it, expect } from "vitest";
++import { editTask } from "../../src/application/edit-task";
++import { TaskRepository, ProjectConfig } from "../../src/application/ports";
++import { Task } from "../../src/domain/task";
++
++class MemoryRepo implements TaskRepository {
++  written: { task: Task; body: string }[] = [];
++  async list() {
++    return [];
++  }
++  async get() {
++    return null;
++  }
++  async write(_project: ProjectConfig, task: Task, body: string) {
++    this.written.push({ task, body });
++  }
++  async create(_project: ProjectConfig, task: Task, body: string) {
++    this.written.push({ task, body });
++    return task.path;
++  }
++}
++
++const project: ProjectConfig = {
++  name: "p",
++  rootPath: "",
++  backlogDirectory: ".backlog",
++  vaultBacklogDir: ".backlog",
++  statuses: ["To Do", "In Progress", "Done"],
++  types: [],
++  priorities: [],
++  doneStatuses: ["Done"],
++  taskPrefix: "OB",
++};
++
++const t = (): Task => ({
++  id: "OB-1",
++  title: "Edit me",
++  status: "To Do",
++  path: "tasks/OB-1.md",
++  body: "orig body",
++});
++
++describe("editTask", () => {
++  it("applies the patch, stamps updated_date (YYYY-MM-DD), keeps stored body", async () => {
++    const repo = new MemoryRepo();
++    await editTask(repo, project, t(), { priority: "high" });
++    expect(repo.written).toHaveLength(1);
++    const w = repo.written[0];
++    expect(w.task.priority).toBe("high");
++    expect(w.task.id).toBe("OB-1");
++    expect(w.task.title).toBe("Edit me");
++    expect(w.task.updated_date).toBe(new Date().toISOString().slice(0, 10));
++    expect(w.body).toBe("orig body");
++  });
++
++  it("explicit body argument overrides the stored body", async () => {
++    const repo = new MemoryRepo();
++    await editTask(repo, project, t(), { status: "In Progress" }, "new body");
++    const w = repo.written[0];
++    expect(w.task.status).toBe("In Progress");
++    expect(w.body).toBe("new body");
++  });
++});
+diff --git a/plugins/obsidian/backlogmd/tests/application/link-tasks.test.ts b/plugins/obsidian/backlogmd/tests/application/link-tasks.test.ts
+new file mode 100644
+index 00000000..278d1756
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/tests/application/link-tasks.test.ts
+@@ -0,0 +1,71 @@
++import { describe, it, expect } from "vitest";
++import { linkTasks } from "../../src/application/link-tasks";
++import { TaskRepository, ProjectConfig } from "../../src/application/ports";
++import { Task } from "../../src/domain/task";
++
++class MemoryRepo implements TaskRepository {
++  written: { task: Task; body: string }[] = [];
++  async list() {
++    return [];
++  }
++  async get() {
++    return null;
++  }
++  async write(_project: ProjectConfig, task: Task, body: string) {
++    this.written.push({ task, body });
++  }
++  async create(_project: ProjectConfig, task: Task, body: string) {
++    this.written.push({ task, body });
++    return task.path;
++  }
++}
++
++const project: ProjectConfig = {
++  name: "p",
++  rootPath: "",
++  backlogDirectory: ".backlog",
++  vaultBacklogDir: ".backlog",
++  statuses: ["To Do", "In Progress", "Done"],
++  types: [],
++  priorities: [],
++  doneStatuses: ["Done"],
++  taskPrefix: "OB",
++};
++
++const t = (id: string, deps?: string[]): Task => ({
++  id,
++  title: id,
++  status: "To Do",
++  path: `tasks/${id}.md`,
++  body: `body-${id}`,
++  ...(deps ? { dependencies: deps } : {}),
++});
++
++describe("linkTasks", () => {
++  it("add: both sides reference each other (bidirectional), bodies kept", async () => {
++    const repo = new MemoryRepo();
++    await linkTasks(repo, project, t("OB-1"), t("OB-7"), true);
++    expect(repo.written).toHaveLength(2);
++    const byId = new Map(repo.written.map((w) => [w.task.id, w]));
++    expect(byId.get("OB-1")?.task.dependencies).toEqual(["OB-7"]);
++    expect(byId.get("OB-7")?.task.dependencies).toEqual(["OB-1"]);
++    expect(byId.get("OB-1")?.body).toBe("body-OB-1");
++    expect(byId.get("OB-7")?.body).toBe("body-OB-7");
++  });
++
++  it("add: existing dependencies are preserved, not replaced", async () => {
++    const repo = new MemoryRepo();
++    await linkTasks(repo, project, t("OB-1", ["OB-2"]), t("OB-7", ["OB-3"]), true);
++    const byId = new Map(repo.written.map((w) => [w.task.id, w]));
++    expect(byId.get("OB-1")?.task.dependencies).toEqual(["OB-2", "OB-7"]);
++    expect(byId.get("OB-7")?.task.dependencies).toEqual(["OB-3", "OB-1"]);
++  });
++
++  it("remove: neither task references the other", async () => {
++    const repo = new MemoryRepo();
++    await linkTasks(repo, project, t("OB-1", ["OB-7"]), t("OB-7", ["OB-1"]), false);
++    const byId = new Map(repo.written.map((w) => [w.task.id, w]));
++    expect(byId.get("OB-1")?.task.dependencies).toEqual([]);
++    expect(byId.get("OB-7")?.task.dependencies).toEqual([]);
++  });
++});
+diff --git a/plugins/obsidian/backlogmd/tests/application/milestone.test.ts b/plugins/obsidian/backlogmd/tests/application/milestone.test.ts
+new file mode 100644
+index 00000000..2c33f029
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/tests/application/milestone.test.ts
+@@ -0,0 +1,131 @@
++import { describe, it, expect } from "vitest";
++import { startMilestone, completeMilestone, planTask } from "../../src/application/milestone";
++import type { ProjectConfig, TaskRepository, MilestoneRepository } from "../../src/application/ports";
++import type { Task } from "../../src/domain/task";
++import type { Milestone } from "../../src/domain/milestone";
++
++class MemoryTasks implements TaskRepository {
++  tasks: Task[] = [];
++  async list() {
++    return this.tasks;
++  }
++  async get(_p: ProjectConfig, id: string) {
++    return this.tasks.find((t) => t.id === id) ?? null;
++  }
++  async write(_p: ProjectConfig, task: Task, _body: string) {
++    const i = this.tasks.findIndex((t) => t.id === task.id);
++    if (i === -1) this.tasks.push(task);
++    else this.tasks[i] = task;
++  }
++  async create(_p: ProjectConfig, task: Task, _body: string) {
++    this.tasks.push(task);
++    return task.path;
++  }
++}
++
++class MemoryMilestones implements MilestoneRepository {
++  items: Milestone[] = [];
++  async list() {
++    return this.items;
++  }
++  async write(_p: ProjectConfig, m: Milestone, _body: string) {
++    const i = this.items.findIndex((x) => x.id === m.id);
++    if (i === -1) this.items.push(m);
++    else this.items[i] = m;
++  }
++  async create(_p: ProjectConfig, m: Milestone, _body: string) {
++    this.items.push(m);
++    return m.path;
++  }
++}
++
++const project: ProjectConfig = {
++  name: "p",
++  rootPath: "",
++  backlogDirectory: ".backlog",
++  vaultBacklogDir: ".backlog",
++  statuses: ["To Do", "In Progress", "Done"],
++  types: [],
++  priorities: [],
++  doneStatuses: ["Done"],
++  taskPrefix: "task",
++};
++
++const task = (id: string, milestone?: string, status = "To Do", ordinal = 1000): Task => ({
++  id,
++  title: id,
++  status,
++  milestone,
++  ordinal,
++  path: `tasks/${id}.md`,
++  body: `b-${id}`,
++});
++
++const ms = (id: string, state?: Milestone["state"]): Milestone => ({ id, title: id, state, path: `milestones/${id}.md`, body: `mb-${id}` });
++
++describe("startMilestone", () => {
++  it("sets active + start_date, auto-completing a previously active milestone", async () => {
++    const tasks = new MemoryTasks();
++    const milestones = new MemoryMilestones();
++    milestones.items = [ms("m-0", "active"), ms("m-1", "planned")];
++    tasks.tasks = [task("TASK-001", "m-0", "To Do"), task("TASK-002", "m-0", "Done")];
++
++    await startMilestone(tasks, milestones, project, ms("m-1"));
++
++    const m1 = milestones.items.find((x) => x.id === "m-1")!;
++    expect(m1.state).toBe("active");
++    expect(m1.start_date).toBeTruthy();
++    const m0 = milestones.items.find((x) => x.id === "m-0")!;
++    expect(m0.state).toBe("completed");
++    expect(m0.completed_tasks).toEqual(["TASK-002"]);
++    expect(m0.carried_over_tasks).toEqual(["TASK-001"]);
++    expect(tasks.tasks.find((t) => t.id === "TASK-001")!.milestone).toBeUndefined();
++    expect(tasks.tasks.find((t) => t.id === "TASK-002")!.milestone).toBe("m-0");
++  });
++});
++
++describe("completeMilestone", () => {
++  it("records finished tasks and carries unfinished ones back to the backlog", async () => {
++    const tasks = new MemoryTasks();
++    const milestones = new MemoryMilestones();
++    milestones.items = [ms("m-0", "active")];
++    tasks.tasks = [
++      task("TASK-001", "m-0", "Done"),
++      task("TASK-002", "m-0", "In Progress"),
++      task("TASK-003", undefined, "To Do"),
++    ];
++
++    await completeMilestone(tasks, milestones, project, ms("m-0"), tasks.tasks);
++
++    const m0 = milestones.items.find((x) => x.id === "m-0")!;
++    expect(m0.state).toBe("completed");
++    expect(m0.completed_tasks).toEqual(["TASK-001"]);
++    expect(m0.carried_over_tasks).toEqual(["TASK-002"]);
++    expect(m0.end_date).toBeTruthy();
++    expect(tasks.tasks.find((t) => t.id === "TASK-002")!.milestone).toBeUndefined();
++    expect(tasks.tasks.find((t) => t.id === "TASK-001")!.milestone).toBe("m-0");
++    expect(tasks.tasks.find((t) => t.id === "TASK-003")!.milestone).toBeUndefined();
++  });
++});
++
++describe("planTask", () => {
++  it("plans into a milestone and appends to its ordinal range", async () => {
++    const tasks = new MemoryTasks();
++    tasks.tasks = [task("TASK-001", "m-0", "To Do", 1000), task("TASK-002", "m-0", "To Do", 2000), task("TASK-003", undefined, "To Do")];
++
++    await planTask(tasks, project, task("TASK-003", undefined, "To Do"), "m-0", tasks.tasks);
++
++    const t3 = tasks.tasks.find((t) => t.id === "TASK-003")!;
++    expect(t3.milestone).toBe("m-0");
++    expect(t3.ordinal).toBe(3000);
++  });
++
++  it("unplans (null) and clears the milestone", async () => {
++    const tasks = new MemoryTasks();
++    tasks.tasks = [task("TASK-001", "m-0", "To Do")];
++
++    await planTask(tasks, project, task("TASK-001", "m-0", "To Do"), null, tasks.tasks);
++
++    expect(tasks.tasks.find((t) => t.id === "TASK-001")!.milestone).toBeUndefined();
++  });
++});
+diff --git a/plugins/obsidian/backlogmd/tests/application/move-task.test.ts b/plugins/obsidian/backlogmd/tests/application/move-task.test.ts
+new file mode 100644
+index 00000000..0e65785a
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/tests/application/move-task.test.ts
+@@ -0,0 +1,76 @@
++import { describe, it, expect } from "vitest";
++import { moveTask, reorderColumn } from "../../src/application/move-task";
++import { TaskRepository, ProjectConfig } from "../../src/application/ports";
++import { Task } from "../../src/domain/task";
++
++class MemoryRepo implements TaskRepository {
++  written: { task: Task; body: string }[] = [];
++  async list() {
++    return [];
++  }
++  async get() {
++    return null;
++  }
++  async write(_project: ProjectConfig, task: Task, body: string) {
++    this.written.push({ task, body });
++  }
++  async create(_project: ProjectConfig, task: Task, body: string) {
++    this.written.push({ task, body });
++    return task.path;
++  }
++}
++
++const project: ProjectConfig = {
++  name: "p",
++  rootPath: "",
++  backlogDirectory: ".backlog",
++  vaultBacklogDir: ".backlog",
++  statuses: ["To Do", "In Progress", "Done"],
++  types: [],
++  priorities: [],
++  doneStatuses: ["Done"],
++  taskPrefix: "task",
++};
++
++const t = (id: string, status: string, ordinal?: number): Task => ({
++  id,
++  title: id,
++  status,
++  ordinal,
++  path: `tasks/${id}.md`,
++  body: `body-${id}`,
++});
++
++describe("moveTask", () => {
++  it("writes status, ordinal and updated_date, keeping body", async () => {
++    const repo = new MemoryRepo();
++    await moveTask(repo, project, t("TASK-001", "To Do", 1000), "In Progress", 2000);
++    expect(repo.written).toHaveLength(1);
++    const w = repo.written[0];
++    expect(w.task.status).toBe("In Progress");
++    expect(w.task.ordinal).toBe(2000);
++    expect(w.task.updated_date).toBeTruthy();
++    expect(w.body).toBe("body-TASK-001");
++  });
++});
++
++describe("reorderColumn", () => {
++  it("reassigns 1000-step ordinals in the given order, bodies intact", async () => {
++    const repo = new MemoryRepo();
++    const a = t("TASK-001", "To Do", 1000);
++    const b = t("TASK-002", "To Do", 2000);
++    const c = t("TASK-003", "To Do", 3000);
++    await reorderColumn(repo, project, [c, a, b]);
++    const byId = new Map(repo.written.map((w) => [w.task.id, w]));
++    expect(byId.get("TASK-003")?.task.ordinal).toBe(1000);
++    expect(byId.get("TASK-001")?.task.ordinal).toBe(2000);
++    expect(byId.get("TASK-002")?.task.ordinal).toBe(3000);
++    expect(byId.get("TASK-003")?.body).toBe("body-TASK-003");
++  });
++
++  it("writes nothing for an empty column", async () => {
++    const repo = new MemoryRepo();
++    await reorderColumn(repo, project, []);
++    expect(repo.written).toHaveLength(0);
++  });
++});
+diff --git a/plugins/obsidian/backlogmd/tests/application/pull-issues.test.ts b/plugins/obsidian/backlogmd/tests/application/pull-issues.test.ts
+new file mode 100644
+index 00000000..f0144e6a
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/tests/application/pull-issues.test.ts
+@@ -0,0 +1,115 @@
++import { describe, it, expect, vi, afterEach } from "vitest";
++import { pullIssues, nextTaskId } from "../../src/application/pull-issues";
++import type { ProjectConfig, TaskRepository } from "../../src/application/ports";
++import type { Task } from "../../src/domain/task";
++import type { GhIssue } from "../../src/infrastructure/github";
++
++const project: ProjectConfig = {
++  name: "test",
++  rootPath: "/",
++  backlogDirectory: "backlog",
++  vaultBacklogDir: "backlog",
++  statuses: ["To Do", "In Progress", "Done"],
++  types: [],
++  priorities: [],
++  doneStatuses: ["Done"],
++  taskPrefix: "task",
++};
++
++function task(id: string, extra: Partial<Task> = {}): Task {
++  return { id, title: id, status: "To Do", path: `backlog/tasks/${id}.md`, ...extra };
++}
++
++class MemoryTasks implements TaskRepository {
++  tasks: Task[] = [];
++  async list() {
++    return this.tasks;
++  }
++  async get(_p: ProjectConfig, id: string) {
++    return this.tasks.find((t) => t.id === id) ?? null;
++  }
++  async write(_p: ProjectConfig, t: Task, _body: string) {
++    const i = this.tasks.findIndex((x) => x.id === t.id);
++    if (i === -1) this.tasks.push(t);
++    else this.tasks[i] = t;
++  }
++  async create(_p: ProjectConfig, t: Task, _body: string) {
++    this.tasks.push(t);
++    return t.path;
++  }
++}
++
++function mockFetch(issues: (GhIssue & { pull_request?: unknown })[]) {
++  vi.stubGlobal(
++    "fetch",
++    async () => ({ ok: true, status: 200, json: async () => issues }),
++  );
++}
++
++afterEach(() => vi.unstubAllGlobals());
++
++describe("nextTaskId", () => {
++  it("starts at prefix-001 for an empty tracker", () => {
++    expect(nextTaskId([], "task")).toBe("task-001");
++  });
++
++  it("is the highest numeric suffix + 1, zero-padded", () => {
++    expect(nextTaskId([task("task-103")], "task")).toBe("task-104");
++    expect(nextTaskId([task("task-103"), task("task-105")], "task")).toBe("task-106");
++    expect(nextTaskId([task("task-9")], "task")).toBe("task-010");
++  });
++
++  it("is case-insensitive and ignores subtask or unrelated ids", () => {
++    expect(nextTaskId([task("TASK-105")], "task")).toBe("task-106");
++    expect(nextTaskId([task("task-116.16"), task("FEATURE-7")], "task")).toBe("task-001");
++  });
++});
++
++describe("pullIssues", () => {
++  it("first pull creates tasks with source ref and code-blocked body", async () => {
++    mockFetch([
++      { number: 1, title: "Open issue", state: "open", body: "the body" },
++      { number: 2, title: "Closed issue", state: "closed" },
++      { number: 3, title: "A pull request", state: "open", pull_request: {} },
++    ]);
++    const repo = new MemoryTasks();
++    await pullIssues(repo, project, "tok", "owner", "repo");
++
++    expect(repo.tasks.map((t) => t.id)).toEqual(["task-001", "task-002"]);
++    expect(repo.tasks[0].references).toEqual(["github:owner/repo#1"]);
++    expect(repo.tasks[0].body).toBe("```\nthe body\n```");
++    expect(repo.tasks[0].status).toBe("To Do");
++    expect(repo.tasks[1].status).toBe("Done");
++  });
++
++  it("second pull syncs title/assignee/state only, keeps local planning and body", async () => {
++    mockFetch([{ number: 1, title: "v1", state: "open", assignee: "alice", body: "b1" }]);
++    const repo = new MemoryTasks();
++    await pullIssues(repo, project, "tok", "owner", "repo");
++    // local planning happens after the first pull
++    repo.tasks[0] = { ...repo.tasks[0], milestone: "m-0", priority: "high" };
++
++    mockFetch([{ number: 1, title: "v2", state: "closed", assignee: "bob" }]);
++    await pullIssues(repo, project, "tok", "owner", "repo");
++
++    expect(repo.tasks).toHaveLength(1);
++    const t = repo.tasks[0];
++    expect(t.title).toBe("v2");
++    expect(t.assignee).toEqual(["bob"]);
++    expect(t.status).toBe("Done");
++    expect(t.milestone).toBe("m-0"); // local planning untouched
++    expect(t.priority).toBe("high");
++    expect(t.body).toBe("```\nb1\n```"); // description never overwritten
++  });
++
++  it("assigns collision-free ids when several new issues arrive at once", async () => {
++    mockFetch([
++      { number: 1, title: "a", state: "open" },
++      { number: 2, title: "b", state: "open" },
++      { number: 3, title: "c", state: "open" },
++    ]);
++    const repo = new MemoryTasks();
++    await pullIssues(repo, project, "tok", "owner", "repo");
++    expect(repo.tasks.map((t) => t.id)).toEqual(["task-001", "task-002", "task-003"]);
++  });
++});
+diff --git a/plugins/obsidian/backlogmd/tests/domain/milestone.test.ts b/plugins/obsidian/backlogmd/tests/domain/milestone.test.ts
+new file mode 100644
+index 00000000..4d92ed83
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/tests/domain/milestone.test.ts
+@@ -0,0 +1,79 @@
++import { describe, it, expect } from "vitest";
++import { parseMilestone, serializeMilestone, effectiveState, daysLeft, Milestone } from "../../src/domain/milestone";
++import { nextMilestoneId } from "../../src/application/milestone";
++import { Task } from "../../src/domain/task";
++
++const MINIMAL = `---
++id: m-0
++title: "KubeDash 5.0 base structure"
++---
++
++## Description
++
++Milestone: KubeDash 5.0 base structure
++`;
++
++const t = (id: string, milestone: string | undefined, status = "To Do"): Task => ({
++  id,
++  title: id,
++  status,
++  milestone,
++  path: `tasks/${id}.md`,
++});
++
++describe("milestone domain", () => {
++  it("parses the CLI's minimal format", () => {
++    const p = parseMilestone("milestones/m-0 - x.md", MINIMAL);
++    expect(p.milestone.id).toBe("m-0");
++    expect(p.milestone.title).toBe("KubeDash 5.0 base structure");
++    expect(p.milestone.state).toBeUndefined();
++    expect(p.body).toContain("## Description");
++  });
++
++  it("round-trips sprint fields", () => {
++    const m: Milestone = {
++      id: "m-1",
++      title: "x",
++      state: "active",
++      start_date: "2026-11-10",
++      end_date: "2026-11-21",
++      goal: "ship auth",
++      completed_tasks: ["TASK-001"],
++      carried_over_tasks: ["TASK-002"],
++      path: "p",
++    };
++    const out = serializeMilestone(m, "body");
++    const p = parseMilestone("p", out);
++    expect(p.milestone.state).toBe("active");
++    expect(p.milestone.end_date).toBe("2026-11-21");
++    expect(p.milestone.goal).toBe("ship auth");
++    expect(p.milestone.completed_tasks).toEqual(["TASK-001"]);
++    expect(p.milestone.carried_over_tasks).toEqual(["TASK-002"]);
++    expect(p.body.trim()).toBe("body");
++  });
++
++  it("effectiveState: explicit wins, otherwise derive from tasks", () => {
++    const done = ["Done"];
++    const m: Milestone = { id: "m-1", title: "x", path: "p" };
++    expect(effectiveState(m, [t("TASK-001", "m-1", "Done")], done)).toBe("completed");
++    expect(effectiveState(m, [t("TASK-001", "m-1", "Done"), t("TASK-002", "m-1", "To Do")], done)).toBe("planned");
++    expect(effectiveState(m, [t("TASK-001", "m-2", "Done")], done)).toBe("planned");
++    const explicit: Milestone = { ...m, state: "active" };
++    expect(effectiveState(explicit, [t("TASK-001", "m-1", "Done")], done)).toBe("active");
++  });
++
++  it("daysLeft counts whole days", () => {
++    const inThree: Milestone = { id: "m", title: "x", end_date: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10), path: "" };
++    expect(daysLeft(inThree)).toBe(3);
++    const none: Milestone = { id: "m", title: "x", path: "" };
++    expect(daysLeft(none)).toBeNull();
++    const past: Milestone = { id: "m", title: "x", end_date: new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10), path: "" };
++    expect(daysLeft(past)).toBe(-2);
++  });
++
++  it("nextMilestoneId takes max numeric suffix + 1", () => {
++    const ms = (id: string): Milestone => ({ id, title: id, path: "" });
++    expect(nextMilestoneId([ms("m-0"), ms("m-4"), ms("m-6")])).toBe("m-7");
++    expect(nextMilestoneId([])).toBe("m-1");
++  });
++});
+diff --git a/plugins/obsidian/backlogmd/tests/domain/task.test.ts b/plugins/obsidian/backlogmd/tests/domain/task.test.ts
+new file mode 100644
+index 00000000..f249ccba
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/tests/domain/task.test.ts
+@@ -0,0 +1,25 @@
++import { describe, it, expect } from "vitest";
++import { isDone, isBlocked, Task } from "../../src/domain/task";
++
++describe("task domain", () => {
++  const done = ["Done"];
++
++  it("isDone true for done status", () => {
++    const t: Task = { id: "T1", title: "x", status: "Done", path: "p" };
++    expect(isDone(t, done)).toBe(true);
++  });
++
++  it("isBlocked true when dependency not done", () => {
++    const dep: Task = { id: "D", title: "d", status: "To Do", path: "p" };
++    const t: Task = { id: "T1", title: "x", status: "To Do", dependencies: ["D"], path: "p" };
++    const m = new Map([["D", dep]]);
++    expect(isBlocked(t, m, done)).toBe(true);
++  });
++
++  it("isBlocked false when dependency done", () => {
++    const dep: Task = { id: "D", title: "d", status: "Done", path: "p" };
++    const t: Task = { id: "T1", title: "x", status: "To Do", dependencies: ["D"], path: "p" };
++    const m = new Map([["D", dep]]);
++    expect(isBlocked(t, m, done)).toBe(false);
++  });
++});
+\ No newline at end of file
+diff --git a/plugins/obsidian/backlogmd/tests/infrastructure/config.test.ts b/plugins/obsidian/backlogmd/tests/infrastructure/config.test.ts
+new file mode 100644
+index 00000000..581e2e92
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/tests/infrastructure/config.test.ts
+@@ -0,0 +1,184 @@
++import { describe, it, expect, beforeEach, afterEach } from "vitest";
++import fs from "fs";
++import os from "os";
++import path from "path";
++import { FileSystemPort, ProjectConfig } from "../../src/application/ports";
++import { discoverProjects, walkUpForFile } from "../../src/infrastructure/config";
++import { FileTaskRepository } from "../../src/infrastructure/task-repository";
++
++const TASK_MD = (id: string, status: string) =>
++  `---\nid: ${id}\ntitle: "Task ${id}"\nstatus: "${status}"\ntype: feature\npriority: medium\n---\nBody ${id}\n`;
++
++const ROOT_CONFIG = (name: string, backlogDir: string) =>
++  [
++    `project_name: "${name}"`,
++    `default_status: "To Do"`,
++    `statuses: ["To Do", "In Progress", "Done"]`,
++    `labels: []`,
++    `types: ["feature", "bug", "enhancement", "refactor", "docs", "chore"]`,
++    `priorities: ["high", "medium", "low"]`,
++    `task_prefix: "task"`,
++    `backlog_directory: "${backlogDir}"`,
++  ].join("\n");
++
++/** Vault-relative FS backed by a real temp directory (same mechanics as
++ *  ObsidianFileSystem's abs-path methods: node fs from the vault root). */
++class FakeFS implements FileSystemPort {
++  constructor(private vaultAbs: string) {}
++
++  private vaultRel(p: string): string {
++    return path.join(this.vaultAbs, p.replace(/^\/+/, ""));
++  }
++  async exists(p: string) {
++    return fs.existsSync(this.vaultRel(p));
++  }
++  async readText(p: string) {
++    return fs.promises.readFile(this.vaultRel(p), "utf8");
++  }
++  async writeText(p: string, c: string) {
++    await fs.promises.mkdir(path.dirname(this.vaultRel(p)), { recursive: true });
++    await fs.promises.writeFile(this.vaultRel(p), c);
++  }
++  async listDirs(p: string) {
++    const dir = this.vaultRel(p);
++    if (!fs.existsSync(dir)) return [];
++    return fs
++      .readdirSync(dir, { withFileTypes: true })
++      .filter((d) => d.isDirectory())
++      .map((d) => d.name);
++  }
++  async listFiles(p: string) {
++    const dir = this.vaultRel(p);
++    if (!fs.existsSync(dir)) return [];
++    return fs
++      .readdirSync(dir, { withFileTypes: true })
++      .filter((d) => d.isFile())
++      .map((d) => d.name);
++  }
++  async getVaultRootAbs() {
++    return this.vaultAbs;
++  }
++  async findAncestorProjectRoot(maxDepth = 5) {
++    return walkUpForFile(this.vaultAbs, "backlog.config.yml", maxDepth, (x) => fs.existsSync(x));
++  }
++  async readTextAbs(a: string) {
++    return fs.promises.readFile(a, "utf8");
++  }
++}
++
++let tmp: string;
++
++beforeEach(() => {
++  tmp = fs.mkdtempSync(path.join(os.tmpdir(), "backlogmd-cfg-"));
++});
++afterEach(() => {
++  fs.rmSync(tmp, { recursive: true, force: true });
++});
++
++function write(rel: string, content: string) {
++  const p = path.join(tmp, rel);
++  fs.mkdirSync(path.dirname(p), { recursive: true });
++  fs.writeFileSync(p, content);
++}
++
++describe("project discovery", () => {
++  it("discovers a skillgrid vault whose project root sits above the vault", async () => {
++    // <repo>/backlog.config.yml
++    // <repo>/.skillgrid/projectwiki/            <- vault
++    // <repo>/.skillgrid/projectwiki/backlog/tasks/...
++    const repo = tmp;
++    const vault = path.join(repo, ".skillgrid", "projectwiki");
++    write("backlog.config.yml", ROOT_CONFIG("KubeDash", ".skillgrid/projectwiki/backlog"));
++    write(".skillgrid/projectwiki/config.json", "{}");
++    write(".skillgrid/projectwiki/backlog/tasks/task-001 - Scaffold.md", TASK_MD("TASK-001", "To Do"));
++    write(".skillgrid/projectwiki/backlog/tasks/task-002 - Wire-up.md", TASK_MD("TASK-002", "In Progress"));
++
++    const fsPort = new FakeFS(vault);
++    const projects = await discoverProjects(fsPort, [""], []);
++
++    expect(projects).toHaveLength(1);
++    const p = projects[0];
++    expect(p.name).toBe("KubeDash");
++    expect(p.statuses).toEqual(["To Do", "In Progress", "Done"]);
++    expect(p.types).toEqual(["feature", "bug", "enhancement", "refactor", "docs", "chore"]);
++    expect(p.vaultBacklogDir).toBe("backlog");
++    expect(p.backlogDirectory).toBe(".skillgrid/projectwiki/backlog");
++
++    const repo2 = new FileTaskRepository(fsPort);
++    const tasks = await repo2.list(p);
++    expect(tasks.map((t) => t.id).sort()).toEqual(["TASK-001", "TASK-002"]);
++  });
++
++  it("discovers a child folder with a legacy .backlog/config.yml from a scan", async () => {
++    const vault = tmp;
++    write("Demo/.backlog/config.yml", "project_name: Demo\nstatuses: [\"Open\", \"Closed\"]\n");
++    write("Demo/.backlog/tasks/task-001 - a.md", TASK_MD("TASK-001", "Open"));
++
++    const fsPort = new FakeFS(vault);
++    const projects = await discoverProjects(fsPort, [""], []);
++
++    expect(projects).toHaveLength(1);
++    expect(projects[0].name).toBe("Demo");
++    expect(projects[0].rootPath).toBe("Demo");
++    expect(projects[0].vaultBacklogDir).toBe("Demo/.backlog");
++    expect(projects[0].statuses).toEqual(["Open", "Closed"]);
++  });
++
++  it("honors backlog_directory when the project root is the vault root", async () => {
++    const vault = tmp;
++    write("backlog.config.yml", ROOT_CONFIG("Custom", "custom-backlog"));
++    write("custom-backlog/tasks/task-001 - a.md", TASK_MD("TASK-001", "To Do"));
++
++    const fsPort = new FakeFS(vault);
++    const projects = await discoverProjects(fsPort, [""], []);
++
++    expect(projects).toHaveLength(1);
++    expect(projects[0].name).toBe("Custom");
++    expect(projects[0].vaultBacklogDir).toBe("custom-backlog");
++    const tasks = await new FileTaskRepository(fsPort).list(projects[0]);
++    expect(tasks).toHaveLength(1);
++  });
++
++  it("merges manual roots with the scan and dedupes", async () => {
++    const vault = tmp;
++    write("Demo/.backlog/config.yml", "project_name: Demo\nstatuses: [\"Open\"]\n");
++    write("Demo/.backlog/tasks/task-001 - a.md", TASK_MD("TASK-001", "Open"));
++
++    const fsPort = new FakeFS(vault);
++    const projects = await discoverProjects(fsPort, [""], ["Demo"]);
++
++    expect(projects).toHaveLength(1);
++    expect(projects[0].name).toBe("Demo");
++  });
++
++  it("rejects an ancestor whose backlog directory is not inside the vault", async () => {
++    const repo = tmp;
++    const vault = path.join(repo, ".skillgrid", "projectwiki");
++    write("backlog.config.yml", ROOT_CONFIG("Outside", ".backlog")); // .backlog stays at repo level
++    write(".backlog/tasks/task-001 - a.md", TASK_MD("TASK-001", "To Do"));
++
++    const fsPort = new FakeFS(vault);
++    const projects = await discoverProjects(fsPort, [""], []);
++
++    expect(projects).toHaveLength(0);
++  });
++
++  it("finds no project in a vault without any backlog config", async () => {
++    const vault = tmp;
++    write("notes/random.md", "# hi");
++
++    const fsPort = new FakeFS(vault);
++    const projects = await discoverProjects(fsPort, [""], []);
++
++    expect(projects).toHaveLength(0);
++  });
++
++  it("walkUpForFile stops at maxDepth", () => {
++    const deep = path.join(tmp, "a", "b", "c");
++    fs.mkdirSync(deep, { recursive: true });
++    const found = walkUpForFile(deep, "marker.txt", 1, (p) => fs.existsSync(p));
++    expect(found).toBeNull();
++    fs.writeFileSync(path.join(tmp, "marker.txt"), "x");
++    expect(walkUpForFile(deep, "marker.txt", 5, (p) => fs.existsSync(p))).toBe(tmp);
++  });
++});
+diff --git a/plugins/obsidian/backlogmd/tests/infrastructure/vault.test.ts b/plugins/obsidian/backlogmd/tests/infrastructure/vault.test.ts
+new file mode 100644
+index 00000000..4170c3b9
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/tests/infrastructure/vault.test.ts
+@@ -0,0 +1,66 @@
++import { describe, it, expect } from "vitest";
++import { parseTask, serializeTask, updateFrontmatter } from "../../src/infrastructure/vault";
++
++const SAMPLE = `---
++id: TASK-1
++title: "Hello"
++status: "To Do"
++priority: medium
++dependencies: []
++---
++Body line 1
++Body line 2
++`;
++
++describe("vault adapter", () => {
++  it("parse reads task", () => {
++    const p = parseTask("x.md", SAMPLE);
++    expect(p.task.id).toBe("TASK-1");
++    expect(p.task.status).toBe("To Do");
++  });
++
++  it("round trip body stable", () => {
++    const p = parseTask("x.md", SAMPLE);
++    const out = serializeTask(p.task, p.body);
++    // body present
++    expect(out).toContain("Body line 1");
++  });
++
++  it("updateFrontmatter changes only patched field", () => {
++    const out = updateFrontmatter(SAMPLE, { status: "In Progress" });
++    const p2 = parseTask("x.md", out);
++    expect(p2.task.status).toBe("In Progress");
++    expect(p2.body.trim()).toBe("Body line 1\nBody line 2");
++  });
++
++  it("parse preserves ordinal and serialize round-trips it", () => {
++    const withOrdinal = `---
++id: TASK-1
++title: "Hello"
++status: "To Do"
++ordinal: 1000
++---
++Body
++`;
++    const p = parseTask("x.md", withOrdinal);
++    expect(p.task.ordinal).toBe(1000);
++    const out = serializeTask(p.task, p.body);
++    expect(parseTask("x.md", out).task.ordinal).toBe(1000);
++    expect(out).toContain("ordinal: 1000");
++  });
++
++  it("parse leaves ordinal undefined when absent", () => {
++    const p = parseTask("x.md", SAMPLE);
++    expect(p.task.ordinal).toBeUndefined();
++  });
++
++  it("parse throws on malformed YAML frontmatter (error path, not silent corruption)", () => {
++    const malformed = `---
++id: OB-1
++status: [unclosed
++---
++Body
++`;
++    expect(() => parseTask("tasks/OB-1.md", malformed)).toThrow();
++  });
++});
+\ No newline at end of file
+diff --git a/plugins/obsidian/backlogmd/tsconfig.json b/plugins/obsidian/backlogmd/tsconfig.json
+new file mode 100644
+index 00000000..2ef92ee4
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/tsconfig.json
+@@ -0,0 +1,20 @@
++{
++  "compilerOptions": {
++    "baseUrl": ".",
++    "inlineSourceMap": true,
++    "inlineSources": true,
++    "module": "ESNext",
++    "target": "ES2022",
++    "allowJs": true,
++    "noImplicitAny": true,
++    "moduleResolution": "node",
++    "importHelpers": true,
++    "isolatedModules": true,
++    "strictNullChecks": true,
++    "esModuleInterop": true,
++    "allowSyntheticDefaultImports": true,
++    "lib": ["DOM", "ES2022"],
++    "skipLibCheck": true
++  },
++  "include": ["src/**/*.ts"]
++}
+\ No newline at end of file
+diff --git a/plugins/obsidian/backlogmd/versions.json b/plugins/obsidian/backlogmd/versions.json
+new file mode 100644
+index 00000000..c4fff831
+--- /dev/null
++++ b/plugins/obsidian/backlogmd/versions.json
+@@ -0,0 +1,3 @@
++{
++  "0.1.0": "1.13.0"
++}
+\ No newline at end of file
