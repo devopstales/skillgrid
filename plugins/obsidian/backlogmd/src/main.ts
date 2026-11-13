@@ -8,6 +8,7 @@ import { PullIssuesModal } from "./ui/pull-issues-modal";
 import { MilestoneModal } from "./ui/milestone-modal";
 import { BacklogMdSettingTab, DEFAULT_SETTINGS } from "./settings/settings-tab";
 import { FileWatcher } from "./infrastructure/watcher";
+import { syncTaskHeaderButtons } from "./ui/task-note-header";
 
 export default class BacklogMdPlugin extends Plugin {
   ctx!: PluginContext;
@@ -43,6 +44,10 @@ export default class BacklogMdPlugin extends Plugin {
     } });
 
     this.addSettingTab(new BacklogMdSettingTab(this.app, this, this.settings));
+
+    // "Edit task" header button on task notes
+    this.registerEvent(this.app.workspace.on("file-open", () => syncTaskHeaderButtons(this.app, this.ctx)));
+    this.app.workspace.onLayoutReady(() => syncTaskHeaderButtons(this.app, this.ctx));
 
     new FileWatcher(this.app, () => {
       const reRender = (type: string) => {

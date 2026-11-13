@@ -3526,7 +3526,7 @@ __export(main_exports, {
   default: () => BacklogMdPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian10 = require("obsidian");
+var import_obsidian11 = require("obsidian");
 
 // src/infrastructure/obsidian-fs.ts
 var import_obsidian = require("obsidian");
@@ -7979,8 +7979,39 @@ var FileWatcher = class {
   }
 };
 
+// src/ui/task-note-header.ts
+var import_obsidian10 = require("obsidian");
+var MARKER = "backlogmd-edit-task";
+function projectForPath(projects, path2) {
+  for (const project of projects) {
+    if (path2.startsWith(`${project.vaultBacklogDir}/tasks/`)) return project;
+  }
+  return null;
+}
+function syncTaskHeaderButtons(app, ctx) {
+  for (const leaf of app.workspace.getLeavesOfType("markdown")) {
+    const view = leaf.view;
+    const headerHost = view;
+    const headerEl = headerHost.headerEl;
+    if (!headerEl) continue;
+    headerEl.querySelectorAll(`.${MARKER}`).forEach((n) => n.remove());
+    const file = view.file;
+    if (!(file instanceof import_obsidian10.TFile)) continue;
+    const project = projectForPath(ctx.projects, file.path);
+    if (!project) continue;
+    const btn = headerEl.createEl("div", { cls: `clickable-icon ${MARKER}`, title: "Edit task" });
+    (0, import_obsidian10.setIcon)(btn, "pencil");
+    btn.addEventListener("click", () => {
+      void ctx.repo.list(project).then((all) => {
+        const t = all.find((x) => x.path === file.path);
+        if (t) new TaskModal(app, ctx, project, t, all).open();
+      });
+    });
+  }
+}
+
 // src/main.ts
-var BacklogMdPlugin = class extends import_obsidian10.Plugin {
+var BacklogMdPlugin = class extends import_obsidian11.Plugin {
   ctx;
   settings = DEFAULT_SETTINGS;
   async onload() {
@@ -8010,6 +8041,8 @@ var BacklogMdPlugin = class extends import_obsidian10.Plugin {
       if (project) void this.ctx.milestones.list(project).then((all) => new MilestoneModal(this.app, this.ctx, project, all).open());
     } });
     this.addSettingTab(new BacklogMdSettingTab(this.app, this, this.settings));
+    this.registerEvent(this.app.workspace.on("file-open", () => syncTaskHeaderButtons(this.app, this.ctx)));
+    this.app.workspace.onLayoutReady(() => syncTaskHeaderButtons(this.app, this.ctx));
     new FileWatcher(this.app, () => {
       const reRender = (type2) => {
         for (const l of this.app.workspace.getLeavesOfType(type2)) {
