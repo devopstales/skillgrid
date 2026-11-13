@@ -54,6 +54,7 @@ export default class BacklogMdPlugin extends Plugin {
       };
       reRender(KANBAN_VIEW_TYPE);
       reRender(BACKLOG_VIEW_TYPE);
+      reRender(MILESTONE_VIEW_TYPE);
     });
   }
 

@@ -12,6 +12,13 @@
 .backlogmd-chip { font-size: 10px; padding: 1px 8px; border-radius: 8px; background: var(--background-modifier-border); color: var(--text-muted); text-transform: capitalize; }
 .backlogmd-chip-active { background: var(--interactive-accent); color: var(--text-on-accent); }
 
+.backlogmd-milestone-list { display: flex; flex-direction: column; gap: 8px; }
+.backlogmd-milestone-row { border: 1px solid var(--background-modifier-border); border-radius: 8px; padding: 8px; }
+.backlogmd-milestone-header { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; cursor: pointer; }
+.backlogmd-milestone-tasks { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--background-modifier-border); display: flex; flex-direction: column; gap: 4px; }
+.backlogmd-milestone-task { display: flex; gap: 8px; align-items: baseline; }
+.backlogmd-milestone-task .backlogmd-row-title { flex: 1; font-size: 12px; }
+
 .backlogmd-rows { min-height: 10px; }
 .backlogmd-row { display: flex; gap: 8px; align-items: baseline; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; cursor: grab; }
 .backlogmd-row.blocked { border-left: 3px solid var(--text-error); }
