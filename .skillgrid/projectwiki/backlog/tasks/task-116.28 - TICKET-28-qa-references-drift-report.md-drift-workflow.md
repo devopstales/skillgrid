@@ -1,10 +1,10 @@
 ---
 id: TASK-116.28
 title: 'TICKET-28: qa/references/drift-report.md: drift workflow'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-12 09:20'
-updated_date: '2026-11-12 09:30'
+updated_date: '2026-11-12 11:22'
 labels: []
 dependencies:
   - TASK-116.22

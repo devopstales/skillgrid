@@ -1,10 +1,10 @@
 ---
 id: TASK-116.21
 title: 'TICKET-21: references/goldfish-review-loop.md: sharpening loop'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-12 09:18'
-updated_date: '2026-11-12 09:29'
+updated_date: '2026-11-12 11:27'
 labels: []
 dependencies:
   - TASK-116.20

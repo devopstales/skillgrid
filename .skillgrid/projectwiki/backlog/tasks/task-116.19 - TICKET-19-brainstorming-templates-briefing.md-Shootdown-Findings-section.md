@@ -1,10 +1,10 @@
 ---
 id: TASK-116.19
 title: 'TICKET-19: brainstorming templates/briefing.md: Shootdown Findings section'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-12 09:18'
-updated_date: '2026-11-12 09:29'
+updated_date: '2026-11-12 11:28'
 labels: []
 dependencies:
   - TASK-116.17

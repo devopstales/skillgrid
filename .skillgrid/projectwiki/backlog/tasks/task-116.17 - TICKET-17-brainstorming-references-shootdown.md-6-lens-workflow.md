@@ -1,10 +1,10 @@
 ---
 id: TASK-116.17
 title: 'TICKET-17: brainstorming/references/shootdown.md: 6-lens workflow'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-12 09:17'
-updated_date: '2026-11-12 09:29'
+updated_date: '2026-11-12 11:28'
 labels: []
 dependencies:
   - TASK-116.16

@@ -1,10 +1,10 @@
 ---
 id: TASK-116.26
 title: 'TICKET-26: references/section-by-section.md: drafting workflow + 8 disciplines'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-12 09:19'
-updated_date: '2026-11-12 09:29'
+updated_date: '2026-11-12 11:27'
 labels: []
 dependencies: []
 references:

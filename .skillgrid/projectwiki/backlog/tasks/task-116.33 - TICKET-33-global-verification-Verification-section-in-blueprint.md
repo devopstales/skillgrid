@@ -1,10 +1,10 @@
 ---
 id: TASK-116.33
 title: 'TICKET-33: global verification + Verification section in blueprint'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-12 09:21'
-updated_date: '2026-11-12 09:30'
+updated_date: '2026-11-12 11:58'
 labels: []
 dependencies:
   - TASK-116.24

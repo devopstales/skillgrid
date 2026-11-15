@@ -1,10 +1,10 @@
 ---
 id: TASK-116.20
 title: 'TICKET-20: writing-blueprints/references/goldfish-review.md: 5-stage pipeline'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-12 09:18'
-updated_date: '2026-11-12 09:29'
+updated_date: '2026-11-12 11:27'
 labels: []
 dependencies:
   - TASK-116.07

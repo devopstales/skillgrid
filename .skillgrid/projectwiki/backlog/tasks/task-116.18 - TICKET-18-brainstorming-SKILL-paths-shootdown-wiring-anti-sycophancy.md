@@ -1,10 +1,10 @@
 ---
 id: TASK-116.18
 title: 'TICKET-18: brainstorming SKILL + paths: shootdown wiring + anti-sycophancy'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-12 09:18'
-updated_date: '2026-11-12 09:29'
+updated_date: '2026-11-12 11:28'
 labels: []
 dependencies:
   - TASK-116.17

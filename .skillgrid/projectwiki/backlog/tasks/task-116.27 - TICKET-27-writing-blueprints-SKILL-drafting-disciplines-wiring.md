@@ -1,10 +1,10 @@
 ---
 id: TASK-116.27
 title: 'TICKET-27: writing-blueprints SKILL: drafting disciplines wiring'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-12 09:19'
-updated_date: '2026-11-12 09:30'
+updated_date: '2026-11-12 11:47'
 labels: []
 dependencies:
   - TASK-116.26

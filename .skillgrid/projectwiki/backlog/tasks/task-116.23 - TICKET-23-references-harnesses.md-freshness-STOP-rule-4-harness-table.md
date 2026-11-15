@@ -1,10 +1,10 @@
 ---
 id: TASK-116.23
 title: 'TICKET-23: references/harnesses.md: freshness STOP rule + 4-harness table'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-12 09:19'
-updated_date: '2026-11-12 09:29'
+updated_date: '2026-11-12 11:27'
 labels: []
 dependencies:
   - TASK-116.07

@@ -3,10 +3,10 @@ id: TASK-116.24
 title: >-
   TICKET-24: writing-blueprints validation seam -> goldfish pipeline
   (plan-review deleted, D2)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-12 09:19'
-updated_date: '2026-11-12 09:29'
+updated_date: '2026-11-12 11:47'
 labels: []
 dependencies:
   - TASK-116.20

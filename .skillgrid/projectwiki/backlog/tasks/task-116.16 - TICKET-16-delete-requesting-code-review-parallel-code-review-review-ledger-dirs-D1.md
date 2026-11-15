@@ -3,10 +3,10 @@ id: TASK-116.16
 title: >-
   TICKET-16: delete requesting-code-review, parallel-code-review, review-ledger
   dirs (D1)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-12 09:17'
-updated_date: '2026-11-12 09:29'
+updated_date: '2026-11-12 11:04'
 labels: []
 dependencies:
   - TASK-116.14

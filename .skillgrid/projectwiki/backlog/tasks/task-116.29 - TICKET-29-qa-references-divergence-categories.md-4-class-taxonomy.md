@@ -1,10 +1,10 @@
 ---
 id: TASK-116.29
 title: 'TICKET-29: qa/references/divergence-categories.md: 4-class taxonomy'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-12 09:20'
-updated_date: '2026-11-12 09:30'
+updated_date: '2026-11-12 11:22'
 labels: []
 dependencies: []
 references:

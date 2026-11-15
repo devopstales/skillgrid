@@ -1,10 +1,10 @@
 ---
 id: TASK-116.32
 title: 'TICKET-32: reflect SKILL: Drift Check advisory gate item'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-11-12 09:20'
-updated_date: '2026-11-12 09:30'
+updated_date: '2026-11-12 11:38'
 labels: []
 dependencies:
   - TASK-116.31
