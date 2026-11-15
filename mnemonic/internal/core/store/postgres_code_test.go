@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"testing"
 )
 
@@ -155,6 +156,34 @@ func TestPostgresCodeDialectRender(t *testing.T) {
 	// The rolled-back file is absent (the tx did not commit).
 	if _, err := st.FileByPath(ctx, "tx.go"); err == nil {
 		t.Fatalf("a rolled-back tx.UpsertFile must not persist the file")
+	}
+
+	// The orphan prune (002 §9) with a keep-set over the PG per-statement
+	// parameter limit: the keep-set must stage through the temp table, not
+	// one giant NOT IN (?,…) list.
+	pf, err := st.UpsertFile(ctx, FileRow{Path: "prune.go", MtimeNS: 1, Size: 1, ContentHash: "c", Language: "go"})
+	if err != nil {
+		t.Fatalf("prune upsert file: %v", err)
+	}
+	if _, err := st.UpsertSymbols(ctx, pf, []Symbol{
+		{Name: "PGKeep", Kind: "function", UID: "prune.go:PGKeep:function"},
+		{Name: "PGGone", Kind: "function", UID: "prune.go:PGGone:function"},
+	}); err != nil {
+		t.Fatalf("prune upsert syms: %v", err)
+	}
+	pgUIDs := make([]string, 33000) // a large keep-set — the batched staging path
+	for i := range pgUIDs {
+		pgUIDs[i] = fmt.Sprintf("prune.go:s%d:function", i)
+	}
+	pgUIDs = append(pgUIDs, "prune.go:PGKeep:function")
+	if err := st.PruneOrphanSymbols(ctx, pgUIDs); err != nil {
+		t.Fatalf("PG PruneOrphanSymbols (large keep-set): %v", err)
+	}
+	if rows, _ := st.SymbolByName(ctx, "PGGone"); len(rows) != 0 {
+		t.Fatalf("pruned symbol must be gone: %+v", rows)
+	}
+	if rows, _ := st.SymbolByName(ctx, "PGKeep"); len(rows) != 1 {
+		t.Fatalf("kept symbol must survive: %+v", rows)
 	}
 }
 

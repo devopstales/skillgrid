@@ -2237,24 +2237,56 @@ func (s *sqliteStore) DeleteFile(ctx context.Context, path string) error {
 	})
 }
 
+// pruneKeepBatch is the per-INSERT placeholder count when staging the
+// keep-set (any count under SQLite's 32766 bind-variable limit works;
+// 500 keeps the statement small and fast to prepare).
+const pruneKeepBatch = 500
+
 // PruneOrphanSymbols deletes symbols whose uid is not in the declared
 // target set (spec 002 §9 — the "the file changed, so its old symbols that
 // no longer exist are gone" cleanup; the FK cascade takes their edges).
+//
+// The keep-set is staged in a connection-local temp table, not one giant
+// NOT IN (?,…): a full re-index of a large repo declares more uids than
+// SQLite's bind-variable limit (32766), which the single-statement
+// IN-list form dies on ("too many SQL variables").
 func (s *sqliteStore) PruneOrphanSymbols(ctx context.Context, targetUIDs []string) error {
 	return s.withWriteRetry(func() error {
 		if len(targetUIDs) == 0 {
 			_, err := s.db.ExecContext(ctx, `DELETE FROM symbols`)
 			return err
 		}
-		ph := make([]string, len(targetUIDs))
-		args := make([]any, len(targetUIDs))
-		for i, u := range targetUIDs {
-			ph[i] = "?"
-			args[i] = u
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
 		}
-		_, err := s.db.ExecContext(ctx,
-			`DELETE FROM symbols WHERE uid NOT IN (`+strings.Join(ph, ",")+`)`, args...)
-		return err
+		defer tx.Rollback()
+		// the pooled connection may hold the temp table from an earlier
+		// (failed or retried) run — drop it first, then recreate fresh.
+		if _, err := tx.ExecContext(ctx, `DROP TABLE IF EXISTS prune_target_uids`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `CREATE TEMP TABLE prune_target_uids (uid TEXT)`); err != nil {
+			return err
+		}
+		for start := 0; start < len(targetUIDs); start += pruneKeepBatch {
+			chunk := targetUIDs[start:min(start+pruneKeepBatch, len(targetUIDs))]
+			rows := make([]string, len(chunk))
+			args := make([]any, len(chunk))
+			for i, u := range chunk {
+				rows[i] = "(?)" // one row per value (single-column table)
+				args[i] = u
+			}
+			if _, err := tx.ExecContext(ctx,
+				`INSERT INTO prune_target_uids (uid) VALUES `+strings.Join(rows, ", "), args...); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM symbols WHERE uid NOT IN (SELECT uid FROM prune_target_uids)`); err != nil {
+			return err
+		}
+		return tx.Commit()
 	})
 }
 

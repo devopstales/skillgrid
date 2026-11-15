@@ -467,6 +467,39 @@ func TestPruneOrphanSymbols(t *testing.T) {
 	}
 }
 
+// A full re-index of a large repo declares more target uids than SQLite's
+// bind-variable limit (32766) — the keep-set must stage through the temp
+// table, not one giant NOT IN (?,…) list ("too many SQL variables", 002 §9).
+func TestPruneOrphanSymbolsLargeTargetSet(t *testing.T) {
+	st := openTestStore(t)
+	ctx := context.Background()
+	fid, err := st.UpsertFile(ctx, FileRow{Path: "prune/big.go", ContentHash: "h", Language: "go"})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if _, err := st.UpsertSymbols(ctx, fid, []Symbol{
+		{Name: "Keep", Kind: "function", UID: "big.go:Keep:function"},
+		{Name: "Gone", Kind: "function", UID: "big.go:Gone:function"},
+	}); err != nil {
+		t.Fatalf("upsert syms: %v", err)
+	}
+
+	uids := make([]string, 33000) // > SQLITE_MAX_VARIABLE_NUMBER (32766)
+	for i := range uids {
+		uids[i] = fmt.Sprintf("big.go:s%d:function", i)
+	}
+	uids = append(uids, "big.go:Keep:function")
+	if err := st.PruneOrphanSymbols(ctx, uids); err != nil {
+		t.Fatalf("prune (large keep-set): %v", err)
+	}
+	if rows, _ := st.SymbolByName(ctx, "Gone"); len(rows) != 0 {
+		t.Fatalf("pruned symbol must be gone: %+v", rows)
+	}
+	if rows, _ := st.SymbolByName(ctx, "Keep"); len(rows) != 1 {
+		t.Fatalf("kept symbol must survive: %+v", rows)
+	}
+}
+
 // ── helpers ─────────────────────────────────────────────────────────────────
 
 // ftsMatchCount runs a real FTS5 MATCH against the named table and returns

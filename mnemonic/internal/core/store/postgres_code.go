@@ -195,23 +195,46 @@ func (s *pgStore) DeleteFile(ctx context.Context, path string) error {
 	return err
 }
 
-// PruneOrphanSymbols deletes symbols whose uid is not in the declared target
-// set (spec 002 §9 — the file changed, so its old symbols are gone; the FK
-// cascade takes their edges).
+// PruneOrphanSymbols deletes symbols whose uid is not in the declared
+// target set (spec 002 §9 — the file changed, so its old symbols are gone; the FK
+// cascade takes their edges). The keep-set is staged in a connection-local
+// temp table (the SQLite twin's rationale: a giant NOT IN (?,…) list hits
+// the per-statement parameter limit on a large re-index).
 func (s *pgStore) PruneOrphanSymbols(ctx context.Context, targetUIDs []string) error {
 	if len(targetUIDs) == 0 {
 		_, err := s.db.ExecContext(ctx, `DELETE FROM `+s.qualified("symbols"))
 		return err
 	}
-	ph := make([]string, len(targetUIDs))
-	args := make([]any, len(targetUIDs))
-	for i, u := range targetUIDs {
-		ph[i] = fmt.Sprintf("$%d", i+1)
-		args[i] = u
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
 	}
-	_, err := s.db.ExecContext(ctx,
-		`DELETE FROM `+s.qualified("symbols")+` WHERE uid NOT IN (`+strings.Join(ph, ",")+`)`, args...)
-	return err
+	defer tx.Rollback()
+	// the pooled connection may hold the temp table from an earlier run.
+	if _, err := tx.ExecContext(ctx, `DROP TABLE IF EXISTS prune_target_uids`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE TEMP TABLE prune_target_uids (uid TEXT)`); err != nil {
+		return err
+	}
+	for start := 0; start < len(targetUIDs); start += pruneKeepBatch {
+		chunk := targetUIDs[start:min(start+pruneKeepBatch, len(targetUIDs))]
+		rows := make([]string, len(chunk))
+		args := make([]any, len(chunk))
+		for i, u := range chunk {
+			rows[i] = fmt.Sprintf("($%d)", i+1) // one row per value (single-column table)
+			args[i] = u
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO prune_target_uids (uid) VALUES `+strings.Join(rows, ", "), args...); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM `+s.qualified("symbols")+` WHERE uid NOT IN (SELECT uid FROM prune_target_uids)`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // UpdateIndexFreshness upserts the one freshness record (spec 001 §4).
