@@ -7,9 +7,12 @@ import type { Milestone } from "../domain/milestone";
 import { daysLeft, effectiveState } from "../domain/milestone";
 import { moveTask, reorderColumn } from "../application/move-task";
 import { renderProjectSwitcher } from "./project-switcher";
+import { renderErrorCard, skippedFiles } from "./render-errors";
 import { TaskModal } from "./task-modal";
 
 export const KANBAN_VIEW_TYPE = "backlogmd-kanban";
+
+const FILTER_DEBOUNCE_MS = 150;
 
 const byOrdinal = (a: Task, b: Task): number =>
   (a.ordinal ?? Number.MAX_SAFE_INTEGER) - (b.ordinal ?? Number.MAX_SAFE_INTEGER) ||
@@ -30,7 +33,14 @@ export class KanbanView extends ItemView {
   private boardHeaderEl: HTMLElement | null = null;
   private milestoneSelectEl: HTMLSelectElement | null = null;
   private indicatorEl: HTMLElement | null = null;
+  private errorEl: HTMLElement | null = null;
   private renderSeq = 0;
+  /** H12: a reorder/move write is in flight — ignore new drops until it settles. */
+  private dropInFlight = false;
+  /** M2: last disk load; filter keystrokes re-render from this, not disk. */
+  private lastTasks: Task[] = [];
+  private lastMilestones: Milestone[] = [];
+  private filterTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(leaf: WorkspaceLeaf, ctx: PluginContext) {
     super(leaf);
@@ -98,7 +108,9 @@ export class KanbanView extends ItemView {
     const container = this.containerEl.children[1] as HTMLElement;
     container.empty();
     this.boardEl = null;
+    this.boardHeaderEl = null;
     this.milestoneSelectEl = null;
+    this.errorEl = null;
 
     const project = this.ctx.projects[this.projectIndex];
     if (!project) {
@@ -122,16 +134,23 @@ export class KanbanView extends ItemView {
     filter.value = this.filter;
     filter.addEventListener("input", () => {
       this.filter = filter.value;
-      void this.renderBoard(project);
+      // M2: debounce + re-filter from the last load — no disk re-read per keystroke.
+      clearTimeout(this.filterTimer);
+      this.filterTimer = setTimeout(() => {
+        this.paintBoard(project, this.lastTasks, this.lastMilestones);
+      }, FILTER_DEBOUNCE_MS);
     });
     const newBtn = toolbar.createEl("button", { text: "+ New task", cls: "backlogmd-new-task" });
     newBtn.addEventListener("click", () => this.openModal(project, null));
 
+    this.errorEl = container.createDiv({ cls: "backlogmd-error-host" });
     this.boardHeaderEl = container.createDiv({ cls: "backlogmd-board-header" });
     this.boardEl = container.createDiv({ cls: "backlogmd-board" });
     await this.renderBoard(project);
   }
 
+  /** Full board render: reads disk, caches the load (M2), surfaces skipped
+   *  files (C4), then paints. */
   private async renderBoard(project: ProjectConfig): Promise<void> {
     const seq = ++this.renderSeq;
     const board = this.boardEl;
@@ -143,6 +162,20 @@ export class KanbanView extends ItemView {
     const tasks = await repo.list(project);
     const milestones = await this.ctx.milestones.list(project);
     if (seq !== this.renderSeq) return; // a newer render owns the DOM now
+    this.lastTasks = tasks;
+    this.lastMilestones = milestones;
+    if (this.errorEl) renderErrorCard(this.errorEl, skippedFiles(repo));
+    this.paintBoard(project, tasks, milestones);
+  }
+
+  /** Synchronous board paint from already-loaded data (M2). Shared by the full
+   *  render and the debounced filter. No disk I/O. */
+  private paintBoard(project: ProjectConfig, tasks: Task[], milestones: Milestone[]): void {
+    const board = this.boardEl;
+    if (!board) return;
+    board.empty();
+    this.removeIndicator();
+
     const active = milestones.find((m) => m.state === "active") ?? null;
     let sel = this.boardMilestone;
     if (sel === null) sel = active ? active.id : ""; // auto: follow the active milestone
@@ -186,7 +219,7 @@ export class KanbanView extends ItemView {
         this.removeIndicator();
         const id = e.dataTransfer?.getData("text/plain");
         if (!id) return;
-        await this.handleDrop(repo, project, allInCol, status, id, e.clientY, listEl);
+        await this.handleDrop(this.ctx.repo, project, allInCol, status, id, e.clientY, listEl);
       });
     }
   }
@@ -236,7 +269,10 @@ export class KanbanView extends ItemView {
       const origClose = modal.onClose.bind(modal);
       modal.onClose = () => {
         origClose();
-        void this.renderBoard(project);
+        // M4: re-resolve the current project so a project switch while the
+        // modal was open cannot desync the board from the toolbar.
+        const current = this.ctx.projects[this.projectIndex];
+        if (current) void this.renderBoard(current);
       };
       modal.open();
     });
@@ -276,6 +312,7 @@ export class KanbanView extends ItemView {
     clientY: number,
     listEl: HTMLElement,
   ): Promise<void> {
+    if (this.dropInFlight) return; // H12: don't interleave an in-flight reorder/move
     const dragged =
       allInCol.find((t) => t.id === id) ?? (await repo.list(project)).find((t) => t.id === id);
     if (!dragged) return;
@@ -291,10 +328,20 @@ export class KanbanView extends ItemView {
       ordered.splice(from, 1);
       ordered.splice(index, 0, dragged);
       if (ordered.every((t, i) => t === allInCol[i])) return; // no-op drop
-      await reorderColumn(repo, project, ordered);
+      this.dropInFlight = true;
+      try {
+        await reorderColumn(repo, project, ordered);
+      } finally {
+        this.dropInFlight = false;
+      }
     } else {
       const ordinal = allInCol.length ? Math.max(...allInCol.map((t) => t.ordinal ?? 0)) + 1000 : 1000;
-      await moveTask(repo, project, dragged, status, ordinal);
+      this.dropInFlight = true;
+      try {
+        await moveTask(repo, project, dragged, status, ordinal);
+      } finally {
+        this.dropInFlight = false;
+      }
     }
     await this.renderBoard(project);
   }

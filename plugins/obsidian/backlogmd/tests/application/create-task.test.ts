@@ -1,11 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { nextTaskId, createTask } from "../../src/application/create-task";
+import { createTask } from "../../src/application/create-task";
+import { nextTaskId } from "../../src/domain/task";
 import { TaskRepository, ProjectConfig } from "../../src/application/ports";
 import { Task } from "../../src/domain/task";
 
 const t = (id: string, ordinal?: number): Task => ({ id, title: id, status: "To Do", ordinal, path: "" });
 
 class MemoryRepo implements TaskRepository {
+  lastErrors: string[] = [];
   written: { task: Task; body: string }[] = [];
   async list() {
     return [];
@@ -34,28 +36,6 @@ const project: ProjectConfig = {
   taskPrefix: "OB",
 };
 
-describe("nextTaskId", () => {
-  it("starts at 001 when no tasks exist", () => {
-    expect(nextTaskId([], "task")).toBe("TASK-001");
-  });
-
-  it("takes max numeric suffix + 1 (not count — deletions leave gaps)", () => {
-    expect(nextTaskId([t("TASK-001"), t("TASK-002"), t("TASK-007")], "task")).toBe("TASK-008");
-  });
-
-  it("zero-pads to three digits", () => {
-    expect(nextTaskId([t("TASK-009")], "task")).toBe("TASK-010");
-  });
-
-  it("ignores IDs without a numeric suffix", () => {
-    expect(nextTaskId([t("EPIC-ALPHA"), t("TASK-003")], "task")).toBe("TASK-004");
-  });
-
-  it("uppercases the prefix", () => {
-    expect(nextTaskId([], "TASK")).toBe("TASK-001");
-  });
-});
-
 describe("createTask", () => {
   it("writes a new task with the next prefixed id, default status, and body", async () => {
     const repo = new MemoryRepo();
@@ -70,7 +50,7 @@ describe("createTask", () => {
     expect(w.task.type).toBeUndefined();
     expect(w.task.priority).toBeUndefined();
     expect(w.task.assignee).toBeUndefined();
-    expect(w.body).toBe("nb");
+    expect(w.body).toContain("nb");
     expect(ret).toBe("tasks/OB-004.md"); // create() return passes through
   });
 
@@ -80,6 +60,62 @@ describe("createTask", () => {
     const w = repo.written[0];
     expect(w.task.id).toBe("OB-001");
     expect(w.task.ordinal).toBe(1000);
-    expect(w.body).toBe(""); // no body given -> empty string
+    expect(w.body).not.toBe(""); // ticket-gate scaffolding appended even for an empty body
+  });
+
+  it("stamps created_date (YYYY-MM-DD) on the new task", async () => {
+    const repo = new MemoryRepo();
+    await createTask(repo, project, { summary: "Dated" }, []);
+    expect(repo.written[0].task.created_date).toBe(new Date().toISOString().slice(0, 10));
+  });
+
+  it("uses the shared prefix-anchored nextTaskId (FEATURE-7 does not bump the OB counter)", async () => {
+    const repo = new MemoryRepo();
+    const existing = [t("OB-002", 2000), t("FEATURE-7", 1000)];
+    await createTask(repo, project, { summary: "X" }, existing);
+    expect(repo.written[0].task.id).toBe("OB-003"); // only OB-prefixed ids count
+  });
+});
+
+describe("ticket gate (C5)", () => {
+  it("created task carries references (default []) and DoD + Plan body scaffolding with unchecked boxes", async () => {
+    const repo = new MemoryRepo();
+    await createTask(repo, project, { summary: "Gated", body: "my description" }, []);
+    const w = repo.written[0];
+    expect(w.task.references).toEqual([]);
+    expect(w.body).toContain("## Definition of Done");
+    expect(w.body).toContain("## Implementation Plan");
+    expect(w.body).toMatch(/- \[ \]/); // unchecked boxes
+    expect(w.body).toContain("<!-- DOD:BEGIN -->");
+    expect(w.body).toContain("<!-- SECTION:PLAN:BEGIN -->");
+  });
+
+  it("does not clobber a provided references value", async () => {
+    const repo = new MemoryRepo();
+    await createTask(repo, project, { summary: "Refs", references: [".skillgrid/change-specs/x/briefing.md"] }, []);
+    expect(repo.written[0].task.references).toEqual([".skillgrid/change-specs/x/briefing.md"]);
+  });
+
+  it("a body already containing the sections is not doubled", async () => {
+    const repo = new MemoryRepo();
+    const body = `my description
+
+## Definition of Done
+
+<!-- DOD:BEGIN -->
+- [ ] Custom DoD
+<!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+- [ ] Custom step
+<!-- SECTION:PLAN:END -->`;
+    await createTask(repo, project, { summary: "NoDouble", body }, []);
+    const out = repo.written[0].body;
+    expect(out.split("## Definition of Done")).toHaveLength(2); // exactly one heading
+    expect(out.split("## Implementation Plan")).toHaveLength(2);
+    expect(out).toContain("- [ ] Custom DoD");
+    expect(out).not.toContain("Tests pass"); // default scaffolding not appended
   });
 });

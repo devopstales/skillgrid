@@ -1,6 +1,6 @@
 import type { ProjectConfig, TaskRepository, MilestoneRepository } from "./ports";
 import type { Milestone } from "../domain/milestone";
-import { today } from "../domain/milestone";
+import { today } from "../domain/date";
 import type { Task } from "../domain/task";
 
 /** Next milestone id: max numeric suffix of existing + 1 (`m-7`). */
@@ -13,8 +13,17 @@ export function nextMilestoneId(existing: Milestone[]): string {
   return `m-${max + 1}`;
 }
 
+function wrap(ms: string, err: unknown): Error {
+  return new Error(
+    `backlogmd: writing milestone ${ms} failed — on-disk state unchanged: ${err instanceof Error ? err.message : String(err)}`,
+    { cause: err },
+  );
+}
+
 /** Mark a milestone active. Any other explicitly active milestone is
- *  completed first (with its carry-over), keeping a single active sprint. */
+ *  completed first (with its carry-over), keeping a single active sprint.
+ *  The milestone file write is last; if any write throws, the error is
+ *  rethrown descriptively and the milestone is not marked started. */
 export async function startMilestone(
   tasks: TaskRepository,
   milestones: MilestoneRepository,
@@ -29,12 +38,18 @@ export async function startMilestone(
     }
   }
   const updated: Milestone = { ...ms, state: "active", start_date: ms.start_date ?? today() };
-  await milestones.write(project, updated, ms.body ?? "");
+  try {
+    await milestones.write(project, updated, ms.body ?? "");
+  } catch (err) {
+    throw wrap(`start(${ms.id})`, err);
+  }
 }
 
 /** Mark a milestone completed: record which tasks finished, carry the
  *  unfinished ones back to the unplanned backlog (their `milestone` is
- *  cleared), so the CLI's derive-from-tasks view stays consistent. */
+ *  cleared), so the CLI's derive-from-tasks view stays consistent. Carry-over
+ *  task writes go first; the milestone file write is last, and any failing
+ *  write rethrows a descriptive error (state not marked complete). */
 export async function completeMilestone(
   tasks: TaskRepository,
   milestones: MilestoneRepository,
@@ -47,10 +62,6 @@ export async function completeMilestone(
   const msTasks = all.filter((t) => t.milestone === ms.id);
   const completedTasks = msTasks.filter((t) => done.has(t.status)).map((t) => t.id);
   const carriedOver = msTasks.filter((t) => !done.has(t.status));
-  for (const t of carriedOver) {
-    const updated: Task = { ...t, milestone: undefined, updated_date: today() };
-    await tasks.write(project, updated, t.body ?? "");
-  }
   const updated: Milestone = {
     ...ms,
     state: "completed",
@@ -58,7 +69,15 @@ export async function completeMilestone(
     completed_tasks: completedTasks,
     carried_over_tasks: carriedOver.map((t) => t.id),
   };
-  await milestones.write(project, updated, ms.body ?? "");
+  try {
+    for (const t of carriedOver) {
+      const tUpdated: Task = { ...t, milestone: undefined, updated_date: today() };
+      await tasks.write(project, tUpdated, t.body ?? "");
+    }
+    await milestones.write(project, updated, ms.body ?? "");
+  } catch (err) {
+    throw wrap(`complete(${ms.id})`, err);
+  }
 }
 
 /** Plan a task into a milestone (or clear its plan with null). Planning

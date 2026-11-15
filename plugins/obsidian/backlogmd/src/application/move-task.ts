@@ -1,5 +1,6 @@
 import { ProjectConfig, TaskRepository } from "./ports";
 import { Task } from "../domain/task";
+import { today } from "../domain/date";
 
 export async function moveTask(
   repo: TaskRepository,
@@ -8,7 +9,7 @@ export async function moveTask(
   newStatus: string,
   ordinal?: number,
 ): Promise<void> {
-  const updated: Task = { ...task, status: newStatus, ordinal, updated_date: new Date().toISOString().slice(0, 10) };
+  const updated: Task = { ...task, status: newStatus, ordinal, updated_date: today() };
   await repo.write(project, updated, task.body ?? "");
 }
 

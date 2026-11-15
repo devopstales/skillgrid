@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -180,5 +180,93 @@ describe("project discovery", () => {
     expect(found).toBeNull();
     fs.writeFileSync(path.join(tmp, "marker.txt"), "x");
     expect(walkUpForFile(deep, "marker.txt", 5, (p) => fs.existsSync(p))).toBe(tmp);
+  });
+});
+
+describe("recursive discovery (H4)", () => {
+  it("discovers a nested project (Projects/Demo/.backlog) from a vault-root scan", async () => {
+    const vault = tmp;
+    write("Projects/Demo/.backlog/config.yml", "project_name: Demo\nstatuses: [\"Open\", \"Closed\"]\n");
+    write("Projects/Demo/.backlog/tasks/task-001 - a.md", TASK_MD("TASK-001", "Open"));
+
+    const fsPort = new FakeFS(vault);
+    const projects = await discoverProjects(fsPort, [""], []);
+
+    expect(projects).toHaveLength(1);
+    expect(projects[0].name).toBe("Demo");
+    expect(projects[0].rootPath).toBe("Projects/Demo");
+    expect(projects[0].vaultBacklogDir).toBe("Projects/Demo/.backlog");
+    const tasks = await new FileTaskRepository(fsPort).list(projects[0]);
+    expect(tasks).toHaveLength(1);
+  });
+
+  it("discovers a manually added root's subfolders too (R1)", async () => {
+    const vault = tmp;
+    write("Extra/Demo2/.backlog/config.yml", "project_name: Demo2\nstatuses: [\"Open\"]\n");
+    write("Extra/Demo2/.backlog/tasks/task-001 - a.md", TASK_MD("TASK-001", "Open"));
+
+    const fsPort = new FakeFS(vault);
+    const projects = await discoverProjects(fsPort, [""], ["Extra"]);
+
+    expect(projects).toHaveLength(1);
+    expect(projects[0].name).toBe("Demo2");
+    expect(projects[0].rootPath).toBe("Extra/Demo2");
+  });
+
+  it("walks up to depth 4 below a scan root but not deeper", async () => {
+    const vault = tmp;
+    // depth 4 — discovered
+    write("a/b/c/d/.backlog/config.yml", "project_name: Depth4\nstatuses: [\"Open\"]\n");
+    // depth 5 — not discovered
+    write("a/b/c/d/e/.backlog/config.yml", "project_name: Depth5\nstatuses: [\"Open\"]\n");
+
+    const fsPort = new FakeFS(vault);
+    const projects = await discoverProjects(fsPort, [""], []);
+
+    expect(projects).toHaveLength(1);
+    expect(projects[0].name).toBe("Depth4");
+  });
+
+  it("dedupes a project reachable via both manual root and scan", async () => {
+    const vault = tmp;
+    write("Demo/.backlog/config.yml", "project_name: Demo\nstatuses: [\"Open\"]\n");
+
+    const fsPort = new FakeFS(vault);
+    const projects = await discoverProjects(fsPort, [""], ["Demo", "Demo"]);
+
+    expect(projects).toHaveLength(1);
+  });
+});
+
+describe("config load errors (M6/M7)", () => {
+  it("skips a project with a malformed backlog.config.yml without throwing (M6)", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const vault = tmp;
+    write("Demo/backlog.config.yml", "statuses: [\"Open\", \nbroken: [");
+    write("Demo/.backlog/config.yml", "project_name: Demo\nstatuses: [\"Open\"]\n");
+
+    const fsPort = new FakeFS(vault);
+    const projects = await discoverProjects(fsPort, [""], []);
+
+    expect(projects).toHaveLength(0); // project skipped, not a crash
+    expect(errorSpy).toHaveBeenCalled();
+    const msg = errorSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(msg).toContain("Demo/backlog.config.yml");
+  });
+
+  it("accepts backlog_directory equal to the vault root (M7)", async () => {
+    const repo = tmp;
+    const vault = path.join(repo, "sub");
+    write("backlog.config.yml", ROOT_CONFIG("Root", "sub"));
+    write("sub/tasks/task-001 - a.md", TASK_MD("TASK-001", "To Do"));
+
+    const fsPort = new FakeFS(vault);
+    const projects = await discoverProjects(fsPort, [""], []);
+
+    expect(projects).toHaveLength(1);
+    expect(projects[0].name).toBe("Root");
+    expect(projects[0].vaultBacklogDir).toBe(""); // backlog dir IS the vault root
+    const tasks = await new FileTaskRepository(fsPort).list(projects[0]);
+    expect(tasks).toHaveLength(1);
   });
 });

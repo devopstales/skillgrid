@@ -1,4 +1,4 @@
-import { ItemView, TFile, WorkspaceLeaf } from "obsidian";
+import { ItemView, Notice, TFile, WorkspaceLeaf } from "obsidian";
 import { PluginContext } from "../compose";
 import type { ProjectConfig } from "../application/ports";
 import type { Task } from "../domain/task";
@@ -8,10 +8,13 @@ import { effectiveState, daysLeft } from "../domain/milestone";
 import { startMilestone, completeMilestone, planTask } from "../application/milestone";
 import { reorderColumn } from "../application/move-task";
 import { renderProjectSwitcher } from "./project-switcher";
+import { renderErrorCard, skippedFiles } from "./render-errors";
 import { TaskModal } from "./task-modal";
 import { MilestoneModal } from "./milestone-modal";
 
 export const BACKLOG_VIEW_TYPE = "backlogmd-backlog";
+
+const FILTER_DEBOUNCE_MS = 150;
 
 interface Section {
   milestoneId: string | null; // null = unplanned backlog
@@ -32,7 +35,14 @@ export class BacklogView extends ItemView {
   private filter = "";
   private sectionsEl: HTMLElement | null = null;
   private indicatorEl: HTMLElement | null = null;
+  private errorEl: HTMLElement | null = null;
   private renderSeq = 0;
+  /** H12: a plan/reorder write is in flight — ignore new drops until it settles. */
+  private dropInFlight = false;
+  /** M2: last disk load; filter keystrokes re-render from this, not disk. */
+  private lastTasks: Task[] = [];
+  private lastMilestones: Milestone[] = [];
+  private filterTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(leaf: WorkspaceLeaf, ctx: PluginContext) {
     super(leaf);
@@ -55,9 +65,19 @@ export class BacklogView extends ItemView {
   }
 
   async render(): Promise<void> {
+    try {
+      await this.renderInner();
+    } catch (e) {
+      console.error("[backlogmd] backlog render failed:", (e as Error).stack ?? String(e));
+      throw e;
+    }
+  }
+
+  private async renderInner(): Promise<void> {
     const container = this.containerEl.children[1] as HTMLElement;
     container.empty();
     this.sectionsEl = null;
+    this.errorEl = null;
 
     const project = this.ctx.projects[this.projectIndex];
     if (!project) {
@@ -74,23 +94,27 @@ export class BacklogView extends ItemView {
     input.value = this.filter;
     input.addEventListener("input", () => {
       this.filter = input.value;
-      void this.renderSections(project);
+      // M2: debounce + re-filter from the last load — no disk re-read per keystroke.
+      clearTimeout(this.filterTimer);
+      this.filterTimer = setTimeout(() => {
+        this.paintSections(project, this.lastTasks, this.lastMilestones);
+      }, FILTER_DEBOUNCE_MS);
     });
     const newTask = toolbar.createEl("button", { text: "+ New task", cls: "backlogmd-new-task" });
     newTask.addEventListener("click", () => this.openTaskModal(project, null));
     const newMilestone = toolbar.createEl("button", { text: "+ Milestone", cls: "backlogmd-new-task" });
     newMilestone.addEventListener("click", () => {
-      void this.ctx.milestones.list(project).then((all) => {
-        const modal = new MilestoneModal(this.app, this.ctx, project, all);
-        const origClose = modal.onClose.bind(modal);
-        modal.onClose = () => {
-          origClose();
-          void this.renderSections(project);
-        };
-        modal.open();
-      });
+      const modal = new MilestoneModal(this.app, this.ctx, project); // H5: modal re-lists at save
+      const origClose = modal.onClose.bind(modal);
+      modal.onClose = () => {
+        origClose();
+        const current = this.ctx.projects[this.projectIndex]; // M4: current, not captured
+        if (current) void this.renderSections(current);
+      };
+      modal.open();
     });
 
+    this.errorEl = container.createDiv({ cls: "backlogmd-error-host" });
     this.sectionsEl = container.createDiv({ cls: "backlogmd-sections" });
     await this.renderSections(project);
   }
@@ -115,6 +139,8 @@ export class BacklogView extends ItemView {
     return sections;
   }
 
+  /** Full section render: reads disk, caches the load (M2), surfaces skipped
+   *  files (C4), then paints. */
   private async renderSections(project: ProjectConfig): Promise<void> {
     const seq = ++this.renderSeq;
     const host = this.sectionsEl;
@@ -125,6 +151,20 @@ export class BacklogView extends ItemView {
     const tasks = await this.ctx.repo.list(project);
     const milestones = await this.ctx.milestones.list(project);
     if (seq !== this.renderSeq) return; // a newer render owns the DOM now
+    this.lastTasks = tasks;
+    this.lastMilestones = milestones;
+    if (this.errorEl) renderErrorCard(this.errorEl, skippedFiles(this.ctx.repo));
+    this.paintSections(project, tasks, milestones);
+  }
+
+  /** Synchronous section paint from already-loaded data (M2). Shared by the
+   *  full render and the debounced filter. No disk I/O. */
+  private paintSections(project: ProjectConfig, tasks: Task[], milestones: Milestone[]): void {
+    const host = this.sectionsEl;
+    if (!host) return;
+    host.empty();
+    this.removeIndicator();
+
     const byId = new Map(tasks.map((t) => [t.id, t]));
     const q = this.filter.trim().toLowerCase();
     const matches = (t: Task): boolean =>
@@ -158,14 +198,28 @@ export class BacklogView extends ItemView {
         if (section.milestone.state !== "active") {
           const start = actions.createEl("button", { text: "Start", cls: "backlogmd-section-btn" });
           start.addEventListener("click", async () => {
-            await startMilestone(this.ctx.repo, this.ctx.milestones, project, section.milestone!);
-            await this.renderSections(project);
+            start.disabled = true; // H11: in-flight guard — no double-click race
+            try {
+              await startMilestone(this.ctx.repo, this.ctx.milestones, project, section.milestone!);
+            } catch (e) {
+              new Notice(`Start failed: ${e instanceof Error ? e.message : String(e)}`);
+            } finally {
+              start.disabled = false;
+            }
+            void this.renderSections(project);
           });
         }
         const complete = actions.createEl("button", { text: "Complete", cls: "backlogmd-section-btn" });
         complete.addEventListener("click", async () => {
-          await completeMilestone(this.ctx.repo, this.ctx.milestones, project, section.milestone!, tasks);
-          await this.renderSections(project);
+          complete.disabled = true; // H11: in-flight guard — no double-click race
+          try {
+            await completeMilestone(this.ctx.repo, this.ctx.milestones, project, section.milestone!, tasks);
+          } catch (e) {
+            new Notice(`Complete failed: ${e instanceof Error ? e.message : String(e)}`);
+          } finally {
+            complete.disabled = false;
+          }
+          void this.renderSections(project);
         });
       } else {
         header.createEl("span", { text: "Backlog", cls: "backlogmd-section-title" });
@@ -248,6 +302,7 @@ export class BacklogView extends ItemView {
   }
 
   private async handleDrop(project: ProjectConfig, section: Section, allTasks: Task[], id: string, clientY: number, rowsEl: HTMLElement): Promise<void> {
+    if (this.dropInFlight) return; // H12: don't interleave an in-flight plan/reorder
     const dragged = allTasks.find((t) => t.id === id);
     if (!dragged) return;
 
@@ -261,9 +316,19 @@ export class BacklogView extends ItemView {
       ordered.splice(from, 1);
       ordered.splice(index, 0, dragged);
       if (ordered.every((t, i) => t === section.tasks[i])) return;
-      await reorderColumn(this.ctx.repo, project, ordered);
+      this.dropInFlight = true;
+      try {
+        await reorderColumn(this.ctx.repo, project, ordered);
+      } finally {
+        this.dropInFlight = false;
+      }
     } else {
-      await planTask(this.ctx.repo, project, dragged, section.milestoneId, allTasks);
+      this.dropInFlight = true;
+      try {
+        await planTask(this.ctx.repo, project, dragged, section.milestoneId, allTasks);
+      } finally {
+        this.dropInFlight = false;
+      }
     }
     await this.renderSections(project);
   }
@@ -275,7 +340,8 @@ export class BacklogView extends ItemView {
       const origClose = modal.onClose.bind(modal);
       modal.onClose = () => {
         origClose();
-        void this.renderSections(project);
+        const current = this.ctx.projects[this.projectIndex]; // M4: current, not captured
+        if (current) void this.renderSections(current);
       };
       modal.open();
     });

@@ -5,7 +5,11 @@ import type { Task } from "../../src/domain/task";
 import type { Milestone } from "../../src/domain/milestone";
 
 class MemoryTasks implements TaskRepository {
+  lastErrors: string[] = [];
   tasks: Task[] = [];
+  /** When set, write() throws for tasks matching the predicate. */
+  failWrite?: (t: Task) => boolean;
+  writeCalls: string[] = [];
   async list() {
     return this.tasks;
   }
@@ -13,6 +17,8 @@ class MemoryTasks implements TaskRepository {
     return this.tasks.find((t) => t.id === id) ?? null;
   }
   async write(_p: ProjectConfig, task: Task, _body: string) {
+    this.writeCalls.push(task.id);
+    if (this.failWrite?.(task)) throw new Error("disk on fire");
     const i = this.tasks.findIndex((t) => t.id === task.id);
     if (i === -1) this.tasks.push(task);
     else this.tasks[i] = task;
@@ -25,10 +31,14 @@ class MemoryTasks implements TaskRepository {
 
 class MemoryMilestones implements MilestoneRepository {
   items: Milestone[] = [];
+  failWrite = false;
+  writeCalls: string[] = [];
   async list() {
     return this.items;
   }
   async write(_p: ProjectConfig, m: Milestone, _body: string) {
+    this.writeCalls.push(m.id);
+    if (this.failWrite) throw new Error("disk on fire");
     const i = this.items.findIndex((x) => x.id === m.id);
     if (i === -1) this.items.push(m);
     else this.items[i] = m;
@@ -82,6 +92,16 @@ describe("startMilestone", () => {
     expect(tasks.tasks.find((t) => t.id === "TASK-001")!.milestone).toBeUndefined();
     expect(tasks.tasks.find((t) => t.id === "TASK-002")!.milestone).toBe("m-0");
   });
+
+  it("rethrows a descriptive error when the milestone write fails; state not marked active (H11)", async () => {
+    const tasks = new MemoryTasks();
+    const milestones = new MemoryMilestones();
+    milestones.failWrite = true;
+    milestones.items = [ms("m-1", "planned")];
+
+    await expect(startMilestone(tasks, milestones, project, ms("m-1"))).rejects.toThrow(/m-1/);
+    expect(milestones.items.find((x) => x.id === "m-1")?.state).toBe("planned"); // unchanged
+  });
 });
 
 describe("completeMilestone", () => {
@@ -105,6 +125,35 @@ describe("completeMilestone", () => {
     expect(tasks.tasks.find((t) => t.id === "TASK-002")!.milestone).toBeUndefined();
     expect(tasks.tasks.find((t) => t.id === "TASK-001")!.milestone).toBe("m-0");
     expect(tasks.tasks.find((t) => t.id === "TASK-003")!.milestone).toBeUndefined();
+  });
+
+  it("rethrows a descriptive error when a carry-over task write fails; milestone file NOT rewritten (H11)", async () => {
+    const tasks = new MemoryTasks();
+    const milestones = new MemoryMilestones();
+    milestones.items = [ms("m-0", "active")];
+    tasks.tasks = [
+      task("TASK-001", "m-0", "Done"),
+      task("TASK-002", "m-0", "In Progress"), // this write fails
+    ];
+    tasks.failWrite = (t) => t.id === "TASK-002";
+
+    await expect(completeMilestone(tasks, milestones, project, ms("m-0"), tasks.tasks)).rejects.toThrow(/m-0/);
+    // milestone file write is last and never reached
+    expect(milestones.writeCalls).toEqual([]);
+    // on-disk state not marked completed
+    expect(milestones.items.find((x) => x.id === "m-0")!.state).toBe("active");
+  });
+
+  it("writes carry-over tasks first, milestone file last (H11 ordering)", async () => {
+    const tasks = new MemoryTasks();
+    const milestones = new MemoryMilestones();
+    milestones.items = [ms("m-0", "active")];
+    tasks.tasks = [task("TASK-001", "m-0", "Done"), task("TASK-002", "m-0", "In Progress")];
+
+    await completeMilestone(tasks, milestones, project, ms("m-0"), tasks.tasks);
+
+    expect(tasks.writeCalls).toEqual(["TASK-002"]); // task write first
+    expect(milestones.writeCalls).toEqual(["m-0"]); // milestone write last
   });
 });
 

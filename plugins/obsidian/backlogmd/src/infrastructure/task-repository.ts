@@ -1,9 +1,13 @@
 import { ProjectConfig, TaskRepository, FileSystemPort } from "../application/ports";
 import { Task } from "../domain/task";
 import { parseTask, serializeTask } from "./vault";
-import path from "path";
 
 export class FileTaskRepository implements TaskRepository {
+  /** Vault-relative paths of task files skipped in the most recent list()
+   *  call (malformed YAML frontmatter or unreadable). Cleared at the start
+   *  of every list() call. */
+  lastErrors: string[] = [];
+
   constructor(private fs: FileSystemPort) {}
 
   private tasksDir(project: ProjectConfig): string {
@@ -12,18 +16,31 @@ export class FileTaskRepository implements TaskRepository {
 
   async list(project: ProjectConfig): Promise<Task[]> {
     const dir = this.tasksDir(project);
+    this.lastErrors = [];
     let files: string[] = [];
     try {
       files = await this.fs.listFiles(dir);
     } catch {
       return [];
     }
-    const tasks: Task[] = [];
-    for (const f of files.filter((x) => x.endsWith(".md"))) {
-      const content = await this.fs.readText(`${dir}/${f}`);
-      tasks.push(parseTask(`${dir}/${f}`, content).task);
-    }
-    return tasks;
+    // Parallel reads; a parse failure in one file skips that file only and
+    // records its path — it never blanks the whole board.
+    const results = await Promise.all(
+      files
+        .filter((x) => x.endsWith(".md"))
+        .map(async (f): Promise<Task | null> => {
+          const filePath = `${dir}/${f}`;
+          try {
+            const content = await this.fs.readText(filePath);
+            return parseTask(filePath, content).task;
+          } catch (err) {
+            this.lastErrors.push(filePath);
+            console.error(`[backlogmd] skipping malformed task file ${filePath}: ${err instanceof Error ? err.message : String(err)}`);
+            return null;
+          }
+        }),
+    );
+    return results.filter((t): t is Task => t !== null);
   }
 
   async get(project: ProjectConfig, id: string): Promise<Task | null> {

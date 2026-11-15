@@ -13,7 +13,6 @@ export class MilestoneModal extends Modal {
     app: App,
     private ctx: PluginContext,
     private project: ProjectConfig,
-    private existing: Milestone[],
   ) {
     super(app);
   }
@@ -38,7 +37,9 @@ export class MilestoneModal extends Modal {
       b.setCta();
       b.onClick(async () => {
         if (!this.title.trim()) return;
-        const id = nextMilestoneId(this.existing);
+        // H5: re-list immediately before minting the id so it comes from fresh
+        // state (a stale snapshot mints duplicate ids).
+        const id = nextMilestoneId(await this.ctx.milestones.list(this.project));
         const m: Milestone = {
           id,
           title: this.title.trim(),

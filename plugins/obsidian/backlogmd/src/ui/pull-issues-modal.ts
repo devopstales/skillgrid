@@ -1,4 +1,4 @@
-import { App, Modal, Notice, Setting } from "obsidian";
+import { App, Modal, Notice, Setting, TextComponent } from "obsidian";
 import { PluginContext } from "../compose";
 import { ProjectConfig } from "../application/ports";
 import { pullIssues } from "../application/pull-issues";
@@ -7,6 +7,7 @@ export class PullIssuesModal extends Modal {
   private owner = "";
   private repository = "";
   private token = "";
+  private tokenField: TextComponent | null = null;
 
   constructor(
     app: App,
@@ -30,6 +31,7 @@ export class PullIssuesModal extends Modal {
     new Setting(contentEl).setName("Owner").addText((t) => t.setPlaceholder("owner").setValue(this.owner).onChange((v) => (this.owner = v)));
     new Setting(contentEl).setName("Repository").addText((t) => t.setPlaceholder("repo").setValue(this.repository).onChange((v) => (this.repository = v)));
     new Setting(contentEl).setName("Token").setDesc("Optional for public repos; stored in Obsidian secret storage").addText((t) => {
+      this.tokenField = t;
       t.setPlaceholder(hasStored ? "stored — leave blank to keep" : "ghp_…");
       t.inputEl.type = "password";
       t.onChange((v) => (this.token = v));
@@ -44,9 +46,15 @@ export class PullIssuesModal extends Modal {
         if (!owner || !repository) return;
         const stored = (await this.app.secretStorage.getSecret(this.tokenKey)) ?? "";
         const token = this.token.trim() || stored;
-        if (this.token.trim()) await this.app.secretStorage.setSecret(this.tokenKey, this.token.trim());
         try {
           await pullIssues(this.ctx.repo, this.project, token, owner, repository);
+          // H9: persist the token only after a successful pull, then switch the
+          // field to its stored-placeholder behavior.
+          if (this.token.trim()) {
+            await this.app.secretStorage.setSecret(this.tokenKey, this.token.trim());
+            this.tokenField?.setPlaceholder("stored — leave blank to keep");
+            this.tokenField?.setValue("");
+          }
           new Notice(`Pulled issues from ${owner}/${repository}`);
           this.close();
         } catch (e) {

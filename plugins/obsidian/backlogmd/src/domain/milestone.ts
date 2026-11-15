@@ -71,7 +71,3 @@ export function daysLeft(m: Milestone): number | null {
   const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
   return Math.round((end - today) / 86400000);
 }
-
-export function today(): string {
-  return new Date().toISOString().slice(0, 10);
-}

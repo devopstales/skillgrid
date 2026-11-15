@@ -1,3 +1,4 @@
+"use strict";
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -6602,6 +6603,16 @@ var import_path = __toESM(require("path"));
 var DEFAULT_BACKLOG_DIR = ".backlog";
 var DEFAULT_STATUSES = ["To Do", "In Progress", "Done"];
 var DEFAULT_DONE_STATUSES = ["Done", "done"];
+var MAX_SCAN_DEPTH = 4;
+async function loadYaml(fs2, read, file) {
+  try {
+    const text = await read();
+    return yaml2.load(text) ?? {};
+  } catch (err) {
+    console.error(`[backlogmd] skipping malformed config ${file}: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
 function walkUpForFile(startDir, fileName, maxDepth, exists) {
   let dir = startDir;
   for (let i = 0; i <= maxDepth; i++) {
@@ -6617,8 +6628,9 @@ async function loadProjectConfig(fs2, rootPath) {
   let backlogDir = DEFAULT_BACKLOG_DIR;
   let adv = {};
   if (await fs2.exists(advPath)) {
-    const text = await fs2.readText(advPath);
-    adv = yaml2.load(text) ?? {};
+    const loaded = await loadYaml(fs2, () => fs2.readText(advPath), advPath);
+    if (loaded === null) return null;
+    adv = loaded;
     if (adv.backlog_directory) backlogDir = adv.backlog_directory;
   }
   const configPath = `${rootPath}/${backlogDir}/config.yml`;
@@ -6626,8 +6638,9 @@ async function loadProjectConfig(fs2, rootPath) {
   const candidates = [configPath, `${rootPath}/${backlogDir}/config.yaml`];
   for (const c of candidates) {
     if (await fs2.exists(c)) {
-      const text = await fs2.readText(c);
-      legacy = yaml2.load(text) ?? {};
+      const loaded = await loadYaml(fs2, () => fs2.readText(c), c);
+      if (loaded === null) return null;
+      legacy = loaded;
       break;
     }
   }
@@ -6649,10 +6662,12 @@ async function loadProjectConfig(fs2, rootPath) {
   };
 }
 async function loadAncestorProjectConfig(fs2, rootAbs, vaultRel) {
-  const adv = yaml2.load(await fs2.readTextAbs(import_path.default.join(rootAbs, "backlog.config.yml"))) ?? {};
+  const loaded = await loadYaml(fs2, () => fs2.readTextAbs(import_path.default.join(rootAbs, "backlog.config.yml")), import_path.default.join(rootAbs, "backlog.config.yml"));
+  if (loaded === null) return null;
+  const adv = loaded;
   const backlogDir = adv.backlog_directory ?? DEFAULT_BACKLOG_DIR;
-  if (vaultRel && !backlogDir.startsWith(`${vaultRel}/`)) return null;
-  const inVault = vaultRel ? backlogDir.slice(vaultRel.length + 1) : backlogDir;
+  if (vaultRel && backlogDir !== vaultRel && !backlogDir.startsWith(`${vaultRel}/`)) return null;
+  const inVault = vaultRel ? backlogDir === vaultRel ? "" : backlogDir.slice(vaultRel.length + 1) : backlogDir;
   if (!await fs2.exists(inVault)) return null;
   return {
     name: adv.project_name ?? (import_path.default.basename(rootAbs) || "project"),
@@ -6666,9 +6681,26 @@ async function loadAncestorProjectConfig(fs2, rootAbs, vaultRel) {
     taskPrefix: adv.task_prefix ?? "task"
   };
 }
+async function isProjectRoot(fs2, root) {
+  return await fs2.exists(`${root}/backlog.config.yml`) || await fs2.exists(`${root}/.backlog/config.yml`) || await fs2.exists(`${root}/.backlog/config.yaml`);
+}
+async function collectRoots(fs2, root, maxDepth, out) {
+  out.push(root);
+  if (maxDepth <= 0) return;
+  let dirs = [];
+  try {
+    dirs = await fs2.listDirs(root);
+  } catch {
+    return;
+  }
+  for (const d of dirs) {
+    await collectRoots(fs2, `${root}/${d}`, maxDepth - 1, out);
+  }
+}
 async function discoverProjects(fs2, scanRoots, manualRoots) {
   const results = [];
   const seen = /* @__PURE__ */ new Set();
+  const tried = /* @__PURE__ */ new Set();
   const add = (cfg) => {
     if (cfg && !seen.has(`${cfg.rootPath}::${cfg.vaultBacklogDir}`)) {
       seen.add(`${cfg.rootPath}::${cfg.vaultBacklogDir}`);
@@ -6676,7 +6708,11 @@ async function discoverProjects(fs2, scanRoots, manualRoots) {
     }
   };
   const tryRoot = async (root) => {
-    add(await loadProjectConfig(fs2, root));
+    const r = root.replace(/^\/+/, "");
+    if (!r || tried.has(r)) return;
+    tried.add(r);
+    if (!await isProjectRoot(fs2, r)) return;
+    add(await loadProjectConfig(fs2, r));
   };
   try {
     const rootAbs = await fs2.findAncestorProjectRoot();
@@ -6685,19 +6721,20 @@ async function discoverProjects(fs2, scanRoots, manualRoots) {
       const vaultRel = import_path.default.relative(rootAbs, vaultAbs).split(import_path.default.sep).join("/");
       add(await loadAncestorProjectConfig(fs2, rootAbs, vaultRel));
     }
-  } catch {
+  } catch (err) {
+    console.error(`[backlogmd] ancestor project discovery skipped: ${err instanceof Error ? err.message : String(err)}`);
   }
-  for (const root of manualRoots) await tryRoot(root.replace(/^\/+/, ""));
+  for (const root of manualRoots) {
+    const r = root.replace(/^\/+/, "");
+    const roots = [];
+    await collectRoots(fs2, r, MAX_SCAN_DEPTH, roots);
+    for (const cr of roots) await tryRoot(cr);
+  }
   for (const scanRoot of scanRoots) {
-    let dirs = [];
-    try {
-      dirs = await fs2.listDirs(scanRoot);
-    } catch {
-      continue;
-    }
-    for (const d of dirs) {
-      await tryRoot(`${scanRoot}/${d}`.replace(/^\/+/, ""));
-    }
+    const sub = [];
+    await collectRoots(fs2, scanRoot.replace(/^\/+/, ""), MAX_SCAN_DEPTH, sub);
+    sub.shift();
+    for (const cr of sub) await tryRoot(cr);
   }
   return results;
 }
@@ -6718,12 +6755,7 @@ var ObsidianFileSystem = class {
     return this.app.vault.adapter.read(this.normalize(path2));
   }
   async writeText(path2, content) {
-    const p = this.normalize(path2);
-    if (await this.app.vault.adapter.exists(p)) {
-      await this.app.vault.adapter.write(p, content);
-    } else {
-      await this.app.vault.adapter.write(p, content);
-    }
+    await this.app.vault.adapter.write(this.normalize(path2), content);
   }
   async listDirs(path2) {
     const p = this.normalize(path2);
@@ -6740,9 +6772,6 @@ var ObsidianFileSystem = class {
       return folder.children.filter((c) => c instanceof import_obsidian.TFile).map((c) => c.name);
     }
     return [];
-  }
-  getVaultRoot() {
-    return "";
   }
   // Desktop only: FileSystemAdapter exposes getBasePath; the mobile adapter
   // does not (methods that need it throw/return null, discovery falls back
@@ -6768,7 +6797,18 @@ var ObsidianFileSystem = class {
 
 // src/infrastructure/vault.ts
 var import_gray_matter = __toESM(require_gray_matter());
+function frontMatterBlock(content) {
+  let start = 0;
+  if (content.startsWith("---\n")) start = 4;
+  else if (content.startsWith("---\r\n")) start = 5;
+  else return null;
+  const m = content.slice(start).match(/\r?\n---(\r?\n|$)/);
+  if (!m || m.index === void 0) return null;
+  return content.slice(start, start + m.index);
+}
 function parseTask(path2, content) {
+  const block = frontMatterBlock(content);
+  if (block !== null) yaml2.load(block);
   const parsed = (0, import_gray_matter.default)(content);
   const data = parsed.data;
   const task = {
@@ -6788,17 +6828,36 @@ function parseTask(path2, content) {
     documentation: data.documentation,
     parent_task_id: data.parent_task_id,
     ordinal: typeof data.ordinal === "number" ? data.ordinal : void 0,
+    raw: data,
     body: parsed.content,
     path: path2
   };
   return { task, body: parsed.content, raw: content };
 }
+var KNOWN_ORDER = [
+  "id",
+  "title",
+  "status",
+  "type",
+  "priority",
+  "labels",
+  "assignee",
+  "milestone",
+  "sprint",
+  "created_date",
+  "updated_date",
+  "dependencies",
+  "references",
+  "documentation",
+  "parent_task_id",
+  "ordinal"
+];
 function serializeTask(task, body) {
-  const data = {};
-  const order = ["id", "title", "status", "type", "priority", "labels", "assignee", "milestone", "sprint", "created_date", "updated_date", "dependencies", "references", "documentation", "parent_task_id", "ordinal"];
-  for (const k of order) {
+  const data = task.raw ? { ...task.raw } : {};
+  for (const k of KNOWN_ORDER) {
     const v = task[k];
-    if (v !== void 0) data[k] = v;
+    if (v === void 0) delete data[k];
+    else data[k] = v;
   }
   return import_gray_matter.default.stringify(body, data);
 }
@@ -6808,23 +6867,36 @@ var FileTaskRepository = class {
   constructor(fs2) {
     this.fs = fs2;
   }
+  /** Vault-relative paths of task files skipped in the most recent list()
+   *  call (malformed YAML frontmatter or unreadable). Cleared at the start
+   *  of every list() call. */
+  lastErrors = [];
   tasksDir(project) {
     return `${project.vaultBacklogDir}/tasks`;
   }
   async list(project) {
     const dir = this.tasksDir(project);
+    this.lastErrors = [];
     let files = [];
     try {
       files = await this.fs.listFiles(dir);
     } catch {
       return [];
     }
-    const tasks = [];
-    for (const f of files.filter((x) => x.endsWith(".md"))) {
-      const content = await this.fs.readText(`${dir}/${f}`);
-      tasks.push(parseTask(`${dir}/${f}`, content).task);
-    }
-    return tasks;
+    const results = await Promise.all(
+      files.filter((x) => x.endsWith(".md")).map(async (f) => {
+        const filePath = `${dir}/${f}`;
+        try {
+          const content = await this.fs.readText(filePath);
+          return parseTask(filePath, content).task;
+        } catch (err) {
+          this.lastErrors.push(filePath);
+          console.error(`[backlogmd] skipping malformed task file ${filePath}: ${err instanceof Error ? err.message : String(err)}`);
+          return null;
+        }
+      })
+    );
+    return results.filter((t) => t !== null);
   }
   async get(project, id) {
     const tasks = await this.list(project);
@@ -6892,9 +6964,6 @@ function daysLeft(m) {
   const today2 = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
   return Math.round((end - today2) / 864e5);
 }
-function today() {
-  return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-}
 
 // src/infrastructure/milestone-repository.ts
 var FileMilestoneRepository = class {
@@ -6933,6 +7002,14 @@ var FileMilestoneRepository = class {
 };
 
 // src/compose.ts
+function coerceManualRoots(value) {
+  if (Array.isArray(value)) return value.filter((v) => typeof v === "string");
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : [];
+  }
+  return [];
+}
 function compose(plugin) {
   const fs2 = new ObsidianFileSystem(plugin.app);
   const repo = new FileTaskRepository(fs2);
@@ -6949,7 +7026,7 @@ function compose(plugin) {
       for (const c of rootFolder.children) {
         if (c.children !== void 0) roots.push(c.path || c.name);
       }
-      for (const r of manualRoots) {
+      for (const r of coerceManualRoots(manualRoots)) {
         if (!roots.includes(r)) roots.push(r);
       }
       ctx.projects = await discoverProjects(fs2, ["/"], roots);
@@ -6962,6 +7039,15 @@ function compose(plugin) {
 var import_obsidian3 = require("obsidian");
 
 // src/domain/task.ts
+function nextTaskId(existing, prefix) {
+  const re = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[-_ ]?(\\d+)$`, "i");
+  let max = 0;
+  for (const t of existing) {
+    const m = t.id.match(re);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `${prefix.toUpperCase()}-${String(max + 1).padStart(3, "0")}`;
+}
 function isBlocked(task, tasksById, doneStatuses) {
   const deps = task.dependencies ?? [];
   return deps.some((dep) => {
@@ -6971,9 +7057,14 @@ function isBlocked(task, tasksById, doneStatuses) {
   });
 }
 
+// src/domain/date.ts
+function today() {
+  return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+}
+
 // src/application/move-task.ts
 async function moveTask(repo, project, task, newStatus, ordinal) {
-  const updated = { ...task, status: newStatus, ordinal, updated_date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10) };
+  const updated = { ...task, status: newStatus, ordinal, updated_date: today() };
   await repo.write(project, updated, task.body ?? "");
 }
 async function reorderColumn(repo, project, ordered) {
@@ -6993,17 +7084,53 @@ function renderProjectSwitcher(container, projects, selected, onChange) {
   sel.addEventListener("change", () => onChange(Number(sel.value)));
 }
 
+// src/ui/render-errors.ts
+function skippedFiles(repo) {
+  return repo.lastErrors ?? [];
+}
+function renderErrorCard(host, errors) {
+  host.empty();
+  if (errors.length === 0) return;
+  const card = host.createDiv({ cls: "backlogmd-error" });
+  card.createEl("div", {
+    text: `Skipped ${errors.length} unreadable task file${errors.length === 1 ? "" : "s"}`,
+    cls: "backlogmd-error-title"
+  });
+  const ul = card.createEl("ul", { cls: "backlogmd-error-list" });
+  for (const p of errors) ul.createEl("li", { text: p });
+}
+
 // src/ui/task-modal.ts
 var import_obsidian2 = require("obsidian");
 
 // src/application/create-task.ts
-function nextTaskId(existing, prefix) {
-  let max = 0;
-  for (const t of existing) {
-    const m = t.id.match(/(\d+)\s*$/);
-    if (m) max = Math.max(max, parseInt(m[1], 10));
-  }
-  return `${prefix.toUpperCase()}-${String(max + 1).padStart(3, "0")}`;
+var DOD_SECTION = `## Definition of Done
+
+<!-- DOD:BEGIN -->
+- [ ] Tests pass
+- [ ] Lint and formatting pass
+- [ ] Edge cases covered
+- [ ] No new warnings introduced
+- [ ] Spec/docs updated if behavior changes
+<!-- DOD:END -->`;
+var PLAN_SECTION = `## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+- [ ] Research / confirm deps
+- [ ] Implement
+- [ ] Verify with tests; mark AC/DoD
+<!-- SECTION:PLAN:END -->`;
+function scaffoldBody(body) {
+  const hasDod = body.includes("## Definition of Done") || body.includes("DOD:BEGIN");
+  const hasPlan = body.includes("## Implementation Plan") || body.includes("SECTION:PLAN:BEGIN");
+  const sections = [hasDod ? null : DOD_SECTION, hasPlan ? null : PLAN_SECTION].filter((s) => s !== null);
+  if (sections.length === 0) return body;
+  const base = body.replace(/\s+$/, "");
+  return base ? `${base}
+
+${sections.join("\n\n")}
+` : `${sections.join("\n\n")}
+`;
 }
 async function createTask(repo, project, input, existing) {
   const id = nextTaskId(existing, project.taskPrefix);
@@ -7017,16 +7144,36 @@ async function createTask(repo, project, input, existing) {
     assignee: input.assignee?.length ? input.assignee : void 0,
     milestone: input.milestone || void 0,
     dependencies: input.dependencies?.length ? input.dependencies : void 0,
+    // ticketing gate: references must be present on a new ticket
+    references: input.references?.length ? input.references : [],
+    created_date: today(),
     ordinal,
     path: ""
   };
-  return repo.create(project, task, input.body ?? "");
+  return repo.create(project, task, scaffoldBody(input.body ?? ""));
 }
 
 // src/application/edit-task.ts
 async function editTask(repo, project, task, patch, body) {
-  const updated = { ...task, ...patch, updated_date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10) };
+  const updated = { ...task, ...patch, updated_date: today() };
   await repo.write(project, updated, body ?? task.body ?? "");
+}
+
+// src/application/link-tasks.ts
+async function linkTasks(repo, project, a, b, add) {
+  if (a.id === b.id) return;
+  const aDeps = new Set(a.dependencies ?? []);
+  const bDeps = new Set(b.dependencies ?? []);
+  if (add) {
+    aDeps.add(b.id);
+    bDeps.add(a.id);
+  } else {
+    aDeps.delete(b.id);
+    bDeps.delete(a.id);
+  }
+  const now = today();
+  await repo.write(project, { ...a, dependencies: [...aDeps], updated_date: now }, a.body ?? "");
+  await repo.write(project, { ...b, dependencies: [...bDeps], updated_date: now }, b.body ?? "");
 }
 
 // src/ui/task-modal.ts
@@ -7036,6 +7183,16 @@ function listValue(values) {
 function parseList(value) {
   return value.split(",").map((s) => s.trim()).filter(Boolean);
 }
+function diffDependencies(current, next, selfId) {
+  const cur = new Set(current ?? []);
+  const nxt = new Set(next);
+  const added = [];
+  const removed = [];
+  for (const d of next) if (!cur.has(d) && d !== selfId) added.push(d);
+  for (const d of cur) if (!nxt.has(d) && d !== selfId) removed.push(d);
+  return { added, removed };
+}
+var AUTOSAVE_MS = 1200;
 var TaskModal = class extends import_obsidian2.Modal {
   ctx;
   project;
@@ -7049,6 +7206,9 @@ var TaskModal = class extends import_obsidian2.Modal {
   assignee = "";
   milestone = "";
   dependencies = "";
+  saveBtn = null;
+  statusEl = null;
+  autosaveTimer;
   constructor(app, ctx, project, task, allTasks, defaultMilestone) {
     super(app);
     this.ctx = ctx;
@@ -7079,77 +7239,181 @@ var TaskModal = class extends import_obsidian2.Modal {
     const { contentEl } = this;
     contentEl.createEl("h2", { text: this.task ? `Edit ${this.task.id}` : "Create task" });
     new import_obsidian2.Setting(contentEl).setName("Summary").setDesc("Required").addText((t) => {
-      t.setPlaceholder("Task title").setValue(this.summary).onChange((v) => this.summary = v);
+      t.setPlaceholder("Task title").setValue(this.summary).onChange((v) => {
+        this.summary = v;
+        this.saveBtn?.setDisabled(!v.trim());
+        this.scheduleAutosave();
+      });
     });
     new import_obsidian2.Setting(contentEl).setName("Description").setDesc("Markdown, saved as the task body").addTextArea((t) => {
-      t.setPlaceholder("What needs to happen?").setValue(this.body).onChange((v) => this.body = v);
+      t.setPlaceholder("What needs to happen?").setValue(this.body).onChange((v) => {
+        this.body = v;
+        this.scheduleAutosave();
+      });
       t.inputEl.rows = 6;
     });
     new import_obsidian2.Setting(contentEl).setName("Type").addDropdown((d) => {
       d.addOption("", "");
       for (const ty of this.project.types) d.addOption(ty, ty);
-      d.setValue(this.type).onChange((v) => this.type = v);
+      d.setValue(this.type).onChange((v) => {
+        this.type = v;
+        this.scheduleAutosave();
+      });
     });
     new import_obsidian2.Setting(contentEl).setName("Priority").addDropdown((d) => {
       d.addOption("", "");
       for (const p of this.project.priorities) d.addOption(p, p);
-      d.setValue(this.priority).onChange((v) => this.priority = v);
+      d.setValue(this.priority).onChange((v) => {
+        this.priority = v;
+        this.scheduleAutosave();
+      });
     });
     new import_obsidian2.Setting(contentEl).setName("Status").addDropdown((d) => {
       for (const s of this.project.statuses) d.addOption(s, s);
-      d.setValue(this.status).onChange((v) => this.status = v);
+      d.setValue(this.status).onChange((v) => {
+        this.status = v;
+        this.scheduleAutosave();
+      });
     });
     new import_obsidian2.Setting(contentEl).setName("Assignee").setDesc("Comma-separated").addText((t) => {
-      t.setPlaceholder("@user, @user2").setValue(this.assignee).onChange((v) => this.assignee = v);
+      t.setPlaceholder("@user, @user2").setValue(this.assignee).onChange((v) => {
+        this.assignee = v;
+        this.scheduleAutosave();
+      });
     });
     new import_obsidian2.Setting(contentEl).setName("Milestone").addText((t) => {
-      t.setPlaceholder("m-0").setValue(this.milestone).onChange((v) => this.milestone = v);
+      t.setPlaceholder("m-0").setValue(this.milestone).onChange((v) => {
+        this.milestone = v;
+        this.scheduleAutosave();
+      });
     });
     new import_obsidian2.Setting(contentEl).setName("Dependencies").setDesc("Comma-separated task IDs that must be done first \u2014 unfinished ones flag this task as blocked").addTextArea((t) => {
-      t.setPlaceholder("TASK-001, TASK-002").setValue(this.dependencies).onChange((v) => this.dependencies = v);
+      t.setPlaceholder("TASK-001, TASK-002").setValue(this.dependencies).onChange((v) => {
+        this.dependencies = v;
+        this.scheduleAutosave();
+      });
       t.inputEl.rows = 2;
       this.addDatalist(t.inputEl, "backlogmd-task-ids", this.allTasks.map((x) => x.id));
     });
     new import_obsidian2.Setting(contentEl).addButton((b) => {
+      this.saveBtn = b;
       b.setButtonText(this.task ? "Save" : "Create");
       b.setCta();
-      b.onClick(async () => {
-        if (!this.summary.trim()) return;
-        const patch = {
-          title: this.summary.trim(),
-          type: this.type || void 0,
-          priority: this.priority || void 0,
-          status: this.status,
-          assignee: parseList(this.assignee),
-          milestone: this.milestone.trim() || void 0,
-          dependencies: parseList(this.dependencies)
-        };
-        if (this.task) {
-          await editTask(this.ctx.repo, this.project, this.task, patch, this.body);
-        } else {
-          const input = {
-            summary: this.summary.trim(),
-            body: this.body,
-            type: this.type || void 0,
-            priority: this.priority || void 0,
-            status: this.status,
-            assignee: parseList(this.assignee),
-            milestone: this.milestone.trim() || void 0,
-            dependencies: parseList(this.dependencies)
-          };
-          await createTask(this.ctx.repo, this.project, input, this.allTasks);
-        }
-        this.close();
+      b.setDisabled(!this.summary.trim());
+      b.onClick(() => {
+        void this.saveAndClose();
       });
     });
+    this.statusEl = contentEl.createDiv({ cls: "backlogmd-task-status" });
+    if (this.task) this.statusEl.setText("Edits autosave");
+  }
+  /** A field changed: in edit mode, schedule a debounced autosave (H3).
+   *  Create mode stays explicit — no autosave. */
+  scheduleAutosave() {
+    if (!this.task) return;
+    clearTimeout(this.autosaveTimer);
+    this.autosaveTimer = setTimeout(() => {
+      this.autosaveTimer = void 0;
+      void this.autosave();
+    }, AUTOSAVE_MS);
+  }
+  cancelAutosave() {
+    if (this.autosaveTimer) {
+      clearTimeout(this.autosaveTimer);
+      this.autosaveTimer = void 0;
+    }
+  }
+  setStatus(text) {
+    if (this.statusEl) this.statusEl.setText(text);
+  }
+  /** Explicit Save/Create button: flush any pending autosave, save, close on
+   *  success. On failure: Notice + status, stay open (H7). */
+  async saveAndClose() {
+    this.cancelAutosave();
+    if (!this.summary.trim()) return;
+    this.setStatus("Saving\u2026");
+    try {
+      if (this.task) await this.saveEdit();
+      else await this.saveCreate();
+      this.close();
+    } catch (e) {
+      new import_obsidian2.Notice(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
+      this.setStatus("Save failed");
+    }
+  }
+  /** Debounced autosave (edit mode only): same save path as the button but
+   *  without closing, and it updates the inline status indicator (H3). */
+  async autosave() {
+    if (!this.task) return;
+    if (!this.summary.trim()) return;
+    this.setStatus("Saving\u2026");
+    try {
+      await this.saveEdit();
+      this.setStatus(`Saved ${(/* @__PURE__ */ new Date()).toTimeString().slice(0, 5)}`);
+    } catch (e) {
+      new import_obsidian2.Notice(`Autosave failed: ${e instanceof Error ? e.message : String(e)}`);
+      this.setStatus("Save failed");
+    }
+  }
+  /** Edit-mode save (C3/H1): re-read the task at save time (never the open-time
+   *  snapshot), wire dependency changes both directions, then write the fresh
+   *  task with the field patch as the single source of truth for its own fields. */
+  async saveEdit() {
+    const repo = this.ctx.repo;
+    const fresh = await repo.get(this.project, this.task.id);
+    if (!fresh) throw new Error("Task no longer exists");
+    const all = await repo.list(this.project);
+    const byId = new Map(all.map((t) => [t.id, t]));
+    const diff = diffDependencies(fresh.dependencies, parseList(this.dependencies), fresh.id);
+    for (const id of diff.added) {
+      const target = byId.get(id);
+      if (target) await linkTasks(repo, this.project, fresh, target, true);
+    }
+    for (const id of diff.removed) {
+      const target = byId.get(id);
+      if (target) await linkTasks(repo, this.project, fresh, target, false);
+    }
+    await editTask(repo, this.project, fresh, this.buildPatch(), this.body);
+  }
+  /** Create-mode save (C3): re-list at save time so the id is minted from
+   *  fresh state and the collision check sees current tasks. */
+  async saveCreate() {
+    const all = await this.ctx.repo.list(this.project);
+    await createTask(this.ctx.repo, this.project, this.buildCreateInput(), all);
+  }
+  buildPatch() {
+    return {
+      title: this.summary.trim(),
+      type: this.type || void 0,
+      priority: this.priority || void 0,
+      status: this.status,
+      assignee: parseList(this.assignee),
+      milestone: this.milestone.trim() || void 0,
+      dependencies: parseList(this.dependencies)
+    };
+  }
+  buildCreateInput() {
+    return {
+      summary: this.summary.trim(),
+      body: this.body,
+      type: this.type || void 0,
+      priority: this.priority || void 0,
+      status: this.status,
+      assignee: parseList(this.assignee),
+      milestone: this.milestone.trim() || void 0,
+      dependencies: parseList(this.dependencies)
+    };
   }
   onClose() {
+    this.cancelAutosave();
+    this.statusEl = null;
     this.contentEl.empty();
   }
 };
 
 // src/ui/kanban-view.ts
 var KANBAN_VIEW_TYPE = "backlogmd-kanban";
+var FILTER_DEBOUNCE_MS = 150;
 var byOrdinal = (a, b) => (a.ordinal ?? Number.MAX_SAFE_INTEGER) - (b.ordinal ?? Number.MAX_SAFE_INTEGER) || (a.created_date ?? "").localeCompare(b.created_date ?? "") || a.id.localeCompare(b.id);
 var KanbanView = class extends import_obsidian3.ItemView {
   ctx;
@@ -7165,7 +7429,14 @@ var KanbanView = class extends import_obsidian3.ItemView {
   boardHeaderEl = null;
   milestoneSelectEl = null;
   indicatorEl = null;
+  errorEl = null;
   renderSeq = 0;
+  /** H12: a reorder/move write is in flight — ignore new drops until it settles. */
+  dropInFlight = false;
+  /** M2: last disk load; filter keystrokes re-render from this, not disk. */
+  lastTasks = [];
+  lastMilestones = [];
+  filterTimer;
   constructor(leaf, ctx) {
     super(leaf);
     this.ctx = ctx;
@@ -7225,7 +7496,9 @@ var KanbanView = class extends import_obsidian3.ItemView {
     const container = this.containerEl.children[1];
     container.empty();
     this.boardEl = null;
+    this.boardHeaderEl = null;
     this.milestoneSelectEl = null;
+    this.errorEl = null;
     const project = this.ctx.projects[this.projectIndex];
     if (!project) {
       container.createEl("div", { text: "No backlog project found.", cls: "backlogmd-empty" });
@@ -7247,14 +7520,20 @@ var KanbanView = class extends import_obsidian3.ItemView {
     filter.value = this.filter;
     filter.addEventListener("input", () => {
       this.filter = filter.value;
-      void this.renderBoard(project);
+      clearTimeout(this.filterTimer);
+      this.filterTimer = setTimeout(() => {
+        this.paintBoard(project, this.lastTasks, this.lastMilestones);
+      }, FILTER_DEBOUNCE_MS);
     });
     const newBtn = toolbar.createEl("button", { text: "+ New task", cls: "backlogmd-new-task" });
     newBtn.addEventListener("click", () => this.openModal(project, null));
+    this.errorEl = container.createDiv({ cls: "backlogmd-error-host" });
     this.boardHeaderEl = container.createDiv({ cls: "backlogmd-board-header" });
     this.boardEl = container.createDiv({ cls: "backlogmd-board" });
     await this.renderBoard(project);
   }
+  /** Full board render: reads disk, caches the load (M2), surfaces skipped
+   *  files (C4), then paints. */
   async renderBoard(project) {
     const seq2 = ++this.renderSeq;
     const board = this.boardEl;
@@ -7265,6 +7544,18 @@ var KanbanView = class extends import_obsidian3.ItemView {
     const tasks = await repo.list(project);
     const milestones = await this.ctx.milestones.list(project);
     if (seq2 !== this.renderSeq) return;
+    this.lastTasks = tasks;
+    this.lastMilestones = milestones;
+    if (this.errorEl) renderErrorCard(this.errorEl, skippedFiles(repo));
+    this.paintBoard(project, tasks, milestones);
+  }
+  /** Synchronous board paint from already-loaded data (M2). Shared by the full
+   *  render and the debounced filter. No disk I/O. */
+  paintBoard(project, tasks, milestones) {
+    const board = this.boardEl;
+    if (!board) return;
+    board.empty();
+    this.removeIndicator();
     const active = milestones.find((m) => m.state === "active") ?? null;
     let sel = this.boardMilestone;
     if (sel === null) sel = active ? active.id : "";
@@ -7297,7 +7588,7 @@ var KanbanView = class extends import_obsidian3.ItemView {
         this.removeIndicator();
         const id = e.dataTransfer?.getData("text/plain");
         if (!id) return;
-        await this.handleDrop(repo, project, allInCol, status, id, e.clientY, listEl);
+        await this.handleDrop(this.ctx.repo, project, allInCol, status, id, e.clientY, listEl);
       });
     }
   }
@@ -7339,7 +7630,8 @@ var KanbanView = class extends import_obsidian3.ItemView {
       const origClose = modal.onClose.bind(modal);
       modal.onClose = () => {
         origClose();
-        void this.renderBoard(project);
+        const current = this.ctx.projects[this.projectIndex];
+        if (current) void this.renderBoard(current);
       };
       modal.open();
     });
@@ -7367,6 +7659,7 @@ var KanbanView = class extends import_obsidian3.ItemView {
     this.indicatorEl = null;
   }
   async handleDrop(repo, project, allInCol, status, id, clientY, listEl) {
+    if (this.dropInFlight) return;
     const dragged = allInCol.find((t) => t.id === id) ?? (await repo.list(project)).find((t) => t.id === id);
     if (!dragged) return;
     if (dragged.status === status) {
@@ -7378,10 +7671,20 @@ var KanbanView = class extends import_obsidian3.ItemView {
       ordered.splice(from, 1);
       ordered.splice(index, 0, dragged);
       if (ordered.every((t, i) => t === allInCol[i])) return;
-      await reorderColumn(repo, project, ordered);
+      this.dropInFlight = true;
+      try {
+        await reorderColumn(repo, project, ordered);
+      } finally {
+        this.dropInFlight = false;
+      }
     } else {
       const ordinal = allInCol.length ? Math.max(...allInCol.map((t) => t.ordinal ?? 0)) + 1e3 : 1e3;
-      await moveTask(repo, project, dragged, status, ordinal);
+      this.dropInFlight = true;
+      try {
+        await moveTask(repo, project, dragged, status, ordinal);
+      } finally {
+        this.dropInFlight = false;
+      }
     }
     await this.renderBoard(project);
   }
@@ -7399,6 +7702,12 @@ function nextMilestoneId(existing) {
   }
   return `m-${max + 1}`;
 }
+function wrap2(ms, err) {
+  return new Error(
+    `backlogmd: writing milestone ${ms} failed \u2014 on-disk state unchanged: ${err instanceof Error ? err.message : String(err)}`,
+    { cause: err }
+  );
+}
 async function startMilestone(tasks, milestones, project, ms) {
   const all = await milestones.list(project);
   const taskList = await tasks.list(project);
@@ -7408,7 +7717,11 @@ async function startMilestone(tasks, milestones, project, ms) {
     }
   }
   const updated = { ...ms, state: "active", start_date: ms.start_date ?? today() };
-  await milestones.write(project, updated, ms.body ?? "");
+  try {
+    await milestones.write(project, updated, ms.body ?? "");
+  } catch (err) {
+    throw wrap2(`start(${ms.id})`, err);
+  }
 }
 async function completeMilestone(tasks, milestones, project, ms, taskList) {
   const all = taskList ?? await tasks.list(project);
@@ -7416,10 +7729,6 @@ async function completeMilestone(tasks, milestones, project, ms, taskList) {
   const msTasks = all.filter((t) => t.milestone === ms.id);
   const completedTasks = msTasks.filter((t) => done.has(t.status)).map((t) => t.id);
   const carriedOver = msTasks.filter((t) => !done.has(t.status));
-  for (const t of carriedOver) {
-    const updated2 = { ...t, milestone: void 0, updated_date: today() };
-    await tasks.write(project, updated2, t.body ?? "");
-  }
   const updated = {
     ...ms,
     state: "completed",
@@ -7427,7 +7736,15 @@ async function completeMilestone(tasks, milestones, project, ms, taskList) {
     completed_tasks: completedTasks,
     carried_over_tasks: carriedOver.map((t) => t.id)
   };
-  await milestones.write(project, updated, ms.body ?? "");
+  try {
+    for (const t of carriedOver) {
+      const tUpdated = { ...t, milestone: void 0, updated_date: today() };
+      await tasks.write(project, tUpdated, t.body ?? "");
+    }
+    await milestones.write(project, updated, ms.body ?? "");
+  } catch (err) {
+    throw wrap2(`complete(${ms.id})`, err);
+  }
 }
 async function planTask(tasks, project, task, milestoneId, taskList) {
   let ordinal = task.ordinal;
@@ -7443,11 +7760,10 @@ async function planTask(tasks, project, task, milestoneId, taskList) {
 // src/ui/milestone-modal.ts
 var import_obsidian4 = require("obsidian");
 var MilestoneModal = class extends import_obsidian4.Modal {
-  constructor(app, ctx, project, existing) {
+  constructor(app, ctx, project) {
     super(app);
     this.ctx = ctx;
     this.project = project;
-    this.existing = existing;
   }
   title = "";
   goal = "";
@@ -7470,7 +7786,7 @@ var MilestoneModal = class extends import_obsidian4.Modal {
       b.setCta();
       b.onClick(async () => {
         if (!this.title.trim()) return;
-        const id = nextMilestoneId(this.existing);
+        const id = nextMilestoneId(await this.ctx.milestones.list(this.project));
         const m = {
           id,
           title: this.title.trim(),
@@ -7503,6 +7819,7 @@ Goal: ${this.goal.trim()}
 
 // src/ui/backlog-view.ts
 var BACKLOG_VIEW_TYPE = "backlogmd-backlog";
+var FILTER_DEBOUNCE_MS2 = 150;
 var byOrdinal2 = (a, b) => (a.ordinal ?? Number.MAX_SAFE_INTEGER) - (b.ordinal ?? Number.MAX_SAFE_INTEGER) || (a.created_date ?? "").localeCompare(b.created_date ?? "") || a.id.localeCompare(b.id);
 var msNumber = (id) => parseInt(id.replace(/[^0-9]/g, ""), 10) || 0;
 var BacklogView = class extends import_obsidian5.ItemView {
@@ -7511,7 +7828,14 @@ var BacklogView = class extends import_obsidian5.ItemView {
   filter = "";
   sectionsEl = null;
   indicatorEl = null;
+  errorEl = null;
   renderSeq = 0;
+  /** H12: a plan/reorder write is in flight — ignore new drops until it settles. */
+  dropInFlight = false;
+  /** M2: last disk load; filter keystrokes re-render from this, not disk. */
+  lastTasks = [];
+  lastMilestones = [];
+  filterTimer;
   constructor(leaf, ctx) {
     super(leaf);
     this.ctx = ctx;
@@ -7529,9 +7853,18 @@ var BacklogView = class extends import_obsidian5.ItemView {
     this.removeIndicator();
   }
   async render() {
+    try {
+      await this.renderInner();
+    } catch (e) {
+      console.error("[backlogmd] backlog render failed:", e.stack ?? String(e));
+      throw e;
+    }
+  }
+  async renderInner() {
     const container = this.containerEl.children[1];
     container.empty();
     this.sectionsEl = null;
+    this.errorEl = null;
     const project = this.ctx.projects[this.projectIndex];
     if (!project) {
       container.createEl("div", { text: "No project", cls: "backlogmd-empty" });
@@ -7546,22 +7879,25 @@ var BacklogView = class extends import_obsidian5.ItemView {
     input.value = this.filter;
     input.addEventListener("input", () => {
       this.filter = input.value;
-      void this.renderSections(project);
+      clearTimeout(this.filterTimer);
+      this.filterTimer = setTimeout(() => {
+        this.paintSections(project, this.lastTasks, this.lastMilestones);
+      }, FILTER_DEBOUNCE_MS2);
     });
     const newTask = toolbar.createEl("button", { text: "+ New task", cls: "backlogmd-new-task" });
     newTask.addEventListener("click", () => this.openTaskModal(project, null));
     const newMilestone = toolbar.createEl("button", { text: "+ Milestone", cls: "backlogmd-new-task" });
     newMilestone.addEventListener("click", () => {
-      void this.ctx.milestones.list(project).then((all) => {
-        const modal = new MilestoneModal(this.app, this.ctx, project, all);
-        const origClose = modal.onClose.bind(modal);
-        modal.onClose = () => {
-          origClose();
-          void this.renderSections(project);
-        };
-        modal.open();
-      });
+      const modal = new MilestoneModal(this.app, this.ctx, project);
+      const origClose = modal.onClose.bind(modal);
+      modal.onClose = () => {
+        origClose();
+        const current = this.ctx.projects[this.projectIndex];
+        if (current) void this.renderSections(current);
+      };
+      modal.open();
     });
+    this.errorEl = container.createDiv({ cls: "backlogmd-error-host" });
     this.sectionsEl = container.createDiv({ cls: "backlogmd-sections" });
     await this.renderSections(project);
   }
@@ -7582,6 +7918,8 @@ var BacklogView = class extends import_obsidian5.ItemView {
     });
     return sections;
   }
+  /** Full section render: reads disk, caches the load (M2), surfaces skipped
+   *  files (C4), then paints. */
   async renderSections(project) {
     const seq2 = ++this.renderSeq;
     const host = this.sectionsEl;
@@ -7591,6 +7929,18 @@ var BacklogView = class extends import_obsidian5.ItemView {
     const tasks = await this.ctx.repo.list(project);
     const milestones = await this.ctx.milestones.list(project);
     if (seq2 !== this.renderSeq) return;
+    this.lastTasks = tasks;
+    this.lastMilestones = milestones;
+    if (this.errorEl) renderErrorCard(this.errorEl, skippedFiles(this.ctx.repo));
+    this.paintSections(project, tasks, milestones);
+  }
+  /** Synchronous section paint from already-loaded data (M2). Shared by the
+   *  full render and the debounced filter. No disk I/O. */
+  paintSections(project, tasks, milestones) {
+    const host = this.sectionsEl;
+    if (!host) return;
+    host.empty();
+    this.removeIndicator();
     const byId = new Map(tasks.map((t) => [t.id, t]));
     const q = this.filter.trim().toLowerCase();
     const matches = (t) => !q || t.id.toLowerCase().includes(q) || t.title.toLowerCase().includes(q) || (t.type ?? "").toLowerCase().includes(q) || (t.assignee ?? []).join(" ").toLowerCase().includes(q) || (t.labels ?? []).join(" ").toLowerCase().includes(q);
@@ -7616,14 +7966,28 @@ var BacklogView = class extends import_obsidian5.ItemView {
         if (section.milestone.state !== "active") {
           const start = actions.createEl("button", { text: "Start", cls: "backlogmd-section-btn" });
           start.addEventListener("click", async () => {
-            await startMilestone(this.ctx.repo, this.ctx.milestones, project, section.milestone);
-            await this.renderSections(project);
+            start.disabled = true;
+            try {
+              await startMilestone(this.ctx.repo, this.ctx.milestones, project, section.milestone);
+            } catch (e) {
+              new import_obsidian5.Notice(`Start failed: ${e instanceof Error ? e.message : String(e)}`);
+            } finally {
+              start.disabled = false;
+            }
+            void this.renderSections(project);
           });
         }
         const complete = actions.createEl("button", { text: "Complete", cls: "backlogmd-section-btn" });
         complete.addEventListener("click", async () => {
-          await completeMilestone(this.ctx.repo, this.ctx.milestones, project, section.milestone, tasks);
-          await this.renderSections(project);
+          complete.disabled = true;
+          try {
+            await completeMilestone(this.ctx.repo, this.ctx.milestones, project, section.milestone, tasks);
+          } catch (e) {
+            new import_obsidian5.Notice(`Complete failed: ${e instanceof Error ? e.message : String(e)}`);
+          } finally {
+            complete.disabled = false;
+          }
+          void this.renderSections(project);
         });
       } else {
         header.createEl("span", { text: "Backlog", cls: "backlogmd-section-title" });
@@ -7697,6 +8061,7 @@ var BacklogView = class extends import_obsidian5.ItemView {
     this.indicatorEl = null;
   }
   async handleDrop(project, section, allTasks, id, clientY, rowsEl) {
+    if (this.dropInFlight) return;
     const dragged = allTasks.find((t) => t.id === id);
     if (!dragged) return;
     if ((dragged.milestone ?? null) === section.milestoneId) {
@@ -7708,9 +8073,19 @@ var BacklogView = class extends import_obsidian5.ItemView {
       ordered.splice(from, 1);
       ordered.splice(index, 0, dragged);
       if (ordered.every((t, i) => t === section.tasks[i])) return;
-      await reorderColumn(this.ctx.repo, project, ordered);
+      this.dropInFlight = true;
+      try {
+        await reorderColumn(this.ctx.repo, project, ordered);
+      } finally {
+        this.dropInFlight = false;
+      }
     } else {
-      await planTask(this.ctx.repo, project, dragged, section.milestoneId, allTasks);
+      this.dropInFlight = true;
+      try {
+        await planTask(this.ctx.repo, project, dragged, section.milestoneId, allTasks);
+      } finally {
+        this.dropInFlight = false;
+      }
     }
     await this.renderSections(project);
   }
@@ -7721,7 +8096,8 @@ var BacklogView = class extends import_obsidian5.ItemView {
       const origClose = modal.onClose.bind(modal);
       modal.onClose = () => {
         origClose();
-        void this.renderSections(project);
+        const current = this.ctx.projects[this.projectIndex];
+        if (current) void this.renderSections(current);
       };
       modal.open();
     });
@@ -7821,25 +8197,32 @@ var MilestoneView = class extends import_obsidian6.ItemView {
 var import_obsidian7 = require("obsidian");
 
 // src/infrastructure/github.ts
+var PAGE_SIZE = 100;
+var MAX_PAGES = 10;
+var TIMEOUT_MS = 3e4;
 async function fetchIssues(token, owner, repo) {
-  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues?state=all&per_page=100`, {
-    headers: { Authorization: `token ${token}`, Accept: "application/vnd.github+json" }
-  });
-  if (!res.ok) throw new Error(`GitHub ${res.status}`);
-  const all = await res.json();
-  return all.filter((i) => i.pull_request === void 0);
+  const issues = [];
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    let res;
+    try {
+      res = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues?state=all&per_page=${PAGE_SIZE}&page=${page}`, {
+        headers: { Authorization: `token ${token}`, Accept: "application/vnd.github+json" },
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) throw new Error(`GitHub ${res.status}`);
+    const batch = await res.json();
+    issues.push(...batch.filter((i) => i.pull_request === void 0));
+    if (batch.length < PAGE_SIZE) break;
+  }
+  return issues;
 }
 
 // src/application/pull-issues.ts
-function nextTaskId2(existing, prefix) {
-  const re = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[-_ ]?(\\d+)$`, "i");
-  let max = 0;
-  for (const t of existing) {
-    const m = t.id.match(re);
-    if (m) max = Math.max(max, parseInt(m[1], 10));
-  }
-  return `${prefix}-${String(max + 1).padStart(3, "0")}`;
-}
 async function pullIssues(repo, project, token, owner, repository) {
   const issues = await fetchIssues(token, owner, repository);
   const existing = [...await repo.list(project)];
@@ -7848,25 +8231,31 @@ async function pullIssues(repo, project, token, owner, repository) {
     const match = existing.find((t) => t.references?.includes(sourceRef));
     if (match) {
       const closed = issue.state === "closed";
-      const newStatus = closed ? project.doneStatuses[0] ?? match.status : match.status;
-      await repo.write(project, { ...match, title: issue.title, assignee: issue.assignee ? [issue.assignee] : match.assignee, status: newStatus }, match.body ?? "");
+      const newStatus = closed ? project.doneStatuses[0] ?? match.status : project.statuses[0] ?? match.status;
+      const newAssignee = issue.assignee ? [issue.assignee.login] : null;
+      await repo.write(project, { ...match, title: issue.title, assignee: newAssignee, status: newStatus }, match.body ?? "");
     } else {
-      const id = nextTaskId2(existing, project.taskPrefix);
+      const id = nextTaskId(existing, project.taskPrefix);
+      const body = issue.body ? fence(issue.body) : "";
       const task = {
         id,
         title: issue.title,
         status: issue.state === "closed" ? project.doneStatuses[0] ?? project.statuses[0] : project.statuses[0] ?? "To Do",
-        assignee: issue.assignee ? [issue.assignee] : void 0,
+        assignee: issue.assignee ? [issue.assignee.login] : null,
         references: [sourceRef],
-        body: issue.body ? `\`\`\`
-${issue.body}
-\`\`\`` : "",
+        body,
         path: ""
       };
-      await repo.create(project, task, task.body ?? "");
+      await repo.create(project, task, body);
       existing.push(task);
     }
   }
+}
+function fence(body) {
+  const f = body.includes("```") ? "````" : "```";
+  return `${f}
+${body}
+${f}`;
 }
 
 // src/ui/pull-issues-modal.ts
@@ -7880,6 +8269,7 @@ var PullIssuesModal = class extends import_obsidian7.Modal {
   owner = "";
   repository = "";
   token = "";
+  tokenField = null;
   async onOpen() {
     const { contentEl } = this;
     contentEl.createEl("h2", { text: "Pull issues from GitHub" });
@@ -7891,6 +8281,7 @@ var PullIssuesModal = class extends import_obsidian7.Modal {
     new import_obsidian7.Setting(contentEl).setName("Owner").addText((t) => t.setPlaceholder("owner").setValue(this.owner).onChange((v) => this.owner = v));
     new import_obsidian7.Setting(contentEl).setName("Repository").addText((t) => t.setPlaceholder("repo").setValue(this.repository).onChange((v) => this.repository = v));
     new import_obsidian7.Setting(contentEl).setName("Token").setDesc("Optional for public repos; stored in Obsidian secret storage").addText((t) => {
+      this.tokenField = t;
       t.setPlaceholder(hasStored ? "stored \u2014 leave blank to keep" : "ghp_\u2026");
       t.inputEl.type = "password";
       t.onChange((v) => this.token = v);
@@ -7904,9 +8295,13 @@ var PullIssuesModal = class extends import_obsidian7.Modal {
         if (!owner || !repository) return;
         const stored = await this.app.secretStorage.getSecret(this.tokenKey) ?? "";
         const token = this.token.trim() || stored;
-        if (this.token.trim()) await this.app.secretStorage.setSecret(this.tokenKey, this.token.trim());
         try {
           await pullIssues(this.ctx.repo, this.project, token, owner, repository);
+          if (this.token.trim()) {
+            await this.app.secretStorage.setSecret(this.tokenKey, this.token.trim());
+            this.tokenField?.setPlaceholder("stored \u2014 leave blank to keep");
+            this.tokenField?.setValue("");
+          }
           new import_obsidian7.Notice(`Pulled issues from ${owner}/${repository}`);
           this.close();
         } catch (e) {
@@ -7955,27 +8350,33 @@ var BacklogMdSettingTab = class extends import_obsidian8.PluginSettingTab {
 
 // src/infrastructure/watcher.ts
 var import_obsidian9 = require("obsidian");
+var EVENTS = ["modify", "create", "delete", "rename"];
 var FileWatcher = class {
-  timer = null;
-  cb;
-  constructor(app, cb) {
-    this.cb = cb;
-    app.vault.on("modify", (file) => {
-      if (file instanceof import_obsidian9.TFile && file.extension === "md") this.schedule();
-    });
-    app.vault.on("create", (file) => {
-      if (file instanceof import_obsidian9.TFile && file.extension === "md") this.schedule();
-    });
-    app.vault.on("delete", (file) => {
-      if (file instanceof import_obsidian9.TFile && file.extension === "md") this.schedule();
-    });
+  timer;
+  constructor(app, register, projectDirs, cb) {
+    for (const name of EVENTS) {
+      register(
+        app.vault.on(name, (file) => {
+          if (!(file instanceof import_obsidian9.TFile) || file.extension !== "md") return;
+          if (!this.underProject(file.path, projectDirs())) return;
+          this.schedule(cb);
+        })
+      );
+    }
   }
-  schedule() {
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.cb(), 300);
+  underProject(path2, dirs) {
+    for (const d of dirs) {
+      const base = d === "" ? "" : `${d}/`;
+      if (path2.startsWith(`${base}tasks/`) || path2.startsWith(`${base}milestones/`)) return true;
+    }
+    return false;
+  }
+  schedule(cb) {
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => cb(), 300);
   }
   destroy() {
-    if (this.timer) clearTimeout(this.timer);
+    clearTimeout(this.timer);
   }
 };
 
@@ -7988,6 +8389,15 @@ function projectForPath(projects, path2) {
   }
   return null;
 }
+async function openTaskModalForFile(app, ctx, file) {
+  const project = projectForPath(ctx.projects, file.path);
+  if (!project) return false;
+  const all = await ctx.repo.list(project);
+  const task = all.find((x) => x.path === file.path);
+  if (!task) return false;
+  new TaskModal(app, ctx, project, task, all).open();
+  return true;
+}
 function syncTaskHeaderButtons(app, ctx) {
   for (const leaf of app.workspace.getLeavesOfType("markdown")) {
     const view = leaf.view;
@@ -7997,14 +8407,12 @@ function syncTaskHeaderButtons(app, ctx) {
     headerEl.querySelectorAll(`.${MARKER}`).forEach((n) => n.remove());
     const file = view.file;
     if (!(file instanceof import_obsidian10.TFile)) continue;
-    const project = projectForPath(ctx.projects, file.path);
-    if (!project) continue;
+    if (!projectForPath(ctx.projects, file.path)) continue;
     const btn = headerEl.createEl("div", { cls: `clickable-icon ${MARKER}`, title: "Edit task" });
     (0, import_obsidian10.setIcon)(btn, "pencil");
     btn.addEventListener("click", () => {
-      void ctx.repo.list(project).then((all) => {
-        const t = all.find((x) => x.path === file.path);
-        if (t) new TaskModal(app, ctx, project, t, all).open();
+      void openTaskModalForFile(app, ctx, file).then((opened) => {
+        if (!opened) new import_obsidian10.Notice("No task in active note");
       });
     });
   }
@@ -8038,22 +8446,53 @@ var BacklogMdPlugin = class extends import_obsidian11.Plugin {
     } });
     this.addCommand({ id: "create-milestone", name: "Create milestone (sprint)", callback: () => {
       const project = this.projectFromViews();
-      if (project) void this.ctx.milestones.list(project).then((all) => new MilestoneModal(this.app, this.ctx, project, all).open());
+      if (project) new MilestoneModal(this.app, this.ctx, project).open();
+    } });
+    this.addCommand({ id: "switch-project", name: "Switch project", callback: () => this.cycleProject() });
+    this.addCommand({ id: "edit-task", name: "Edit task", callback: () => {
+      const view = this.app.workspace.getMostRecentLeaf()?.view;
+      const file = view?.file;
+      if (file instanceof import_obsidian11.TFile) {
+        void openTaskModalForFile(this.app, this.ctx, file).then((opened) => {
+          if (!opened) new import_obsidian11.Notice("No task in active note");
+        });
+      } else {
+        new import_obsidian11.Notice("No task in active note");
+      }
     } });
     this.addSettingTab(new BacklogMdSettingTab(this.app, this, this.settings));
     this.registerEvent(this.app.workspace.on("file-open", () => syncTaskHeaderButtons(this.app, this.ctx)));
     this.app.workspace.onLayoutReady(() => syncTaskHeaderButtons(this.app, this.ctx));
-    new FileWatcher(this.app, () => {
-      const reRender = (type2) => {
-        for (const l of this.app.workspace.getLeavesOfType(type2)) {
-          const v = l.view;
-          if (v && typeof v.render === "function") void v.render();
-        }
-      };
-      reRender(KANBAN_VIEW_TYPE);
-      reRender(BACKLOG_VIEW_TYPE);
-      reRender(MILESTONE_VIEW_TYPE);
-    });
+    new FileWatcher(
+      this.app,
+      (event) => this.registerEvent(event),
+      () => this.ctx.projects.map((p) => p.vaultBacklogDir),
+      () => {
+        const reRender = (type2) => {
+          for (const l of this.app.workspace.getLeavesOfType(type2)) {
+            const v = l.view;
+            if (v && typeof v.render === "function") void v.render();
+          }
+        };
+        reRender(KANBAN_VIEW_TYPE);
+        reRender(BACKLOG_VIEW_TYPE);
+        reRender(MILESTONE_VIEW_TYPE);
+      }
+    );
+  }
+  // Advance the open board/backlog view to the next project (wrapping).
+  cycleProject() {
+    const k = this.app.workspace.getLeavesOfType(KANBAN_VIEW_TYPE)[0]?.view;
+    const b = this.app.workspace.getLeavesOfType(BACKLOG_VIEW_TYPE)[0]?.view;
+    const view = k ?? b;
+    const n = this.ctx.projects.length;
+    if (n <= 1) return;
+    if (!view) {
+      void this.activateView(KANBAN_VIEW_TYPE);
+      return;
+    }
+    view.projectIndex = (view.projectIndex + 1) % n;
+    void view.render();
   }
   // Follow the project selected in an open board/backlog view, else the first project.
   projectFromViews() {

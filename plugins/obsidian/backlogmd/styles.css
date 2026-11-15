@@ -55,8 +55,8 @@
 .backlogmd-blocked { margin-left: auto; font-size: 12px; }
 .backlogmd-drop-line { height: 3px; border-radius: 2px; background: var(--interactive-accent); margin: 2px 4px; }
 
-.backlogmd-list { display: flex; flex-direction: column; gap: 6px; }
-.backlogmd-list-row { display: flex; gap: 8px; align-items: baseline; cursor: pointer; }
-.backlogmd-status { color: var(--text-muted); white-space: nowrap; }
+.backlogmd-error { margin: 4px 0; padding: 6px 8px; border: 1px solid var(--text-error); border-left: 3px solid var(--text-error); border-radius: 6px; background: var(--background-secondary); }
+.backlogmd-error-title { font-size: 12px; font-weight: 600; color: var(--text-error); margin-bottom: 2px; }
+.backlogmd-error-list { margin: 0; padding-left: 18px; font-size: 12px; color: var(--text-muted); }
 .backlogmd-modal-desc { color: var(--text-muted); font-size: 13px; }
 .backlogmd-empty { color: var(--text-muted); font-style: italic; }

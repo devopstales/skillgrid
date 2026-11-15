@@ -4,6 +4,7 @@ import { TaskRepository, ProjectConfig } from "../../src/application/ports";
 import { Task } from "../../src/domain/task";
 
 class MemoryRepo implements TaskRepository {
+  lastErrors: string[] = [];
   written: { task: Task; body: string }[] = [];
   async list() {
     return [];

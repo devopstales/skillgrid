@@ -1,4 +1,5 @@
 import type { Milestone } from "../domain/milestone";
+import type { Task } from "../domain/task";
 
 export interface ProjectConfig {
   name: string;
@@ -39,13 +40,13 @@ export interface MilestoneRepository {
   create(project: ProjectConfig, m: Milestone, body: string): Promise<string>;
 }
 
-export interface VaultPort {
-  getVaultRoot(): string;
-}
-
 export interface TaskRepository {
-  list(project: ProjectConfig): Promise<import("../domain/task").Task[]>;
-  get(project: ProjectConfig, id: string): Promise<import("../domain/task").Task | null>;
-  write(project: ProjectConfig, task: import("../domain/task").Task, body: string): Promise<void>;
-  create(project: ProjectConfig, task: import("../domain/task").Task, body: string): Promise<string>;
+  /** Vault-relative paths of files skipped due to parse failure; cleared at
+   *  the start of every `list()` call, populated with the paths of files
+   *  skipped in that call. Views render an error card when non-empty. */
+  lastErrors: string[];
+  list(project: ProjectConfig): Promise<Task[]>;
+  get(project: ProjectConfig, id: string): Promise<Task | null>;
+  write(project: ProjectConfig, task: Task, body: string): Promise<void>;
+  create(project: ProjectConfig, task: Task, body: string): Promise<string>;
 }

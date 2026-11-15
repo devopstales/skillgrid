@@ -4,6 +4,7 @@ import { TaskRepository, ProjectConfig } from "../../src/application/ports";
 import { Task } from "../../src/domain/task";
 
 class MemoryRepo implements TaskRepository {
+  lastErrors: string[] = [];
   written: { task: Task; body: string }[] = [];
   async list() {
     return [];
@@ -67,5 +68,22 @@ describe("linkTasks", () => {
     const byId = new Map(repo.written.map((w) => [w.task.id, w]));
     expect(byId.get("OB-1")?.task.dependencies).toEqual([]);
     expect(byId.get("OB-7")?.task.dependencies).toEqual([]);
+  });
+
+  it("stamps updated_date (YYYY-MM-DD) on both writes (H1/M11)", async () => {
+    const repo = new MemoryRepo();
+    const now = new Date().toISOString().slice(0, 10);
+    await linkTasks(repo, project, t("OB-1"), t("OB-7", ["OB-2"]), false);
+    expect(repo.written).toHaveLength(2);
+    for (const w of repo.written) {
+      expect(w.task.updated_date).toBe(now);
+    }
+  });
+
+  it("self-link is a no-op: no writes at all (H1)", async () => {
+    const repo = new MemoryRepo();
+    await linkTasks(repo, project, t("OB-1"), t("OB-1"), true);
+    await linkTasks(repo, project, t("OB-1", ["OB-1"]), t("OB-1", ["OB-1"]), false);
+    expect(repo.written).toHaveLength(0);
   });
 });

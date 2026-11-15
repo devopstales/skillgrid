@@ -23,12 +23,7 @@ export class ObsidianFileSystem implements FileSystemPort {
   }
 
   async writeText(path: string, content: string): Promise<void> {
-    const p = this.normalize(path);
-    if (await this.app.vault.adapter.exists(p)) {
-      await this.app.vault.adapter.write(p, content);
-    } else {
-      await this.app.vault.adapter.write(p, content);
-    }
+    await this.app.vault.adapter.write(this.normalize(path), content);
   }
 
   async listDirs(path: string): Promise<string[]> {
@@ -47,10 +42,6 @@ export class ObsidianFileSystem implements FileSystemPort {
       return folder.children.filter((c) => c instanceof TFile).map((c) => c.name);
     }
     return [];
-  }
-
-  getVaultRoot(): string {
-    return "";
   }
 
   // Desktop only: FileSystemAdapter exposes getBasePath; the mobile adapter

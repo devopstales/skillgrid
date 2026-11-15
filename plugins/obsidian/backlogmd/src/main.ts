@@ -1,4 +1,4 @@
-import { Plugin } from "obsidian";
+import { MarkdownView, Notice, Plugin, TFile } from "obsidian";
 import { compose, PluginContext } from "./compose";
 import { KanbanView, KANBAN_VIEW_TYPE } from "./ui/kanban-view";
 import { BacklogView, BACKLOG_VIEW_TYPE } from "./ui/backlog-view";
@@ -8,7 +8,7 @@ import { PullIssuesModal } from "./ui/pull-issues-modal";
 import { MilestoneModal } from "./ui/milestone-modal";
 import { BacklogMdSettingTab, DEFAULT_SETTINGS } from "./settings/settings-tab";
 import { FileWatcher } from "./infrastructure/watcher";
-import { syncTaskHeaderButtons } from "./ui/task-note-header";
+import { openTaskModalForFile, syncTaskHeaderButtons } from "./ui/task-note-header";
 
 export default class BacklogMdPlugin extends Plugin {
   ctx!: PluginContext;
@@ -40,7 +40,21 @@ export default class BacklogMdPlugin extends Plugin {
     } });
     this.addCommand({ id: "create-milestone", name: "Create milestone (sprint)", callback: () => {
       const project = this.projectFromViews();
-      if (project) void this.ctx.milestones.list(project).then((all) => new MilestoneModal(this.app, this.ctx, project, all).open());
+      if (project) new MilestoneModal(this.app, this.ctx, project).open(); // H5: modal re-lists at save
+    } });
+    // R10 palette parity (H2): the in-view switcher and note-header button
+    // stay; these make the same affordances reachable from the palette.
+    this.addCommand({ id: "switch-project", name: "Switch project", callback: () => this.cycleProject() });
+    this.addCommand({ id: "edit-task", name: "Edit task", callback: () => {
+      const view = this.app.workspace.getMostRecentLeaf()?.view;
+      const file = (view as MarkdownView | undefined)?.file;
+      if (file instanceof TFile) {
+        void openTaskModalForFile(this.app, this.ctx, file).then((opened) => {
+          if (!opened) new Notice("No task in active note");
+        });
+      } else {
+        new Notice("No task in active note");
+      }
     } });
 
     this.addSettingTab(new BacklogMdSettingTab(this.app, this, this.settings));
@@ -49,19 +63,41 @@ export default class BacklogMdPlugin extends Plugin {
     this.registerEvent(this.app.workspace.on("file-open", () => syncTaskHeaderButtons(this.app, this.ctx)));
     this.app.workspace.onLayoutReady(() => syncTaskHeaderButtons(this.app, this.ctx));
 
-    new FileWatcher(this.app, () => {
-      const reRender = (type: string) => {
-        // A leaf can be mid-restore at this point (view not swapped yet) —
-        // only re-render views that are actually one of ours and ready.
-        for (const l of this.app.workspace.getLeavesOfType(type)) {
-          const v = l.view as { render?: () => Promise<void> } | null | undefined;
-          if (v && typeof v.render === "function") void v.render();
-        }
-      };
-      reRender(KANBAN_VIEW_TYPE);
-      reRender(BACKLOG_VIEW_TYPE);
-      reRender(MILESTONE_VIEW_TYPE);
-    });
+    // H6: handlers registered via registerEvent (released on unload); only
+    // files under the projects' tasks/ or milestones/ dirs trigger a render.
+    new FileWatcher(
+      this.app,
+      (event) => this.registerEvent(event),
+      () => this.ctx.projects.map((p) => p.vaultBacklogDir),
+      () => {
+        const reRender = (type: string) => {
+          // A leaf can be mid-restore at this point (view not swapped yet) —
+          // only re-render views that are actually one of ours and ready.
+          for (const l of this.app.workspace.getLeavesOfType(type)) {
+            const v = l.view as { render?: () => Promise<void> } | null | undefined;
+            if (v && typeof v.render === "function") void v.render();
+          }
+        };
+        reRender(KANBAN_VIEW_TYPE);
+        reRender(BACKLOG_VIEW_TYPE);
+        reRender(MILESTONE_VIEW_TYPE);
+      },
+    );
+  }
+
+  // Advance the open board/backlog view to the next project (wrapping).
+  private cycleProject(): void {
+    const k = this.app.workspace.getLeavesOfType(KANBAN_VIEW_TYPE)[0]?.view as unknown as KanbanView | undefined;
+    const b = this.app.workspace.getLeavesOfType(BACKLOG_VIEW_TYPE)[0]?.view as unknown as BacklogView | undefined;
+    const view = k ?? b;
+    const n = this.ctx.projects.length;
+    if (n <= 1) return;
+    if (!view) {
+      void this.activateView(KANBAN_VIEW_TYPE); // open the board; switch in-view
+      return;
+    }
+    view.projectIndex = (view.projectIndex + 1) % n;
+    void view.render();
   }
 
   // Follow the project selected in an open board/backlog view, else the first project.
