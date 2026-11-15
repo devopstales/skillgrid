@@ -93,4 +93,4 @@ Change: `2026-11-12-obsidian-backlogmd-plugin` (Obsidian plugin for Backlog.md �
 
 ## Round record
 
-- **Round 1 (2026-11-13):** spec-zone commit (this file + ADR-0066 + § LOCKED row) → parallel fix slices (data layer / UI layer) → sequential polish pass (pin, strict, dead code, README) → verification (build + full suite + targeted smokes: round-trip on a real CLI task file, malformed-file error card, assignee mapping) → code-zone commit → this round record filled in.
+- **Round 1 (2026-11-13):** spec-zone commit (this file + ADR-0066 + § LOCKED row) → parallel fix slices (data layer / UI layer) → sequential polish pass (pin, strict, dead code, README) → verification (build + full suite + targeted smokes: round-trip on a real CLI task file, malformed-file error card, assignee mapping) → code-zone commit `fc102e00` (2026-11-15) → ledger recorded (`review-ledger.md`: R1 31 fixed / 6 parked, R2 verification pass 6 fixed).
