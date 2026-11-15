@@ -225,7 +225,7 @@ var renamedCommands = map[string]string{
 	"mcp":   "mnemonic <family> mcp (memory|code|projectwiki)",
 	"serve": "mnemonic <family> mcp (the HTTP dashboard is dropped)",
 	"mem":   "mnemonic memory",
-	"index": "mnemonic code (bare `mnemonic code` runs the index)",
+	"index": "mnemonic code index",
 }
 
 // stripGlobals removes the global flags (and their values) from args,
@@ -310,7 +310,7 @@ Usage:
 
 Commands:
   memory        Memory tools (save|search|get|lookup|context|review|timeline|pin|unpin|delete|session|stats|doctor|mcp)
-  code          Code index (bare `+"`code`"+` runs the index; status|search|orient|explain|path|impact|affected|grep|read|watch|mcp)
+  code          Code index (index|status|search|orient|explain|path|impact|affected|grep|read|watch|mcp)
   projectwiki   Project wiki tools (query|read|search|generate|validate|lint|status|cite-source|index|reindex|bootstrap|rebuild-meta|eval|mcp)
   sync          Sync (status|push|pull|export|import|enroll)
   trail         Inspect retrieval trails (recent|show)

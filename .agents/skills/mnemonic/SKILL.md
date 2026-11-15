@@ -62,8 +62,8 @@ If `mnemonic.enabled: false`, stop — memory, code index, and web cache are all
 /mnemonic <path>                                        # orient on a path: code status → orient → memory search
 /mnemonic memory save "<title>" --type decision --content "..."   # curated save (needs active session)
 /mnemonic memory search "<query>"                       # mem_context → mem_search → mem_get_observation
-/mnemonic code [--dir .] [--watch]                      # bare `code` runs the incremental index (opt-in live watcher)
-/mnemonic code <status|search|orient|explain|path|impact|affected|grep|read>
+/mnemonic code index [--full] [--lsp] [--pdg]           # incremental code index (explicit trigger; bare `code` prints the subcommands)
+/mnemonic code <status|search|orient|explain|path|impact|affected|grep|read|watch>
 /mnemonic projectwiki <query|read|search|generate|validate|lint|status|index|reindex>
 /mnemonic <family> mcp --profile agent                  # single-purpose MCP stdio (memory|code|projectwiki)
 /mnemonic trail recent|show                             # retrieval trails

@@ -30,7 +30,7 @@ Mnemonic has **three major functions** in v2, documented below — one `##` sect
 mnemonic memory mcp --profile agent   # memory MCP server (stdio) — the default family
 mnemonic code mcp --profile agent     # code-index MCP server (stdio)
 mnemonic projectwiki mcp              # project-wiki MCP server (stdio)
-mnemonic code --dir .                 # one-shot incremental code index (bare `code` runs the index)
+mnemonic code index                 # one-shot incremental code index
 mnemonic code search "AuthService"    # index retrieval
 mnemonic memory search "decision"     # memory retrieval
 mnemonic projectwiki query "adr"      # wiki retrieval
@@ -665,9 +665,9 @@ WAL-locked opens are retried with backoff (50ms → 100ms → 200ms, 3 attempts)
 
 Out-of-range values log a warning and fall back to the default; config load does not fail.
 
-`mnemonic code` flags: `--dir` (default `.`), `--watch` (the live fsnotify watcher). No `--embeddings` flag — the semantic tier is config-driven via `mnemonic.embedder` (see [Code index](#code-index)).
+`mnemonic code index` flags: `--project`, `--full` (default: incremental), `--lsp`, `--pdg`, `--communities`, `--process`, `--no-progress`, `--json`; the live fsnotify watcher is `mnemonic code watch`. No `--embeddings` flag — the semantic tier is config-driven via `mnemonic.embedder` (see [Code index](#code-index)).
 
-> **v1 legacy.** The `mnemonic.checkpoint` / `mnemonic.inject` config keys (session-start injection + checkpoint claims — the `skillgrid prime` mechanism) and the v1 `--pdg` / `--lsp` index flags are v1-only; the tables above document the v1 config surface.
+> **v1 legacy.** The `mnemonic.checkpoint` / `mnemonic.inject` config keys (session-start injection + checkpoint claims — the `skillgrid prime` mechanism) are v1-only; the tables above document the v1 config surface.
 
 ### Environment variables
 
@@ -701,9 +701,9 @@ mnemonic projectwiki mcp --profile agent|all   # mnemonic-projectwiki
 mnemonic memory save|search|get|lookup|context|review|timeline|pin|unpin|delete
 mnemonic memory session|stats|doctor
 
-# code family (bare `code` runs the incremental index)
-mnemonic code [--dir .] [--watch]
-mnemonic code status|search|orient|explain|path|impact|affected|grep|read
+# code family (bare `code` prints the subcommands; `code index` is the trigger)
+mnemonic code index [--full] [--lsp] [--pdg] [--communities] [--process]
+mnemonic code status|search|orient|explain|path|impact|affected|grep|read|watch
 
 # projectwiki family
 mnemonic projectwiki query|read|search|generate|validate|lint|status|cite-source

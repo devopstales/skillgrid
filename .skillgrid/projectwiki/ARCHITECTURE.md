@@ -220,11 +220,11 @@ Hand-rolled dispatch (no cobra). The `mnemonic` binary is **family-first**: thre
 | Group | Commands |
 |-------|----------|
 | Family: Memory | `memory` (`save`/`search`/`get`/`lookup`/`context`/`review`/`timeline`/`pin`/`unpin`/`delete`/`session`/`stats`/`doctor`/`mcp`) |
-| Family: Code | `code` — bare `code` runs the index; `status`/`search`/`orient`/`explain`/`path`/`impact`/`affected`/`grep`/`read`/`watch`/`mcp` |
+| Family: Code | `code` — bare `code` prints the subcommands; `index` (the incremental index)/`status`/`search`/`orient`/`explain`/`path`/`impact`/`affected`/`grep`/`read`/`watch`/`mcp` |
 | Family: ProjectWiki | `projectwiki` (`query`/`read`/`search`/`generate`/`validate`/`lint`/`status`/`cite-source`/`index`/`reindex`/`bootstrap`/`rebuild-meta`/`eval`/`mcp`) |
 | Transports | `<family> mcp --profile agent\|all` (single-purpose stdio MCP servers) |
 | Ops | `sync` (`status`/`push`/`pull`/`export`/`import`/`enroll`), `trail` (`recent`/`show`), `doctor` (`--strict` for CI), `setup <agent>` (delegates to the agent-plugin change) |
-| Renamed (did-you-mean) | `mcp` → `mnemonic <family> mcp`; `serve` → `mnemonic <family> mcp`; `mem` → `mnemonic memory`; `index` → `mnemonic code` |
+| Renamed (did-you-mean) | `mcp` → `mnemonic <family> mcp`; `serve` → `mnemonic <family> mcp`; `mem` → `mnemonic memory`; `index` → `mnemonic code index` |
 
 ---
 

@@ -2,7 +2,7 @@
 // 2026-11-08-mnemonic-mcp-split R2/R4): the top-level tree is
 // memory|code|projectwiki + the unchanged non-family commands, the old
 // paths (mem/index/mcp/serve) refuse with a did-you-mean pointing at the
-// replacement, and bare `code` defaults to the index.
+// replacement, and bare `code` requires a subcommand (like bare `memory`).
 package main
 
 import (
@@ -29,12 +29,16 @@ func TestFamilyDispatch(t *testing.T) {
 	}
 }
 
-// TestBareCodeDefaultsToIndex: `mnemonic code` with no subcommand runs
-// the incremental index (the runIndex entry branch, unchanged by the
-// rename) — not a usage error.
-func TestBareCodeDefaultsToIndex(t *testing.T) {
-	if code := runCLIExit(t, "code"); code == exitUsage {
-		t.Fatalf("bare `code` exited usage — it must default to the index run")
+// TestBareCodeRequiresSubcommand: `mnemonic code` with no subcommand is a
+// usage error naming the subcommands (parity with bare `mnemonic memory`)
+// — it no longer starts the index; `mnemonic code index` is the trigger.
+func TestBareCodeRequiresSubcommand(t *testing.T) {
+	if code := runCLIExit(t, "code"); code != exitUsage {
+		t.Fatalf("bare `code`: want exit %d (subcommand required), got %d", exitUsage, code)
+	}
+	if err := runCLIError(t, "code"); err == nil ||
+		!strings.Contains(err.Error(), "code: a subcommand is required") {
+		t.Fatalf("bare `code`: want the subcommand-required usage error, got %v", err)
 	}
 }
 

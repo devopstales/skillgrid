@@ -45,20 +45,22 @@ var codeHandlerFor = func(cfg config.Config, st store.Store) *handler.CodeHandle
 }
 
 // runIndex runs the `mnemonic code` command group (spec 008 §4). Bare
-// `mnemonic code` runs the incremental index; the subcommands dispatch
-// onto the shared CodeHandler (the same one the MCP server wraps — the
-// K5/K6 seam).
+// `mnemonic code` prints the subcommand help (parity with bare
+// `mnemonic memory`) — it does NOT start the index; `mnemonic code index`
+// is the trigger. The subcommands dispatch onto the shared CodeHandler
+// (the same one the MCP server wraps — the K5/K6 seam).
 func runIndex(fl config.Flags, cwd string, args []string) int {
 	if len(args) == 0 {
-		// No subcommand → the incremental index (the spec's default:
-		// `mnemonic code [flags]` runs the index).
-		return runIndexIndex(fl, cwd, args)
+		// No subcommand → the subcommand list, like bare `mnemonic memory`
+		// (a bare verb starting a multi-minute index run by surprise is a
+		// footgun — the index is explicit now).
+		return errExit("code: a subcommand is required (index|status|search|orient|explain|path|impact|affected|grep|read|watch|mcp)")
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
 	case "mcp":
 		return runMCP(fl, rest, mcp.FamilyCode)
-	case "index", "":
+	case "index":
 		return runIndexIndex(fl, cwd, rest)
 	case "status":
 		return runIndexStatus(fl, cwd, rest)
@@ -122,8 +124,8 @@ func indexProjectFlag(fs *flag.FlagSet) *string {
 	return fs.String("project", "", "project selector (beats "+config.EnvProject+" and detection)")
 }
 
-// runIndexIndex runs `mnemonic code [flags]` (the incremental index — the
-// code_index write).
+// runIndexIndex runs `mnemonic code index [flags]` (the incremental index
+// — the code_index write).
 func runIndexIndex(fl config.Flags, cwd string, args []string) int {
 	fs := flag.NewFlagSet("index", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
