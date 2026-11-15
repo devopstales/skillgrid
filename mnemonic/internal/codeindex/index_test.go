@@ -114,6 +114,22 @@ func TestIndexIdempotentReRun(t *testing.T) {
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("symbol must survive the idempotent re-run: %+v (%v)", rows, err)
 	}
+	// the freshness record still describes the STORE's graph after the no-op
+	// re-run (store totals, not a run delta — a no-op run's delta is zero,
+	// and a zero count reports a 1-file/1-symbol index as "no graph").
+	fresh := st.(interface {
+		RawQuery(q string, args ...any) ([][]any, error)
+	})
+	freshRows, err := fresh.RawQuery(`SELECT files_indexed, symbols_count FROM index_freshness WHERE project = 'proj-a'`)
+	if err != nil || len(freshRows) != 1 {
+		t.Fatalf("freshness record: %+v (%v)", freshRows, err)
+	}
+	if fi, ok := freshRows[0][0].(int64); !ok || fi != 1 {
+		t.Fatalf("freshness files_indexed must hold the store total (1) after a no-op re-run, got %v", freshRows[0][0])
+	}
+	if sc, ok := freshRows[0][1].(int64); !ok || sc != 1 {
+		t.Fatalf("freshness symbols_count must hold the store total (1) after a no-op re-run, got %v", freshRows[0][1])
+	}
 	// and a file that disappeared on disk is deleted (M10 — absent = delete)
 	if err := os.Remove(filepath.Join(root, "pay.go")); err != nil {
 		t.Fatalf("remove: %v", err)
@@ -127,6 +143,17 @@ func TestIndexIdempotentReRun(t *testing.T) {
 	}
 	if _, err := st.FileByPath(context.Background(), "pay.go"); err == nil {
 		t.Fatalf("files row must be gone after M10 delete")
+	}
+	// the totals track the delete too (the store is now empty).
+	freshRows, err = fresh.RawQuery(`SELECT files_indexed, symbols_count FROM index_freshness WHERE project = 'proj-a'`)
+	if err != nil || len(freshRows) != 1 {
+		t.Fatalf("freshness record after delete: %+v (%v)", freshRows, err)
+	}
+	if fi, ok := freshRows[0][0].(int64); !ok || fi != 0 {
+		t.Fatalf("freshness files_indexed must be 0 after the M10 delete, got %v", freshRows[0][0])
+	}
+	if sc, ok := freshRows[0][1].(int64); !ok || sc != 0 {
+		t.Fatalf("freshness symbols_count must be 0 after the M10 delete, got %v", freshRows[0][1])
 	}
 }
 

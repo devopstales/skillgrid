@@ -103,6 +103,11 @@ type FileGraph struct {
 // query-path staleness contract). Project is the table's PK.
 // ExtractorTiers is the D-TIER per-language tier map (the spec 001 §4 DDL
 // predates the D-TIER fold; the column is created by 100_code_index).
+//
+// The graph counts (FilesIndexed, SymbolsCount, EdgesCount, ChunksCount,
+// UnresolvedCount) are the store's totals at the last successful run (live
+// COUNT(*), not a run delta — an incremental run must not report the graph
+// as smaller than it is); FilesDeleted/FilesOversized are that run's delta.
 type FreshnessRecord struct {
 	Project           string
 	ExtractorStamp    string

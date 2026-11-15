@@ -115,6 +115,38 @@ type IndexReport struct {
 // declared gone, and records index_freshness. A per-file extract or write
 // failure returns an error (the run is not partial-silent); the watch
 // loop's failure isolation (TICKET-06) is the caller's concern.
+
+// rawQuerier is the store's raw-SELECT seam (the M10 absent-file delete +
+// the freshness totals read). A single alias so the read sites share one
+// type assertion (the watch package's Q-5 precedent).
+type rawQuerier interface {
+	RawQuery(query string, args ...any) ([][]any, error)
+}
+
+// storeGraphCounts reads the store's live graph totals (files/symbols/
+// edges/chunks/unresolved rows) for the freshness record. ok=false when
+// the store lacks the RawQuery seam (a test double) or a count fails — the
+// caller falls back to the run's counts (the old record's semantics).
+func storeGraphCounts(st store.Store) (files, symbols, edges, chunks, unresolved int, ok bool) {
+	raw, ok := st.(rawQuerier)
+	if !ok {
+		return 0, 0, 0, 0, 0, false
+	}
+	counts := make(map[string]int, 5)
+	for _, table := range []string{"files", "symbols", "edges", "chunks", "unresolved_edges"} {
+		rows, err := raw.RawQuery(`SELECT COUNT(*) FROM ` + table)
+		if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+			return 0, 0, 0, 0, 0, false
+		}
+		n, isInt := rows[0][0].(int64)
+		if !isInt {
+			return 0, 0, 0, 0, 0, false
+		}
+		counts[table] = int(n)
+	}
+	return counts["files"], counts["symbols"], counts["edges"], counts["chunks"], counts["unresolved_edges"], true
+}
+
 func Index(ctx context.Context, root string, st store.Store, opts IndexOpts) (IndexReport, error) {
 	// The ExtractFn seam (TICKET-01's test double, TICKET-03's real ladder):
 	// a nil ExtractFn defaults to the real 3-tier ladder (TICKET-03 wires it
@@ -326,9 +358,7 @@ func Index(ctx context.Context, root string, st store.Store, opts IndexOpts) (In
 
 	// absent-on-disk = delete (M10): a files row whose path the walk did
 	// not see is removed (the FK cascades take its symbols/edges/chunks).
-	if rows, ok := st.(interface {
-		RawQuery(q string, args ...any) ([][]any, error)
-	}); ok {
+	if rows, ok := st.(rawQuerier); ok {
 		seen := map[string]bool{}
 		for _, rel := range rels {
 			seen[rel] = true
@@ -376,8 +406,12 @@ func Index(ctx context.Context, root string, st store.Store, opts IndexOpts) (In
 	}
 
 	// the freshness record (spec 001 §4 — the query-path staleness
-	// contract's data source; the counts are the run's; capabilities.lsp
-	// reflects the tier's wiring — true when --lsp ran, false otherwise).
+	// contract's data source). The graph counts are the store's totals
+	// (live COUNT(*), not this run's delta): an incremental run rewrites a
+	// small file set, and the status must still describe the whole graph
+	// — a no-op re-run must not report the graph as empty (the per-run
+	// counts stay in the run report). capabilities.lsp reflects the tier's
+	// wiring — true when --lsp ran, false otherwise).
 	rep.EmbedErrors = embedFailures
 	now := nowStampUTC()
 	lspCap := "false"
@@ -385,16 +419,20 @@ func Index(ctx context.Context, root string, st store.Store, opts IndexOpts) (In
 		lspCap = "true"
 	}
 	caps := `{"graph":true,"fts":true,"vector":true,"lsp":` + lspCap + `,"pdg":false,"communities":false,"process":false}`
+	filesTotal, symTotal, edgeTotal, chunkTotal, unresTotal, haveTotals := storeGraphCounts(st)
+	if !haveTotals {
+		filesTotal, symTotal, edgeTotal, chunkTotal, unresTotal = rep.FilesIndexed, symbolsCount, edgesCount, chunksCount, unresolvedCount
+	}
 	if err := st.UpdateIndexFreshness(ctx, store.FreshnessRecord{
 		Project:         opts.Project,
 		ExtractorStamp:  stamp,
 		LastIndexedAt:   &now,
-		FilesIndexed:    rep.FilesIndexed,
+		FilesIndexed:    filesTotal,
 		FilesDeleted:    rep.FilesDeleted,
-		SymbolsCount:    symbolsCount,
-		EdgesCount:      edgesCount,
-		ChunksCount:     chunksCount,
-		UnresolvedCount: unresolvedCount,
+		SymbolsCount:    symTotal,
+		EdgesCount:      edgeTotal,
+		ChunksCount:     chunkTotal,
+		UnresolvedCount: unresTotal,
 		Capabilities:    caps,
 	}); err != nil {
 		return rep, fmt.Errorf("codeindex.Index: freshness: %w", err)
