@@ -8,6 +8,7 @@ AISkillGrid ships **plugins** as per-harness adapters: one shared behavior, one 
 |--------|-------|--------------|--------|
 | [Skillgrid router](#skillgrid-router) | omp, pi, opencode, Kilo, Cursor | auto-loads the `using-skillgrid` router at session start | proposed (change `2026-11-17-skillgrid-host-plugins`) |
 | [Mnemonic memory](#mnemonic-memory) | omp, pi, opencode, Kilo, Cursor | `mem_*` / `code_*` / `kb_*` tools, prompt and session capture, compaction context | shipped |
+| [Observation layer](#observation-layer) | omp, pi, opencode, Kilo, Cursor | records agent tool activity (tool calls, commands, files, sessions, prompts) in the per-project store, gryph-style | proposed (change `2026-11-17-mnemonic-v2-observation-layer`) |
 | [Obsidian backlogmd](#obsidian-backlogmd) | Obsidian | Backlog.md kanban as an Obsidian vault view | shipped |
 | [skillgrid-vscode](#skillgrid-vscode) | VS Code | tree views by skillgrid `type` + `.backlog/` tree; reads the projectwiki bundle | proposed, not started |
 | [microsoft/llmwiki](#microsoft-llmwiki) | VS Code | third-party extension that consumes the knowledge bundle | proposed, match stale |
@@ -64,6 +65,24 @@ Registers the native `mem_*` / `code_*` / `kb_*` tools and captures session acti
 - **omp**: the MCP server is registered in `~/.omp/agent/mcp.json` (`mnemonic mcp`), which mounts the tools as `xd://` devices.
 
 See [Memory and indexing](05-memory-and-indexing.md) for the memory model and the HTTP server the adapters talk to.
+
+## Observation layer
+
+Records what agents **do** (tool calls, commands run, files touched, session lifecycle, user prompts) into the per-project store, the way [safedep/gryph](https://github.com/safedep/gryph) records agent activity. It ports gryph's observation plane (event capture plus a query CLI); the policy plane (block/warn/guide decisions) is phase 2, and the `tool_call` hook's exit-2 channel is reserved for it now.
+
+No daemon: each host's adapter execs `mnemonic obs _ingest <agent> <event>` with a JSON envelope on stdin (1 MiB cap), and the target is the per-project SQLite the memory layer already uses (new `obs_events` table, migration 300, additive). New sessions auto-register. Privacy is enforced at normalize time in Go: `<private>` tags stripped, previews truncated at 500 characters (prompts at 2000), sensitive paths (`.env`, `*.pem`, `*.key`, `*secret*`, `.git`/`.ssh`/`.aws`/`.config`) keep the path but not the content, and a SHA-256 hash of the full pre-truncation value is stored. Fail-open throughout: a capture failure (bad JSON, dead store, missing binary) never blocks or slows a tool call.
+
+Per-host mechanism:
+
+| Host | Mechanism |
+|------|-----------|
+| omp + pi | one shared TS extension source (pi-ExtensionAPI) installed as a folder + manifest into each host's extensions dir (`~/.omp/agent/extensions/mnemonic-obs/`, `<pi-agent-dir>/extensions/mnemonic-obs/`; omp is oh-my-pi, the same API, and the manifest carries both `pi` and `omp` keys). Captures `session_start`, user `before_agent_start` prompts, `tool_call` (30s cap; exit 2 would block, phase 2), `tool_result`, `session_shutdown` (quit) |
+| opencode + Kilo | one dual V1+V2 TS plugin: `tool.execute.before`/`after` (5s exec cap; only `before` re-throws on exit 2) plus `session.created`/`session.idle`/`session.error`; Kilo gets the copy plus config registration |
+| Cursor | 20 direct-binary `hooks.json` entries (`mnemonic obs _ingest cursor <hook>`), the full gryph hook set; foreign entries stay byte-identical and the pre-image is backed up |
+
+Install and read surface: `mnemonic obs install <host> \| all` (`--dry-run`, `--sync <repo>`, `--force`), `obs uninstall` (removes exactly what install wrote), `obs status` (per-host state plus event count). Queries: `obs logs` (default 24h), `obs query --action / --command / --file / --agent`, `obs sessions`, `obs session <id>`, `obs stats`, `obs export` (JSONL), `obs prune --retention 90d`.
+
+Status: blueprint proposed (change `2026-11-17-mnemonic-v2-observation-layer`, spec zone under `.skillgrid/change-specs/`), goldfish review converged with no parked findings, held at the user's approval gate.
 
 ## Obsidian backlogmd
 
