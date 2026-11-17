@@ -9,6 +9,8 @@ AISkillGrid ships **plugins** as per-harness adapters: one shared behavior, one 
 | [Skillgrid router](#skillgrid-router) | omp, pi, opencode, Kilo, Cursor | auto-loads the `using-skillgrid` router at session start | proposed (change `2026-11-17-skillgrid-host-plugins`) |
 | [Mnemonic memory](#mnemonic-memory) | omp, pi, opencode, Kilo, Cursor | `mem_*` / `code_*` / `kb_*` tools, prompt and session capture, compaction context | shipped |
 | [Obsidian backlogmd](#obsidian-backlogmd) | Obsidian | Backlog.md kanban as an Obsidian vault view | shipped |
+| [skillgrid-vscode](#skillgrid-vscode) | VS Code | tree views by skillgrid `type` + `.backlog/` tree; reads the projectwiki bundle | proposed, not started |
+| [microsoft/llmwiki](#microsoft-llmwiki) | VS Code | third-party extension that consumes the knowledge bundle | proposed, match stale |
 
 ## Distribution
 
@@ -66,6 +68,18 @@ See [Memory and indexing](05-memory-and-indexing.md) for the memory model and th
 ## Obsidian backlogmd
 
 A vault plugin under `plugins/obsidian/backlogmd/` that renders the Backlog.md kanban (tasks, milestones, sprints) as an Obsidian view. It is the only plugin that targets a non-agent host; it installs into the vault and is versioned by `versions.json`. See [Ticketing](07-ticketing.md) for the Backlog.md side.
+
+## Proposed
+
+Two VS Code plugins were proposed in the `2026-09-29-llmwiki-okf-wiki` spec (OKF v0.2 + Obsidian + llmwiki `.wiki/` compiler). That change was built and then rolled back (`bbda0ca5`: the knowledge projection is sourced from the Mnemonic SQLite store instead, per ADR-0012, and a fresh ADR is required before re-attempting a compiled markdown layer). The spec folder was removed with the revert; the surviving record is the review diff at `.skillgrid/meta/.sdd/tasks/_monitoring-archive/review-4dd63fc..6d3c920.diff`. Both proposals stayed alive as follow-ups.
+
+### skillgrid-vscode
+
+A custom Skillgrid VS Code extension: tree views by skillgrid `type` (the OKF frontmatter key) plus a `.backlog/` tree. It is read-only over the knowledge bundle; in the original spec it read the compiled `.wiki/`, which no longer exists, so a re-attempt reads the shipped projectwiki bundle at `.skillgrid/projectwiki/`. No change folder or ticket exists yet.
+
+### microsoft/llmwiki
+
+The third-party [microsoft/llmwiki](https://github.com/microsoft/llmwiki) VS Code extension consumes a `.wiki/{raw, wiki/, index.md, log.md, AGENTS.md}` layout. The 2026-09-29 research found the skillgrid layout matched, so it would work unmodified; that match was against the compiled `.wiki/` output that the revert removed. The current bundle is the projectwiki OKF bundle, so the layout match needs re-verification before the extension is wired.
 
 ## Adding a plugin or a host
 
