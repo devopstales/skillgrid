@@ -62,4 +62,4 @@ onboarding → interviewing → writing-blueprints → slicing → [approval gat
 | [06-multi-agent-work](06-multi-agent-work.md) | Parallel / subagent work |
 | [07-ticketing](07-ticketing.md) | Backlog.md, GitHub, GitLab, Jira |
 | [08-guiding-principles](08-guiding-principles.md) | Guiding principles, practices, PIV loop, gates, clarity gate, **rigor tiers**, **assumed blueprints + ratify**, **build shapes**, waves, QA gate, ADRs, firewall, review discipline, Depth Tree, ticketing, Mnemonic, resume, Gherkin, branch finishing |
-| [11-plugins](11-plugins.md) | Global plugins: skillgrid router, Mnemonic memory, TUI logo, Obsidian backlogmd |
+| [11-plugins](11-plugins.md) | Global plugins: skillgrid router, Mnemonic memory, Obsidian backlogmd |

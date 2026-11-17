@@ -8,7 +8,6 @@ AISkillGrid ships **plugins** as per-harness adapters: one shared behavior, one 
 |--------|-------|--------------|--------|
 | [Skillgrid router](#skillgrid-router) | omp, pi, opencode, Kilo, Cursor | auto-loads the `using-skillgrid` router at session start | proposed (change `2026-11-17-skillgrid-host-plugins`) |
 | [Mnemonic memory](#mnemonic-memory) | omp, pi, opencode, Kilo, Cursor | `mem_*` / `code_*` / `kb_*` tools, prompt and session capture, compaction context | shipped |
-| [TUI logo](#tui-logo) | opencode, Kilo | tokyonight theme and Skillgrid logo in the TUI | shipped |
 | [Obsidian backlogmd](#obsidian-backlogmd) | Obsidian | Backlog.md kanban as an Obsidian vault view | shipped |
 
 ## Distribution
@@ -21,7 +20,7 @@ Where the installer writes, per host:
 |------|-------------|------------------|
 | omp | `~/.omp/agent/` | `extensions/` (TS), `AGENTS.md`, `mcp.json` (`mnemonic mcp`); plugin bundles under `~/.omp/plugins/` |
 | pi (skill-pi) | `~/.pi/agent/` + `~/.skill-pi/agent/` | `extensions/` (TS), skills, `AGENTS.md` |
-| opencode | `~/.config/opencode/` | `opencode.jsonc`, `tui.json`, `tui-plugins/` (logo bundle), native TS plugins, `AGENTS.md` |
+| opencode | `~/.config/opencode/` | `opencode.jsonc`, `tui.json`, `tui-plugins/`, native TS plugins, `AGENTS.md` |
 | Kilo | `~/.config/kilo/` | `kilo.jsonc`, `tui.json`, `plugin/` (TS), `AGENTS.md` |
 | Cursor | `~/.cursor/` | `mcp.json`, `agents/`; the Cursor plugin itself installs from the repo (`.cursor-plugin/`) via marketplace or add-from-folder |
 
@@ -63,10 +62,6 @@ Registers the native `mem_*` / `code_*` / `kb_*` tools and captures session acti
 - **omp**: the MCP server is registered in `~/.omp/agent/mcp.json` (`mnemonic mcp`), which mounts the tools as `xd://` devices.
 
 See [Memory and indexing](05-memory-and-indexing.md) for the memory model and the HTTP server the adapters talk to.
-
-## TUI logo
-
-Sets the tokyonight theme and drops the Skillgrid logo into the opencode and Kilo TUIs. OpenCode never transpiles raw TSX, so the opencode payload is a pre-built ESM bundle (`plugins/opencode/skillgrid-logo.js`) referenced through a bridge-dir package; Kilo takes the `.tsx` directly into `tui-plugins/`. Configured through each host's `tui.json` during install.
 
 ## Obsidian backlogmd
 
