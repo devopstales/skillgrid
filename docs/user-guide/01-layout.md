@@ -57,6 +57,7 @@ Harness adapters (opencode, kilo) plus shared memory protocol. Cursor’s plugin
 surface lives at the **repo root** (`.cursor-plugin/`, `rules/mnemonic.mdc`,
 `hooks/hooks-cursor.json`) — add-from-folder selects the skillgrid checkout.
 OpenCode/Kilo adapters install from the staged copy at `~/.skillgrid/plugins/`.
+The per-plugin registry (router, Mnemonic memory, TUI logo, Obsidian) and the global install model live in [Plugins](11-plugins.md).
 
 ## `agents/`
 
