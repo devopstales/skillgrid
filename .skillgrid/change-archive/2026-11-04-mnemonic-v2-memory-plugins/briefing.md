@@ -1,6 +1,6 @@
 # Mnemonic-v2 Agent Plugins (memory / code-index / knowledge) — Design Briefing (requirements & intent)
 
-> **STATUS:** `sliced` (2026-11-05; amended 2026-11-05: 3-family split per user direction)
+> **STATUS:** `superseded` (2026-11-17, by `2026-11-17-mnemonic-v2-host-memory-plugins` — unexecuted at supersession: zero implementation commits, no backlog epic. Memory family re-scoped to 5 hosts (pi, omp, opencode, kilo, cursor), engram-based, per the user's 2026-11-17 direction. Code-index + project-wiki families are deferred to a follow-up change; this spec's v2 parity mapping and pi-research fold (R6) carry into the successor where still valid.)
 
 > Copy this template to `.skillgrid/change-specs/2026-11-04-mnemonic-v2-memory-plugins/briefing.md`.
 > **Role:** this is the *what* — the validated design/spec: problem, intent,
