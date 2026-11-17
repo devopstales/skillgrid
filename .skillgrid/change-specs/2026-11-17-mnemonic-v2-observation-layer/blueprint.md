@@ -159,8 +159,14 @@ recorded as a follow-up inside Task 4, not a scope change.
 
 **Install targets (live):** pi → `<pi-agent-dir>/extensions/mnemonic-obs/`
 (dir + manifest, ADR-0043; `SKILL_PI_AGENT_DIR` honored, default
-`~/.skill-pi/agent`); omp → `~/.omp/agent/extensions/mnemonic-obs.ts`
-(auto-discovered); opencode → `~/.config/opencode/plugins/mnemonic-obs.ts`
+`~/.skill-pi/agent`); omp → `~/.omp/agent/extensions/mnemonic-obs/`
+(**same folder + manifest shape as pi** — omp is oh-my-pi, the same
+ExtensionAPI; its discovery covers direct `*.ts` files AND one-level
+subdirs with a manifest — the `omp` key is omp's documented manifest
+path, legacy `pi`-key acceptance is documented for installed plugins,
+and our manifest ships both keys — pinned 2026-11-17, user direction;
+the bare-file form remains the gryph/herdr precedent, not our choice);
+opencode → `~/.config/opencode/plugins/mnemonic-obs.ts`
 (ADR-0032/0045 discovery); kilo → `~/.config/kilo/plugin/mnemonic-obs.ts` +
 registration in kilo's config (v1 `installNativePlugins` configPath
 resolution is the reference); cursor → merged entries in `~/.cursor/hooks.json`.
@@ -433,9 +439,13 @@ reason: stderr}`); `pi.on("tool_result")` → fire-and-forget;
 `sendSync` = `spawn(SpawnBin, ["obs","_ingest",AGENT,hook])`, payload JSON
 on stdin, `MNEMONIC_BIN` env override else `mnemonic`; every error swallowed
 (exit 0 semantics); session id from `ctx.sessionManager.getSessionFile() ??
-"ephemeral"`, cwd from `ctx.cwd`. `package.json`: `{"name":"@devopstales/pi-mnemonic-obs",
-"pi":{"extensions":["./mnemonic-obs.ts"]}}` (the ADR-0043 manifest shape,
-`@devopstales/pi-mnemonic` as the naming reference).
+"ephemeral", cwd from `ctx.cwd`. `package.json`: `{"name":"@devopstales/pi-mnemonic-obs",
+"pi":{"extensions":["./mnemonic-obs.ts"]},
+"omp":{"extensions":["./mnemonic-obs.ts"]}}` (the ADR-0043 manifest shape
+for pi + the `omp` key for oh-my-pi — its documented primary manifest
+path (legacy `pi`-key acceptance is documented for installed plugins) —
+one manifest serves both hosts; `@devopstales/pi-mnemonic` as the
+naming reference).
 
 **SATISFIES:** `obs-install-omp-and-pi`, `obs-fail-open-missing-binary`
 (unit half), `obs-live-omp-session-produces-events` (backstop half)
@@ -445,11 +455,15 @@ memory-plugins change's installer exposes a host-registry API by execution
 time, migrate this task's installers onto it and delete the duplicate.
 
 - [ ] **Step 1: Failing tests** — install omp to fixture HOME →
-  `~/.omp/agent/extensions/mnemonic-obs.ts` exists, contains `const AGENT =
-  "omp"`, not `__AGENT__`; manifest record present; re-install = no-op
-  (mtime/hash unchanged); install pi with `SKILL_PI_AGENT_DIR=<tmp>` →
-  `<tmp>/extensions/mnemonic-obs/{mnemonic-obs.ts,package.json}`; uninstall
-  removes exactly those (a foreign `other-extension.ts` survives); status
+  `~/.omp/agent/extensions/mnemonic-obs/{mnemonic-obs.ts,package.json}`
+  exists (the same folder + manifest shape as pi — omp auto-discovers
+  one-level subdirs with a manifest), `mnemonic-obs.ts` contains
+  `const AGENT = "omp"`, not `__AGENT__`; manifest record present (kind
+  `dir`); re-install = no-op (mtime/hash unchanged); install pi with
+  `SKILL_PI_AGENT_DIR=<tmp>` → `<tmp>/extensions/mnemonic-obs/
+  {mnemonic-obs.ts,package.json}` (identical copyer, only the target dir
+  differs); uninstall removes exactly those (a foreign
+  `other-extension.ts` survives); status
   reports installed/stale (hash mismatch) per host + that host's store
   event count (the briefing R9 sub-clause). **Detection (pinned,
   drives `install all` + `status`):** omp → `~/.omp/agent` exists; pi →
@@ -463,8 +477,10 @@ time, migrate this task's installers onto it and delete the duplicate.
   semantics; `tool_call` with exit 2 → returns `{block: true, reason:
   stderr}`; exit 1 → swallowed. Run: `node plugins/obs/pi/obs.test.ts`.
 - [ ] **Step 2: Verify RED.**
-- [ ] **Step 3: Implement** (file copyers = read→write→hash; the omp target
-  is a bare file; the pi target is the folder). **Adapter source
+- [ ] **Step 3: Implement** (ONE folder copyer = read→write→hash for both
+  omp and pi — same shape, only the target dir differs: omp
+  `~/.omp/agent/extensions/`, pi `<pi-agent-dir>/extensions/`).
+  **Adapter source
   resolution — pinned, no Go embed** (in order, first hit wins): (1)
   explicit `--repo <checkout>` containing `plugins/obs/`; (2) the staged
   dir `$DATA_DIR/obs-plugins/` when present — written by
@@ -475,8 +491,11 @@ time, migrate this task's installers onto it and delete the duplicate.
   skillgrid checkout, or sync first (`mnemonic obs install --sync <repo>`)".
 - [ ] **Step 4: Verify GREEN** (`go test ./internal/obs/ -run Install -count=1`).
 - [ ] **Step 5: Live (backstop T-2)** — real install on this host
-  (`obs install omp`), run this omp session's tool calls, then
-  `mnemonic obs logs` → rows present. Record evidence.
+  (`obs install omp`), then START A NEW omp session (extension modules
+  load at session start — the current session does not see a freshly
+  installed extension; `/reload-plugins` may not suffice for extension
+  modules), run ≥3 tool calls, then `mnemonic obs logs` → rows present.
+  Record evidence.
 - [ ] **Step 6: Commit** — `feat(obs): pi/omp adapter + install + manifest`.
 
 ### Task 5: opencode/kilo adapter + install
@@ -645,7 +664,8 @@ probe: `PATH` stripped of mnemonic → one tool call proceeds).
 **SATISFIES:** `obs-live-hosts` (backstop), `obs-fail-open-missing-binary`
 (live half)
 
-- [ ] **Step 1: Per host** (omp = this session; the others = one short real
+- [ ] **Step 1: Per host** (omp = a NEW session started after install —
+  extension modules load at session start; the others = one short real
   session each): trigger ≥3 tool calls, then `mnemonic obs logs --agent
   <h>` → rows present, agent label equal to the host that ran the session,
   + expected action sequence.
@@ -682,13 +702,14 @@ command — Task 6 test pins the exact 20 strings).
 [The goldfish pipeline writes its verdict here — do not hand-edit after the
 pipeline runs.
 
-**Verdict:** READY FOR EXECUTION (converged — rounds 3-4 both
+**Verdict:** READY FOR EXECUTION (converged — rounds 3-5 all
 material-clean: 0 Blocker / 0 Major; all findings resolved in-place, none
 parked)
 
-**Rounds run:** 4 (round 1 = 5-stage consolidated review; rounds 2-4 =
-verification passes of the prior round's fixes + fresh-eyes on the
-revised deltas)
+**Rounds run:** 5 (round 1 = 5-stage consolidated review; rounds 2-5 =
+verification passes — of the prior round's fixes, and of the user-directed
+omp=pi install-shape unification (round 5) — + fresh-eyes on the revised
+deltas)
 
 **Findings by severity:** round 1: 0 Blocker / 4 Major / 9 Suggestion —
 all 13 fixed in-place (event mapping table, exit-2 collision, adapter
@@ -702,6 +723,15 @@ minor F-14 (ADR-0045→0058) fixed. round 4: CLEAN (0B/0M, full ADR-citation
 sweep of both spec files); 1 sub-threshold citation minor F-15
 (briefing ADR-0004-transport-mcp→0061, both sites) fixed post-round-4
 against the ADR-0061 LOCKED title the round-4 pass already read.
+round 5: CLEAN (0B/0M) — verified the user-directed omp=pi unification
+(omp installs the same folder + manifest as pi; dual `pi`+`omp`-key
+manifest; one shared copyer; all spec files + acceptance consistent).
+2 sub-threshold pre-existing minors fixed in place: F-16 (legacy
+`pi`-key acceptance over-claimed for the extensions-dir subdir —
+reworded; the `omp` key is the documented primary path, manifest ships
+both) + F-17 (live backstops now pin "start a NEW omp session after
+install — extension modules load at session start", Task 4 Step 5 +
+Task 9 Step 1).
 
 **Parked findings:** — (none)
 

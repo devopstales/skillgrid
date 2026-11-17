@@ -128,7 +128,7 @@ events in **SQLite**; add **observation commands to the mnemonic CLI**.
 | Host | Mechanism | Install target (this host) | Events available |
 |---|---|---|---|
 | **pi** | TS extension folder, `pi.extensions` manifest, `pi.on(...)`; spawn (async, fire-and-forget) for non-blocking hooks, spawnSync 30s cap for `tool_call` (gryph `gryph-hooks.ts` shape) | `<pi-agent-dir>/extensions/<name>/` (default `~/.skill-pi/agent/extensions/`; `SKILL_PI_AGENT_DIR` honored; launcher resolves manifest `pi.extensions`, else `index.ts`/`index.js` — no settings edit) | gryph parity: `session_start`, `tool_call` (pre, input, exit-2 blocking), `tool_result` (post, output/status), `session_shutdown` (quit = end) **+ extension:** `before_agent_start` user prompts (gryph's pi/omp hook has no prompt capture; v1 `/prompts` parity — see R1) |
-| **omp** | pi-compatible ExtensionAPI; **single .ts file auto-discovered** | `~/.omp/agent/extensions/mnemonic-obs.ts` (gryph-hooks.ts + herdr precedent) | same as pi (same API) |
+| **omp** | **oh-my-pi** (Stencil Labs build of can1357/oh-my-pi) — the same pi ExtensionAPI; extension discovery = direct `*.ts` files **AND one-level subdirs with a manifest** (`omp` key = documented manifest path; legacy `pi`-key acceptance documented for installed plugins — our manifest ships both) | `~/.omp/agent/extensions/mnemonic-obs/` — **same folder + manifest shape as pi** (user-pinned 2026-11-17: "omp is a pi, so the same solution applies to it like pi"; the bare-file form remains the gryph/herdr precedent) | same as pi (same API) |
 | **opencode** | native TS plugin, direct `.ts` discovery (OpenCode v2), V1+V2 dual entrypoint (`@opencode/plugin` bundled dep; V2 tool hooks pass one mutable `event`); `cwd` from the plugin's `directory` param; 5s exec cap, only `tool.execute.before` re-throws on exit 2 (gryph `gryph.js` shape) | `~/.config/opencode/plugins/mnemonic-obs.ts` | gryph parity: `tool.execute.before/after` (pre carries `args`, post carries `title/output/metadata`) + `session.created` / `session.idle` / `session.error` (no other session events; no prompt hook — see R1) |
 | **kilo** | same TS plugin as opencode, **copied** + registered in kilo's own config file | `~/.config/kilo/plugin/mnemonic-obs.ts` + config registration | same as opencode |
 | **cursor** | `~/.cursor/hooks.json` merge, **direct binary command** per entry — `mnemonic obs _ingest cursor <hookType>` (gryph's shape: no shell wrapper, no node script — v1's script existed only because its transport was HTTP fetch) | `~/.cursor/hooks.json` (merge, foreign entries preserved: gryph/orca/herdr stay) | **full gryph 20-hook set** (full copy, D6): `preToolUse`, `postToolUse`, `postToolUseFailure`, `beforeShellExecution`, `afterShellExecution`, `beforeMCPExecution`, `afterMCPExecution`, `beforeReadFile`, `beforeTabFileRead`, `afterTabFileEdit`, `afterFileEdit`, `beforeSubmitPrompt` (**prompt capture** — gryph's only prompt hook), `sessionStart`, `sessionEnd`, `stop`, `preCompact`, `afterAgentResponse`, `afterAgentThought`, `subagentStart`, `subagentStop` |
@@ -208,7 +208,9 @@ events in **SQLite**; add **observation commands to the mnemonic CLI**.
   hosts):
   - `plugins/obs/pi/` — `mnemonic-obs.ts` + `package.json` (`pi.extensions`
     manifest). **pi** installs the folder (`<pi-agent-dir>/extensions/mnemonic-obs/`);
-    **omp** installs the single `.ts` (auto-discovered dir). One source, two targets.
+    **omp** installs the same folder + manifest as pi (auto-discovered
+    dir — omp is oh-my-pi, the same ExtensionAPI). One source, one shape,
+    two target dirs.
   - `plugins/obs/opencode/` — `mnemonic-obs.ts` (V1+V2 dual entrypoint, the
     `skillgrid-events.ts` `importPlugin()` pattern). **opencode** installs direct;
     **kilo** installs the copy + config registration.
@@ -340,8 +342,9 @@ events in **SQLite**; add **observation commands to the mnemonic CLI**.
 
 1. `mnemonic obs install all --dry-run` prints a per-host plan; real install on
    this host merges into `~/.cursor/hooks.json` **without touching** the existing
-   gryph/orca/herdr entries; omp gets `~/.omp/agent/extensions/mnemonic-obs.ts`;
-   `obs status` reports all 5 installed.
+   gryph/orca/herdr entries; omp gets `~/.omp/agent/extensions/mnemonic-obs/`
+   (same folder + manifest shape as pi — omp is oh-my-pi); `obs status`
+   reports all 5 installed.
 2. A real omp session (tool calls included) in a git project produces
    `obs_events` rows: `session_start`, `tool_call`+`tool_result` pairs,
    `session_end`; `mnemonic obs logs` (default 24h) shows them. *(backstop —

@@ -71,11 +71,13 @@ Feature: Observation layer (gryph-style agent event capture)
   Scenario: obs-install-omp-and-pi
     Given a fixture HOME without an omp extension
     When I run `mnemonic obs install omp`
-    Then ~/.omp/agent/extensions/mnemonic-obs.ts exists and contains `const AGENT = "omp"` (never "__AGENT__")
-    And the manifest under the data dir records the file hash
+    Then ~/.omp/agent/extensions/mnemonic-obs/{mnemonic-obs.ts,package.json} exists — the SAME folder + manifest shape as pi (omp is oh-my-pi; its discovery covers one-level subdirs with a manifest)
+    And mnemonic-obs.ts contains `const AGENT = "omp"` (never "__AGENT__")
+    And the package.json lists the extension under BOTH the `pi` and `omp` keys
+    And the manifest under the data dir records the file hashes
     And re-running install changes nothing (idempotent no-op)
-    And with SKILL_PI_AGENT_DIR set, `obs install pi` creates <dir>/extensions/mnemonic-obs/{mnemonic-obs.ts,package.json}
-    And `obs uninstall omp` removes exactly the installed file (a foreign extension survives)
+    And with SKILL_PI_AGENT_DIR set, `obs install pi` creates <dir>/extensions/mnemonic-obs/{mnemonic-obs.ts,package.json} via the identical copyer
+    And `obs uninstall omp` removes exactly the installed folder (a foreign extension survives)
 
   Scenario: obs-install-opencode-kilo
     Given fixture opencode and kilo config trees
