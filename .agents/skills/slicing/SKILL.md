@@ -187,7 +187,7 @@ is the point.
 
 Always invoke `skillgrid:ticketing` after slicing writes `tasks.md`. Slicing never branches around the Ticketing step; it hands off to the separate Ticketing skill, which reads `.skillgrid/config.yaml` and either publishes tickets to the configured tracker or records a local-only waiver when no tracker is active.
 
-**Update `state.yaml`:** set `changes.<topic>.phase: slicing`.
+**Update `state.yaml`:** set `changes.<topic>.phase: slicing` and `changes.<topic>.gate: user-gate-slice` — the slice is not executed until the user confirms it (User gate contract in `_shared/rules/sdd-structure.md`; show the 30-second gate screen). `subagent-execution` clears the gate when it starts.
 
 Then present the execution choice:
 

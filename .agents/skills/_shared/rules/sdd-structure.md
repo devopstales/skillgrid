@@ -190,6 +190,8 @@ changes:
   2026-09-21-sessions-activity-unification:
     phase: "execution"                # spec | blueprint | slicing | execution | qa | review | ship | reflect | complete
     status: in_progress               # in_progress | blocked | complete
+    gate: ""                          # pending user gate (User gate contract); "" = none
+    autonomy: check-in                # check-in | autonomous (the user's "go to the end" choice)
   2026-10-08-context-orchestrator:
     phase: "execution"
     status: in_progress
@@ -204,6 +206,16 @@ constraints_ref: .skillgrid/projectwiki/ASSUMPTIONS.md                       # p
 - `constraints_ref` points at `.skillgrid/projectwiki/ASSUMPTIONS.md` (the durable project understanding); operational rules live in AGENTS.md's `### Rules` section, not in `state.yaml`.
 - Onboarding creates it with an empty `changes:` map. `ship` removes the change's entry from the map and increments `completed_changes`. `reflect` sets the entry's `phase: complete`.
 - **Legacy v1** (single `pipeline.current_change` + `current_phase`) is still parsed by the drift guard for backward compatibility, but new writes use v2.
+
+### User gate contract
+
+A user gate is a persisted decision point, not a conversational pause. It applies to spec-dir changes (entries in `changes:`); Bounded and fast-track work without a spec dir stays conversational.
+
+- **Write on reach:** the skill that pauses for a user decision writes `changes.<slug>.gate: <gate>` in the same edit that updates `phase`. Named gates: `blueprint-validation` (`writing-blueprints`, at the User Review Gate), `user-gate-slice` (`slicing`, when it writes `tasks.md`), `qa-verdict` (`qa`, when the verdict is `CONCERNS` or `FAIL` — a human decision is required), `ship-decision` (`ship`, when the override path needs a human).
+- **Screen:** one screen, readable in thirty seconds — **Done** (what was saved, with file names), **Assumed** (new assumptions, one line each, at most five), **Next** (the next step and roughly how long it takes), plus the reply menu: "ok to continue · tell me what to change · go to the end."
+- **Clear on respond:** the user's choice (ok, the named option, or a recorded override) clears the field in the same edit that advances the phase. A change request is written to the artifact under gate, the affected output is redone (at most twice; after that, record the disagreement and ask which version to keep), and the screen re-shows.
+- **Re-show on resume:** `resume` finds a non-empty `gate` and re-shows the same screen before any other action. It never passes the gate itself. A status report at a gated change names the pending gate without advancing.
+- **`autonomy`:** default `check-in`. "Go to the end" (or equivalent) sets `autonomy: autonomous` — from then on, gates become one-line records (the plan's ledger during execution, a dated note in the artifact under gate during planning) instead of stops, except hard stops: a `blocked(...)` entry, missing tools or permissions, or a failed gate still persist and wait. "Check in again" reverts to `check-in`.
 
 **`projectwiki/ASSUMPTIONS.md`** is the *durable* project understanding — the four tiers `## VERIFIED` / `## INFERRED (HYPOTHESIS)` / `## LOCKED` / `## Open Questions`. `## LOCKED` is **the ADR index only**: one pointer row per in-force decision (a short description + the path to the record). `status`, `supersedes`, and `date` live in the file's frontmatter, not the row. The decision body is the file. Operational rules that are *not* decisions (build toolchain floor, commit format, dependency policy, spec/code zone order) live in AGENTS.md's `### Rules` section, not here.
 

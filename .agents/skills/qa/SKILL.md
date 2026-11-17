@@ -160,7 +160,7 @@ not per-change.
 
 Present the gate verdict and the finding counts.
 
-**Update `state.yaml`:** set `changes.<topic>.phase: qa`.
+**Update `state.yaml`:** set `changes.<topic>.phase: qa`. When the verdict is `CONCERNS` or `FAIL`, also set `changes.<topic>.gate: qa-verdict` and show the gate screen — a human decision (re-run with full scope, override, or accept) is required before `code-review` (User gate contract in `_shared/rules/sdd-structure.md`); clear the gate when the decision is acted on.
 
 Then route. The tail after this gate is in `_shared/rules/sdd-structure.md`. This skill's next step is `code-review`.
 

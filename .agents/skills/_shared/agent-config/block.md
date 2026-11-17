@@ -51,6 +51,8 @@ State: `.skillgrid/meta/state.yaml` (dynamic) — where the project is right now
 
 ### Workflow
 
+Entry: at the start of any skillgrid task, first read `using-skillgrid` — it classifies the request, runs the start gates, and names exactly one first skill.
+
 `brainstorming` → `writing-blueprints` → `slicing` → `ticketing` → execution (`subagent-execution` or `simple-execution`) → `qa` → `code-review` → `receiving-code-review` → `ship` → `reflect`
 
 Run `skillgrid:onboarding` to update config after stack changes.
@@ -102,5 +104,5 @@ The `## Skillgrid` block loads into context on **every** prompt in most agents, 
 - **No "getting started / setup" section.** Onboarding, install, and first-run steps are not what the agent file is for; the agent already has the repo.
 - **Grow it only on an observed failure.** Add a line to the block only when the agent actually did something wrong that this file can prevent. Don't preemptively document mistakes it hasn't made. (See `skillgrid:onboarding` → *Keep the AGENTS.md block lean*.)
 - **Layout stays high-level.** A one-line "what's here" map is fine; never point at individual files or paths that churn — they go stale and mislead.
-- **The spine is non-negotiable.** The `Workflow` line and the "read config before any Skillgrid skill" line are the entrypoint for the whole pipeline — keep them even though they're the only "how the system works" content here.
+- **The spine is non-negotiable.** The `Workflow` entry line, the `Workflow` line, and the "read config before any Skillgrid skill" line are the entrypoint for the whole pipeline — keep them even though they're the only "how the system works" content here.
 - **Nested files for areas.** Area-specific rules (a payments module, a UI kit) live in a nested `<area>/AGENTS.md`; the root block stays global and lean.

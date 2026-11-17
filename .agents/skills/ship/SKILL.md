@@ -100,6 +100,8 @@ Fan-out selection, per-file lenses, and the red-team pass all follow `code-revie
 3. **QA `CONCERNS` or a `BACK-TO-APPLY` review verdict** → **NO-GO** by default; the human can override to GO. Record the override and what was accepted.
 4. **Everything else (QA `PASS`/`WAIVED`, review clean or waived)** → **GO**, with the rollback plan attached.
 
+**Gate on human decision (rules 2 and 3).** When the matching rule routes the decision to a human (risk acceptance, or the GO override), set `changes.<topic>.gate: ship-decision` and show the gate screen; clear it in the same edit that records the human's decision (User gate contract in `_shared/rules/sdd-structure.md`). Rules 1 and 4 need no gate — the mechanical decision proceeds.
+
 **Rollback plan (mandatory before any GO).** Name the trigger conditions and the procedure:
 
 - **Merge already landed** → `git revert <merge-commit> -m 1` (or `git reset --hard <pre-merge> ` only if nothing else has landed on the base). Verify tests green after the revert.

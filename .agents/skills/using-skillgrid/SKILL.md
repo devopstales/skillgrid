@@ -5,7 +5,7 @@ license: MIT
 disable-model-invocation: true
 metadata:
   author: devopstales
-  version: "1.1"
+  version: "1.2"
   part-of: skillgrid
   based_on: superpowers:using-superpowers
 ---
@@ -17,6 +17,8 @@ If you were dispatched as a subagent to execute a specific task, ignore this ski
 ## Overview
 
 The router. It classifies the request, runs the start gates (config, resume, domain model), and names exactly one first skill. The 1% rule chooses among Router rows. It does not scan the skill catalog.
+
+The user's surface, in plain words: "start X" (a new change), "continue" (resume in-flight work), "where are we?" (status — read-only), "review this" (review-only), "this is bounded" / "it's trivial" (bounded or fast-track). Classify each into a Router row. Never convert a status or review request into a change.
 
 ## When to Use
 
@@ -37,7 +39,7 @@ The 1% test asks which Router row matches. It does not ask whether some skill in
 
 **Resume check:** run `node scripts/phase-router.mjs all` from the project root. It returns every in-flight change with its derived `phase`, `next` skill, and any `drift` (state.yaml disagrees with the spec zone). If any change is in flight (phase not `complete`), the first skill is `resume`. The files say where you left off; the conversation doesn't. A folder under `.skillgrid/change-archive/` is closed (phase `reflect`/`complete`) — do not resume it. Do not re-derive the phase by hand; the router is the single source of truth (it shares the derivation with `state-drift-check.mjs`, so they never disagree).
 
-**Domain model check:** if `.skillgrid/` exists, read `.skillgrid/projectwiki/ASSUMPTIONS.md` for the project's understanding, the in-force ADR index (`§ LOCKED`; open the linked file for a decision you are touching), and the operational rules in `AGENTS.md` (`§ Rules` — the hard limits a change must respect). Open `.skillgrid/projectwiki/reference/00-prd.md` when the change touches scope or acceptance. Read `glossary/01-business-terms.md` + `02-technical-terms.md` for the project's vocabulary and `.skillgrid/projectwiki/index.md` for the topic catalog. Use that vocabulary in questions and designs, and respect ADRs that already settled decisions. When terms resolve or a hard-to-reverse decision is made, update them via `skillgrid:architectural-decision-records`.
+**Domain model check:** if `.skillgrid/` exists, read `.skillgrid/projectwiki/ASSUMPTIONS.md` for the project's understanding, the in-force ADR index (`§ LOCKED`; open the linked file for a decision you are touching), and the operational rules in `AGENTS.md` (`§ Rules` — the hard limits a change must respect). Respect ADRs that already settled decisions. Defer the rest: the first planning skill reads the project's vocabulary (`glossary/01-business-terms.md` + `02-technical-terms.md`), the topic catalog (`.skillgrid/projectwiki/index.md`), and `reference/00-prd.md` when the change touches scope or acceptance — the router does not pre-load what the planning skill needs. When terms resolve or a hard-to-reverse decision is made, update them via `skillgrid:architectural-decision-records`.
 
 Then announce "Using [skill] to [purpose]" and follow that skill. If it has a checklist, create a todo per item.
 
@@ -81,6 +83,8 @@ The phase order after the first skill is the single shared flow table in `_share
 | Prototype-only | `prototype` | promote to a blueprint if the user keeps the findings |
 | Distill a large source into agent rules | `rule-distillation` | specialist; produces traced `mini`/`nano` + `traceability.md`; no spec folder |
 | Specialist (design, brand, craft, or a scan) | the named skill | no spec folder |
+| Status / "where are we?" | `resume` (read-only) | report the position, including any pending gate; never advance the pipeline |
+| Review-only (no change to start or continue) | the named review skill (`code-review`, a scanner, or a style review) | no spec folder; never converts into a change |
 | Mid-change | `resume` | the resume marker in `sdd-structure.md` |
 
 **Uninitialized** when `.skillgrid/config.yaml` does not exist. **Initialized** when it does. Skill-registry, terms files, and ADRs are not init signals.
@@ -97,6 +101,10 @@ After `slicing` writes `tasks.md`:
 2. **Revise** → `brainstorming` and/or `writing-blueprints`
 
 Do not auto-execute. The user must confirm the slice before execution begins.
+
+**The gate is state, not conversation.** The full contract is the *User gate contract* in `_shared/rules/sdd-structure.md`: the skill that reaches a gate writes `changes.<slug>.gate: <gate>` to `state.yaml`; the gate screen is one 30-second screen — **Done** (what was saved, with file names), **Assumed** (new assumptions, ≤5 lines), **Next** (the next step and roughly how long it takes), plus the reply menu: "ok to continue · tell me what to change · go to the end". The user's response clears the field and continues; a change request is written to the artifact under gate, the affected output is redone, and the screen re-shows. A session that dies at a gate is found by `resume`, which re-shows the same screen before anything else and never passes the gate itself.
+
+**"Go to the end" is a persisted mode.** The user's "go to the end" (or equivalent) sets `changes.<slug>.autonomy: autonomous`. From then on, gates become one-line records instead of stops — except hard stops (a `blocked(...)` entry, missing tools or permissions, a failed gate), which still persist and wait. "Check in again" flips the mode back to `check-in`.
 
 ## Resume
 
@@ -120,39 +128,15 @@ When several Router rows could match, pick the one class above. Inside a deliver
 
 ## Orchestration Anti-Patterns
 
-The router is a persona, not a skill that calls other skills. These failure modes mean STOP — you've turned routing into extra work:
+The router is a persona, not a skill that calls other skills. These routing failure modes mean STOP — you've turned routing into extra work:
 
 | Anti-pattern | Why it's wrong | Do this instead |
 |---|---|---|
 | **Router persona** — the main agent keeps routing and does the work itself, so every task re-runs the full pipeline for trivial work. | The router should dispatch, not execute. Doing both doubles context and slows the obvious cases. | Route to the first skill, then step back. For trivial work, use the fast-track row. |
 | **Persona calls persona** — a skill (for example `ship`) invokes another router-level skill as if it were a tool. | Routers set approach. They are not called by other routers. | Routers call implementation skills only. `ship` may fan out to `code-review` (the fan-out topology) but never re-enters `using-skillgrid` or `brainstorming`. |
-| **Depth > 1** — a subagent spawns a subagent that spawns a subagent. | Each hop re-reads context. Beyond one level the cost exceeds the benefit. | Max dispatch depth is 1. Workers do not dispatch. |
-| **Paraphrasing hop** — the orchestrator re-summarizes a subagent's result before passing it on. | The worker's output is already structured. | Pass the worker's Return Envelope through verbatim. Synthesize only at the final decision (for example `ship`'s GO/NO-GO). |
-| **Orchestrator that edits** — the coordinating agent edits code between dispatches. | Mixing coordination with edits muddies who owns the change. | The orchestrator collects verdicts and renders decisions. It edits only to wire up what workers produced. |
 | **Catalog scan** — a delivery change invokes a design, craft, or scanner skill because its description might apply. | Those skills are specialist. They are not Router rows for a delivery change. | Stay on the Delivery row. A specialist runs when the user or the active pipeline skill names it. |
 
-**Choosing a pattern — walk this before dispatching:**
-
-```
-Is the work one perspective on one artifact?
-├── Yes → Direct invocation (a single skill). Stop.
-└── No  → Will the same composition repeat?
-         ├── No  → Ad-hoc, single skill. Stop.
-         └── Yes → Are the sub-tasks independent?
-                  ├── No  → Sequential pipeline, user-driven between steps.
-                  └── Yes → Parallel fan-out with a merge step in the main context.
-                           If the merge would not fit in the main context, fall back to a single skill.
-```
-
-**Verdict vs investigation — pick the right primitive:**
-
-| | Fan-out (subagents) | Teams (teammates that message each other) |
-|---|---|---|
-| Sub-agents see | The same diff, different lenses | A shared task list and each other's findings |
-| Output | Independent reports → one merge (a verdict on a known artifact) | Adversarial debate → consensus (an investigation among competing hypotheses) |
-| Use for | `code-review` fan-out, `ship`'s GO/NO-GO | `structured-debugging` when a single agent would pick the first plausible theory and stop |
-
-A fan-out produces a verdict on something you already have. A team produces a root cause among things you don't yet know. Do not wrap a team-style investigation in a fan-out.
+Dispatch-time discipline — depth > 1, the paraphrasing hop, the orchestrator-that-edits, the pattern-choice tree, fan-out vs. teams — lives in `references/orchestration.md`. Read it when a row leads to `subagent-execution` or `parallel-execution`, not at routing time.
 
 ## Red Flags
 
@@ -168,6 +152,8 @@ These thoughts mean STOP — you're rationalizing:
 | "The skill is overkill" | Use the Bounded row or the fast-track row. Do not scan the catalog for a lighter skill. |
 | "I'll just do this one thing first" | Pick the row, then do the work inside that skill. |
 | "I'll run the design skill and the pipeline" | One class. A design request does not also open a spec folder. |
+| "This status check can just continue the work" | A status report is read-only. Continuing is a separate decision. |
+| "The gate is just a pause, no need to record it" | The gate is state. A dead session loses the decision otherwise. |
 
 ## Platform Adaptation
 
@@ -192,12 +178,15 @@ User instructions (CLAUDE.md, AGENTS.md, GEMINI.md, and direct requests) take pr
 | "The router can just do the work itself" | The router dispatches. It does not execute. |
 | "I remember this skill, no need to read it" | Read the current version of the first skill. |
 | "The 1% rule means load every plausible skill" | The 1% rule picks one Router row. |
+| "I'll skip the gate write, it's just a pause" | The gate is state. `resume` re-shows a written gate; it cannot re-show one that was only in the conversation. |
 
 ## Verification
 
 - [ ] The request was classified as Delivery, Specialist, or Q&A before any skill body loaded.
 - [ ] The Router selected exactly one first skill (one row, no catalog scan).
 - [ ] The start gates passed: config check, resume check, and domain model check.
+- [ ] A status or review-only request did not advance the pipeline.
 - [ ] The User Gate was passed — the user confirmed the slice before execution began.
+- [ ] If the run reached a user gate, `changes.<slug>.gate` was written and the 30-second screen was shown (and the field cleared on the user's response).
 - [ ] No specialist skill ran during a delivery change unless the user or the active pipeline skill named it.
 - [ ] The chosen skill was announced ("Using [skill] to [purpose]").

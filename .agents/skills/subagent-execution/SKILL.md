@@ -173,6 +173,8 @@ Before reading implementation files or dispatching any task, confirm readiness:
   3. **Legacy fallback** (v1-format `tasks.md` only): every ticket is `[x]`.
 - If state is **`ready`**, proceed only on the assigned pending tickets.
 
+**Gate clear:** if `changes.<topic>.gate` in `state.yaml` is set (it was `user-gate-slice` at slicing), the user's "Implement" is what started this skill — clear the field in the same edit as the first ledger write. If there was no user confirmation, STOP at the gate screen and do not dispatch (User gate contract in `_shared/rules/sdd-structure.md`).
+
 **Edit roots are bounded.** If the blueprint or `tasks.md` names specific directories/files as the change's affected areas, edit only under them. If a needed edit is outside, STOP and report the unsafe path. Never edit files outside the change's affected areas without a ruling.
 
 ### Execution Contract Check (optional ticket fields)

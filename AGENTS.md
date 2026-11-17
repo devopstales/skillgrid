@@ -116,6 +116,8 @@ Mnemonic (local SQLite + FTS5): `mem_*`, `code_*`, `web_*` over MCP and HTTP.
 
 ### Workflow
 
+Entry: at the start of any skillgrid task, first read `using-skillgrid` — it classifies the request, runs the start gates, and names exactly one first skill.
+
 `brainstorming` → `writing-blueprints` → `slicing` → `ticketing` → execution (`subagent-execution` or `simple-execution`) → `qa` → `code-review` → `receiving-code-review` → `ship` → `reflect`
 
 Run `skillgrid:onboarding` to update config after stack changes.

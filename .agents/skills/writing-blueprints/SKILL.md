@@ -47,7 +47,11 @@ Validation runs in this fixed order:
    to the user *while the blueprint is still PROPOSED and cheap to change*;
    for each finding the user decides the resolution path, the blueprint is
    updated to reflect it, and only the *final* updated blueprint is approved.
-5. **Execution Handoff** — commit + `state.yaml` phase update; slicing
+   On entering the gate, write `changes.<topic>.gate: blueprint-validation`
+   to `state.yaml` and show the 30-second gate screen (User gate contract in
+   `_shared/rules/sdd-structure.md`); wait for the user's decision.
+5. **Execution Handoff** — commit + `state.yaml` phase update (clear
+   `changes.<topic>.gate` in the same edit); slicing
    decision for ≥3 tasks; subagent-driven vs inline.
 
 Never proceed to the next artifact without the user approving the final

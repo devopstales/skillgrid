@@ -110,6 +110,10 @@ Rules:
 - If `state.yaml` and the spec zone agree, say so on the one line ("state
   reconciles with disk") so a future reader knows the check ran.
 
+### 2.6 Pending gate
+
+Check `changes.<slug>.gate` in `state.yaml`. If it is non-empty, the change is waiting on a user decision that is not derivable from artifacts: re-show the gate screen (Done / Assumed / Next + the reply menu, per the User gate contract in `_shared/rules/sdd-structure.md`) and wait. Do not advance past the gate, do not re-derive the decision, and name it in the one-line position announcement ("…gate=user-gate-slice pending"). A non-empty gate with `autonomy: autonomous` is a contradiction — report it and treat the gate as pending.
+
 ### 3. Announce the recovered position
 
 One line, in this shape:
@@ -161,6 +165,7 @@ Identical to the protocol above: locate → read the layers → announce → con
 - [ ] The in-flight topic was located: an uncompleted `tasks.md`, a latest commit with non-empty `Remaining:`, or a ledger exists (or `skillgrid:using-skillgrid` was invoked because nothing is in flight)
 - [ ] `state.yaml` was reconciled against the spec-zone artifacts (Step 2.5): drifted fields repaired to their artifact-derived values and committed, or "state reconciles with disk" confirmed
 - [ ] The phase was determined from the spec-zone artifacts present (table above)
+- [ ] A non-empty `changes.<slug>.gate` was re-shown (the 30-second screen) and not advanced past
 - [ ] The correct state layer was read for the phase: the plan's `progress.md` when the phase is execution
 - [ ] The latest session's events were read — `skillgrid session <id>` (or `session_changes`) returned, `to_commit` was noted, and its `Remaining:` (a partial unit) was finished before dispatching anything new
 - [ ] The recovered position was announced in one line naming the source (e.g. "Resuming `<topic>`: phase=execution, wave 2, task 3/5 done, last commit `<sha>`. Next: task 4.")
