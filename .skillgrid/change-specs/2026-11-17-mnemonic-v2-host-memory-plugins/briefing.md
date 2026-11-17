@@ -52,7 +52,7 @@ The mnemonic-v2 engine (repo module `mnemonic/`) exposes its 22 agent-profile me
 
 2. **R2 — pi/omp thin extension (one shared TS source):** a pi-ExtensionAPI extension installed for both pi (`~/.skill-pi/agent/extensions/`) and omp (`~/.omp/agent/extensions/`) providing: (a) session registration via `memory session start --id <adapter-id>` with a **subagent guard** (child sessions skip registration + capture); (b) per-prompt capture via `memory save-prompt` (fail-open, fire-and-forget); (c) compaction recovery (context injection + FIRST ACTION REQUIRED notice); (d) protocol host-shell system injection (see R10); (e) **session-start liveness probe** (see R11) whose failure injects an actionable warning (cause + exact repair command) instead of failing the session.
    - **Current:** `plugins/pi/mnemonic/index.ts` is the v1 wiring (memory+fact_+code_+ctx_+SDD-events over HTTP `:7438`); omp loads the same package as an extension.
-   - **Target:** the v1 `index.ts` is replaced by the thin extension; v1 modules deleted (R8); the extension makes **zero** direct engine calls beyond CLI verbs (no MCP client, no HTTP).
+   - **Target:** the v1 `index.ts` is replaced by the thin extension; v1 modules deleted (R8); the extension holds **no persistent engine connection** (no long-lived MCP client, no HTTP) — its only wire-level call is the session-start transient `initialize` probe of R10/R11; everything else goes through CLI verbs.
    - **Acceptance:** unit tests for the subagent guard, fail-open capture (verb failure → host unaffected), compaction notice text; a pi and an omp smoke session each produce exactly one session row and N prompt rows for N prompts.
    - **Acceptance scenario:** `happy path piomp-capture` → `acceptance.feature`
 
