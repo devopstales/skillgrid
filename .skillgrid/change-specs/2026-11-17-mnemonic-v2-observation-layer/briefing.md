@@ -126,18 +126,18 @@ events in **SQLite**; add **observation commands to the mnemonic CLI**.
 
 | Host | Mechanism | Install target (this host) | Events available |
 |---|---|---|---|
-| **pi** | TS extension folder, `pi.extensions` manifest, `pi.on(...)` | `<pi-agent-dir>/extensions/<name>/` (default `~/.skill-pi/agent/extensions/`; `SKILL_PI_AGENT_DIR` honored; launcher resolves manifest `pi.extensions`, else `index.ts`/`index.js` — no settings edit) | `session_start`, `before_agent_start` (user prompts), `tool_call` (pre, input), `tool_result` (post, output/status), `session_shutdown` (quit = end) |
+| **pi** | TS extension folder, `pi.extensions` manifest, `pi.on(...)`; spawn (async, fire-and-forget) for non-blocking hooks, spawnSync 30s cap for `tool_call` (gryph `gryph-hooks.ts` shape) | `<pi-agent-dir>/extensions/<name>/` (default `~/.skill-pi/agent/extensions/`; `SKILL_PI_AGENT_DIR` honored; launcher resolves manifest `pi.extensions`, else `index.ts`/`index.js` — no settings edit) | gryph parity: `session_start`, `tool_call` (pre, input, exit-2 blocking), `tool_result` (post, output/status), `session_shutdown` (quit = end) **+ extension:** `before_agent_start` user prompts (gryph's pi/omp hook has no prompt capture; v1 `/prompts` parity — see R1) |
 | **omp** | pi-compatible ExtensionAPI; **single .ts file auto-discovered** | `~/.omp/agent/extensions/mnemonic-obs.ts` (gryph-hooks.ts + herdr precedent) | same as pi (same API) |
-| **opencode** | native TS plugin, direct `.ts` discovery (OpenCode v2), V1+V2 dual entrypoint (`@opencode/plugin` bundled dep; V2 tool hooks pass one mutable `event`) | `~/.config/opencode/plugins/mnemonic-obs.ts` | `tool.execute.before/after` (pre/post), session lifecycle events, user-prompt event (exact names pinned at blueprint) |
+| **opencode** | native TS plugin, direct `.ts` discovery (OpenCode v2), V1+V2 dual entrypoint (`@opencode/plugin` bundled dep; V2 tool hooks pass one mutable `event`); `cwd` from the plugin's `directory` param; 5s exec cap, only `tool.execute.before` re-throws on exit 2 (gryph `gryph.js` shape) | `~/.config/opencode/plugins/mnemonic-obs.ts` | gryph parity: `tool.execute.before/after` (pre carries `args`, post carries `title/output/metadata`) + `session.created` / `session.idle` / `session.error` (no other session events; no prompt hook — see R1) |
 | **kilo** | same TS plugin as opencode, **copied** + registered in kilo's own config file | `~/.config/kilo/plugin/mnemonic-obs.ts` + config registration | same as opencode |
-| **cursor** | `~/.cursor/hooks.json` merge → staged shell hook → node script | `~/.cursor/hooks.json` (merge, foreign entries preserved) + staged scripts under `~/.skillgrid/hooks/` | `sessionStart`, `sessionEnd`, `stop`, `postToolUse` (after, tool_input+tool_output), `beforeShellExecution`, `beforeMCPExecution`, `beforeReadFile` (pre, per-tool) |
+| **cursor** | `~/.cursor/hooks.json` merge, **direct binary command** per entry — `mnemonic obs _ingest cursor <hookType>` (gryph's shape: no shell wrapper, no node script — v1's script existed only because its transport was HTTP fetch) | `~/.cursor/hooks.json` (merge, foreign entries preserved: gryph/orca/herdr stay) | **full gryph 20-hook set** (full copy, D6): `preToolUse`, `postToolUse`, `postToolUseFailure`, `beforeShellExecution`, `afterShellExecution`, `beforeMCPExecution`, `afterMCPExecution`, `beforeReadFile`, `beforeTabFileRead`, `afterTabFileEdit`, `afterFileEdit`, `beforeSubmitPrompt` (**prompt capture** — gryph's only prompt hook), `sessionStart`, `sessionEnd`, `stop`, `preCompact`, `afterAgentResponse`, `afterAgentThought`, `subagentStart`, `subagentStop` |
 
 ## Architecture
 
 ```
- pi / omp / opencode / kilo TS plugins          cursor hooks.json
+ pi / omp / opencode / kilo TS plugins          cursor hooks.json (20 entries)
         |  spawn(mnemonic, [obs,_ingest,<agent>,<event]), JSON stdin
-        |  (fail-open, 30s cap, exit-2 channel reserved)          | shell hook -> node script
+        |  (fail-open, per-host cap, exit-2 channel reserved)     | direct: <bin> obs _ingest cursor <hookType>
         v                                                        v
               mnemonic obs _ingest <agent> <event>   (hidden verb, stdin JSON)
                        |
@@ -165,7 +165,7 @@ events in **SQLite**; add **observation commands to the mnemonic CLI**.
     project TEXT NOT NULL,
     session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
     agent TEXT NOT NULL,
-    action_type TEXT NOT NULL,        -- session_start|session_end|tool_call|tool_result|prompt
+    action_type TEXT NOT NULL,        -- normalized: session_start|session_end|tool_call|tool_result|prompt|turn_end|compact|agent_response|agent_thought|subagent_start|subagent_stop
     tool_name TEXT,
     tool_type TEXT,                   -- shell|file_read|file_write|other
     path TEXT,
@@ -211,25 +211,40 @@ events in **SQLite**; add **observation commands to the mnemonic CLI**.
   - `plugins/obs/opencode/` — `mnemonic-obs.ts` (V1+V2 dual entrypoint, the
     `skillgrid-events.ts` `importPlugin()` pattern). **opencode** installs direct;
     **kilo** installs the copy + config registration.
-  - `plugins/obs/cursor/` — `hooks-obs-cursor.json` + staged shell hook +
-    `obs-capture.js` (thin: read stdin JSON → pipe to `mnemonic obs _ingest`
-    cursor …; the node script does **no** normalization — Go owns it).
+  - `plugins/obs/cursor/` — `hooks-obs-cursor.json` only: one entry per hook
+    type with `command: "<mnemonic-bin> obs _ingest cursor <hookType>"`
+    (gryph's shape — the binary is the hook; no shell wrapper, no node script).
+    `<mnemonic-bin>` = the install-time absolute path (falls back to bare
+    `mnemonic` on PATH when installed from a checkout).
   - Every hook: fail-open (missing binary / timeout / parse error → exit 0,
-    never block), 30s cap on the pre-tool path, binary via `MNEMONIC_BIN` env
-    else `mnemonic` on PATH.
-  - Per-host event wiring (requirements R1): session start/end, pre-tool
-    (tool_call, input), post-tool (tool_result, output/status/duration),
-    prompt (pi/omp `before_agent_start` user messages; opencode/kilo user-prompt
-    event; cursor: none — tools only).
+    stderr note only), 30s cap on the pi/omp `tool_call` path, 5s cap on the
+    opencode `tool.execute.before` path (gryph per-host caps), binary via
+    `MNEMONIC_BIN` env else the installed path / PATH.
+  - Per-host event wiring (requirements R1): the per-host sets in the table
+    above — gryph parity everywhere, with prompt capture as the only
+    extension (pi/omp `before_agent_start` user messages; cursor
+    `beforeSubmitPrompt` — which is gryph's own cursor prompt hook).
 
 ## Requirements
 
-- **R1 — Host capture (5 hosts).** `obs install` (re)installs the capture
-  adapter for pi, omp, opencode, kilo, cursor individually or `all`; each
-  adapter emits, for a normal session: `session_start`, at least one
-  `tool_call` + `tool_result` pair per tool use (pre carries input, post
-  carries status/duration), `session_end`, and `prompt` events where the host
-  exposes a prompt hook (pi, omp, opencode, kilo — not cursor).
+- **R1 — Host capture (5 hosts), gryph parity + one extension.**
+  `obs install` (re)installs the capture adapter for pi, omp, opencode, kilo,
+  cursor individually or `all`. Event surface = **gryph's installed set
+  per host** (the 2026-11-17 evidence table above), normalized into the
+  `action_type` vocabulary:
+  - **pi/omp:** `session_start`, `tool_call`/`tool_result` pairs per tool use
+    (pre input / post status+duration), `session_end` (shutdown-quit),
+    **+ extension** `prompt` on `before_agent_start` (user messages only).
+  - **opencode/kilo:** `tool.execute.before`/`after` pairs, `session.created`
+    → `session_start`, `session.error` (and `session.idle` → `turn_end`), no
+    prompt hook (gryph parity — prompts on these hosts stay the memory
+    plane's `mem_save_prompt` job).
+  - **cursor:** the full 20-hook set, mapped: pre/before* → `tool_call`,
+    post*/after*/postToolUseFailure → `tool_result` (failure = `error`
+    status), beforeSubmitPrompt → `prompt`, sessionStart/End →
+    `session_start`/`session_end`, stop → `turn_end`, preCompact → `compact`,
+    afterAgentResponse/afterAgentThought → `agent_response`/`agent_thought`,
+    subagentStart/Stop → `subagent_start`/`subagent_stop`.
 - **R2 — SQLite storage.** Events persist to the v2 per-project store via
   migration `300_obs_events.sql` (schema above); ingest auto-registers the
   `sessions` row in the same transaction (FK always resolves — v2 SaveEvent
@@ -309,6 +324,15 @@ events in **SQLite**; add **observation commands to the mnemonic CLI**.
   (tool-call-capture.js) — duplicated per host script. v2: hooks are dumb
   transports; the Go `_ingest` normalizes once; the `--private`/sensitive/
   truncation contract is unit-tested in one place.
+- **D6 — Event surface = full gryph copy per host, plus prompt capture on
+  pi/omp (recommended).** Confirmed 2026-11-17 against the live gryph install
+  on this host (cursor hooks.json = direct-binary commands, 20 hook types;
+  opencode `gryph.js` = 5s exec, before-only blocking, 3 session events;
+  omp `gryph-hooks.ts` = 4 hooks, 30s cap). The only deliberate extension is
+  `prompt` on pi/omp (`before_agent_start`) — gryph doesn't capture prompts
+  there, but v1 did (`/prompts`) and the cost is one hook per host.
+  Alternative: v1's 7-hook cursor subset — rejected: strictly less data and
+  keeps the shell+node indirection gryph dropped.
 
 ## Acceptance (falsifiable)
 
@@ -337,10 +361,15 @@ events in **SQLite**; add **observation commands to the mnemonic CLI**.
 
 ## Open items for the blueprint (pinned during drafting, not TBD here)
 
-- Exact opencode v2 event names for session lifecycle + user prompt (probe a
-  live opencode; the existing `skillgrid-events.ts` already pins the tool hooks).
-- Cursor hook stdin JSON shape per event (probe; v1's tool-call-capture.js
-  already handles the `postToolUse`/`before*` shapes — port, don't re-derive).
+- (Resolved) Opencode surface is pinned by gryph's own plugin (gryph.js):
+  `tool.execute.before/after` + `session.created`/`session.idle`/
+  `session.error`, 5s exec, before-only blocking. The repo's existing
+  `skillgrid-events.ts` already pins the V2 mutable-event signature shape.
+- Cursor stdin JSON shape for each of the 20 hook types (probe a live
+  cursor session with a debug hook; v1's tool-call-capture.js already
+  handles the `postToolUse`/`before*` shapes — port, don't re-derive; the
+  rest — tab-file, subagent, thought/response, preCompact — pin from
+  Cursor's hook docs at blueprint).
 - Kilo config file name + registration key on this host (v1 installer precedent:
   `~/.config/kilo/` config; confirm at blueprint).
 - `obs install` source-of-truth for plugin files: staged copy in the data dir
