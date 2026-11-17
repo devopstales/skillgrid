@@ -120,13 +120,17 @@ recorded as a follow-up inside Task 4, not a scope change.
   `go vet ./...` clean from the `mnemonic/` module root.
 - No new Go dependencies (AGENTS.md; ADR-0008 precedent) — stdlib + existing
   `modernc.org/sqlite`. TS adapters: node builtins only (no npm deps).
-- Fail-open is a contract (R8): every adapter and the ingest path — a capture
-  failure must never block or slow the agent (hard caps: 30s pi/omp
-  `tool_call`, 5s opencode `tool.execute.before`).
-- Data dir: `~/.skillgrid/mnemonic` (`SKILLGRID_MNEMONIC_DATA_DIR` override);
-  per-project store `<project>.sqlite`. Obs is SQLite-dialect only (local-only
-  audit, `session_trails` scope); PG-dialect ingest returns a clean error
-  (envelope exit 1 → fail-open), not a crash.
+- Fail-open is a contract (R8): every adapter and the ingest path — a
+  capture failure must never block the agent. Spawn caps where our adapter
+  controls the spawn: 30s pi/omp `tool_call` (spawnSync), 5s opencode
+  `tool.execute.before` (execFileSync); cursor's command runs under the
+  harness's own limit (no cap in our command string) — the store side is
+  bounded by the existing `busy_timeout(5000)` DSN, and project detection's
+  `git rev-parse` shell-out is the CLI's existing behavior (unchanged).
+- Data dir: `~/.skillgrid/mnemonic` (`MNEMONIC_DATA_DIR` override — the v2
+  config env, `config.go:35`); per-project store `<project>.sqlite`. Obs is
+  SQLite-dialect only (local-only audit, `session_trails` scope);
+  PG-dialect ingest returns a clean error (exit 1 → fail-open), not a crash.
 - Spec-zone commits before code-zone (pre-commit zone guard); conventional
   commits, no AI trailers.
 - Truncation caps: tool previews 500, prompt 2000 (v1 `MAX_PREVIEW` /
@@ -168,11 +172,30 @@ hashes, exact hook entries, binary path, version, installed_at).
 {"v":1,"session_id":"…","cwd":"/repo","agent":"omp","event":"tool_call",
  "tool_name":"bash","tool_call_id":"…","input":{"command":"git status"},
  "output":"…","status":"success","error":null,"duration_ms":42,
- "prompt":"…","project":"override?","hook":"preToolUse?"}
+ "prompt":"…","project":"override?"}
 ```
-`event` ∈ the normalized `action_type` vocabulary; host-specific hook names
-travel in `hook` (audit + future policy). Exit codes: 0 ok · 1 error
-(store/parse/dialect — allow) · 2 reserved (block, phase 2).
+`event` = the **raw per-host hook name** (what the adapter was triggered
+by). `Normalize` (Task 1) maps `(agent, event) → action_type` via this
+pinned table — the single source of truth; an unknown `(agent, event)`
+pair → ingest error (exit 1, fail-open):
+
+| agent | raw `event` | → `action_type` |
+|---|---|---|
+| pi, omp | `session_start` / `tool_call` / `tool_result` | same names |
+| pi, omp | `session_shutdown` (quit only) | `session_end` |
+| pi, omp | `before_agent_start` (user msgs only) | `prompt` |
+| opencode, kilo | `tool.execute.before` / `tool.execute.after` | `tool_call` / `tool_result` |
+| opencode, kilo | `session.created` / `session.idle` / `session.error` | `session_start` / `turn_end` / `session_error` |
+| cursor | `preToolUse`, `beforeShellExecution`, `beforeMCPExecution`, `beforeReadFile`, `beforeTabFileRead` | `tool_call` |
+| cursor | `postToolUse`, `afterShellExecution`, `afterMCPExecution`, `afterFileEdit`, `afterTabFileEdit`, `postToolUseFailure` | `tool_result` (failure → `result_status=error`) |
+| cursor | `beforeSubmitPrompt` / `sessionStart` / `sessionEnd` / `stop` / `preCompact` | `prompt` / `session_start` / `session_end` / `turn_end` / `compact` |
+| cursor | `afterAgentResponse` / `afterAgentThought` / `subagentStart` / `subagentStop` | `agent_response` / `agent_thought` / `subagent_start` / `subagent_stop` |
+
+The raw `event` is NOT stored (the `action_type` + `tool_name` +
+`result_status` columns carry the same information; future policy phase 2
+can extend the table additively). Exit codes: 0 ok · 1 error (usage,
+parse, store, dialect, unknown event — always allow) · 2 reserved (block,
+phase 2 — **never** a usage error).
 
 ---
 
@@ -191,11 +214,14 @@ travel in `hook` (audit + future policy). Exit codes: 0 ok · 1 error
 - Consumes: the store's `//go:embed migrations/*.sql` runner
   (`migrateSQLiteUpTo` records each file in `index_meta` — a new file is
   picked up with zero runner changes).
-- Produces: `obs.Event` (the row struct), `obs.Envelope` (the R3 JSON
-  contract), `obs.Normalize(env Envelope, privateTools []string) Event` (pure,
-  deterministic — the seam for the whole privacy contract), constants
-  `Action*`, `ToolType*`, `Result*`, `Agent*` (valid set: pi, omp, opencode,
-  kilo, cursor).
+- Produces: `obs.Event` (the row struct; carries `Directory` = raw
+  `env.cwd`, never redacted — the carrier for the sessions upsert),
+  `obs.Envelope` (the R3 JSON contract),
+  `obs.Normalize(env Envelope, privateTools []string) (Event, error)` (pure,
+  deterministic — the seam for the whole privacy contract; errors on an
+  unknown `(agent, event)` pair), constants `Action*`, `ToolType*`,
+  `Result*`, `Agent*` (valid set: pi, omp, opencode, kilo, cursor), and the
+  pinned `(agent, event) → action_type` mapping table (above).
 - Seam: `Normalize` is the unit under test for R5; adapters never normalize.
 - Deletion test: without it, every host adapter + the CLI re-derives
   truncation/redaction (the v1 JS duplication this change kills).
@@ -208,23 +234,28 @@ travel in `hook` (audit + future policy). Exit codes: 0 ok · 1 error
   `SELECT COUNT(*)>0 FROM sqlite_master WHERE name='obs_events'` true;
   re-open no-op (the `TestMigrationReopenSkipsAppliedFiles` pattern); existing
   store (open, add an observation, re-open after migration) → observation
-  rows untouched. `normalize_test.go` — table tests porting the v1
-  `tool-call-capture.js` contract (the file is the spec; port, don't re-derive):
-  `mapToolType` (bash/shell→shell; read/glob/grep→file_read; write/edit/
-  multiedit/strreplace/patch/delete→file_write; default other);
-  `sensitivePath` (`(^|/)\.(git|ssh|aws|config)(/|$)`, `.env`, `*.pem`,
-  `*.key`, `*secret*`); `stripPrivateTags` (nested/partial `<private>` loops
-  to fixpoint); truncation (500 → 497 + `…[+N]`; 2000 prompt); `content_hash`
+  rows untouched. `normalize_test.go` — table tests. Structure ports from
+  v1 `tool-call-capture.js` (`mapToolType` verbatim: bash/shell→shell;
+  read/glob/grep→file_read; write/edit/multiedit/strreplace/patch/delete→
+  file_write; default other); **values are pinned per item by the briefing
+  R5 union, NOT the v1 file** — the v1 file lacks `.env`/`*.pem`/`*.key`/
+  `*secret*` (that is the gryph set), uses 32-bit djb2 (NOT carried over —
+  sha256, gryph parity), and truncates with `\n[truncated]` (NOT carried
+  over — `…[+N]`): `sensitivePath` (the v1 regex + `.env`, `*.pem`, `*.key`,
+  `*secret*`); `stripPrivateTags` (nested/partial `<private>` loops to
+  fixpoint); truncation (500 → 497 + `…[+N]`; 2000 prompt); `content_hash`
   (sha256 of the FULL pre-truncation string, hex); private-tools allowlist
-  (listed tool → previews nil).
+  (listed tool → previews nil); **event mapping** (every row of the envelope
+  table above, per host, + unknown `(agent, event)` → error).
 
 ```go
 func TestNormalizeSensitivePathDropsContent(t *testing.T) {
-	ev := obs.Normalize(obs.Envelope{Agent: "omp", Event: obs.ActionToolResult,
+	ev, err := obs.Normalize(obs.Envelope{Agent: "omp", Event: "tool_result",
 		ToolName: "read", Input: map[string]any{"file_path": "/repo/.env"},
 		Output: "SECRET=1"}, nil)
-	if ev.Path != "/repo/.env" || ev.InputPreview != nil || ev.OutputPreview != nil {
-		t.Fatalf("sensitive path must keep path, drop previews: %+v", ev)
+	if err != nil || ev.Path != "/repo/.env" ||
+		ev.InputPreview != nil || ev.OutputPreview != nil {
+		t.Fatalf("sensitive path must keep path, drop previews: %+v %v", ev, err)
 	}
 	if ev.ContentHash == "" { t.Fatal("hash must cover the full value") }
 }
@@ -242,22 +273,44 @@ func TestNormalizeSensitivePathDropsContent(t *testing.T) {
 ### Task 2: obs store ops — Ingest, Query, Prune
 
 **Files:**
-- Create: `mnemonic/internal/obs/store.go`
+- Create: `mnemonic/internal/obs/store.go`, `mnemonic/internal/obs/match.go`
+- Modify: `mnemonic/internal/core/store/store.go` (add
+  `Exec(ctx context.Context, query string, args ...any) error` to the
+  `Txn` interface), `sqlite.go` (`sqliteTxn`), `postgres_code.go`
+  (`pgCodeTxn`) — additive interface extension (the ADR-0058
+  Store-extension precedent — the Code-index `Store` interface extension
+  that established the additive Begin/Txn surface; both adapters hold
+  `*sql.Tx`, one-line impls). Find and update any test fakes implementing `Txn` (grep
+  `ReplaceChunksForFile`).
 - Test: `mnemonic/internal/obs/store_test.go`
 
 **Interfaces:**
 - Consumes: `store.Store` (`st.Query`, `st.Begin(ctx) (Txn, error)` —
-  `store.go:139` — + the projectwiki-package raw-SQL-over-Store precedent).
+  `store.go:139` — + the projectwiki-package raw-SQL-over-Store
+  precedent). The `Txn` surface has no generic statement method today —
+  this task adds `Txn.Exec` (Files above); the ingest tx then composes
+  two raw statements inside one Txn.
 - Produces: `Ingest(ctx, st, ev Event) (id int64, err)` — the tx:
   `INSERT INTO sessions (id, project, directory) VALUES (?,?,?)
-   ON CONFLICT(id) DO NOTHING` (only when `session_id` ≠ "") then
+  `ON CONFLICT(id) DO NOTHING` (only when `session_id` ≠ ""; the
+  `directory` column = `ev.Directory`, the raw cwd) then
   `INSERT INTO obs_events (…) VALUES (…)`; `Query(ctx, st, F) []Event`
-  (`F{Project, Session, Agent, Action, File glob, Command glob/prefix, Since,
-  Limit}` — empty = no filter, `--file` uses `golang.org/x/text`-free
-  `path.Match` in Go, not SQL); `ListSessions`, `SessionDetail`, `Stats`
+  `F{Project, Session, Agent, Action, File glob, Command glob/prefix, Since,
+  Limit}` — empty = no filter; `--file` uses the pinned
+  `obs.MatchFile(pattern, path)` helper (below), Go-side, not SQL);
+  `ListSessions`, `SessionDetail`, `Stats`
   (GROUP BY agent/tool_type/action_type), `Export` (rows, same order as
   logs), `Prune(ctx, st, retention) (n int64, err)`
   (`DELETE FROM obs_events WHERE occurred_at < ?` only).
+- Pinned matcher `MatchFile(pattern, path) bool` (`match.go` —
+  `path.Match` alone cannot recurse: `path.Match("src/**", "src/a/b.go")`
+  is false; gryph's `--file "src/**/*.ts"` is recursive): split pattern and
+  path on `/`; a `**` segment matches zero-or-more whole segments; other
+  segments use `path.Match`; a pattern containing no `/` is also matched
+  against the basename (so `*.env` hits `/repo/.env`). Tests (pinned rows):
+  `src/**`~`src/a/b.go` true; `src/*`~`src/a/b.go` false;
+  `src/*.go`~`src/a.go` true / ~`src/a/b.go` false; `*.env`~`repo/.env`
+  true.
 - Seam: store.go is the SQL surface; verbs in Task 3/7 call these.
 - Deletion test: every verb re-derives SQL; the privacy-adjacent invariants
   (auto-register, delete-only-obs_events) lose their single home.
@@ -270,13 +323,17 @@ func TestNormalizeSensitivePathDropsContent(t *testing.T) {
   exist (FK resolves); ingest again same session → one session row; unknown
   `agent` → error before insert; Query filters (action/file/command/agent/
   since, combined); Prune with 2 old + 1 new row → 2 deleted, `sessions`
-  row count unchanged; Export order = `(occurred_at, id)`.
+  row count unchanged; Export order = `(occurred_at, id)`; MatchFile the
+  four pinned rows (recursive `src/**`, non-recursive `src/*`, basename
+  `*.env`).
 - [ ] **Step 2: Verify RED.**
 - [ ] **Step 3: Implement** via the store's tx seam `st.Begin(ctx) (Txn,
-  error)` (`store.go:139`, the K1 transaction surface): inside one Txn —
-  session upsert (`ON CONFLICT(id) DO NOTHING`), event insert, commit.
-  Atomicity pinned by the FK probe + a concurrent-ingest test on the same
-  store (WAL).
+  error)` (`store.go:139`): inside one Txn, using the `Txn.Exec`
+  statement method added in this task's Files step — session upsert
+  (`ON CONFLICT(id) DO NOTHING`), event insert, commit. (The generic
+  `st.Exec`/`ExecDDL` are single-statement non-transactional — NOT the
+  seam.) Atomicity pinned by the FK probe + a concurrent-ingest test on
+  the same store (WAL).
 - [ ] **Step 4: Verify GREEN** (`go test ./internal/obs/ -count=1 -race`).
 - [ ] **Step 5: Commit** — `feat(obs): store ops (ingest tx, query, prune)`.
 
@@ -313,15 +370,19 @@ func TestNormalizeSensitivePathDropsContent(t *testing.T) {
 
 - [ ] **Step 1: Failing tests** — `run([]string{"obs","_ingest","omp","tool_call"})`
   with stdin envelope → exit 0, row present; malformed JSON → exit 1 (stderr
-  note, no row, no panic); missing args → exit 2; PG dialect → exit 1 with
-  "sqlite dialect only"; `logs` on the seeded store prints the rows;
+  note, no row, no panic); missing args → exit 1 (a usage error does NOT
+  take exit 2 — that code is reserved for block (phase 2); R8: a
+  misconfigured adapter must allow, never block; deliberate deviation from
+  the CLI's exit-2 usage convention); PG dialect → exit 1 with
+  "sqlite dialect only"; unknown `(agent, event)` → exit 1; `logs` on the
+  seeded store prints the rows;
   `logs --format json` = parseable envelope array; `query --command "git *"`
   filtering.
 - [ ] **Step 2: Verify RED.**
 - [ ] **Step 3: Implement** (verb dispatch in `runObs`; `--json` reuses
   `finish`/`dispatchResult` — obs results print via `printHuman`-style
   lines, `--format json` = raw envelope array, NOT the mem-family envelope:
-  obs is CLI-only, the K6 MCP seam does not apply).
+  obs is CLI-only — the CLI/MCP byte-identical output seam does not apply).
 - [ ] **Step 4: Verify GREEN** (`go test ./cmd/mnemonic/ -run Obs -count=1`).
 - [ ] **Step 5: Door check (live, this host)** — `go build -o /tmp/mnemonic ./cmd/mnemonic`;
   pipe a real-shaped omp envelope → `obs logs` shows the row in
@@ -332,11 +393,13 @@ func TestNormalizeSensitivePathDropsContent(t *testing.T) {
 ### Task 4: pi/omp adapter + install (omp, pi) + manifest
 
 **Files:**
-- Create: `plugins/obs/pi/mnemonic-obs.ts`, `plugins/obs/pi/package.json`
+- Create: `plugins/obs/pi/mnemonic-obs.ts`, `plugins/obs/pi/package.json`,
+  `plugins/obs/pi/obs.test.ts` (build-free node test, no deps)
 - Create: `mnemonic/internal/obs/install.go` (agent registry, file copyers,
   manifest read/write, Status)
 - Modify: `mnemonic/cmd/mnemonic/obs.go` (`install`/`uninstall`/`status`
-  verbs — host args `pi|omp|opencode|kilo|cursor|all`, `--dry-run`)
+  verbs — host args `pi|omp|opencode|kilo|cursor|all`, `--dry-run`,
+  `--sync <repo>` (stage adapter sources), `--force` (install undetected))
 - Test: `mnemonic/internal/obs/install_test.go` (fixture HOME via
   `t.Setenv("HOME", ...)`; the pi agent dir via `SKILL_PI_AGENT_DIR`)
 
@@ -387,16 +450,29 @@ time, migrate this task's installers onto it and delete the duplicate.
   (mtime/hash unchanged); install pi with `SKILL_PI_AGENT_DIR=<tmp>` →
   `<tmp>/extensions/mnemonic-obs/{mnemonic-obs.ts,package.json}`; uninstall
   removes exactly those (a foreign `other-extension.ts` survives); status
-  reports installed/stale (hash mismatch) per host.
+  reports installed/stale (hash mismatch) per host + that host's store
+  event count (the briefing R9 sub-clause). **Detection (pinned,
+  drives `install all` + `status`):** omp → `~/.omp/agent` exists; pi →
+  `$SKILL_PI_AGENT_DIR` or `~/.skill-pi/agent` exists; opencode →
+  `~/.config/opencode` exists; kilo → `~/.config/kilo` exists; cursor →
+  `~/.cursor` exists. Tests: `install all` installs only detected fixture
+  hosts, undetected ones reported as skipped (exit 0); `--force` installs
+  all five regardless. **pi/omp adapter unit (the fail-open unit half):**
+  `plugins/obs/pi/obs.test.ts` (node, no deps — stub the `spawn`/
+  `spawnSync` globals): missing binary (ENOENT) → no throw, exit-0
+  semantics; `tool_call` with exit 2 → returns `{block: true, reason:
+  stderr}`; exit 1 → swallowed. Run: `node plugins/obs/pi/obs.test.ts`.
 - [ ] **Step 2: Verify RED.**
 - [ ] **Step 3: Implement** (file copyers = read→write→hash; the omp target
-  is a bare file; the pi target is the folder; both from the staged source
-  dir = `$DATA_DIR/obs-plugins/` synced from the repo `plugins/obs/` at
-  install time when `--repo` points at a checkout, else the built-in copy —
-  the staged source lives in the repo for dev: `install` reads
-  `<repoRoot>/plugins/obs/` when run from a checkout (the v1
-  `stagedPluginPath` fallback pattern), copying the 3 source files +
-  `package.json` into the data dir first).
+  is a bare file; the pi target is the folder). **Adapter source
+  resolution — pinned, no Go embed** (in order, first hit wins): (1)
+  explicit `--repo <checkout>` containing `plugins/obs/`; (2) the staged
+  dir `$DATA_DIR/obs-plugins/` when present — written by
+  `obs install --sync <repo>` (copies `plugins/obs/*` + a version stamp;
+  the v1 `stagedPluginPath` pattern, now owned by this change); (3) a
+  checkout with `plugins/obs/` found by walking up from the cwd. None
+  present → error: "adapter sources not found: pass --repo, run from a
+  skillgrid checkout, or sync first (`mnemonic obs install --sync <repo>`)".
 - [ ] **Step 4: Verify GREEN** (`go test ./internal/obs/ -run Install -count=1`).
 - [ ] **Step 5: Live (backstop T-2)** — real install on this host
   (`obs install omp`), run this omp session's tool calls, then
@@ -501,10 +577,16 @@ idempotency + re-install cases live inside this scenario)
 - Test: `mnemonic/cmd/mnemonic/obs_test.go` (+cases)
 
 **Interfaces:**
-- Consumes: Task 2 store ops; the `sessions` table join for
-  `obs sessions` (id, agent, title, started/ended, event count) and
-  `obs session <id>` (ordered detail, id-prefix match like `--resume`).
-- Produces: `sessions` (table: id · agent · title · events · last-active),
+- Consumes: Task 2 store ops; the `sessions` table (id, title,
+  started_at, ended_at — no agent column) joined with `obs_events` for
+  agent/event-count (derivations pinned in Produces) and `obs session
+  <id>` (ordered detail, id-prefix match like `--resume`).
+- Produces: `sessions` (table: id · agent · title · events · last-active;
+  derivations pinned — the `sessions` table has no agent column: agent =
+  the most frequent `obs_events.agent` for that session, tie → most
+  recent; title = `sessions.title` (null → `-`); events = row count;
+  last-active = `MAX(obs_events.occurred_at)`, fallback
+  `sessions.started_at`),
   `session <id>` (time-ordered rows), `stats` (`--since`/`--agent`;
   GROUP BY agent, tool_type, action_type counts — table, no TUI),
   `export [--since] [--agent] [-o file]` (JSONL, one envelope-shaped object
@@ -565,7 +647,8 @@ probe: `PATH` stripped of mnemonic → one tool call proceeds).
 
 - [ ] **Step 1: Per host** (omp = this session; the others = one short real
   session each): trigger ≥3 tool calls, then `mnemonic obs logs --agent
-  <h>` → rows present with correct agent label + action sequence.
+  <h>` → rows present, agent label equal to the host that ran the session,
+  + expected action sequence.
 - [ ] **Step 2: Fail-open probe** — run one tool call with the mnemonic
   binary temporarily renamed (restore immediately): the call succeeds,
   stderr note only.
@@ -586,7 +669,10 @@ probe: `PATH` stripped of mnemonic → one tool call proceeds).
 
 Subprocess/shell exposure (hooks exec the binary; cursor's command strings
 are shell-interpreted by the harness) is covered by: envelope stdin cap
-(1 MiB, Task 3), the hard timeouts per host (Global Constraints), and the
+(1 MiB, Task 3), the spawn caps where our adapter controls the spawn
+(Global Constraints — cursor's command runs under the harness's own limit;
+the store side is bounded by the existing `busy_timeout(5000)` DSN), and
+the
 cursor command string built ONLY from the installed absolute binary path +
 fixed verb/event words (no interpolation of hook payload data into the
 command — Task 6 test pins the exact 20 strings).
@@ -596,13 +682,29 @@ command — Task 6 test pins the exact 20 strings).
 [The goldfish pipeline writes its verdict here — do not hand-edit after the
 pipeline runs.
 
-**Verdict:** PENDING
+**Verdict:** READY FOR EXECUTION (converged — rounds 3-4 both
+material-clean: 0 Blocker / 0 Major; all findings resolved in-place, none
+parked)
 
-**Rounds run:** —
+**Rounds run:** 4 (round 1 = 5-stage consolidated review; rounds 2-4 =
+verification passes of the prior round's fixes + fresh-eyes on the
+revised deltas)
 
-**Findings by severity:** —
+**Findings by severity:** round 1: 0 Blocker / 4 Major / 9 Suggestion —
+all 13 fixed in-place (event mapping table, exit-2 collision, adapter
+source resolution, MatchFile, env name, Directory carrier, port
+attribution, pi/omp unit test, sessions derivations, detection rules,
+timeout claim, K1/K6 ids, validating adjective). round 2: 0 Blocker / 2
+Major — F-1 residual (`session_shutdown` row) + N-1 (additive `Txn.Exec`
+seam, recorded in Task 2) both fixed; 1 sub-threshold minor (R9 status
+event counts) fixed. round 3: CLEAN (0B/0M); 1 sub-threshold citation
+minor F-14 (ADR-0045→0058) fixed. round 4: CLEAN (0B/0M, full ADR-citation
+sweep of both spec files); 1 sub-threshold citation minor F-15
+(briefing ADR-0004-transport-mcp→0061, both sites) fixed post-round-4
+against the ADR-0061 LOCKED title the round-4 pass already read.
 
-**Parked findings:** —
+**Parked findings:** — (none)
 
-**Reviewed:** —
+**Reviewed:** 2026-11-17 (goldfish 5-stage pipeline, fresh-context
+subagents; reports in `review/`)
 ]

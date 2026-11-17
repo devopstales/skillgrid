@@ -9,8 +9,9 @@ mnemonic-v2 (the `mnemonic/` Go module) records what agents *remember* (observat
 prompts, trails) but not what agents *do*. There is no audit trail of tool calls,
 commands run, files touched, or session lifecycle in v2 — the v1 module had one
 (`session_events`, migration 040, on `skillgrid serve :7438`), but v2 dropped the
-HTTP serve (`mnemonic serve` is a deprecated no-op; transport = MCP stdio only,
-ADR-0004-transport-mcp) and did not port the event layer.
+HTTP serve (`mnemonic serve` is a deprecated no-op; transport = MCP stdio
+only — ADR-0061, the MCP family split removed `serve`) and did not port the
+event layer.
 
 Reference design: **safedep/gryph** (Go, ~183★) — "security layer for AI coding
 agents". Its observation plane (this change ports that plane, not the policy
@@ -165,7 +166,7 @@ events in **SQLite**; add **observation commands to the mnemonic CLI**.
     project TEXT NOT NULL,
     session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
     agent TEXT NOT NULL,
-    action_type TEXT NOT NULL,        -- normalized: session_start|session_end|tool_call|tool_result|prompt|turn_end|compact|agent_response|agent_thought|subagent_start|subagent_stop
+    action_type TEXT NOT NULL,        -- normalized: session_start|session_end|session_error|tool_call|tool_result|prompt|turn_end|compact|agent_response|agent_thought|subagent_start|subagent_stop
     tool_name TEXT,
     tool_type TEXT,                   -- shell|file_read|file_write|other
     path TEXT,
@@ -284,9 +285,10 @@ events in **SQLite**; add **observation commands to the mnemonic CLI**.
   reality; hook cost = one short-lived process + one SQLite write; no
   lifecycle/daemon ownership.
 - **HTTP endpoint (rejected)** — resurrect a v2 serve (or reuse v1 :7438) for
-  `POST /obs/events`. Fails against ADR-0004-transport-mcp (MCP-only transport)
-  and v2's dropped-serve decision; adds a daemon the user must keep running for
-  capture to work at all. The v1 HTTP layer stays v1's.
+  `POST /obs/events`. Fails against ADR-0061 (the MCP family split removed
+  v2's HTTP serve — MCP stdio only) and v2's dropped-serve decision; adds a
+  daemon the user must keep running for capture to work at all. The v1 HTTP
+  layer stays v1's.
 - **JSONL spool + lazy ingest (rejected)** — decouples capture from the
   binary but adds a spool to compact, a path to lose, and `obs logs` would
   miss events until ingest runs. SQLite-direct is what gryph and v1 both do.

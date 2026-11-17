@@ -110,5 +110,5 @@ Feature: Observation layer (gryph-style agent event capture)
   Scenario: obs-live-hosts
     Given obs installed for all detected hosts
     When one short real session runs per host
-    Then `mnemonic obs logs --agent <h>` shows that host's events with the correct agent label
+    Then `mnemonic obs logs --agent <h>` shows that host's events with an agent label equal to the host that ran the session
     # EVIDENCE: (filled at QA)
