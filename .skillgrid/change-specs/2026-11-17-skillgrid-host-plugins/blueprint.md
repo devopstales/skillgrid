@@ -1,6 +1,96 @@
-# Blueprint — skillgrid host plugins (auto-load the router)
+# Skillgrid host plugins — Implementation Blueprint (steps, files, verification)
 
-Change: `2026-11-17-skillgrid-host-plugins` · rigor: full (5 hosts, installer changes)
+> **For agentic workers:** REQUIRED SUB-SKILL: Use skillgrid:subagent-execution (recommended) or skillgrid:simple-execution to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+Change: `2026-11-17-skillgrid-host-plugins`
+
+**Status:** PROPOSED
+
+**Tier:** T2 (config default; 5-host fan-out + installer change → full blueprint)
+
+**Build shape:** Tracer thread — W1 (bootstrap asset + cursor hook) is the thinnest end-to-end path through the whole pattern (host-native mechanism fires → shared asset → first-turn context) before the remaining four hosts are stacked on; host-API integration risk is the unknown.
+
+**Classification:** risky (L3 — full suite + build + coverage + lint; new trust boundary: a shell script executed by an external process, cwd taken from stdin JSON). Per `_shared/rules/verification-ladder.md`.
+
+**Goal:** Deterministically auto-load the skillgrid router in every new session of the five agent hosts (omp, pi, opencode, Kilo Code, Cursor) — a shared ~15-line bootstrap asset injected at session start by each host's native mechanism; pointer bootstrap, full router loads on demand, zero Go runtime code.
+
+**Architecture:** One shared bootstrap asset, read live at session start (resolution order: `~/.skillgrid/router-bootstrap.md` → repo clone → static fallback), injected by five thin per-host injectors (cursor sessionStart hook; TS plugins for pi / opencode V1+V2 / kilo / omp) — each a loader, no host-specific logic beyond load + inject. Project-conditional on `.skillgrid/config.yaml`, main agent only, fail-open (R4). The installer gains an `omp` agent key + bootstrap-distribution step; `sync-repo` refreshes the asset.
+
+**Tech Stack:** Go 1.22+ (installer only — no new dependencies, no ADR needed per AGENTS.md § Rules); TypeScript (four host injectors, following existing `plugins/**` conventions); Bash (cursor hook); host-native plugin/extension APIs.
+
+**Spec:** `briefing.md` (same directory) — requirements R1–R6. No ADR manifest for this change (no in-force ADRs modified; no new dependencies). Research: `/tmp/skillgrid-plugin-research/{superpowers,omp-local,pi-opencode,ide-rules}.md` (transient session artifacts, 2026-11-17; mechanism citations live in §2).
+
+**Findings:** none in the change folder (research was session-local; see the Spec line).
+
+## Terms
+
+None beyond `briefing.md` — "bootstrap asset" and "injector" are defined inline in §1/§2; no glossary additions.
+
+## Decision notes (ratified at the blueprint-validation gate, 2026-11-18)
+
+- **OQ1 — distribution v1 = installer only** (local machine). No marketplace publishing (Cursor / Kilo / omp); marketplace shape deferred (see §6).
+- **OQ2 — omp plugin = extension-file-only** (`plugins/omp/skillgrid-router.ts` → `~/.omp/agent/extensions/`), not a full npm/git plugin bundle. Full-bundle shape deferred (see §6).
+- Ratified by user `execute` at the shootdown gate (state.yaml journal P26-11-18-skillplugins-exec).
+
+## Hypothesis
+
+**Claim:** When this blueprint is complete, a fresh session of each of the five hosts in a skillgrid project carries the router bootstrap in its first-turn system context and loads the full router on the first task — from one shared asset, via five thin native injectors, distributed by the existing installer.
+**Right condition:** 5-host live smoke passes: each host's fresh session shows the bootstrap and the router read before first action ("Using [skill] to [purpose]" / start gates); non-skillgrid dirs show nothing; `go test ./...` + installer tests pass.
+**Wrong condition:** any host's fresh session lacks the bootstrap (mechanism mismatch), injection fires in a non-skillgrid dir, or an injector failure blocks session start.
+**Thinnest MVP:** bootstrap asset + the cursor sessionStart hook on this machine — the first real end-to-end proof of the pattern.
+**Door check:** W1 (bootstrap asset + cursor hook). If the cursor fresh session lacks the bootstrap or the hook breaks the session, stop — re-verify the cursor hook mechanism against the docs before building the other four hosts.
+
+## Must-Haves (goal-backward verification)
+
+**Truths** (observable behaviors that must hold):
+- **(R1)** `router-bootstrap.md` exists at `.agents/skills/_shared/agent-config/` with: the skillgrid-project notice, the first-action line (read `.agents/skills/using-skillgrid/SKILL.md`), the one-line request-class list, the announce line, and the `{load_hint}` variants table — no project-specific content.
+- **(R2/R3)** **pi**: a fresh pi session in a skillgrid repo carries the bootstrap in the first-turn system context; a non-skillgrid dir does not. `backstop` (live host)
+- **(R2/R3)** **opencode**: a fresh opencode session in a skillgrid repo carries the bootstrap as the `<context key="skillgrid-router">` entry (V2); a non-skillgrid dir does not. `backstop`
+- **(R2/R3)** **kilo**: a fresh kilo session in a skillgrid repo carries the bootstrap injected into the first user message; a non-skillgrid dir does not; the `config` hook adds the repo `.agents/skills` dir to `skills.paths`. `backstop`
+- **(R2/R3)** **omp**: a fresh omp session (after the full restart the installer prints) in a skillgrid repo carries the bootstrap in the system prompt; a non-skillgrid dir does not. `backstop`
+- **(R2/R3)** **cursor**: a fresh cursor session in a skillgrid repo receives the bootstrap as `additional_context` from the sessionStart hook, even with the mnemonic server down; a non-skillgrid cwd receives nothing. `backstop`
+- **(R3)** subagent/child sessions on any host receive no injection (guard fires). `backstop` (observable on at least one host in smoke)
+- **(R4)** fail-open: an injector with a missing asset file uses the static fallback string; a bad cwd / missing binary exits 0 with no user-visible error and the session starts. `backstop`
+- **(R5)** `skillgrid install --agents omp` (dry-run) copies the omp extension and writes `~/.skillgrid/router-bootstrap.md`; every one of the five host keys distributes its injector files + the bootstrap; an unknown key errors. Go-tested (diff-settleable).
+- **(R5)** `sync-repo` refreshes `~/.skillgrid/router-bootstrap.md` from the repo clone (edit the asset in the clone → re-sync → file changes). Go-tested (diff-settleable).
+- **(R6)** the bootstrap carries the per-host tool-mapping hint referencing `using-skillgrid/references/{pi,opencode,…}-tools.md` where those files exist.
+
+**Artifacts** (files that must exist with real implementation, not stubs):
+- `.agents/skills/_shared/agent-config/router-bootstrap.md` — the shared bootstrap asset + `{load_hint}` variants table
+- `hooks/cursor-session-start.sh` — bootstrap prepend before the mnemonic-server block (cwd already parsed from stdin JSON)
+- `plugins/kilo/skillgrid-router.ts` — kilo TS plugin (mirrors the local `superpowers.js` pattern)
+- `plugins/opencode/skillgrid-router.ts` + `plugins/opencode/package.json` registration — opencode V2 `Plugin.define` + V1 named export
+- `plugins/pi/mnemonic/skillgrid-router.ts` (+ `index.ts` wiring) — pi armed flag + system-prompt section
+- `plugins/omp/skillgrid-router.ts` — omp extension factory
+- `skillgrid-cli/internal/install/agents.go` (+ `config.go`, `*_test.go`) — `omp` key, bootstrap-distribution step, `sync-repo` refresh, dry-run/verbose parity, per-agent distribution tests
+
+**Key links** (critical connections between artifacts that must work together):
+- All five injectors resolve the same live asset in the same order (`~/.skillgrid/router-bootstrap.md` → repo clone → static fallback) — a one-line edit to the asset must reach all five hosts without reinstall.
+- The installer's per-agent step distributes exactly the files that host loads (hook text edit, plugin copies, the bootstrap file) — dry-run assertions per host pin that set.
+- The cursor hook prepends the bootstrap **before** the mnemonic-server block — injection holds even with the server down.
+- The project-conditional predicate (`.skillgrid/config.yaml` at or above cwd) is identical in all five hosts — one drift breaks R3 for one host.
+
+**One-way-door decisions:** None — every artifact is a new file or an additive installer key; uninstall = delete the file; no migrations, no public contract changes.
+
+## Threat Matrix
+
+| Boundary | Applicability | Design response | Planned RED test |
+|---|---|---|---|
+| **Shell command** (cursor hook: bash script executed by the host as a subprocess, cwd from stdin JSON) | Applicable | fail-open hook — parse cwd from stdin JSON, resolve the asset, emit to stdout; exit 0 on every error path | `printf '{"cwd":"<skillgrid repo>"}' \| hooks/cursor-session-start.sh` → stdout contains the first-action line; `printf '{"cwd":"/tmp"}' \| …` → empty stdout, exit 0; `printf '{"cwd":"/tmp/a\"b"}' \| …` → exit 0 (no bash syntax error on a metacharacter cwd) |
+| **Executable-file classification** (the `.sh` hook must stay executable through the installer copy; `.ts`/`.md`/`.json` distribute as data) | Applicable | installer sets the exec bit on `hooks/cursor-session-start.sh`; every other distributed file keeps its default mode | Go test: dry-run cursor install → `cursor-session-start.sh` mode has 0111; `.ts`/`.md` modes do not |
+| **Process integration** (five host plugin/extension APIs: cursor hook, pi extension, opencode V1+V2, kilo plugin, omp extension) | Applicable | thin loader per host of the shared asset; no host-specific logic beyond load + inject | five live-smoke scenarios (one per host): fresh session in a skillgrid repo shows the bootstrap in the first-turn context; a non-skillgrid dir shows nothing |
+| Routing (Go HTTP) | N/A: no Go handler touched — the only Go change is installer file-writing logic | — | — |
+| Version-control automation | N/A: no git operations in the hook or installer (project detection = `.skillgrid/config.yaml` existence) | — | — |
+| PR automation | N/A: no PR commands composed | — | — |
+| Mnemonic tool contracts (`mem_*`/`code_*`/`web_cache_*`) | N/A: no new tool, param, return shape, or error code | — | — |
+| Shared-convention drift (`_shared/*.md` edits) | N/A: `block.md` is not edited — the router-bootstrap extends its "per-target files decide" rule by convention, documented in §1 | — | — |
+
+## Global Constraints
+
+- Go 1.22+ floor (per AGENTS.md § Rules, ADR-0031); **no new Go dependency without an ADR** (per AGENTS.md § Rules) — this change asserts none needed.
+- TS injectors add no new third-party packages — follow existing `plugins/**` package.json patterns.
+- Spec-zone commits before code-zone commits; serial development, one change at a time (per AGENTS.md § Rules).
+- Fail-open is a requirement, not a preference (R4): no injector may block session start.
 
 ## 1. Design core
 
@@ -88,12 +178,12 @@ acceptable).
 
 ## 6. Risks / open questions
 
-- **OQ1 (user decision)**: distribution v1 = installer only (local machine), or also
-  publish marketplaces (Cursor `.cursor-plugin/marketplace.json` exists; Kilo
-  marketplace; omp marketplace)? Blueprint assumes installer-only v1.
-- **OQ2**: omp plugin as full npm/git bundle (skills/ + extension, `omp plugin
-  install`) vs extension-file-only (this blueprint). Extension-only is less code;
-  full bundle is the "formal plugin" shape. [Inference: extension-only for v1.]
+- **OQ1 — ratified: installer-only v1** (see Decision notes). Marketplace
+  publishing (Cursor `.cursor-plugin/marketplace.json` exists; Kilo marketplace;
+  omp marketplace) is deferred.
+- **OQ2 — ratified: extension-file-only v1** (see Decision notes). The full
+  npm/git bundle (skills/ + extension, `omp plugin install`) is the "formal
+  plugin" shape, deferred.
 - Kilo `disable-model-invocation` handling undocumented → router may self-list in
   kilo; if kilo ever honors it and ignores the bootstrap, the `skills.paths`
   `config` hook + `/using-skillgrid` slash command remain.
