@@ -1,10 +1,11 @@
-# Goldfish plan review: before-code document review is a fresh-context subflow of writing-blueprints, not a new phase and not part of qa
-
 ---
-status: "accepted"
+type: TechnicalDecision
+status: accepted
 supersedes: none
 date: 2026-11-01
 ---
+
+# Goldfish plan review: before-code document review is a fresh-context subflow of writing-blueprints, not a new phase and not part of qa
 
 ## Context and Problem Statement
 

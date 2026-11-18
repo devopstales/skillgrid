@@ -1,10 +1,11 @@
-# Code-style group: agent-style as the prose standard (generation + review)
-
 ---
-status: "accepted"
+type: TechnicalDecision
+status: accepted
 supersedes: none
 date: 2026-10-19
 ---
+
+# Code-style group: agent-style as the prose standard (generation + review)
 
 **Deciders:** paladm
 **Related:** ADR-0008 (dependency/precedent recording pattern), ADR-0019 (ADR index as pointer)
