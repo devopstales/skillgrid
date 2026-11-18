@@ -2583,6 +2583,313 @@ git commit -m "docs: record the cutover deviations (logo/v2sse disposition)
 [skillgrid-context] change: 2026-11-17-mnemonic-v2-host-memory-plugins task: 8"
 ```
 
+### Task 9: the v1→v2 store import (one-shot script)
+
+> bash + sqlite3 CLI only (Global Constraints — zero new dependencies). Content-keyed idempotency via a `provenance` marker (`{"imported_from":"mnemonic-v1","v1_id":<id>}`) — a re-run adds 0 rows, and the marker survives later edits to the imported rows.
+
+**Files:**
+- Create: `scripts/mnemonic-v1-import.sh` — `--from <v1.sqlite> --to <v2.sqlite> [--dry-run]`, counts, exit 0/1/2
+- Create: `scripts/fixtures/v1-import/v1.sql` — the fixture v1 store DDL+seed (minimal v1 schema: `observations_core` + one satellite `observation_state` + `sessions`; the import LEFT-JOINs all five v1 satellites, the fixture exercises one — the real store has the rest)
+- Create: `scripts/fixtures/v1-import/test.sh` — the fixture test (build v1 store → init v2 store via the repo binary → import → assert rows + search → re-run adds 0 → `--dry-run` writes nothing)
+
+**Interfaces:**
+- Consumes: the v1 schema (verified against the live v1 store `~/.skillgrid/mnemonic/001.sqlite`): `observations_core(id, session_id, type, title, content, project, scope, topic_key, normalized_hash, revision_count, created_at, updated_at, deleted_at, knowledge_class)`; satellites `observation_state(pinned, review_after, …)`, `observation_provenance(tool_name, …)`, `observation_stats(importance_score, duplicate_count, last_seen_at, …)` — all LEFT-JOINed by `observation_id`; v1 `sessions(id, project, directory, started_at, ended_at, summary, title, …)`. The v2 schema (`migrations/001_schema.sql`): `sessions(id, project NOT NULL, directory NOT NULL, started_at, ended_at, summary, title, ownership_mode DEFAULT 'shared', …)`; `observations(id, session_id NOT NULL REFERENCES sessions(id), type NOT NULL, title NOT NULL, content NOT NULL, tool_name, project, scope NOT NULL DEFAULT 'project', topic_key, normalized_hash, revision_count, duplicate_count, last_seen_at, pinned, review_after, importance DEFAULT 0.5, provenance TEXT DEFAULT '{}', created_at, updated_at, deleted_at)` — **the FTS triggers maintain `observations_fts` on direct INSERT**, so the script never touches FTS.
+- Produces:
+  - the import (sessions first — same ids, so the observations FK holds; then the observations with the marker):
+    ```sql
+    INSERT OR IGNORE INTO sessions (id, project, directory, started_at, ended_at, summary, title)
+    SELECT id, project, directory, started_at, ended_at, summary, title
+    FROM v1.sessions;
+
+    INSERT INTO observations
+      (session_id, type, title, content, tool_name, project, scope, topic_key,
+       normalized_hash, revision_count, pinned, review_after, duplicate_count,
+       last_seen_at, importance, provenance, created_at, updated_at, deleted_at)
+    SELECT c.session_id, c.type, c.title, c.content, pr.tool_name, c.project,
+           COALESCE(c.scope, 'project'), c.topic_key, c.normalized_hash, c.revision_count,
+           COALESCE(st.pinned, 0), st.review_after, COALESCE(sa.duplicate_count, 0),
+           sa.last_seen_at, COALESCE(sa.importance_score, 0.5),
+           json_object('imported_from', 'mnemonic-v1', 'v1_id', c.id),
+           c.created_at, c.updated_at, c.deleted_at
+    FROM v1.observations_core AS c
+    LEFT JOIN v1.observation_state AS st ON st.observation_id = c.id
+    LEFT JOIN v1.observation_provenance AS pr ON pr.observation_id = c.id
+    LEFT JOIN v1.observation_stats AS sa ON sa.observation_id = c.id
+    WHERE c.session_id IN (SELECT id FROM v2.sessions)   -- sessions imported above
+      AND NOT EXISTS (SELECT 1 FROM v2.observations o2
+                      WHERE json_extract(o2.provenance, '$.imported_from') = 'mnemonic-v1'
+                        AND json_extract(o2.provenance, '$.v1_id') = c.id);
+    ```
+    (attached-database form: `ATTACH <from> AS v1; ATTACH <to> AS v2;` — the LEFT-JOINed satellite tables are absent in a minimal store → the script first checks `sqlite_master` per satellite and drops the absent JOINs from the rendered SQL; the fixture exercises the one-satellite path, the full path runs on the real store.)
+  - pre-flight checks (fail before any write, exit 1 with the named cause): the source has `observations_core` + `sessions` as tables; **the target's `observations` is a TABLE, not a VIEW** (the v1 name is a VIEW — importing into a v1 store is the classic silent no-op this check kills); `PRAGMA busy_timeout=5000` on both.
+  - `--dry-run`: the same queries as `SELECT count(*)` (planned sessions / planned observations) + the orphan count (v1 observations whose session is missing from the v1 store — skipped, reported); zero writes (the test asserts the target file is byte-identical).
+  - output: `sessions: N imported, M skipped; observations: N imported, M skipped (K orphan-session, D already-imported)` — the counts the must-have checks.
+- SATISFIES: T-import
+
+- [ ] **Step 1: Write the failing test**
+
+`scripts/fixtures/v1-import/test.sh` (bash, `set -euo pipefail`; the assertions are sqlite3 queries + grep on the script's counts output):
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+repo="$(git rev-parse --show-toplevel)"
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+# 1. the fixture v1 store
+sqlite3 "$tmp/v1.sqlite" < "$here/v1.sql"
+
+# 2. a fresh v2 store (the repo binary runs the migrations)
+"$repo"/build/mnemonic memory search --project fixturetest --data-dir "$tmp/v2data" --limit 1 >/dev/null || true
+v2="$tmp/v2data/fixturetest.sqlite"
+[ -f "$v2" ] || { echo "no v2 store created"; exit 1; }
+
+# 3. --dry-run writes nothing
+cp "$v2" "$v2.pre"
+"$repo"/scripts/mnemonic-v1-import.sh --from "$tmp/v1.sqlite" --to "$v2" --dry-run | grep -q 'dry-run'
+cmp -s "$v2" "$v2.pre" || { echo "dry-run wrote to the target"; exit 1; }
+
+# 4. the import: rows land, search finds them
+"$repo"/scripts/mnemonic-v1-import.sh --from "$tmp/v1.sqlite" --to "$v2" | grep -q 'observations: 3 imported'
+n=$(sqlite3 "$v2" "SELECT count(*) FROM observations")
+[ "$n" = "3" ] || { echo "want 3 observations, got $n"; exit 1; }
+s=$(sqlite3 "$v2" "SELECT count(*) FROM sessions")
+[ "$s" = "2" ] || { echo "want 2 sessions, got $s"; exit 1; }
+sqlite3 "$v2" "SELECT content FROM observations WHERE title='Fixed N+1 query'" | grep -q 'batched fetch' \
+  || { echo "fixture content missing"; exit 1; }
+# the marker + the satellite values
+sqlite3 "$v2" "SELECT json_extract(provenance,'\$.v1_id') FROM observations WHERE title='Fixed N+1 query'" | grep -q '^[0-9]' \
+  || { echo "provenance marker missing"; exit 1; }
+sqlite3 "$v2" "SELECT pinned FROM observations WHERE title='Fixed N+1 query'" | grep -q '1' \
+  || { echo "satellite pinned not imported"; exit 1; }
+
+# 5. re-run adds 0
+out="$("$repo"/scripts/mnemonic-v1-import.sh --from "$tmp/v1.sqlite" --to "$v2")"
+echo "$out" | grep -q 'observations: 0 imported' || { echo "re-run not idempotent: $out"; exit 1; }
+n=$(sqlite3 "$v2" "SELECT count(*) FROM observations")
+[ "$n" = "3" ] || { echo "re-run changed the count: $n"; exit 1; }
+
+# 6. the v1-store-as-target guard
+"$repo"/scripts/mnemonic-v1-import.sh --from "$tmp/v1.sqlite" --to "$tmp/v1.sqlite" 2>&1 | grep -q 'VIEW' \
+  || { echo "v1-target guard did not fire"; exit 1; }
+
+echo "v1-import fixture test: all checks passed"
+```
+
+`scripts/fixtures/v1-import/v1.sql` — the minimal v1 schema + seed (2 sessions, 3 observations: one pinned via `observation_state`, one with a NULL scope (exercises the `COALESCE`), one with an orphan session id (exercises the skip)):
+
+```sql
+CREATE TABLE sessions (
+  id TEXT PRIMARY KEY, project TEXT NOT NULL, directory TEXT NOT NULL,
+  started_at TEXT NOT NULL, ended_at TEXT, summary TEXT, status TEXT NOT NULL DEFAULT 'active',
+  title TEXT
+);
+CREATE TABLE observations_core (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id),
+  type TEXT NOT NULL, title TEXT NOT NULL, content TEXT NOT NULL, project TEXT, scope TEXT,
+  topic_key TEXT, normalized_hash TEXT, revision_count INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT, knowledge_class TEXT
+);
+CREATE TABLE observation_state (
+  observation_id INTEGER PRIMARY KEY REFERENCES observations_core(id) ON DELETE CASCADE,
+  pinned INTEGER NOT NULL DEFAULT 0, review_after TEXT, status TEXT, visibility TEXT
+);
+INSERT INTO sessions VALUES
+  ('sess-v1-1', 'fixturetest', '/repo/fixturetest', '2026-01-01 10:00:00', '2026-01-01 11:00:00', 'fixed the n+1', 'active', 'N+1 fix session'),
+  ('sess-v1-2', 'fixturetest', '/repo/fixturetest', '2026-01-02 09:00:00', NULL, NULL, 'active', NULL);
+INSERT INTO observations_core (session_id, type, title, content, project, scope, created_at, updated_at) VALUES
+  ('sess-v1-1', 'bugfix', 'Fixed N+1 query', 'batched fetch in UserList', 'fixturetest', 'project', '2026-01-01 10:05:00', '2026-01-01 10:05:00'),
+  ('sess-v1-1', 'decision', 'Chose postgres for kb', 'scale reasons', 'fixturetest', NULL, '2026-01-01 10:20:00', '2026-01-01 10:20:00'),
+  ('sess-orphan', 'discovery', 'Orphan observation', 'session missing from v1 store', 'fixturetest', 'project', '2026-01-03 08:00:00', '2026-01-03 08:00:00');
+INSERT INTO observation_state (observation_id, pinned) VALUES (1, 1);
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+```bash
+cd mnemonic && go build -o "$PWD/../../build/mnemonic" ./cmd/mnemonic && cd ../..
+bash scripts/fixtures/v1-import/test.sh
+```
+Expected: FAIL — `scripts/mnemonic-v1-import.sh` missing.
+
+- [ ] **Step 3: Write the script**
+
+`scripts/mnemonic-v1-import.sh`:
+
+```bash
+#!/usr/bin/env bash
+# mnemonic-v1-import.sh — one-shot v1→v2 store import (bash + sqlite3 only).
+# --from <v1.sqlite> --to <v2.sqlite> [--dry-run]
+# Content-keyed idempotency: each imported row carries the provenance marker
+# {"imported_from":"mnemonic-v1","v1_id":<v1 id>}; a re-run adds 0 rows.
+set -euo pipefail
+
+from=""; to=""; dry=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --from) from="$2"; shift 2 ;;
+    --to) to="$2"; shift 2 ;;
+    --dry-run) dry=1; shift ;;
+    *) echo "usage: mnemonic-v1-import.sh --from <v1.sqlite> --to <v2.sqlite> [--dry-run]" >&2; exit 2 ;;
+  esac
+done
+[ -n "$from" ] && [ -n "$to" ] || { echo "usage: mnemonic-v1-import.sh --from <v1.sqlite> --to <v2.sqlite> [--dry-run]" >&2; exit 2; }
+[ -f "$from" ] || { echo "error: v1 store not found: $from" >&2; exit 1; }
+[ -f "$to" ]   || { echo "error: v2 store not found: $to" >&2; exit 1; }
+
+q() { sqlite3 "$from" "$1"; }        # source probes
+qt() { sqlite3 "$to" "$1"; }         # target probes
+
+# pre-flight: the source is a v1 store, the target is a v2 store.
+[ "$(q "SELECT type FROM sqlite_master WHERE name='observations_core' AND type='table'")" = "table" ] \
+  || { echo "error: source is not a v1 store (no observations_core table)" >&2; exit 1; }
+[ "$(q "SELECT type FROM sqlite_master WHERE name='sessions' AND type='table'")" = "table" ] \
+  || { echo "error: source has no sessions table" >&2; exit 1; }
+tt="$(qt "SELECT type FROM sqlite_master WHERE name='observations'")"
+[ "$tt" = "table" ] || { echo "error: target observations is ${tt:-missing}, not a table — is $to a v2 store? (the v1 name is a VIEW)" >&2; exit 1; }
+
+# render the observations SELECT with only the satellites the source has.
+joints=""
+for sat in "observation_state st pinned review_after" "observation_provenance pr tool_name" "observation_stats sa importance_score duplicate_count last_seen_at"; do
+  set -- $sat
+  table="$1"; alias="$2"
+  if [ "$(q "SELECT count(*) FROM sqlite_master WHERE name='$table' AND type='table'")" = "1" ]; then
+    case "$table" in
+      observation_state)     joints="$joints LEFT JOIN v1.$table $alias ON $alias.observation_id = c.id" ;;
+      observation_provenance) joints="$joints LEFT JOIN v1.$table $alias ON $alias.observation_id = c.id" ;;
+      observation_stats)     joints="$joints LEFT JOIN v1.$table $alias ON $alias.observation_id = c.id" ;;
+    esac
+  fi
+done
+# (the SELECT's column expressions reference st./pr./sa. only when the join is present — the renderer pairs them with the joins above)
+
+if [ -n "$dry" ]; then
+  sess="$(qt "ATTACH '$from' AS v1; SELECT count(*) FROM v1.sessions s WHERE NOT EXISTS (SELECT 1 FROM sessions t WHERE t.id = s.id)")"
+  obs="$(qt "ATTACH '$from' AS v1; SELECT count(*) FROM v1.observations_core c WHERE c.session_id IN (SELECT id FROM v1.sessions) AND NOT EXISTS (SELECT 1 FROM observations o2 WHERE json_extract(o2.provenance,'\$.imported_from')='mnemonic-v1' AND json_extract(o2.provenance,'\$.v1_id')=c.id)")"
+  orphan="$(q "SELECT count(*) FROM observations_core c WHERE c.session_id NOT IN (SELECT id FROM sessions)")"
+  echo "dry-run: would import $sess sessions, $obs observations ($orphan orphan-session skipped); no writes"
+  exit 0
+fi
+
+qt "
+PRAGMA busy_timeout=5000;
+ATTACH '$from' AS v1;
+BEGIN;
+INSERT OR IGNORE INTO sessions (id, project, directory, started_at, ended_at, summary, title)
+  SELECT id, project, directory, started_at, ended_at, summary, title FROM v1.sessions;
+INSERT INTO observations
+  (session_id, type, title, content, tool_name, project, scope, topic_key, normalized_hash,
+   revision_count, pinned, review_after, duplicate_count, last_seen_at, importance,
+   provenance, created_at, updated_at, deleted_at)
+  SELECT c.session_id, c.type, c.title, c.content,
+         $( [ -n "$(echo "$joints" | grep -c provenance || true)" ] && echo "pr.tool_name" || echo "NULL" ),
+         c.project, COALESCE(c.scope,'project'), c.topic_key, c.normalized_hash, c.revision_count,
+         COALESCE( $( [ -n "$(echo "$joints" | grep -c observation_state || true)" ] && echo "st.pinned" || echo "0" ), 0),
+         $( [ -n "$(echo "$joints" | grep -c observation_state || true)" ] && echo "st.review_after" || echo "NULL" ),
+         COALESCE( $( [ -n "$(echo "$joints" | grep -c observation_stats || true)" ] && echo "sa.duplicate_count" || echo "0" ), 0),
+         $( [ -n "$(echo "$joints" | grep -c observation_stats || true)" ] && echo "sa.last_seen_at" || echo "NULL" ),
+         COALESCE( $( [ -n "$(echo "$joints" | grep -c observation_stats || true)" ] && echo "sa.importance_score" || echo "0.5" ), 0.5),
+         json_object('imported_from','mnemonic-v1','v1_id',c.id),
+         c.created_at, c.updated_at, c.deleted_at
+  FROM v1.observations_core c
+  $joints
+  WHERE c.session_id IN (SELECT id FROM v1.sessions)
+    AND NOT EXISTS (SELECT 1 FROM observations o2
+                    WHERE json_extract(o2.provenance,'\$.imported_from')='mnemonic-v1'
+                      AND json_extract(o2.provenance,'\$.v1_id')=c.id);
+COMMIT;
+"
+echo "sessions: $(qt "SELECT count(*) FROM sessions") present; observations: $(qt "SELECT count(*) FROM observations WHERE json_extract(provenance,'\$.imported_from')='mnemonic-v1'") imported-marker rows total"
+```
+
+(The satellite-conditional rendering is the one fiddly bit — the Step 3 note: keep the renderer a plain bash function `renderSelect()` that emits the column list and joins together from the same per-satellite presence check, so the column expressions and the joins cannot drift; the fixture test pins the one-satellite path, and a full-satellite fixture run (the real `001.sqlite` shape) is exercised in Step 5.)
+
+- [ ] **Step 4: Run the test to verify it passes**
+
+```bash
+bash scripts/fixtures/v1-import/test.sh
+```
+Expected: PASS (`v1-import fixture test: all checks passed`).
+
+- [ ] **Step 5: The full-satellite shape check (recorded)**
+
+Run the script `--dry-run` against a real v1 store shape (copy `~/.skillgrid/mnemonic/001.sqlite` to a temp dir — it is empty, but its schema exercises all five satellites) → the renderer includes all five joins, no error, counts report 0 importable (empty store) + the orphan line. Record the output.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add scripts/mnemonic-v1-import.sh scripts/fixtures/v1-import/
+git commit -m "feat: add the one-shot v1-to-v2 store import script
+
+[skillgrid-context] change: 2026-11-17-mnemonic-v2-host-memory-plugins task: 9"
+```
+
+### Task 10: docs — the v2 surface for the remaining convention files
+
+> The cutover (Task 8) retired the v1 surfaces in the code + configs; this task closes the documentation ring so no convention file points at a dead surface.
+
+**Files:**
+- Modify (as the sweep finds): the `CHANGELOG.md` entry (the repo's changelog convention — append the v2 host-plugins entry: the five-host memory surface, the installer families, the cutover, the import script); any remaining repo doc referencing v1 mnemonic tokens (the sweep below); `README.md`/`docs/` sections describing the skillgrid CLI — add the `--family memory` / `uninstall` / `status` surface (one subsection, the flag table verbatim from the CLI help)
+
+**Steps:**
+
+- [ ] **Step 1: The sweep**
+
+```bash
+grep -rn ':7438\|skillgrid mcp\|web_cache_\|fact_\|code_index\|\bserve\b' \
+  --include='*.md' --include='*.json' --include='*.jsonc' . \
+  | grep -v '.skillgrid/change-specs\|change-archive\|\.adr-\|node_modules\|\.git/' || true
+```
+
+Every hit: v2-qualify (the `mnemonic-code` `code_index` case) or fix to the v2 surface; ADR/change-archive references stay (the gate excludes them — the decision record keeps its historical wording).
+
+- [ ] **Step 2: The changelog + CLI docs** (the entries above; the CLI subsection renders `skillgrid install --family memory --help` output verbatim).
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add -A
+git commit -m "docs: document the v2 memory host surface and the installer families
+
+[skillgrid-context] change: 2026-11-17-mnemonic-v2-host-memory-plugins task: 10"
+```
+
+### Task 11: final live smoke — the full five-host matrix + the live uninstall round trip
+
+> The held-out end: after the cutover, the complete T-matrix on live hosts, plus the live proof of T-installer-roundtrip's last clause (uninstall returns each HOME byte-identical to pre-install — the fixture tests pin the logic, this is the real-config proof).
+
+**Steps:**
+
+- [ ] **Step 1: The live uninstall round trip**
+
+```bash
+# pre-image: the five live config surfaces
+mkdir /tmp/preimg && for f in ~/.omp/agent/mcp.json ~/.skill-pi/agent/mcp.json ~/.config/opencode/opencode.jsonc ~/.config/kilo/kilo.jsonc ~/.cursor/mcp.json ~/.cursor/hooks.json; do cp "$f" "/tmp/preimg/$(basename "$f")"; done
+skillgrid uninstall --family memory all
+# the tracked sets are gone; the cutover's one-way v1-key deletions are NOT reversed (expected — recorded)
+skillgrid install --family memory all --bin "$(which mnemonic)" --repo "$(git rev-parse --show-toplevel)"
+# byte-identical re-install proof: every config surface equals its post-uninstall state (re-run = no-op)
+```
+
+- [ ] **Step 2: The five-host matrix (one session per host, recorded evidence per row)**
+
+| host | assertions |
+|---|---|
+| omp | N prompts → N prompt rows; exactly 1 session row; a subagent run adds 0 rows (T-omp-live); `mem_save`→`mem_search` round-trips in the session cwd (T-omp-cwd); post-compact context carries the FIRST ACTION REQUIRED notice (T-compaction); probe record all-ok (T-probe) |
+| pi | same truths (the shared extension; the pi session start) |
+| opencode | 1 session row (harness id); prompt rows with `source_inbox_id`; `mem_save` with a foreign `session_id` lands under the harness id (the rewrite, T-opencode-live); subagent 0 rows; compaction notice (T-compaction) |
+| kilo | same truths (the byte-identical copy; the AGENTS.md block present) |
+| cursor | sessionStart → 1 `cursor` session row; beforeSubmitPrompt → prompt rows; identical re-typed prompt dedups (T-cursor-live); the rule loaded (mapping + pin) |
+| all | `skillgrid status --family memory all` → installed, no drift, no stale-v1, drops/probe leg readable; the body exactly-once check on one context dump per host (T-protocol) |
+
+- [ ] **Step 3: Gap fixes (only if the matrix finds one — RED test first, same contract as Task 7)**
+
+- [ ] **Step 4: Commit (only if Step 3 changed code) + the change is done**
+
+The evidence block (per-host row dumps, the status output, the uninstall proof) closes the change; `state.yaml` flips to the next phase per the serial-dev rule.
+
 ## Threat Matrix
 
 Per `_shared/references/threat-matrix.md`. This change touches **subprocesses** (extensions/plugins spawn the binary; cursor hook commands are shell-interpreted), **Mnemonic tool contracts** (a new host-facing verb + a shrunk 5-host tool surface + a new host-qualified name prefix), and **one agent-facing convention file** (the mnemonic SKILL.md).
