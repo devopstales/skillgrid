@@ -489,8 +489,8 @@ to …` or makes its first tool call a read of the router.
 
 ## Review Summary
 
-**Verdict:** PENDING — the goldfish pipeline writes this at the end of the round (the resolution record is the ledger round entry, not this block).
+**Verdict:** READY FOR EXECUTION — goldfish Round 1 complete (Consolidated preset, 5 stages, 2026-11-18): 47 findings (13 CRITICAL, 25 WARNING, 9 SUGGESTION) — 35 fixed, 4 partial with recorded remainder, 8 rejected with evidence; 1 persona not verified (stage-9 implementation-readiness, both passes unusable, capped per the dispatch protocol; actionability lens partially carried by the stage-7 structural critic + stage-9 codebase-details). No CRITICAL open. Resolution record: `review-ledger.md` (round entry, not this block); cross-stage dedup + traceability matrix: `review/consolidated_review_report.md`.
 
-**Rounds run:** 1 (in progress)
+**Rounds run:** 1 (cap 5; converged in round 1 — no churn)
 
-**Reviewed:** 2026-11-18
+**Reviewed:** 2026-11-18 (final candidate blob b12cd7d1, 496 lines; round-1 fix commit 809adfd2)
