@@ -17,7 +17,7 @@ context: >-
 # source of truth, Backlog.md becomes a mirror)
 ticketing:
   enabled: true
-  type: backlogmd
+  type: hermes-kanban
   # Required when type: hermes-kanban.
   # board: Hermes Kanban board slug (one per project; created by the installer,
   #   created again non-fatally by the ticketing skill if missing).
