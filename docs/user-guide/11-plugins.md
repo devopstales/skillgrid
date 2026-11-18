@@ -23,7 +23,7 @@ Where the installer writes, per host:
 |------|-------------|------------------|
 | omp | `~/.omp/agent/` | `extensions/` (TS), `AGENTS.md`, `mcp.json` (`mnemonic mcp`); plugin bundles under `~/.omp/plugins/` |
 | pi (skill-pi) | `~/.pi/agent/` + `~/.skill-pi/agent/` | `extensions/` (TS), skills, `AGENTS.md` |
-| opencode | `~/.config/opencode/` | `opencode.jsonc`, `tui.json`, `tui-plugins/`, native TS plugins, `AGENTS.md` |
+| opencode | `~/.config/opencode/` | `opencode.jsonc`, `tui.json`, native TS plugins, `AGENTS.md` |
 | Kilo | `~/.config/kilo/` | `kilo.jsonc`, `tui.json`, `plugin/` (TS), `AGENTS.md` |
 | Cursor | `~/.cursor/` | `mcp.json`, `agents/`; the Cursor plugin itself installs from the repo (`.cursor-plugin/`) via marketplace or add-from-folder |
 

@@ -112,3 +112,41 @@ func TestInstallKiloDoesNotRegisterHooksFileAsPlugin(t *testing.T) {
 		}
 	}
 }
+
+// TestInstallOpenCodeNoTUILogo pins the removal of the opencode TUI logo
+// plugin from the installer: the opencode case must not create tui-plugins/
+// (the retired skillgrid-logo bundle + bridge) but must still write tui.json
+// with the theme and the subagent statusline.
+func TestInstallOpenCodeNoTUILogo(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	cfg := Config{HomeDir: home, RepoDir: repo}
+	if err := installAgentConfig(&cfg, "opencode"); err != nil {
+		t.Fatalf("installAgentConfig: %v", err)
+	}
+
+	ocDir := filepath.Join(home, ".config", "opencode")
+
+	// The logo TUI plugin is gone: no tui-plugins/ directory.
+	if entries, err := os.ReadDir(filepath.Join(ocDir, "tui-plugins")); err == nil {
+		t.Errorf("tui-plugins/ should not be installed; found %d entries", len(entries))
+	}
+
+	// tui.json remains with the theme + the subagent statusline plugin.
+	tui, err := os.ReadFile(filepath.Join(ocDir, "tui.json"))
+	if err != nil {
+		t.Fatalf("tui.json missing: %v", err)
+	}
+	if got := gjson.GetBytes(tui, "theme").Str; got != "tokyonight" {
+		t.Errorf("tui.json theme = %q, want tokyonight", got)
+	}
+	hasStatusline := false
+	for _, v := range gjson.GetBytes(tui, "plugin").Array() {
+		if v.Str == "opencode-subagent-statusline" {
+			hasStatusline = true
+		}
+	}
+	if !hasStatusline {
+		t.Errorf("tui.json plugin array missing subagent statusline: %s", tui)
+	}
+}
