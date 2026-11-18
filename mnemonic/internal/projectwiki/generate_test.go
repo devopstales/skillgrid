@@ -73,7 +73,7 @@ func TestGenerateCreatesNewPageViaFloor(t *testing.T) {
 		t.Fatalf("page not written: %v", err)
 	}
 	fm, _, _ := SplitFrontmatter(string(body))
-	if fm.Type != "Decision" || fm.Project != "proj-a" {
+	if fm.Type != "TechnicalDecision" || fm.Project != "proj-a" {
 		t.Fatalf("skeleton frontmatter: %+v", fm)
 	}
 	cited := false
@@ -105,7 +105,7 @@ func TestGenerateCreatesNewPageViaFloor(t *testing.T) {
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("projectwiki_pages: %v %+v", err, rows)
 	}
-	if s0(rows[0], 0) != "Decision" || s0(rows[0], 1) != "draft" {
+	if s0(rows[0], 0) != "TechnicalDecision" || s0(rows[0], 1) != "draft" {
 		t.Fatalf("projectwiki_pages row: %+v", rows[0])
 	}
 }
@@ -144,8 +144,8 @@ func TestGenerateFloorIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate 2: %v", err)
 	}
-	if res2.Noop {
-		t.Fatalf("run 2 unexpectedly a no-op: %+v", res2)
+	if !res2.Noop {
+		t.Fatalf("run 2 unexpectedly not a no-op: %+v", res2)
 	}
 	if res2.Changed != 0 || len(res2.RelPaths) != 0 {
 		t.Fatalf("run 2: %+v, want changed=0", res2)

@@ -518,7 +518,7 @@ func emitPageEvent(ctx context.Context, st store.Store, project, relPath, bodyHa
 func shortTypeFor(folder string) string {
 	switch folder {
 	case "decisions":
-		return "Decision"
+		return "TechnicalDecision"
 	case "invariants":
 		return "InvariantContract"
 	case "workflows":
@@ -529,8 +529,16 @@ func shortTypeFor(folder string) string {
 		return "Gotcha"
 	case "glossary":
 		return "GlossaryTerm"
+	case "concepts":
+		return "Concept"
+	case "sources":
+		return "SourceSummary"
+	case "syntheses":
+		return "Synthesis"
+	case "preferences":
+		return "Preference"
 	}
-	return "Decision"
+	return "Concept"
 }
 
 func pageTitleFromSlug(relPath string) string {
