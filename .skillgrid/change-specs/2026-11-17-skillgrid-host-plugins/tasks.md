@@ -7,6 +7,8 @@
 
 ## Epic Summary
 
+- **Tracker ID:** t_b2626ffe (hermes-kanban epic, parked - unblock at wave start)
+
 Deterministically auto-load the skillgrid router in every new session of the five agent hosts (omp, pi, opencode, Kilo Code, Cursor): one shared ~15-line bootstrap asset injected by each host's native session-start mechanism (omp keeps the shipped full-content hook), project-conditional, main-agent-only, fail-open, distributed by the existing installer. Tracer thread: ticket 1 is the thinnest end-to-end proof (bootstrap asset + cursor hook, the door check) before the remaining hosts stack on.
 
 ## Delivery Strategy
@@ -39,7 +41,9 @@ Chain strategy: stacked-to-main
 
 ## Tickets
 
-### TICKET-01 - bootstrap asset + cursor hook (door check)
+### TICKET-01 
+- **Tracker ID:** t_06bb0c13 (hermes-kanban board skillgrid)
+- bootstrap asset + cursor hook (door check)
 
 - **Scope:** create the shared bootstrap asset at `.agents/skills/_shared/agent-config/router-bootstrap.md` (project notice, first-action line, request-class list, announce line, `{load_hint}` variants table - no project-specific content) and extend `hooks/cursor-session-start.sh` to prepend the bootstrap to `additional_context` before the mnemonic-server block (cwd already parsed from stdin JSON); live asset resolution `~/.skillgrid/router-bootstrap.md` -> repo clone -> static fallback; project-conditional + fail-open + subagent-skip in the hook
 - **Acceptance:** asset file matches the Design contract line set (read-back check); `printf '{"cwd":"/tmp"}' | hooks/cursor-session-start.sh` emits no bootstrap and exits 0; fresh cursor session in this repo: bootstrap in first-turn context + first assistant turn announces the router or reads it first; fresh cursor session in /tmp: no injection; mnemonic server stopped: injection still holds; hook made to fail: session starts, no error surfaced; installed-copy vs checkout-asset marker test: installed copy wins; both missing: static fallback present
@@ -63,7 +67,9 @@ Chain strategy: stacked-to-main
 - **Fails-when:** cursor session in-repo first-turn context lacks the bootstrap; /tmp session shows it; hook prints an error to the user; non-zero exit from the hook on /tmp cwd; live edit of the asset does not appear in the next session
 - **Gate:** DOOR CHECK (blueprint) - if the cursor fresh session lacks the bootstrap or the hook breaks the session, STOP and re-verify the cursor hook mechanism before TICKET-02..05
 
-### TICKET-02 - omp session-start cwd guard + child-session probe
+### TICKET-02 
+- **Tracker ID:** t_ff99e0ec (hermes-kanban board skillgrid)
+- omp session-start cwd guard + child-session probe
 
 - **Scope:** add the project-conditional cwd guard to the shipped `session-start.js` (`.skillgrid/config.yaml` at or above cwd; fail-open) so the full-content router injection fires only in skillgrid projects; run the child-session probe to fix the subagent behavior (observable: does a child/omp-spawned session receive the hook output); no new extension on omp (OQ2)
 - **Acceptance:** `go test ./...` + build stay green (no Go touched); fresh omp session in this repo: full router content in first-turn context + announce/router-read on turn 1; fresh omp session in /tmp: no injection; child-session probe result recorded (subagent receives or not - the R3 observable); unreadable config: no injection, session starts
@@ -79,7 +85,9 @@ Chain strategy: stacked-to-main
 - **Reversibility:** reversible
 - **Fails-when:** full router absent from the in-repo omp first-turn context; present in /tmp; guard change breaks the existing hook behavior (session-start output missing even in-project)
 
-### TICKET-03 - pi project extension
+### TICKET-03 
+- **Tracker ID:** t_1c83411b (hermes-kanban board skillgrid)
+- pi project extension
 
 - **Scope:** new committed repo file `.pi/extensions/skillgrid-router.ts` - extension factory (`export default function (pi: ExtensionAPI)`), `before_agent_start` appends the bootstrap section (live asset read per the resolution order, main-agent guard `ctx.agent.kind === "main"`, project-conditional)
 - **Acceptance:** node test green (main agent in-project: bootstrap appended exactly once; subagent: unchanged; non-project cwd: unchanged; missing asset: static fallback); fresh pi session in this trusted repo: bootstrap in first-turn system context + announce/router-read on turn 1; non-skillgrid dir: no injection
@@ -94,7 +102,9 @@ Chain strategy: stacked-to-main
 - **Reversibility:** reversible
 - **Fails-when:** bootstrap absent from the pi in-repo first-turn system context; present in non-project cwd; subagent context gains the bootstrap
 
-### TICKET-04 - opencode router module (V2 + V1 dual export)
+### TICKET-04 
+- **Tracker ID:** t_7df6b1f4 (hermes-kanban board skillgrid)
+- opencode router module (V2 + V1 dual export)
 
 - **Scope:** new opencode plugin module (tree re-created: `plugins/opencode/` was emptied by d5148778) - V2 entry: bootstrap as the `<context key="skillgrid-router">` entry; V1 dual export retained for 1.x users (day-one dual-export precedent); live asset resolution, project-conditional, main-agent only, fail-open
 - **Acceptance:** node test green (V2: context entry present in-project, absent non-project; V1 export: loadable, same guards); fresh opencode session in this repo: router bootstrap entry in first-turn context + announce/router-read on turn 1; non-skillgrid dir: no injection
@@ -107,7 +117,9 @@ Chain strategy: stacked-to-main
 - **Reversibility:** reversible
 - **Fails-when:** router bootstrap entry absent from the opencode in-repo first-turn context; present in non-project cwd; V1 export fails to load
 
-### TICKET-05 - kilo router plugin
+### TICKET-05 
+- **Tracker ID:** t_4289b3e1 (hermes-kanban board skillgrid)
+- kilo router plugin
 
 - **Scope:** new `plugins/kilo/skillgrid-router.ts` mirroring the proven `~/.config/kilo/plugin/superpowers.js` pattern: `config` hook pushes the repo `.agents/skills` dir into `config.skills.paths`; `experimental.chat.messages.transform` injects the bootstrap into the first user message (present-guard: skip if already present; skip subagent); live asset resolution, project-conditional, fail-open
 - **Acceptance:** `node --experimental-strip-types plugins/kilo/skillgrid-router.test.ts` green (first user message + project cwd + main agent: first-action line exactly once; second transform: no-op; subagent: unchanged; non-project: unchanged; missing asset: static fallback); fresh kilo session in this repo: bootstrap in first user message + skills path added + announce/router-read on turn 1; non-skillgrid dir: no injection
@@ -120,7 +132,9 @@ Chain strategy: stacked-to-main
 - **Reversibility:** reversible
 - **Fails-when:** bootstrap absent from the kilo first user message in-project; duplicated after a second transform; subagent message modified; skills path not added
 
-### TICKET-06 - installer distribution (router files + bootstrap step + sync refresh)
+### TICKET-06 
+- **Tracker ID:** t_9148c39d (hermes-kanban board skillgrid)
+- installer distribution (router files + bootstrap step + sync refresh)
 
 - **Scope:** installer gains the router distribution: `routerPluginRel` standalone constant (NOT folded into `nativePluginBases` - ADR-0067 reworks that copy set, this step must survive independently) + per-agent copy-set entries for opencode/kilo; host-agnostic `syncRouterBootstrap(c)` in hooktree.go (asset -> `~/.skillgrid/router-bootstrap.md`, existing copyFile, unconditional overwrite) wired into `Run` (after `syncMirrorDirs`) and `Config.SyncRepo`; dry-run/verbose parity; tree creation idempotent (create-if-missing)
 - **Acceptance:** new Go tests green in the existing per-agent dry-run style: `--agents omp` -> settings hooks block (existing, asserted) + bootstrap copy; `--agents opencode` / `--agents kilo` -> router `.ts` file copied; every host key -> bootstrap copied; unknown key -> error naming the key, no files modified; unchanged re-run -> installed copy byte-identical; `sync-repo` with edited clone asset -> target file changes
@@ -138,7 +152,9 @@ Chain strategy: stacked-to-main
 - **Reversibility:** reversible
 - **Fails-when:** any dry-run test fails; unknown key exits 0; re-run rewrites the unchanged installed copy (mtime/bytes differ); sync-repo leaves the installed copy stale
 
-### TICKET-07 - 5-host live smoke (backstop)
+### TICKET-07 
+- **Tracker ID:** t_7754f121 (hermes-kanban board skillgrid)
+- 5-host live smoke (backstop)
 
 - **Scope:** held-out verification of every `backstop` truth (R2/R3/R4 across the five hosts): install (`skillgrid install --agents omp,opencode,kilo,cursor` post-rename + cursor plugin install + pi project trust), then per host (omp, pi, opencode, kilo, cursor): fresh session in this repo -> clause (a) positive (bootstrap / full router in first-turn context) + clause (b) (announce or router-read on turn 1); fresh session in /tmp -> clause (a) negative (no load, no announce, bootstrap absent); omp: re-confirm the child-session probe result (TICKET-02) - the R3 subagent observable; record transcript excerpts (positive + negative) in `review/smoke-evidence.md`; any host failing -> do not proceed to TICKET-08: fix or park with a ruling
 - **Acceptance:** all five hosts pass both clauses in-repo; all five negative in /tmp; subagent-skip observable recorded; `go test ./...` + build + coverage + gofmt green; evidence committed
@@ -159,7 +175,9 @@ Chain strategy: stacked-to-main
 - **Reversibility:** reversible
 - **Fails-when:** any host's clause (a) positive or negative fails; any host's clause (b) fails; L3 gates red
 
-### TICKET-08 - docs (install lines + hook doc + plugins table)
+### TICKET-08 
+- **Tracker ID:** t_eb088c0b (hermes-kanban board skillgrid)
+- docs (install lines + hook doc + plugins table)
 
 - **Scope:** `README.md` `--agents` example line -> post-rename host key set (`opencode,kilo,cursor,omp`; hermes excluded - not a router host); `docs/user-guide/04-hooks.md` session-start.js entry -> project-conditional guard + fail-open + child-session behavior per the TICKET-02 probe result; `docs/user-guide/11-plugins.md` Skillgrid router per-host table -> pi row (committed project extension, `before_agent_start` append) and omp row (shipped full-content hook, no new extension) aligned with the blueprint's Per-host mechanism table
 - **Acceptance:** read-back of all three files: `--agents` keys match `install.AvailableAgents()` post-rename; 11-plugins.md pi/omp rows match the blueprint's Per-host mechanism table; 04-hooks.md describes guard + fail-open + probed child behavior
