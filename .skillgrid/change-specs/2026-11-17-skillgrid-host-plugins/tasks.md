@@ -18,11 +18,11 @@ Deterministically auto-load the skillgrid router in every new session of the fiv
 | Chained PRs recommended | Yes |
 | Suggested split | PR 1 (T1) -> PR 2 (T2) -> PR 3 (T3+T4+T5) -> PR 4 (T6) -> PR 5 (T7+T8) |
 | Delivery strategy | ask-on-risk |
-| Chain strategy | pending (user choice at the slice gate; stacked-to-main precedent: memory-plugins 5 stacked PRs) |
+| Chain strategy | stacked-to-main (user-approved at the slice gate 2026-11-19) |
 
-Decision needed before apply: Yes
+Decision needed before apply: No
 Chained PRs recommended: Yes
-Chain strategy: pending
+Chain strategy: stacked-to-main
 400-line budget risk: High
 
 ### Suggested Work Units
