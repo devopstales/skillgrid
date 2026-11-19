@@ -204,3 +204,63 @@ did not surface the injected context in this environment → live clause **ABAND
 3. Pre-existing output-contract seam question: the shipped hook emits
    `{hookSpecificName, priority, message}` while the `@hsingjui/pi-hooks` bridge reads
    `hookSpecificOutput.additionalContext` — noted, out of scope for this task's guard.
+## TICKET-03 — pi project extension (plain pi host)
+
+Change: `2026-11-17-skillgrid-host-plugins` — TICKET-03 (tasks.md lines 88-104; blueprint Task 3, lines 284-310).
+
+### What was implemented
+
+- Created `.pi/extensions/skillgrid-router.ts` (new): extension factory `export default function (pi: ExtensionAPI)`; `before_agent_start` appends the bootstrap section to `event.systemPromptOptions.appendSystemPrompt`; live asset resolution (`~/.skillgrid/router-bootstrap.md` → repo-clone asset → static fallback); guards: main agent only (`ctx.agent.kind === "main"`), project-conditional (bounded walk-up for `.skillgrid/config.yaml` from `ctx.cwd`); fail-open (try/catch, never throws into the host).
+
+### TDD evidence (RED → GREEN)
+
+- RED: module did not exist → `node --experimental-strip-types .pi/extensions/skillgrid-router.test.ts` → MODULE_NOT_FOUND (exit 1).
+- GREEN: after implementation → `node --experimental-strip-types .pi/extensions/skillgrid-router.test.ts` → 4/4 PASS (exit 0).
+
+### Node tests (TICKET-03 acceptance set)
+
+Command: `node --experimental-strip-types .pi/extensions/skillgrid-router.test.ts`
+
+Output:
+
+```text
+PASS main agent in project: bootstrap appended exactly once
+PASS subagent: unchanged
+PASS non-project cwd: unchanged
+PASS missing asset: static fallback
+ALL TESTS PASS
+```
+
+Exit: `0`. Verdict: **PASS**.
+
+### BDD scenario notes (SATISFIES mapping)
+
+- Happy path — a pi session start injects the router bootstrap: **PASS** (main agent + project cwd → bootstrap appended exactly once).
+- Edge — non-skillgrid directory session receives nothing: **PASS** (non-project cwd → unchanged).
+- Failure — bootstrap asset missing at session start: **PASS** (static fallback).
+- Failure — subagent context gains the bootstrap: **PASS** (subagent unchanged).
+
+### Live check (blueprint Task 3 Step 5) — ABANDON (headless)
+
+Run: fresh headless pi session in the worktree (trivial prompt) + non-skillgrid dir negative.
+
+Result: **ABANDON** — pi CLI not on PATH (`pi` / `skill-pi` broken symlink); `@earendil-works/pi` not resolvable on npm (404); bare `npx -y pi@2.0.5` / `npx -y pi@latest` invocations returned version output (`3`) without exposing a headless prompt surface. No headless pi session could be driven in this environment; hook-level oracles are the hard gate.
+
+### Gates
+
+| # | Command | Exit | EXPECT | Verdict |
+|---|---|---|---|---|
+| 1 | `node --experimental-strip-types .pi/extensions/skillgrid-router.test.ts` | 0 | 4/4 PASS | **PASS** (match) |
+| 2 | live fresh pi session (repo + /tmp) | n/a | bootstrap in first-turn context / absent | **ABANDON** — headless pi CLI infeasible (see above) |
+
+### Files changed (this task)
+
+- `.pi/extensions/skillgrid-router.ts` (new)
+- `.pi/extensions/skillgrid-router.test.ts` (new)
+- `.pi/extensions/package.json` (new — `{"type":"module"}` ESM marker required by `node --experimental-strip-types` for the TS ESM test)
+- `review/smoke-evidence.md` (appended)
+
+### Concerns
+
+1. `.pi/extensions/package.json` (`{"type":"module"}`) added — required for `node --experimental-strip-types` to load ESM-syntax TS from `.pi/extensions/` (repo-root package.json has no `type`, so `.ts` is otherwise treated as CJS). Mirrors the opencode ESM-marker precedent.
+2. Live pi session could not be driven headless; hard gate satisfied by the node test oracles.
