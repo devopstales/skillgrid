@@ -75,17 +75,36 @@ Command: `bash -n hooks/cursor-session-start.sh` → exit `0`.
 
 Verdict: **PASS**.
 
-### Live door check (blueprint Task 1 Step 5) — ABANDON
+### Live door check (blueprint Task 1 Step 5) — PASS (controller, 2026-11-19)
 
-Attempted: fresh cursor session in the worktree (via `cursor` CLI present at
-`/usr/local/bin/cursor` v3.29.15; `cursor-agent` also present).
+Run by the controller after the implementer's headless ABANDON, using
+`cursor agent -f -p` (cursor v3.29.15 — CLI agent mode fires plugin
+sessionStart hooks; no display server needed).
 
-Finding: no GUI/interactive cursor session is possible in this environment —
-`DISPLAY` unset, no `Xvfb`/`xvfb-run`, no `/tmp/.X11-unix` socket, no display
-server. The live clause (fresh cursor session in repo → bootstrap in
-first-turn context + announce/router-read on turn 1; fresh cursor session in
-`/tmp` → no injection) could not be exercised. Reported as **ABANDON** (handoff,
-not done) per task instruction; the hook-level oracles above are the hard gate.
+**Plugin install layout (finding, verified empirically):** cursor loads local
+plugins only from REAL directories under `~/.cursor/plugins/local/<name>/` — a
+symlinked plugin directory is NOT loaded (tested). The manifest must be
+`plugin.json` at the directory root; the repo's `.cursor-plugin/plugin.json`
+subdirectory layout is not recognized for local plugins. Working layout used:
+real dir `~/.cursor/plugins/local/skillgrid/` with a copied root `plugin.json`
++ symlinks to the worktree's `hooks/.agents/rules/agents/plugins` subdirs (hook
+edits propagate live). T6 installer must use this layout.
+
+**Positive (skillgrid project = worktree root):** fresh session
+(`cursor agent -f -p "…does your session context contain a 'Skillgrid Router
+Bootstrap' block?…"`) — the sessionStart hook fired (verified by a temporary
+instrumentation line appended to the hook, removed before commit), and the
+saved transcript
+(`~/.cursor/projects/…-worktrees-t-06bb0c13/agent-transcripts/1662c7ec-…/1662c7ec-….jsonl`)
+records the agent's first-turn reasoning: *"…a Skillgrid Router Bootstrap
+block, and it does, under hooks_context. The first step is to read the
+using-skillgrid SKILL.md file."* — bootstrap present in first-turn context,
+first action correctly extracted. Verdict: **PASS**.
+
+**Negative (non-skillgrid dir = /tmp):** fresh session, same prompt — hook
+fired (project condition false → no bootstrap), agent answered: *"NO
+BOOTSTRAP … my session context has no 'Skillgrid Router Bootstrap' block, so
+there's no first action to state."* Verdict: **PASS**.
 
 ### Gates
 
