@@ -1,0 +1,6 @@
+{
+  "name": "@skillgrid/opencode-plugins",
+  "private": true,
+  "type": "module",
+  "description": "OpenCode router plugin for skillgrid (V2 + V1 dual export). Plain-Node entrypoints; @opencode/plugin resolves at runtime and falls back to a local Plugin.define stub in the repo smoke test."
+}
