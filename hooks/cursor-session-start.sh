@@ -15,7 +15,7 @@ SID=$(printf '%s' "$input" | node -e '
 BASE="${SKILLGRID_MNEMONIC_HTTP_URL:-http://127.0.0.1:7438}"
 curl -sf --max-time 1 "$BASE/health" >/dev/null 2>&1 || \
   (command -v mnemonic >/dev/null 2>&1 && \
-   nohup mnemonic serve >/dev/null 2>&1 & disown 2>/dev/null) || true
+    nohup mnemonic serve >/dev/null 2>&1 & disown 2>/dev/null) || true
 
 DIR=$(printf '%s' "$input" | node -e '
   let s=""; process.stdin.on("data",d=>s+=d); process.stdin.on("end",()=>{
@@ -62,6 +62,44 @@ if [ -z "$PRIME" ]; then
   PRIME='Mnemonic is active. Start with mem_session_start (title), save decisions/bugfixes via mem_save, and close with mem_session_summary + mem_session_end. Prefer mem_context / mem_search before re-deriving prior work. Call code_explore before rg.'
 fi
 
+# Router bootstrap (fail-open): when the cwd is inside a skillgrid project
+# (a .skillgrid/config.yaml exists at or above it), prepend the shared router
+# bootstrap to the context before the Mnemonic-server block. Resolution order:
+# ~/.skillgrid/router-bootstrap.md (installer-managed) -> repo clone ->
+# static fallback. Any failure falls back silently; session start never breaks.
+
+STATIC_BOOTSTRAP='skillgrid: router bootstrap fallback - first action: read `.agents/skills/using-skillgrid/SKILL.md`; announce `Using skillgrid:using-skillgrid to {purpose}`.'
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+BOOTSTRAP=""
+CTX="$PRIME"
+if [ -n "${DIR:-}" ]; then
+  _d="${DIR}"
+  _found=0
+  while [ -n "$_d" ]; do
+    if [ -f "${_d}/.skillgrid/config.yaml" ]; then _found=1; break; fi
+    if [ "$_d" = "/" ] || [ "$_d" = "." ]; then break; fi
+    _d="$(dirname "$_d")"
+  done
+  if [ "$_found" = "1" ]; then
+    _asset=""
+    if [ -f "${HOME}/.skillgrid/router-bootstrap.md" ]; then
+      _asset="${HOME}/.skillgrid/router-bootstrap.md"
+    elif [ -f "${REPO_ROOT}/.agents/skills/_shared/agent-config/router-bootstrap.md" ]; then
+      _asset="${REPO_ROOT}/.agents/skills/_shared/agent-config/router-bootstrap.md"
+    fi
+    if [ -n "$_asset" ]; then
+      BOOTSTRAP="$(cat "$_asset" 2>/dev/null || true)"
+    fi
+    if [ -n "$BOOTSTRAP" ]; then
+      CTX="$BOOTSTRAP"$'\n\n'"$PRIME"
+    else
+      CTX="$STATIC_BOOTSTRAP"$'\n\n'"$PRIME"
+    fi
+  fi
+fi
+
 node -e '
   const sid = process.argv[1] || "";
   const ctx = process.argv[2] || "";
@@ -75,5 +113,5 @@ node -e '
   if (m) env.MNEMONIC_PROJECT = m[1].trim();
   if (Object.keys(env).length) out.env = env;
   process.stdout.write(JSON.stringify(out) + "\n");
-' "$SID" "$PRIME" 2>/dev/null || echo '{}'
+' "$SID" "$CTX" 2>/dev/null || echo '{}'
 exit 0
