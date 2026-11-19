@@ -833,3 +833,28 @@ Result: **ABANDON** — `kilo run` exits 1 with `Error: System message must be a
 
 1. `plugins/kilo/package.json` (`{"type":"module"}`) added — required for `node --experimental-strip-types` to load ESM-syntax TS from `plugins/kilo/` (repo-root package.json has no `type`, so `.ts` is otherwise treated as CJS). Mirrors the pi/opencode ESM-marker precedent.
 2. Live check ABANDON (headless) — hard gate satisfied by the node test oracles.
+
+## TICKET-04 controller fix: version-tolerant fallback + live verification (2026-11-19)
+
+**Defect (found by controller live instrumentation):** the committed V2 path used
+`ctx.session.instructions.entry.put`, which does not exist on the user's
+opencode 2.0.28 (released 2026-10-13). That API was added by
+PR anomalyco/opencode#56550 (merged ~2026-10-21; available from ~2.2.0, current
+latest 2.3.2). On 2.0.28 `ctx.session` has no `instructions` namespace, so the
+injection was a silent no-op (live-confirmed: instrumented plugin logged
+`no put fn`, zero `instruction_entry` rows created).
+
+**Probe findings (5 instrumented standalone runs, worktree cwd):**
+- `ctx.session` keys on 2.0.28: `hook,create,get,remove,switchAgent,switchModel,prompt,generate,command,compact,synthetic,interrupt,update,move,wait,context` (no `instructions`)
+- `ctx.experimental` = `{terminal}` only; `ctx.rpc` = Plugin.Rpc.fromEffect callable-client factory (method-dispatch call shapes fail internally); no TCP listener in `--standalone` (in-process server)
+- The 2.0.28 mechanism (proven by the existing skillgrid.context plugin): `ctx.session.hook("context", handler)` fires on every LLM request path with `{messages, system, tools}`; `system` is an array of `{type:"text",text}` parts (a plain-string push fails server-side schema validation); the event also carries `sessionID` + `agent` (main session agent id observed: `"build"`)
+- `ctx.session.get` from the hook callback does not settle within the process lifetime; async IIFE bodies do not execute from within the hook callback in the Bun/Effect host (sync statements do) — parent-id lookup dropped, agent filter used instead
+
+**Fix:** V2 setup selects at load: (a) `session.created` -> `instructions.entry.put` when the namespace exists (opencode >= 2.2); (b) otherwise the `"context"` hook, registered once, appends the bootstrap as a `{type:"text",text}` part to each request's system prompt, project-conditional, agent-filtered (`isMainAgent` on `event.agent`), in-assembly dedup, fail-open.
+
+**Tests:** 12/12 green (4 new fallback checks; `check()` made async-aware — the previous sync try/catch counted dispatched-but-unsettled async checks as passed).
+
+**Live verification (opencode 2.0.28 standalone, model tidepool-alpha-free):**
+- Positive (cwd = skillgrid worktree): asked "what does the skillgrid router bootstrap say the first action is?" -> `Yes: at the start of any skillgrid task, first read \`using-skillgrid\` — it classifies the request, runs the start gates, and names exactly one first skill.` (verbatim bootstrap content)
+- Negative (cwd = /tmp/skillgrid-neg-test, no .skillgrid): same prompt -> `NO BOOTSTRAP`
+- Residual env note: the standalone model provider is flaky on this machine (`Transport: The socket connection was closed unexpectedly` killed 2 of ~10 runs at 160-200s); retries succeeded.

@@ -2,11 +2,23 @@
 // opencode router plugin — deterministic router bootstrap injection (change
 // 2026-11-17-skillgrid-host-plugins, TICKET-04).
 //
-// V2 entry (opencode >= 2.0): the bootstrap is installed as the durable session
-// context entry keyed `skillgrid-router` — `ctx.session.instructions.entry.put({
-// sessionID, key, value })` renders as a `<context key="skillgrid-router">` block in
-// the session's instructions. Fired on the V2 `session.created` event; main sessions
-// only; project-conditional; fail-open.
+// V2 entry (opencode >= 2.0): two mechanisms, selected at setup:
+//   (a) durable session context entry keyed `skillgrid-router` —
+//       `ctx.session.instructions.entry.put({ sessionID, key, value })` renders as
+//       a `<context key="skillgrid-router">` block in the session's instructions.
+//       Available on opencode >= 2.2 (PR anomalyco/opencode#56550, merged 2026-10-21).
+//       Fired on the V2 `session.created` event; main sessions only; fail-open.
+//   (b) "context" session-hook fallback for opencode 2.0.x/2.1.x (no
+//       `ctx.session.instructions` namespace there): the hook fires on every LLM
+//       request path with `{messages, system, tools}` — the same pattern as the
+//       skillgrid.context plugin (verified against the v2.0.28 binary). The
+//       bootstrap text is appended to the system prompt of each request as a
+//       `{type:"text",text}` part. Subagent filtering uses the event's `agent`
+//       id (same semantics as session.created properties: "general"/"explore"/
+//       custom ids are rejected). Residual edge: a subagent session carrying a
+//       primary-style agent id ("build"/"main"/"") still receives it (no
+//       parent id in the event).
+// Both paths are project-conditional and fail-open.
 //
 // V1 entry (opencode 1.x): the named-export hooks object — `event` → `session.created`.
 // Dual export from day one (ADR-0045 / commit 78c78f5c precedent): the V1 named export is
@@ -144,21 +156,75 @@ async function importPlugin() {
 
 const { Plugin } = await importPlugin()
 
-// V2 entry (opencode >= 2.0): durable `<context key="skillgrid-router">` entry
-// installed on the `session.created` event. The V1 named export above is retained
-// for 1.x users (dual export, day one).
+// Project-conditional bootstrap resolution shared by both V2 mechanisms:
+// null when the start dir is not a skillgrid project.
+function bootstrapFor(ctx) {
+  const directory = startDir(ctx)
+  if (!isSkillgridProject(directory)) return null
+  return resolveBootstrap(directory)
+}
+
+// V2 entry (opencode >= 2.0). Mechanism (a) when the durable instruction-entry
+// API is present (opencode >= 2.2), else the (b) "context" session-hook
+// fallback (opencode 2.0.x/2.1.x). The V1 named export above is retained for
+// 1.x users (dual export, day one).
 export default Plugin.define({
   id: "skillgrid.router",
   async setup(ctx) {
-    try {
-      const stream = ctx.event.subscribe({ types: ["session.created"] })
-      if (stream && typeof stream[Symbol.asyncIterator] === "function") {
-        for await (const event of stream) {
-          await injectRouter(ctx, event)
+    const session = ctx ? ctx.session : null
+    const hasInstructionsEntry = !!(
+      session &&
+      session.instructions &&
+      session.instructions.entry &&
+      typeof session.instructions.entry.put === "function"
+    )
+
+    if (hasInstructionsEntry) {
+      // (a) durable <context key="skillgrid-router"> entry on session.created
+      try {
+        const stream = ctx.event.subscribe({ types: ["session.created"] })
+        if (stream && typeof stream[Symbol.asyncIterator] === "function") {
+          for await (const event of stream) {
+            await injectRouter(ctx, event)
+          }
         }
+      } catch {
+        // fail-open: a broken event stream must never block session start
+      }
+      return
+    }
+
+    // (b) "context" session-hook fallback: fires on every LLM request path
+    // with {messages, system, tools}. Registered ONCE here — ctx.session is
+    // the global domain, so per-session-created registration would accumulate
+    // duplicate handlers.
+    try {
+      if (session && typeof session.hook === "function") {
+        session.hook("context", async (event) => {
+          try {
+            const ev = event || {}
+            // main-agent filter: the event's agent id carries the same
+            // semantics as session.created properties ("build"/"main"/"" =
+            // primary; "general"/"explore"/custom = subagent)
+            if (!isMainAgent({ agent: ev.agent })) return
+            const bootstrap = bootstrapFor(ctx)
+            if (!bootstrap) return
+            if (Array.isArray(ev.system)) {
+              // idempotent within one request assembly
+              if (ev.system.some((t) => t && typeof t.text === "string" && t.text.includes("using-skillgrid"))) return
+              ev.system.push({ type: "text", text: bootstrap })
+              return
+            }
+            if (Array.isArray(ev.messages)) {
+              ev.messages.unshift({ role: "user", content: [{ type: "text", text: bootstrap }] })
+            }
+          } catch {
+            // fail-open: never block the request
+          }
+        })
       }
     } catch {
-      // fail-open: a broken event stream must never block session start
+      // fail-open: a broken hook registration must never block session start
     }
   },
 })

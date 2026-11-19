@@ -20,16 +20,25 @@ import * as path from "node:path"
 const mod = await import("../skillgrid-router.ts")
 
 let passed = 0
+const checkPromises = []
 function check(name, fn) {
-  try {
-    fn()
-    passed++
-    console.log("ok -", name)
-  } catch (err) {
-    console.error("FAIL -", name)
-    console.error(err)
-    process.exitCode = 1
-  }
+  // async-aware: the pass count reflects completed assertions, and a failed
+  // assertion is reported (not masked as an unhandled rejection at exit)
+  checkPromises.push(
+    Promise.resolve()
+      .then(() => fn())
+      .then(
+        () => {
+          passed++
+          console.log("ok -", name)
+        },
+        (err) => {
+          console.error("FAIL -", name)
+          console.error(err)
+          process.exitCode = 1
+        },
+      ),
+  )
 }
 
 function makeStream(events) {
@@ -146,4 +155,58 @@ check("v1 non-project: session.created puts nothing", async () => {
   assert.equal(puts2.length, 0, "v1 non-project put nothing")
 })
 
+// ── V2 fallback (b): opencode 2.0.x — no instructions namespace, "context" hook ──
+function makeFallbackCtx(directory) {
+  const hooks = {}
+  const ctx = {
+    directory,
+    session: {
+      hook: (name, handler) => {
+        hooks[name] = handler
+      },
+    },
+    event: {
+      subscribe: () => makeStream([]),
+    },
+  }
+  return { ctx, hooks }
+}
+
+check("v2 fallback (no instructions ns): context hook registered once", async () => {
+  const { ctx, hooks } = makeFallbackCtx(REPO_ROOT)
+  await mod.default.setup(ctx)
+  assert.equal(typeof hooks.context, "function", "context hook registered")
+  assert.equal(Object.keys(hooks).length, 1, "only the context hook is registered")
+})
+
+check("v2 fallback: in-project context event appends bootstrap to system", async () => {
+  const { ctx, hooks } = makeFallbackCtx(REPO_ROOT)
+  await mod.default.setup(ctx)
+  const system = [{ type: "text", text: "base system prompt" }]
+  await hooks.context({ system, messages: [] })
+  assert.equal(system.length, 2, "bootstrap appended to system")
+  assert.ok(
+    system[1].text && system[1].text.includes("using-skillgrid"),
+    "appended part is the router bootstrap",
+  )
+})
+
+check("v2 fallback: non-project context event appends nothing", async () => {
+  const { ctx, hooks } = makeFallbackCtx(NOT_PROJECT)
+  await mod.default.setup(ctx)
+  const system = ["base system prompt"]
+  await hooks.context({ system, messages: [] })
+  assert.equal(system.length, 1, "non-project appended nothing")
+})
+
+check("v2 fallback: already-injected system is not duplicated", async () => {
+  const { ctx, hooks } = makeFallbackCtx(REPO_ROOT)
+  await mod.default.setup(ctx)
+  const system = [{ type: "text", text: "existing bootstrap: read .agents/skills/using-skillgrid/SKILL.md" }]
+  await hooks.context({ system, messages: [] })
+  assert.equal(system.length, 1, "no second copy appended")
+})
+
+// await all checks so the pass count reflects completed (not just started) assertions
+await Promise.all(checkPromises)
 console.log(`\n${passed} checks passed`)
