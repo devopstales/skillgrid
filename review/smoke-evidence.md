@@ -127,3 +127,69 @@ there's no first action to state."* Verdict: **PASS**.
 - Failure — neither installed nor checkout asset resolvable: **Oracle 3 PASS** (installed absent + asset moved aside → static fallback).
 - Failure — cursor session-start hook absent: not re-testable here (host config), noted.
 - Happy path — hosts with tool-mapping file get mapping hint: asset load-hint table references existing `using-skillgrid/references/pi-tools.md` + `opencode-tools.md`; kilo/cursor/omp plain load. Read-back PASS.
+
+## TICKET-04 — opencode router module (V2 + V1 dual export)
+
+- **Ticket:** TICKET-04 (opencode router module — V2 + V1 dual export) — Tracker `t_7df6b1f4`
+- **Change:** `2026-11-17-skillgrid-host-plugins`
+- **Worktree:** `/Users/paladm/git/ai-test/skillgrid-v2/.worktrees/t_7df6b1f4` (branch `wt/t_7df6b1f4`, base `ebdaeaa4`)
+
+### Oracle 1 — V2 context entry present in-project (node test green)
+
+Command:
+
+```bash
+node --experimental-strip-types plugins/opencode/test/skillgrid-router.test.ts
+```
+
+Output:
+
+```text
+ok - v2 default export is Plugin.define-shaped ({id, setup})
+ok - v2 in-project: session.created puts the bootstrap context entry
+ok - v2 non-project: session.created puts nothing
+ok - v2 subagent: session.created puts nothing
+ok - v2 missing asset: static fallback is put
+ok - v1 named export SkillgridRouter is a function
+ok - v1 in-project: session.created puts the bootstrap context entry
+ok - v1 non-project: session.created puts nothing
+
+8 checks passed
+```
+
+Exit: `0`. Verdict: **PASS**.
+
+### Oracle 2 — live headless opencode session (in-repo positive)
+
+Fresh headless session via `opencode run "Reply with the single word: ok"` in the worktree root with
+the router plugin present in the live plugin dir (`~/.config/opencode/plugins/skillgrid-router.ts`,
+copied from the worktree module for the live pass).
+
+- Run: exit `0`; the model answered `ok`.
+- Context-entry injection path: exercised by the green node tests (in-project cwd → `put` with key
+  `skillgrid-router` + bootstrap value); the live `<context key="skillgrid-router">` block was not
+  directly readable from the CLI transcript in this pass.
+
+### Oracle 3 — live headless opencode session (non-skillgrid negative)
+
+Fresh headless session via `opencode run` in `/tmp`.
+
+- Run: failed at the model step — `Error: Add credits to continue, or switch to a free model`.
+- Negative injection path (non-project cwd → no put) is asserted green in the node tests; the live
+  negative run is blocked by the provider error in this pass.
+
+### Gates
+
+| Gate | Command | Result |
+|---|---|---|
+| Node test (V2 + V1) | `node --experimental-strip-types plugins/opencode/test/skillgrid-router.test.ts` | exit 0, PASS |
+
+### SATISFIES (TICKET-04 acceptance mapping)
+
+- Happy path — an opencode session start injects the router bootstrap: **Oracle 1 PASS** (in-project →
+  context entry put; V1 + V2 both green).
+- Edge — a non-skillgrid directory session receives nothing: **Oracle 1 PASS** (node negative) / live
+  negative **BLOCKED** (model-credit error in this pass).
+- Edge — subagent session receives nothing: **Oracle 1 PASS** (node subagent negative).
+- Failure — missing asset at session start: **Oracle 1 PASS** (static fallback put).
+- Failure — V1 export fails to load: **Oracle 1 PASS** (v1 in-project + non-project green).
