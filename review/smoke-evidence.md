@@ -264,3 +264,60 @@ Result: **ABANDON** — pi CLI not on PATH (`pi` / `skill-pi` broken symlink); `
 
 1. `.pi/extensions/package.json` (`{"type":"module"}`) added — required for `node --experimental-strip-types` to load ESM-syntax TS from `.pi/extensions/` (repo-root package.json has no `type`, so `.ts` is otherwise treated as CJS). Mirrors the opencode ESM-marker precedent.
 2. Live pi session could not be driven headless; hard gate satisfied by the node test oracles.
+## TICKET-05 — kilo router plugin (config + messages.transform)
+
+Change: `2026-11-17-skillgrid-host-plugins` — TICKET-05 (tasks.md lines 120-134; blueprint Task 5, lines 357-396).
+
+### What was implemented
+
+- Created `plugins/kilo/skillgrid-router.ts` (new): kilo TS plugin mirroring the proven `~/.config/kilo/plugin/superpowers.js` pattern — `config` hook pushes the repo `.agents/skills` dir into `config.skills.paths`; `experimental.chat.messages.transform` injects the bootstrap into the first user message (present-guard: skip if already present; skip subagent sessions); `experimental.chat.system.transform` fallback for non-interactive paths. Live asset resolution (`~/.skillgrid/router-bootstrap.md` → repo-clone asset → static fallback); project-conditional (bounded walk-up for `.skillgrid/config.yaml` from the plugin `directory`); fail-open (fallback).
+
+### TDD evidence (RED → GREEN)
+
+- **RED:** before implementation, `node --experimental-strip-types plugins/kilo/skillgrid-router.test.ts` → MODULE_NOT_FOUND (exit 1).
+- **GREEN:** after implementation → `node --experimental-strip-types plugins/kilo/skillgrid-router.test.ts` → 5/5 PASS (exit 0).
+
+### Node tests (TICKET-05 acceptance set)
+
+Command: `node --experimental-strip-types plugins/kilo/skillgrid-router.test.ts`
+
+Output:
+
+```text
+PASS: all kilo router plugin cases green
+```
+
+Exit: `0`. Verdict: **PASS**.
+
+### Acceptance cases (TICKET-05)
+
+- Happy path — first user message + project cwd + main agent → bootstrap injected exactly once: **PASS**.
+- Present-guard — second transform → no-op: **PASS**.
+- Subagent → unchanged: **PASS**.
+- Non-project cwd → unchanged: **PASS**.
+- Missing asset → static fallback: **PASS**.
+
+### Live check (blueprint Task 5 Step 5) — ABANDON (headless)
+
+Run: fresh headless kilo session in the worktree (trivial prompt) + non-skillgrid dir negative.
+
+Result: **ABANDON** — `kilo run` exited 1 with `Error: System message must be at the beginning.` before turn completion, in both the skillgrid worktree and a non-skillgrid dir; headless run not drivable to a positive signal in this environment.
+
+### Gates
+
+| # | Command | Exit | EXPECT | Verdict |
+|---|---|---|---|---|
+| 1 | `node --experimental-strip-types plugins/kilo/skillgrid-router.test.ts` | 0 | all cases PASS | **PASS** (match) |
+
+### Files changed (this task)
+
+- `plugins/kilo/skillgrid-router.ts` (new)
+- `plugins/kilo/skillgrid-router.test.ts` (new)
+- `plugins/kilo/package.json` (new)
+- `review/smoke-evidence.md` (appended)
+
+### Concerns
+
+1. `plugins/kilo/package.json` (`{"type":"module"}`) added — required for `node --experimental-strip-types` to load ESM-syntax TS from `plugins/kilo/` (repo-root package.json has no `type`, so `.ts` is otherwise treated as CJS). Mirrors the pi/opencode ESM-marker precedent.
+2. Live check ABANDON (headless) — hard gate satisfied by the node test oracles.
+3. Live `kilo run` failed with `Error: System message must be at the beginning.` — inject-then-system ordering not yet satisfiable headlessly in this environment.
