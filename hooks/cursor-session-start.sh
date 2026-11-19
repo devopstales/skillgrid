@@ -79,7 +79,7 @@ if [ -n "${DIR:-}" ]; then
   _found=0
   while [ -n "$_d" ]; do
     if [ -f "${_d}/.skillgrid/config.yaml" ]; then _found=1; break; fi
-    if [ "$_d" = "/" ]; then break; fi
+    if [ "$_d" = "/" ] || [ "$_d" = "." ]; then break; fi
     _d="$(dirname "$_d")"
   done
   if [ "$_found" = "1" ]; then
