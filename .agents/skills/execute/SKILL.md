@@ -5,7 +5,7 @@ description: Use when executing an implementation plan or sliced tasks.md — se
 license: MIT
 metadata:
   author: devopstales
-  version: "1.1"
+  version: "2.0"
   part-of: skillgrid
   based_on: skillgrid:subagent-execution 1.0 + skillgrid:simple-execution 1.0 + skillgrid:isolated-workspace 1.0 + skillgrid:parallel-execution 1.0
 ---
@@ -29,6 +29,29 @@ This skill merges four former skills into one: workspace setup, three execution 
 - **Fan-out mode** (from `parallel-execution`) — 2+ independent problem domains (different test files, subsystems, root causes) get one agent each in its own worktree, dispatched in a single response, integrated from a fan-out ledger.
 
 All modes share the same config, gates, wave order, ticket lifecycle, QA gate, and review protocol. The mode only changes *who writes the code and in what order* — dispatched implementers, this session, or concurrent agents.
+
+```mermaid
+flowchart TD
+    A[Step 0: isolated workspace + clean baseline] --> B[Step 1: load + critically review plan]
+    B -->|concerns raised| B
+    B -->|clean| C{mode?}
+    C -->|subagent, default| D[dispatch implementer per task]
+    C -->|inline| E[execute tasks in session]
+    C -->|fan-out| F[one agent per domain, own worktree, single response]
+    D --> G[per-task review: spec + quality]
+    E --> H[wave order, gates first, TDD, commit per task]
+    F --> I[integrate from fan-out ledger + git]
+    G -->|findings| J[fix rounds, cap 5, then adjudicate]
+    J --> G
+    G --> K[all tasks done]
+    H --> K
+    I --> K
+    K --> L[Step 3: QA gate]
+    L -->|FAIL| M[fix with failing test first, re-run]
+    M --> L
+    L -->|PASS / WAIVED| N[Step 4: final review]
+    N --> O[Step 5: finish - rulings, state.yaml, ship]
+```
 
 ## Config
 
@@ -220,14 +243,14 @@ For each task (or ticket, if sliced), in wave order:
 
 1. Mark as `in_progress` (and ticket status `in-progress` if `ticketing.enabled`).
 2. Follow each step exactly (the plan has bite-sized steps; a ticket has scope + acceptance criteria).
-2.5. **Lazy check** (per `skillgrid:ponytail`, fully active): before writing code, climb the ladder once — does this need to exist at all (YAGNI), is it already in the codebase, does stdlib or a native platform feature cover it, is it one line? Take the first rung that holds; ship the laziest working version and mark any real corner cut with a `ponytail:` ceiling comment. Never simplify away input validation at trust boundaries, data-loss error handling, security, accessibility, or anything the spec/blueprint explicitly requests.
-2.6. **Structure check** (per `skillgrid:execute` → [code-structuring.md](references/code-structuring.md)): if the task **creates a new module/interface or reshapes an existing one** (splitting a file, extracting a seam, moving code to a shared module), apply the deep-module vocabulary — small interface, behaviour hidden behind the seam, the deletion test, the interface as the test surface, no single-adapter seams. If the task is a **clean-up / improve / refactor** of the code the change lands in (not a single bug fix), run the scoped jscpd health pass (duplication → dead code → complexity) on the affected areas, committing each step separately.
-3. **Gates first:** before writing code, ensure the `#### Gates` block for this task's requirements in `acceptance.feature` is complete — every happy-path scenario has a `G<n>` (runnable `CHECK:`+`EXPECT:`, or `manual`/`ABANDON` with a reason). Author any missing gate now; an `ABANDON` becomes a handoff you surface, not a pass. (Per `skillgrid:test-driven-verification`.)
-4. **TDD is always on:** follow `skillgrid:test-driven-development` — write the failing test first, watch it fail, then write the minimal code to pass. Never start implementation without a failing test. **BDD is always on** — the failing test is the task's `SATISFIES` scenario: confirm the acceptance scenario is RED before writing code, and name TDD Evidence after the scenario.
-5. Run verifications as specified (the plan's verifications, or the ticket's acceptance criteria).
-6. **Zone rule (BDD is always on):** edit `.skillgrid/change-specs/` *or* code in a single commit — never both uncommitted. Commit spec changes before code changes; the spec is the contract, the code satisfies it. The `pre-commit` zone guard (`skillgrid:work-unit-commits`) blocks a commit that stages both.
-7. **Commit the task's changes** per `skillgrid:work-unit-commits` — conventional subject (no AI-attribution trailer), atomic + independently-revertable, a `[skillgrid-context]` block in the body. Commit *after* the task's gate is green, *before* any long install/build. The git hooks (`pre-commit`, `commit-msg`) enforce the guards; each commit is a checkpoint you can roll back to.
-8. Mark as completed. The run's record is the Execution Ledger under `.skillgrid/meta/.sdd/` (ADR-0020). When `mnemonic.enabled: true`, upsert `execution-progress` with the body in `_shared/rules/mnemonic-memory.md`.
+3. **Lazy check** (per `skillgrid:ponytail`, fully active): before writing code, climb the ladder once — does this need to exist at all (YAGNI), is it already in the codebase, does stdlib or a native platform feature cover it, is it one line? Take the first rung that holds; ship the laziest working version and mark any real corner cut with a `ponytail:` ceiling comment. Never simplify away input validation at trust boundaries, data-loss error handling, security, accessibility, or anything the spec/blueprint explicitly requests.
+4. **Structure check** (per `skillgrid:execute` → [code-structuring.md](references/code-structuring.md)): if the task **creates a new module/interface or reshapes an existing one** (splitting a file, extracting a seam, moving code to a shared module), apply the deep-module vocabulary — small interface, behaviour hidden behind the seam, the deletion test, the interface as the test surface, no single-adapter seams. If the task is a **clean-up / improve / refactor** of the code the change lands in (not a single bug fix), run the scoped jscpd health pass (duplication → dead code → complexity) on the affected areas, committing each step separately. If the task **adds or reshapes a REST endpoint** (a new resource/route, a changed contract, or an "API design/review" request), apply [api-design.md](references/api-design.md) — resource naming, semantic status codes, the response envelope, pagination, and the breaking-vs-non-breaking versioning decision before the code.
+5. **Gates first:** before writing code, ensure the `#### Gates` block for this task's requirements in `acceptance.feature` is complete — every happy-path scenario has a `G<n>` (runnable `CHECK:`+`EXPECT:`, or `manual`/`ABANDON` with a reason). Author any missing gate now; an `ABANDON` becomes a handoff you surface, not a pass. (Per `skillgrid:test-driven-verification`.)
+6. **TDD is always on:** follow `skillgrid:test-driven-development` — write the failing test first, watch it fail, then write the minimal code to pass. Never start implementation without a failing test. **BDD is always on** — the failing test is the task's `SATISFIES` scenario: confirm the acceptance scenario is RED before writing code, and name TDD Evidence after the scenario.
+7. Run verifications as specified (the plan's verifications, or the ticket's acceptance criteria).
+8. **Zone rule (BDD is always on):** edit `.skillgrid/change-specs/` *or* code in a single commit — never both uncommitted. Commit spec changes before code changes; the spec is the contract, the code satisfies it. The `pre-commit` zone guard (`skillgrid:work-unit-commits`) blocks a commit that stages both.
+9. **Commit the task's changes** per `skillgrid:work-unit-commits` — conventional subject (no AI-attribution trailer), atomic + independently-revertable, a `[skillgrid-context]` block in the body. Commit *after* the task's gate is green, *before* any long install/build. The git hooks (`pre-commit`, `commit-msg`) enforce the guards; each commit is a checkpoint you can roll back to.
+10. Mark as completed. The run's record is the Execution Ledger under `.skillgrid/meta/.sdd/` (ADR-0020). When `mnemonic.enabled: true`, upsert `execution-progress` with the body in `_shared/rules/mnemonic-memory.md`.
 
 ### Fan-out mode
 
@@ -409,28 +432,9 @@ On-demand detail for this skill, in `references/`:
 - [concurrent-leaves.md](references/concurrent-leaves.md) — the concurrent coupled build: disjoint `Owns:` contract, branch integration gate, parent re-verify (fan-out mode).
 - [style-guide.md](references/style-guide.md) — how this skill and its `references/` / `scripts/` are written and kept current (authoring + drift sweep).
 - [code-structuring.md](references/code-structuring.md) — the code-structuring part: measure a brownfield repo before planning (pygount), a scoped health pass (jscpd duplication → dead code → complexity), and the deep-module vocabulary for the interfaces a task creates or reshapes.
+- [api-design.md](references/api-design.md) — the API-design part: REST resource naming, semantic status codes, the response envelope, pagination, filtering, auth, rate limiting, and versioning for the endpoints a task adds or reshapes.
 
-Code style guides in `style-guides/` — Google's official per-language style conventions, one file per language. Load the matching guide before writing or reviewing code in that language:
-
-- [typescript.md](style-guides/typescript.md) — TypeScript (types, interfaces, null handling, imports)
-- [javascript.md](style-guides/javascript.md) — JavaScript (ES6+, modules, JSDoc)
-- [html-css.md](style-guides/html-css.md) — HTML/CSS (formatting, semantics, accessibility)
-- [angularjs.md](style-guides/angularjs.md) — AngularJS (controllers, services, directives)
-- [python.md](style-guides/python.md) — Python (PEP 8, type hints, docstrings)
-- [java.md](style-guides/java.md) — Java (naming, Javadoc, exceptions)
-- [go.md](style-guides/go.md) — Go (gofmt, error handling, concurrency)
-- [cpp.md](style-guides/cpp.md) — C++ (headers, RAII, memory management)
-- [csharp.md](style-guides/csharp.md) — C# (LINQ, async/await, XML docs)
-- [swift.md](style-guides/swift.md) — Swift (optionals, protocols, error handling)
-- [objective-c.md](style-guides/objective-c.md) — Objective-C (memory management, protocols)
-- [shell.md](style-guides/shell.md) — Shell/Bash (naming, error handling, portability)
-- [r.md](style-guides/r.md) — R (naming, functions, documentation)
-- [common-lisp.md](style-guides/common-lisp.md) — Common Lisp (macros, packages)
-- [vim-script.md](style-guides/vim-script.md) — Vim script (plugin structure, scoping)
-- [json.md](style-guides/json.md) — JSON (formatting, structure)
-- [markdown.md](style-guides/markdown.md) — Markdown (formatting, structure)
-
-Overview of all 17 guides and cross-language golden rules: [google-styleguides.md](style-guides/google-styleguides.md).
+Code style guides in `style-guides/` — Google's official per-language style conventions, one file per language (`typescript.md`, `javascript.md`, `python.md`, `go.md`, `cpp.md`, `java.md`, `csharp.md`, `swift.md`, `shell.md`, and 7 more). Load the matching guide before writing or reviewing code in that language; overview of all guides and cross-language golden rules: [google-styleguides.md](style-guides/google-styleguides.md).
 
 Scripts in `scripts/`:
 
