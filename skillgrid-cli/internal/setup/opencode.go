@@ -69,7 +69,20 @@ func installOpenCodeNativePlugins(home, repoRoot, cfgPath string, dryRun bool) e
 			return err
 		}
 	}
-	return nil
+	// Router bootstrap plugin (T6): distributed from its own source dir and
+	// standalone from the native set (ADR-0067 reworks that copy set; this
+	// step must survive it independently). A missing source is skipped,
+	// matching the cursor hook-script precedent: older checkouts simply
+	// install no router, and the runtime asset resolution keeps a fallback.
+	routerSrc := "plugins/opencode/" + routerPluginRel + ".ts"
+	if _, err := os.Stat(filepath.Join(repoRoot, routerSrc)); err != nil {
+		return nil
+	}
+	routerDst := filepath.Join(pluginDir, routerPluginRel+".ts")
+	if err := copyFromRepo(repoRoot, routerSrc, routerDst, dryRun); err != nil {
+		return err
+	}
+	return upsertPluginKey(cfgPath, "./plugins/"+routerPluginRel+".ts", dryRun)
 }
 
 // installNativePlugins copies the native TS plugins from plugins/opencode/
@@ -86,6 +99,20 @@ func installNativePlugins(home, repoRoot, cfgPath, harness string, dryRun bool) 
 			return err
 		}
 		if err := upsertPluginKey(cfgPath, "./plugin/"+base+".ts", dryRun); err != nil {
+			return err
+		}
+	}
+	// Router bootstrap plugin (T6): kilo loads its own variant from
+	// plugins/kilo/ (the kilo harness API differs from opencode's),
+	// standalone from the native set. Missing source is skipped (older
+	// checkouts install no router; see the opencode counterpart).
+	kiloRouterSrc := "plugins/kilo/" + routerPluginRel + ".ts"
+	if _, err := os.Stat(filepath.Join(repoRoot, kiloRouterSrc)); err == nil {
+		if err := copyFromRepo(repoRoot, kiloRouterSrc,
+			filepath.Join(pluginDir, routerPluginRel+".ts"), dryRun); err != nil {
+			return err
+		}
+		if err := upsertPluginKey(cfgPath, "./plugin/"+routerPluginRel+".ts", dryRun); err != nil {
 			return err
 		}
 	}

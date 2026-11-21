@@ -64,6 +64,9 @@ func Run(c *Config) error {
 	if err := syncMirrorDirs(c); err != nil {
 		return err
 	}
+	if err := syncRouterBootstrap(c); err != nil {
+		return err
+	}
 	info("wiring git hooks (core.hooksPath)")
 	if err := wireGitHooks(c); err != nil {
 		Out("  warning: git hooks wiring:", err)

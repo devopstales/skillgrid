@@ -28,6 +28,14 @@ const (
 	opencodeCodeindexPluginRel  = "plugins/opencode/mnemonic-codeindex.ts"
 	opencodeContextPluginRel    = "plugins/opencode/skillgrid-context.ts"
 
+	// routerPluginRel is the router bootstrap plugin's file base (T6,
+	// 2026-11-17-skillgrid-host-plugins). Standalone — deliberately NOT
+	// folded into nativePluginBases, which ADR-0067 reworks; the router
+	// distribution must survive that rework independently. Each harness
+	// loads its own source: opencode from plugins/opencode/<base>.ts,
+	// kilo from plugins/kilo/<base>.ts.
+	routerPluginRel = "skillgrid-router"
+
 	cursorPluginRel = ".cursor-plugin/plugin.json"
 	cursorRuleRel   = "rules/mnemonic.mdc"
 
