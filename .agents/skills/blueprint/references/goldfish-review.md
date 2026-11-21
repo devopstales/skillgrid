@@ -29,7 +29,9 @@ stage is a separate dispatch round against fresh subagents.
 - **Stage 9 — Implementation Readiness** (target: `blueprint.md` task
   steps + codebase; actionability, codebase accuracy → dispatch
   `implementation-readiness.md` + `codebase-details.md` + `style.md` →
-  `implementation_readiness_report.md`)
+  `implementation_readiness_report.md`). Pass bar: the **Zero-Decision
+  Rule** in `implementation-readiness.md` — a Stage 9 failure blocks
+  slicing.
 
 After each stage's resolution the main agent folds findings inline — no
 synthesizer persona. The Consolidated preset's cross-stage dedup +

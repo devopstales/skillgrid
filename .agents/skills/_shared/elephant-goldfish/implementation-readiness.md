@@ -51,11 +51,27 @@ rollout safety:
    Standard (file-change lists, data structures, verification tests) are
    present and sufficiently detailed.
 
+## The Zero-Decision Rule (the REVIEW pass bar)
+
+REVIEW passes Stage 9 iff a competent engineer — or a fresh AI session —
+unfamiliar with the codebase can execute the plan and produce the correct
+changes **on the first attempt**, without guessing, asking clarifying
+questions, or making independent design choices. If the implementer must
+*choose* anything — a schema, an API shape, a dependency, an error strategy,
+an edge-case behavior — the plan **fails**: the choice must be pre-made and
+written down. Local implementation detail (loop style, variable names,
+ordering of independent statements) is the only permitted discretion.
+
+This is the hard gate: a Stage 9 failure blocks slicing. A finding that cites
+this rule names the specific choice the plan leaves open ("fails Zero-Decision
+Rule: task 3 leaves the error format to the implementer").
+
 ## Audit vectors
 
 Actionability gaps (vagueness: "update the auth service" instead of "add field
 X to struct Y in file Z") · standard-readiness gaps (missing data schemas,
-migration steps, or test assertions).
+migration steps, or test assertions) · open design choices (any choice the
+Zero-Decision Rule requires pre-made).
 
 ## Output format
 

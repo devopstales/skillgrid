@@ -4,7 +4,7 @@ description: Use when encountering any bug, test failure, build failure, perform
 license: MIT
 metadata:
   author: devopstales
-  version: "1.0"
+  version: "2.0"
   part-of: skillgrid
   based_on: skillgrid:structured-debugging 1.1 + skillgrid:test-driven-verification 1.0 + skillgrid:regression-dog 1.0 + skillgrid:prototype 1.0 (verdict discipline)
 ---
@@ -17,7 +17,7 @@ metadata:
 - Workflow (mermaid map)
 - Config
 - The Hypothesis Trail
-- The Four Phases (Root cause → Pattern → Hypothesis → Implementation)
+- The Four Phases (Root cause (incl. Goldfish Diagnosis) → Pattern → Hypothesis → Implementation)
 - The Verdict (RESOLVED / NO_ROOT_CAUSE / ESCALATED)
 - Report
 - Common Rationalizations / Red Flags
@@ -54,17 +54,17 @@ optional — without a reproducible trigger, Phase 1 cannot complete.
 ```mermaid
 flowchart TD
     A[Phase 1: Root cause<br/>read errors, reproduce, instrument, trail] --> B{Reproducible?}
-    B --|no| B2[Gather more data<br/>back to Phase 1]
-    B --|yes| C[Phase 2: Pattern<br/>working example vs broken, diff]
+    B -->|no| B2[Gather more data<br/>back to Phase 1]
+    B -->|yes| B3[Goldfish Diagnosis<br/>fresh subagent: symptom + repro only<br/>converged / diverged → trail] --> C[Phase 2: Pattern<br/>working example vs broken, diff]
     C --> D[Phase 3: Hypothesis<br/>one theory, minimal test]
     D --> E{Hypothesis holds?}
-    E --|ruled out| D
-    E --|confirmed| F[Phase 4: Fix<br/>failing test → one change → verify]
+    E -->|ruled out| D
+    E -->|confirmed| F[Phase 4: Fix<br/>failing test → one change → verify]
     F --> G{Original repro passes?<br/>no other tests broke?}
-    G --|no, fix attempt < 3| D
-    G --|no, 3+ failed fixes| H{Architecture gate<br/>question the design?}
-    H --|decided with human| I{Verdict}
-    G --|yes| I
+    G -->|no, fix attempt < 3| D
+    G -->|no, 3+ failed fixes| H{Architecture gate<br/>question the design?}
+    H -->|decided with human| I{Verdict}
+    G -->|yes| I
     I --> J[RESOLVED / NO_ROOT_CAUSE / ESCALATED]
 ```
 
@@ -89,7 +89,11 @@ what it already ruled out.
 
 - **Write the trail to a state file:** `.skillgrid/meta/.sdd/debug/<date>-<slug>/state.md`
   (gitignored scratch). One entry per iteration:
-  `hypothesis | evidence | verdict (confirmed | ruled out | open)`.
+  `hypothesis | source (goldfish | session) | evidence | verdict (confirmed | ruled out | open)`.
+  The `source` field marks who found the hypothesis: `goldfish` hypotheses
+  came from the fresh-context diagnosis (Phase 1 step 3) — they were found
+  *without* the session's anchor — so they are tried before session-formed
+  ones.
 - **Append as you go** — after each Phase 2 comparison and each Phase 3 test,
   before the next step. Appending at the end is too late.
 - **On resume:** read the state file first; resume at the first `open`
@@ -112,11 +116,30 @@ Each phase completes before the next begins.
    until it is. Never fix on a one-time sighting.
 3. **Check recent changes.** `git log` / `git diff` around the symptom; new
    dependencies, config drift, environment differences.
-4. **Instrument at boundaries** (multi-component systems). Before proposing a
+4. **Goldfish Diagnosis (before you state your hypothesis as the working one).**
+   Dispatch a fresh read-only subagent per the brief at
+   `_shared/elephant-goldfish/goldfish-diagnosis.md`. The dispatch carries
+   **only** the symptom + the repro steps — never your hypothesized root
+   cause, never the session's investigation so far. Ask for its top 1–3
+   candidate root causes with file:line + the evidence that would falsify
+   each. R36 applies: a harness that cannot spawn a fresh-context subagent
+   STOPS and says so (no same-context diagnosis counts). Then:
+   - **Compare.** Convergence (its top candidate matches yours) → proceed
+     with confidence; note it. Divergence → its candidates enter the trail
+     FIRST (they were found without your anchor), and you tell the user:
+     "the goldfish flagged a different root cause: <candidate>; here's why
+     I think <yours> is still right — do I proceed or investigate that
+     one?"
+   - **Record.** Append the outcome to the state file:
+     `goldfish: converged | diverged (candidates: …)`.
+   - **Skip** for the trivial one-liner path (the "When NOT to use" gate)
+     and when no repro exists yet — diagnosis without a repro is guessing;
+     say "no repro, goldfish skipped" instead.
+5. **Instrument at boundaries** (multi-component systems). Before proposing a
    fix, log what enters and exits each component boundary, verify
    config/env propagation, and check state at each layer. One instrumented
    run shows *where* it breaks; then investigate that component only.
-5. **Trace the bad value backward** to where it originates — the origin is the
+6. **Trace the bad value backward** to where it originates — the origin is the
    fix site, not where the error surfaces. For the full backward-tracing
    technique: [references/root-cause-tracing.md](references/root-cause-tracing.md).
 
@@ -132,7 +155,9 @@ Each phase completes before the next begins.
 ### Phase 3: Hypothesis and Testing
 
 1. State **one** hypothesis: "I think X is the cause because Y." Write it to
-   the trail before testing.
+   the trail before testing — with `source: goldfish` or `source: session`
+   per the trail contract above. When the Phase 1 diagnosis diverged, the
+   goldfish candidates sit in the trail FIRST: try them before your own.
 2. Test with the **smallest possible change** — one variable at a time.
 3. The test speaks: confirmed → Phase 4; ruled out → record it and form a new
    hypothesis. Never stack a second fix on top of an unconfirmed first one.
@@ -202,7 +227,7 @@ Write the close-out to `.skillgrid/meta/.sdd/debug/<date>-<slug>/report.md`:
 |---------|---------|
 | Symptom | The original report / observed behavior, verbatim where useful |
 | Root cause | Stated in one paragraph, at the origin; or "No root cause" with the evidence |
-| Trail | The hypothesis table (hypothesis \| evidence \| verdict), ruled-out included |
+| Trail | The hypothesis table (hypothesis \| source \| evidence \| verdict), ruled-out included; the goldfish diagnosis outcome (`converged` / `diverged`) where it ran |
 | Fix | The diff summary; the failing test and its red→green evidence |
 | Verification | Fresh output: repro re-run, suite result, build/lint |
 | Verdict | `RESOLVED` / `NO_ROOT_CAUSE` / `ESCALATED` with the handoff if escalated |
@@ -254,7 +279,8 @@ Per `_shared/craft/measurement.md`.
 
 - [ ] Root cause stated in one paragraph at the origin — or `NO_ROOT_CAUSE` declared with the investigation evidence.
 - [ ] Reproduction was consistent before any fix; the original repro is re-run after the fix and captured.
-- [ ] Trail file updated per iteration (`hypothesis | evidence | verdict`); no phase skipped ahead of the one before it; ruled-out hypotheses never re-tested.
+- [ ] Trail file updated per iteration (`hypothesis | source | evidence | verdict`); no phase skipped ahead of the one before it; ruled-out hypotheses never re-tested.
+- [ ] Goldfish Diagnosis ran (Phase 1 step 4) or its skip is recorded (trivial path / no repro); `converged`/`diverged` recorded in the state file when it ran; goldfish-source hypotheses tried before session ones.
 - [ ] Failing test existed and was RED before the fix; red→green cycle captured (regression test proven).
 - [ ] Exactly one fix applied at the origin; no bundled refactoring.
 - [ ] Fresh verification evidence this session: repro pass, suite pass, build/lint pass.

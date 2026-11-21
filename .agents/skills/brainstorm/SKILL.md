@@ -50,6 +50,20 @@ to EVERY task on EVERY path below — the ceremony scales with the task;
 the approval gate never does.
 </HARD-GATE>
 
+<HARD-GATE>
+**No Code (the Elephant's boundary).** This session is the *designer*,
+not the builder. It produces intent, requirements, trade-offs, and ADRs —
+never code, scaffolding, file layouts, or function signatures beyond what
+the spec requires to be unambiguous. If you catch yourself sketching
+implementation (pseudocode, struct fields, endpoint shapes, file trees),
+STOP: that content belongs in the blueprint, where the Goldfish protocol
+validates it against the Zero-Decision Rule (see
+`_shared/elephant-goldfish/implementation-readiness.md`) before any code
+is written. The one exception is the Prototype path, whose throwaway probe
+is code by definition — it stays labeled throwaway and never becomes the
+answer.
+</HARD-GATE>
+
 ## Four Paths
 
 Before your first question, classify the request and say the
@@ -176,6 +190,29 @@ it and get approval. "Simple" tasks are where unexamined assumptions
 cause the most wasted work. What scales with simplicity is the
 artifact, never the approval.
 
+## Scope Pushback
+
+When the request piles **multiple independently shippable outcomes** into one
+change, stop — do not refine a fat plan. Refining is the failure mode: a
+larger interview, a longer briefing, more requirements, still one change.
+
+- **Recognize it:** the request or draft briefing names more than one outcome
+  that could be built, reviewed, and shipped on its own ("build X and also
+  rework Y and add Z").
+- **Stop and list the pile.** One line per outcome — what it is, why it is
+  shippable independently.
+- **Recommend one first slice** — the smallest usable whole that delivers
+  value on its own. The default stance is **hold/reduce, not expand**: queue
+  or drop the rest; do not grow the change.
+- **The human picks** hold / cut / split for each piled outcome.
+- **Record the pick** in the briefing's interview log (the `Clarity Report`
+  section) before `blueprint.md` is written. A blueprint on a fat briefing
+  with no recorded pick is a red flag.
+
+Each kept outcome becomes its own spec → plan → implementation cycle (the
+decomposition rule in "The Process" applies to what is held; this gate decides
+what is cut before the first spec is written).
+
 ## How to measure it
 
 Per `_shared/craft/measurement.md`.
@@ -193,6 +230,7 @@ Per `_shared/craft/measurement.md`.
 | "I'll decide the approach myself and skip the paths" | The path classification is the process — it scales the ceremony to the task. Picking it silently is skipping the gate that lets your partner override. |
 | "The design is obvious, so skip the visual companion" | The companion is offered just-in-time only when a question is clearer shown than told. Obvious isn't the test — the test is whether it'd be understood better by seeing it. |
 | "I'll start implementing while they read the design" | The gate is the approval, not the design's length. Present, then stop until you hear yes. |
+| "I'll just refine the big plan so it covers everything" | A pile of independently shippable outcomes is a scope problem, not a plan problem. List the pile, recommend one first slice, let the human hold/cut/split — then write the plan for the pick, not the pile. |
 
 ## Red Flags
 
@@ -205,6 +243,7 @@ Per `_shared/craft/measurement.md`.
 | "The prototype works, so I'll keep the code" | A prototype's output is an answer. Keeping the code is a new request — classify it. |
 | "It grew, but I'm almost done — no need to re-classify" | Hidden complexity upgrades the path mid-task. Stop and say so. |
 | "They approved the prototype, so the follow-up change is approved too" | Each task gets its own classification and its own approval. |
+| "The briefing is still growing — I'll blueprints once it's settled" | A briefing that keeps absorbing requirements is a pile, not a design. Run Scope Pushback: list the outcomes, pick the first slice, record the hold/cut/split — then blueprint. |
 
 ## Verification
 
