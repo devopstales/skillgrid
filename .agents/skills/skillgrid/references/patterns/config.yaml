@@ -1,0 +1,262 @@
+schema: skillgrid/v1
+project: {project}
+context: >-
+  {context}
+
+# --- Ticketing ---
+# Set enabled: false to skip ticket publishing entirely (tasks.md only).
+# type: backlogmd (default, local) | gh | glab | jira | hermes-kanban
+ticketing:
+  enabled: {ticketing_enabled}
+  type: {ticketing_type}
+  # Required when type: jira
+  # project_key: {jira_project_key}
+  # instance: https://{jira_org}.atlassian.net
+  # Required when type: hermes-kanban (written by `skillgrid install --agents hermes`)
+  # kanban:
+  #   board: {project}        # Hermes Kanban board slug (defaults to the project name)
+  #   assignee: default       # Hermes profile that executes the tickets
+  backlogmd:
+    dir: .skillgrid/projectwiki/backlog
+    task_prefix: "task"
+    zero_padded_ids: 3
+  gh:
+    labels:
+      triage: "needs-triage"
+      info: "needs-info"
+      ready_agent: "ready-for-agent"
+      ready_human: "ready-for-human"
+      wontfix: "wontfix"
+  glab:
+    labels:
+      triage: "needs-triage"
+      info: "needs-info"
+      ready_agent: "ready-for-agent"
+      ready_human: "ready-for-human"
+      wontfix: "wontfix"
+
+# --- Testing ---
+testing:
+  runner: "{test_runner}"
+  setup: "{setup_command}"
+  layers: [{test_layers}]
+  coverage: {coverage_command}
+  mutation: {mutation_command}       # e.g. "npx stryker run" — set to "" if no mutation testing
+  tdd: true
+
+# --- QA Gates (configurable thresholds, asked at onboarding) ---
+# All values are hard gates: the skillgrid:qa skill FAILs the gate when a
+# threshold is not met. Set to 0 to disable a gate.
+# coverage_min: minimum line/branch coverage % (0 = disabled)
+# mutation_min: minimum mutation score % (0 = disabled, requires testing.mutation)
+# p0_pass_rate: minimum P0 test pass rate % (default 100)
+# p1_pass_rate: minimum P1 test pass rate % (default 95)
+quality:
+  coverage_min: {quality_coverage_min}
+  mutation_min: {quality_mutation_min}
+  p0_pass_rate: {quality_p0_pass_rate}
+  p1_pass_rate: {quality_p1_pass_rate}
+
+# --- Duplication (jscpd) ---
+# command: the jscpd invocation ("" = disabled)
+# target: changed-files | the whole tree
+# fail_on: duplication % that FAILs the gate (0 = advisory only)
+duplication:
+  command: "npx jscpd"
+  target: "changed-files"
+  fail_on: 0
+  formats: ""
+  ignore: "**/node_modules/**,**/dist/**,**/*.min.*,**/*_test.go,**/migrations/**"
+
+# --- Security Scan (Trivy) ---
+# Trivy is a multi-scanner: vulnerability (CVE), misconfiguration, secret,
+# and license. The skillgrid:qa skill runs it during the Security Audit step.
+# command: the trivy invocation ("" = disabled, falls back to manual checks)
+# target: what to scan (default: the current directory)
+# severities: minimum severity to report (comma-separated, highest first)
+#   CRITICAL (default) | CRITICAL,HIGH | CRITICAL,HIGH,MEDIUM | all
+# scan_types: which scanners to run (comma-separated)
+#   vuln (default) | vuln,misconfig | vuln,secret | vuln,secret,misconfig,license
+# fail_on: minimum severity that FAILs the QA gate ("" = Trivy findings are
+#   reported but never block; set to e.g. "CRITICAL" to hard-gate on it)
+security:
+  trivy:
+    command: "{trivy_command}"
+    target: "."
+    severities: "{trivy_severities}"
+    scan_types: "{trivy_scan_types}"
+    fail_on: "{trivy_fail_on}"
+
+# --- Commands ---
+commands:
+  build: "{build_command}"
+  lint: "{lint_command}"
+  format: "{format_command}"
+  typecheck: "{typecheck_command}"
+
+# --- AGENTS.md preamble (repo-specific, rendered by `skillgrid init`) ---
+# Optional. Filled by onboarding from detected facts + the existing codebase
+# (brownfield: read the repo, don't guess). Empty values render as <detect>
+# placeholders; empty lists drop the section. See templates/agents-preamble.md.
+agents:
+  directories:            # list of {path, purpose} -> Key Directories table
+    # - { path: "src/kubedash/lib/k8s/", purpose: "K8s API wrappers — one file per resource type" }
+  security_boundaries: [] # bullets -> Security & Escalation Boundaries
+  dependency_policies: [] # bullets -> Dependency Policies
+  architecture_constraints: [] # bullets -> Architecture Constraints
+  definition_of_done: []  # bullets -> Definition of Done
+  engineering_standards: [] # bullets -> Engineering Standards
+
+# --- Conventions ---
+conventions:
+  specs_root: .skillgrid/change-specs
+  scratch_dir: .skillgrid/work
+  # Durable project knowledge lives in the .skillgrid/projectwiki/ LLM-wiki.
+  # ASSUMPTIONS.md (project understanding), ARCHITECTURE.md (structure) and
+  # glossary/ (vocabulary) are the entry points a reader opens first.
+  # raw/ holds immutable source docs; the agent maintains sources/, entities/,
+  # concepts/, decisions/ and syntheses/; index.md is the catalog; log.md is the
+  # append-only timeline. ADRs live one per file in decisions/NNNN-slug.md.
+  artifacts: .skillgrid/artifacts
+  worktree_dir: .worktree
+  commit_style: conventional
+  # Dynamic project state (phase, current change, progress). Updated by pipeline skills.
+  state_file: .skillgrid/state.yaml
+
+# --- Work-unit commits (commit discipline + session events) ---
+# skillgrid:work-unit-commits is fully active during execution. Each work-unit
+# commit carries a [skillgrid-context] block (the durable record); the hooks
+# record it as a `commit` event on the session event stream. The git hooks
+# (pre-commit, commit-msg) enforce the safety guards and the commit format.
+checkpoint:
+  enabled: true
+  # hooks: pre-commit (cwd-drift + protected-ref/detached guards),
+  #        commit-msg (conventional subject + no AI-attribution trailer)
+
+# --- ADR format ---
+# Template used for every ADR. Selection table (adr_style -> template):
+# _shared/adr-records/README.md. Consumers: brainstorm (ADR manifest + offers),
+# blueprint (decisions the blueprint locks in, ratification).
+# Ask the user at onboarding; never re-ask once set.
+# Options: madr-full | madr-minimal (default) | nygard | y-statement | custom
+adr_style: {adr_style}
+
+# --- BDD / Acceptance Testing ---
+# Always on — BDD is non-negotiable in Skillgrid (like TDD). The
+# skillgrid:blueprint Phase 5 (acceptance spec) and the acceptance-tests/ runner are
+# always active: brainstorming writes .skillgrid/change-specs/<id>/acceptance.feature
+# and execution enforces the spec zone rule (commit specs before code).
+# stack: javascript (cucumber-js) — python/behave is a follow-up.
+bdd:
+  enabled: true
+  stack: javascript
+  specs_dir: .skillgrid/change-specs
+  runner_dir: acceptance-tests
+  lint: gherkin
+
+# --- Mnemonic (persistent memory + code index + web cache) ---
+# Detected at onboarding via the skillgrid CLI. When enabled, the
+# skillgrid:mnemonic skill is active: mem_save for decisions, code_status
+# → code_index → code_search for code orientation, web_cache for research.
+# data_dir defaults to ~/.skillgrid/mnemonic; override if needed.
+mnemonic:
+  enabled: {mnemonic_enabled}
+  data_dir: ~/.skillgrid/mnemonic
+
+# --- Research ---
+# Investigate a question against primary sources into a cited `## Research:`
+# section at .skillgrid/change-specs/YYYY-MM-DD-<topic>/findings.md. Three skills:
+# research (single inline pass), code-research (parallel fan-out + verify +
+# red-team, for wide/high-stakes informational questions), and deep-research
+# (long-horizon experimental research: hypothesis → experiment → measure loops
+# with persistent state). Brainstorming dispatches research just-in-time when
+# the design depends on a fact not in the codebase; blueprint cites
+# the findings.
+research:
+  default: research              # research | code-research
+  output_dir: .skillgrid/change-specs
+  code_research_preset: standard # quick | standard | deep
+
+# --- Prototype (feasibility probe) ---
+# skillgrid:prototype answers a falsifiable question with a VALIDATED / INVALIDATED /
+# PARTIAL verdict + evidence. A tiny probe (one library, one command) is answered
+# inline by brainstorming; a real probe (code executed, a comparison, a demo)
+# delegates here. Both append their results to the topic's consolidated
+# findings.md, which blueprint reads. Prototype directories are numbered
+# NNN-name/ under `dir` and permanently retained (not under the spec zone).
+prototype:
+  enabled: true
+  dir: .skillgrid/prototype                                 # YYYY-MM-DD-topic/ dirs, permanently retained
+  findings: .skillgrid/change-specs/{topic}/findings.md   # consolidated per-topic file
+  module_dir: .skillgrid/change-specs/{topic}/modules     # liftable pure modules (if any)
+
+# --- Sketch (UI/interaction variant mockup) ---
+# skillgrid:sketch builds 2-3 dramatic-difference interactive mockups for a design
+# that has 2+ meaningfully different layout/interaction options. The marked
+# winner + build constraints are appended to the topic's consolidated findings.md.
+sketch:
+  enabled: true
+  findings: .skillgrid/change-specs/{topic}/findings.md   # consolidated per-topic file
+  dir: .skillgrid/change-specs/{topic}/sketches           # HTML mockups + themes/
+
+# --- Rules (per-phase overrides) ---
+# Each list is appended to the skill's built-in rules.
+# Empty = use skill defaults only.
+rules:
+  brainstorm: []
+  blueprint: []
+  slicing: []
+  execution: []
+  review: []
+  # --- Rigor Tiers (match effort to risk) ---
+  # The verification dial per change. T0 = prototype (self-check only),
+  # T1 = alpha (light blueprint + verify), T2 = beta (default: full pipeline +
+  # two-axis review), T3 = GA (mutation + security + parallel review with a
+  # fresh-model reviewer). A per-change override in briefing.md (`Tier: T<n>`)
+  # wins over the project default. Policy source:
+  # .agents/skills/_shared/planning/rigor-tiers.md
+  tiers:
+    default: {tiers_default}
+    T0: { name: Prototype, blueprint: none,  qa: self-check }
+    T1: { name: Alpha,     blueprint: light, qa: L1+verify  }
+    T2: { name: Beta,      blueprint: full,  qa: L2+L3,     review: two-axis }
+    T3: { name: GA,        blueprint: full,  qa: L4,        review: parallel+fresh-model }
+  # --- Ship (integration + archive move) ---
+  # skillgrid:ship merges/PRs/keeps the branch, then moves the change folder
+  # change-specs/ -> change-archive/. No release mechanics (VERSION/CHANGELOG) and no docs
+  # check in any variant. fast_track_light: trivial/small skip PR-body
+  # generation but the mechanical move is never waived.
+  ship:
+    fast_track_light: true
+  # --- Reflect (terminal: report.md + session close) ---
+  # verdict_gate: advisory | blocking — the acceptance verdict (accepted /
+  # accepted-with-open-items / rejected) is advisory by default (recorded,
+  # human decides follow-up); set blocking to make a `rejected` verdict block.
+  reflect:
+    verdict_gate: advisory
+  # --- Fast-Track (trivial / small changes) ---
+  # Policy source of truth: .agents/skills/_shared/planning/fast-track.md
+  # standard/risky changes always run the full pipeline; only trivial/small may waive.
+  fast_track:
+    enabled: true
+    classes:
+      trivial:
+        criteria:
+          - "single concern, ≤3 files, no behavior change (typo, copy, single-line config, pure rename)"
+          - "no migration, no new dependency, no trust-boundary change"
+        skips: [brainstorm, blueprint, acceptance.feature]
+        tasks: light
+      small:
+        criteria:
+          - "single file or single concern, no new capability, no migration"
+          - "≤10 files"
+        skips: [brainstorm, blueprint]
+        tasks: light
+    waiver:
+      required: true
+      recorded_in: briefing.md
+    blocked_when:
+      - "any threat-matrix row Applicable"
+      - "new trust boundary or migration"
+      - "multi-domain impact"
+      - "400+ line change"

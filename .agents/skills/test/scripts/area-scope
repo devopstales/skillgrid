@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# Emit the area-selection table for a change: which of the five test areas to
+# run, which are N/A, and why. Reads the change dir's artifacts to classify the
+# change shape, then prints a table the controller reads in one call.
+#
+# Usage: area-scope CHANGE_DIR [TARGET_URL]
+#   CHANGE_DIR  the change dir under .skillgrid/change-specs/ (has briefing.md,
+#               acceptance.feature, blueprint.md, tasks.md)
+#   TARGET_URL  (optional) a reachable, authorized URL. The controller asks the
+#               human for it in Step 0 before calling this; presence selects the
+#               DAST security tools (nuclei/wapiti/akca) and the browser pass.
+#               Omit it (or pass none) when the human says there is no target.
+#
+# Exit codes:
+#   0  selection made (table on stdout)
+#   2  usage error / CHANGE_DIR missing
+set -euo pipefail
+
+if [ $# -lt 1 ] || [ $# -gt 2 ]; then
+  echo "usage: area-scope CHANGE_DIR [TARGET_URL]" >&2
+  exit 2
+fi
+
+dir=$1
+url=${2:-}
+[ -d "$dir" ] || { echo "no such change dir: $dir" >&2; exit 2; }
+
+briefing="$dir/briefing.md"
+acceptance="$dir/acceptance.feature"
+blueprint="$dir/blueprint.md"
+tasks="$dir/tasks.md"
+
+# --- classify the change shape from the artifacts ---------------------------
+
+has_briefing=0;    [ -f "$briefing" ] && has_briefing=1
+has_scenarios=0;   [ -f "$acceptance" ] && grep -Eqi 'scenario|feature|rule' "$acceptance" 2>/dev/null && has_scenarios=1
+has_tasks=0;       [ -f "$tasks" ] && has_tasks=1
+
+# trust-boundary signal: any artifact names auth, input, a dependency, or config
+trust=0
+if compgen -G "$dir/*.md" > /dev/null 2>&1; then
+  if grep -RqiE 'auth|login|session|token|permission|input|param|upload|webhook|deserial|ssrf|dependenc|package|require|import|dockerfile|terraform|k8s|iac|config|secret|credential' "$dir"/*.md 2>/dev/null; then
+    trust=1
+  fi
+fi
+
+# refactor-only signal: tasks.md (or blueprint) names only move/rename/refactor/split
+refactor=0
+if [ -f "$tasks" ]; then
+  if grep -qiE 'rename|move|refactor|split|extract|reorganize' "$tasks" 2>/dev/null \
+     && ! grep -qiE 'feature|add |new |implement|support' "$tasks" 2>/dev/null; then
+    refactor=1
+  fi
+fi
+
+# --- decide each area --------------------------------------------------------
+
+# Intent: run when a requirement (briefing + scenarios) is in scope.
+if [ "$has_briefing" = 1 ] || [ "$has_scenarios" = 1 ]; then
+  intent="RUN"
+else
+  intent="N/A — no requirement (briefing/acceptance.feature absent)"
+fi
+
+# Functional: always run the suite; browser pass only when a URL is reachable.
+functional="RUN"
+if [ -n "$url" ]; then
+  functional="RUN (incl. browser pass — $url)"
+fi
+
+# Code quality: always run at least the exact-clone pass.
+code_quality="RUN (exact-clone pass minimum)"
+
+# Security: trivy always (static, no target needed). DAST tools only with a URL.
+security="RUN (trivy)"
+if [ "$trust" = 1 ]; then
+  security="RUN (trivy + owasp — trust boundary touched)"
+fi
+if [ -n "$url" ]; then
+  security="$security; DAST available (nuclei/wapiti/akca — pick per references/security.md selection table)"
+fi
+
+# Review: the diff is the point of a refactor; for other shapes it runs after a
+# PASS/CONCERNS intent+functional gate (and is skipped at T0 per rigor-tiers).
+if [ "$refactor" = 1 ]; then
+  review="RUN (the diff is the point)"
+else
+  review="RUN (after a PASS/CONCERNS intent+functional gate; skip at T0)"
+fi
+
+# --- emit the table ----------------------------------------------------------
+
+echo "# Area selection for: $dir"
+[ -n "$url" ] && echo "Target URL: $url" || echo "Target URL: (none — DAST tools not selectable)"
+echo
+echo "| Area | Decision | Why |"
+echo "|---|---|---|"
+case "$intent" in
+  RUN) echo "| Intent | $intent | requirement in scope (briefing/scenarios present) |" ;;
+  *)   echo "| Intent | $intent | |" ;;
+esac
+echo "| Functional | $functional | suite always; browser pass needs a reachable URL |"
+echo "| Code quality | $code_quality | duplication/complexity lens; minimum exact-clone pass |"
+echo "| Security | $security | trivy static; owasp on trust boundary; DAST needs a target |"
+echo "| Review | $review | standards/spec gate; runs after intent+functional pass |"
+echo
+echo "Run order: intent -> functional -> code quality -> security -> review."
+echo "An area not selected is recorded 'N/A — <reason>' in the report, never silently absent."

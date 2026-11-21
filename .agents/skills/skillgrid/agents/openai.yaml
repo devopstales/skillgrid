@@ -1,0 +1,7 @@
+interface:
+  display_name: "SkillGrid"
+  short_description: "Idea to complete program, read blind and audited"
+  brand_color: "#6366F1"
+  default_prompt: "Use $skillgrid to start a program from my idea, checking in with me after each phase and saving every artifact in .skillgrid/."
+policy:
+  allow_implicit_invocation: true

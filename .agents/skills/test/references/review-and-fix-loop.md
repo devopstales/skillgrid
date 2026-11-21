@@ -1,0 +1,147 @@
+# Review and Fix Loop
+
+Does the code follow standards and implement the spec, and are the findings fixed with evidence? This area runs the topology-driven code review, triages the findings, and closes them in the fix loop. It is the **standards/spec gate** — complementary to the intent area (the quality gate). They answer different questions: intent verifies the feature exists; review verifies the code is clean and on-spec.
+
+**When NOT to run this area:** T0 changes (no review, per `_shared/planning/rigor-tiers.md`), or an empty diff (stop — there is nothing to review). Record `N/A — <reason>`.
+
+## Pin the diff
+
+```bash
+BASE_SHA=$(git merge-base <base-branch> HEAD)   # or the SHA the work started from
+HEAD_SHA=$(git rev-parse HEAD)
+git diff --stat $BASE_SHA..$HEAD_SHA
+```
+
+Capture the changed-line count **and the file types touched**. If the diff is empty, stop.
+
+## The Topology Step
+
+Select the fan-out from diff size / risk / rigor tier, never from a choice between skills. Per `skillgrid:code-review`:
+
+- **<50 changed lines, low risk** → the 3-axis pass (Standards + Spec + Security).
+- **≥50 changed lines, or high-risk** (auth, data migration, money, concurrency, public API) → the core five (Standards, Spec, Edge cases, Verification gaps, Security), plus conditional Accessibility (diff touches UI) / Performance (diff touches data access / rendering) specialists.
+- **Red team always last** (reads the other specialists' merged findings).
+
+The line-count floor gates the *core* five, not the domain specialists: a small diff that touches UI or data access still earns the Accessibility or Performance specialist on top of the 3-axis pass. The high-risk categories and the trivial-skip rule live in `_shared/planning/rigor-tiers.md` (review escalation threshold) — do not restate the numbers here. Say which lenses you ran and why, including any you skipped for lack of surface.
+
+**T3 fresh-model rule:** at T3, at least one reviewer runs on a model different from the one that implemented the change (a model reviewing its own work carries its own blind spots). The fresh-model reviewer is a recommendation the human can decline; the decline is recorded.
+
+## Dispatch
+
+Launch **every selected lens in a single message** (multiple subagent calls) so they run in parallel, each with fresh context and no bias from the others. Use a `general-purpose` subagent per lens. Each lens's prompt is: the lens template, the diff scope (`$BASE_SHA..$HEAD_SHA` passed as a **path**, not inlined text — each lens reads it), and the Blindness Contract.
+
+The lens set (templates live in `skillgrid:code-review`'s `reviewers/` directory):
+
+| Lens | Focus | Selected when |
+|------|-------|---------------|
+| Standards | glossary, in-force ADRs, smell baseline | always (3-axis + core five) |
+| Spec | per-scenario BDD, missing/partial, scope creep | always (3-axis + core five) |
+| Security | injection, authz, exposure, secrets, dep risk (OWASP 5-step) | always (3-axis + core five) |
+| Edge cases | unhandled branches, boundaries, deletion regressions | core five |
+| Verification gaps | does verification actually catch a break? | core five |
+| Accessibility | keyboard, semantics, forms, ARIA, contrast | diff touches UI |
+| Performance | N+1, hot paths, network, caching, rendering | diff touches data access / rendering |
+| Red team | what the others missed | always, runs last |
+
+### Blindness Contract
+
+The value of a review is its independence from the producer. Every lens is a **fresh subagent context** that sees only the work product — the diff and the sources named for that lens — never the coordinator's session history, rationale, or self-assessment.
+
+- **No leaks.** Do not pass a reviewer your narrative, your "why I did it this way", your confidence, or a prior score/verdict on the same diff. Hand it the diff range plus the sources the template names, and nothing else.
+- **Independence grade** (per `verification-calibration.md`):
+  - **A** — fresh context, no shared history with the implementer (the normal case for a dispatched subagent).
+  - **B** — fresh context but same model family / toolchain as the implementer.
+  - **C** — the review happens in the implementer's own context (an inline self-review) or the implementer's prior verdict leaked in.
+
+A **Grade C** review is **diagnostic only**: it can guide a fix but cannot stand as the "independently reviewed" evidence that `ship` or a merge requires. If the runtime cannot isolate a fresh context, record the review as Grade C and say so — never present it as independent. At T3 the fresh-model reviewer reaches a clean Grade A.
+
+## Triage
+
+Do this yourself — the lenses file findings, you render the verdict. They lack the full context to grade severity.
+
+1. **Normalize.** Pull every finding from every lens into one list. Each carries: `location` (file:line), the finding, its **source** (lens name), and the lens's own evidence.
+2. **Deduplicate by fingerprint** (`path:line:category`). Findings from two or more lenses pointing at the same defect collapse into one entry, tagged `MULTI-REVIEWER CONFIRMED (a + b)`. Multi-confirmation raises confidence it's real; it does not double the severity.
+3. **Group by root cause.** Two findings belong in one entry only when the same defect produced both. The entry's severity is the highest of its members; `source` is the contributing lenses joined with `+`.
+4. **Verify each entry at its location.** Read the cited `file:line` and read beyond it — follow callers, upstream guards, the surrounding code — until you can answer: does the bad outcome actually occur? Judge whether the problem is real, not whether the proposed fix is plausible.
+5. **Render exactly one verdict per entry** from the six-value table below.
+
+### The Verdict Table (six values)
+
+| Verdict | Meaning | Ledger severity (record boundary) |
+|---------|---------|-----------------------------------|
+| `high` | The bad outcome is real and intolerable (bug, data loss, security break, broken feature) | `CRITICAL` |
+| `medium` | Real, tolerable — should be fixed before merge | `WARNING` |
+| `low` | Real, cosmetic or negligible | `SUGGESTION` |
+| `false` | You checked; the bad outcome does not happen here. Say what disproves it. | — (drop the entry) |
+| `maybe-false` | You couldn't tell. Say what would settle it. | — (human look) |
+| `could-not-verify` | The check is **not inferable from the diff alone** — it needs a held-out test, a runtime, or state the diff doesn't show. Never a confident pass. Emit the concrete "write a held-out test" action that would settle it. | — (human look / held-out test) |
+
+**Reject** (drop) any entry that is `false`; any `low` whose fix adds more complexity than the harm it removes; or any entry whose only fix is to edit the spec under review. `could-not-verify` entries are **never dropped** — they route to a human look / held-out test.
+
+## The Fix Loop
+
+Route every surviving entry into the fix loop per `skillgrid:receiving-code-review` — triage buckets, fix, validate, repeat.
+
+### 1. Triage (the human's call)
+
+Sort findings before touching code. If direction is unclear, surface them grouped and ASK rather than fixing everything by default:
+
+| Bucket | Meaning | Action |
+|--------|---------|--------|
+| **Fix now** | Real, in-scope, belongs with this change | Fix in this pass |
+| **Defer** | Real but later; don't bloat this change | Log as a tracker issue or note in the spec |
+| **Human look** | Needs manual inspection or testing before trusting | Flag it, don't silently auto-fix |
+| **Noise** | Won't-fix or misread | Say why, drop it |
+
+The mapping from the verdict table: `high`/`medium` in-scope → fix now; `high`/`medium` pre-existing or out of scope → defer; anything you can't confirm → human look; `low`/`maybe-false` you chose to drop → noise. Don't let the reviewer dictate scope — "real, but later" is a valid and common call.
+
+### 2. Fix the "fix now" set — one at a time
+
+For each: restate what was wrong (verify you agree with the finding) → make the fix → create and run a test that proves it (TDD: the test was RED before the fix) → commit.
+
+### 3. Validate
+
+Run the full verification suite (test runner + lint + build per config). If a fix broke something, the finding was deeper than it looked — re-triage that item.
+
+### 4. Log the rest
+
+- **Deferred:** create a tracker ticket or note in the change's `tasks.md` / spec so it surfaces next cycle.
+- **Human look:** flag in the final report with what to inspect.
+- **Noise:** state the reason so the reviewer (or a future reviewer) sees the ruling.
+
+### 5. Repeat if findings remain
+
+If validation reveals new issues or a fix was incomplete, re-triage the residuals and loop. Cap per `_shared/planning/rigor-tiers.md` (fix loop cap) — beyond it, surface the remaining items to the human with the rulings you made and why.
+
+### The response pattern (no performative agreement)
+
+When acting on a finding: read it without reacting, restate the requirement, verify against the codebase, evaluate whether it's technically sound for *this* codebase, then respond with a technical acknowledgment or reasoned pushback, then implement one at a time. **Never** "You're absolutely right!", "Great point!", or "Let me implement that now" before verification. If a suggestion seems wrong, push back with technical reasoning; if you can't verify, say so and ask.
+
+## Resilience Rule
+
+A failed lens is logged by name: if a lens fails, times out, or returns empty, record its name and continue with the survivors. If **all** lenses fail or return empty, the review is **"possibly incomplete", never "clean"** — report that it may be incomplete and list which lenses didn't run.
+
+## Output Contract
+
+1. **Report the round.** Present the lens reports side by side under per-lens headings (verbatim or lightly cleaned), each ending with the finding count + worst issue *within* that lens. Never pick a single cross-lens winner. Then the deduplicated/grouped entries with their verdicts and source tags, and what was fixed vs deferred vs needs a human look. If any lens failed to run, say so before the verdict.
+2. **Write the audit record.** Fill the review template and write it to `.skillgrid/change-specs/<topic>/review.md`, next to `report.md`. It records the lenses side by side, the "What Important means" threshold, the capped Minor findings, each lens's independence grade, and the floor verdict. **Commit it in the spec zone** before continuing code-zone work — a review that lives only in the transcript is not an audit record.
+3. **Record the review signal.** In the change's `tasks.md` `## Review`, record exactly one verdict: **`REVIEW-PASS`** (no unresolved `high`/`medium` entries) or **`BACK-TO-APPLY`** (unresolved entries itemized with `file:line` + evidence), plus the finding counts — `Critical N · Warning N · Suggestion N`. This is the contract `skillgrid:ship` consumes.
+4. **Record a ledger round.** Per `_shared/craft/review-ledger.md`: freeze the candidate, then append a round entry to the change's `review-ledger.md` with the findings table (severities normalized to `CRITICAL` / `WARNING` / `SUGGESTION`), dispositions (fixed / parked / waived), and lineage. Commit the ledger with the review round.
+5. **Update ticket status (if `ticketing.enabled: true`):** set the reviewed ticket → `done`; if all tickets in the epic are `done`, set the epic → `done`.
+6. **Update `state.yaml`:** set `changes.<topic>.phase: review`.
+
+## Writing the Report Section
+
+```
+## Review
+Topology: <3-axis / core five / core five + specialists> — <selection rationale>
+Lenses: <ran list> | <failed/empty list, by name>
+Independence grade: <A / B / C per lens; C = diagnostic only>
+
+| # | Verdict | Location | Finding | Source (lens) | Disposition |
+|---|---|---|---|---|---|
+| 1 | high | <file:line> | <finding> | security | fix now / defer / human look / noise |
+
+Review signal: REVIEW-PASS / BACK-TO-APPLY — Critical N · Warning N · Suggestion N
+Fix loop: <rounds>, cap per _shared/planning/rigor-tiers.md
+```

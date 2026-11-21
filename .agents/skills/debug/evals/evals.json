@@ -1,0 +1,23 @@
+{
+  "skill_name": "debug",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "The order export test started failing after yesterday's deploy. It passes on main but fails here with 'region code empty'. Can you figure out why before we change anything?",
+      "expected_output": "Agent announces the skill, starts Phase 1 (reads the full error, attempts a consistent repro, checks recent changes via git log/diff), creates the hypothesis trail file, and proposes NO fix until the root cause is stated. Fix, when it comes, is at the origin of the bad value with a failing test written first.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "The login endpoint returns 500s randomly — maybe 1 in 20 requests. I tried three fixes already (added a retry, changed the timeout, restarted the service) and each one just moved the problem. What's going on?",
+      "expected_output": "Agent recognizes the 3+ failed fixes red flag: stops before a 4th fix, runs the architecture question with the human (is the pattern fundamentally sound?), records the failed attempts in the trail, and either escalates or re-enters Phase 1 with the new information — it does not silently attempt Fix #4.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "There's a typo in a log message string that's been wrong since 2024. It says 'recieve' instead of 'receive'. Fix it.",
+      "expected_output": "Agent does NOT run the full four phases — it recognizes the trivial/known-cause case, states the cause in one line, makes the mechanical fix, and verifies it. No trail file, no hypothesis table.",
+      "files": []
+    }
+  ]
+}

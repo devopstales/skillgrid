@@ -1,0 +1,46 @@
+# state.yaml extension — the `genesis:` block
+#
+# This file is a TEMPLATE FRAGMENT, not a state file. Do not copy it to disk.
+# The fields below are written under the existing change entry in
+# `.skillgrid/state.yaml` (schema `skillgrid/state/v2`), in the SAME edit
+# that updates `phase` and `gate`. They never live in a separate sidecar.
+#
+# Absent `genesis:` means the defaults shown here. A reader must never fail on
+# a missing block or on an unknown key.
+#
+# Schema authority: skillgrid:_shared/rules/sdd-structure.md § state.yaml.
+# The extension is additive and does not bump the schema version.
+
+changes:
+  <YYYY-MM-DD-topic>:
+    # --- existing v2 keys, unchanged ---
+    phase: "spec"                 # spec | blueprint | slicing | execution | qa | review | ship | reflect | complete
+    status: in_progress           # in_progress | blocked | complete
+    gate: ""                      # "" = none; named gates per sdd-structure.md
+    autonomy: check-in            # check-in | autonomous
+
+    # --- extension: genesis run state (optional) ---
+    genesis:
+      independence:
+        level: ""                 # second-tool | isolated-subagent | same-context
+        grade: ""                 # A | B | C (see scoring/evaluator-protocol.md)
+        writer_model: ""          # model that produces the work
+        reviewer_model: ""        # model family that judges it
+        isolation_check: not_run  # passed | failed | not_needed
+      audit_status: ""            # pass | revise | major_rewrite
+      passes:
+        review: 0                 # completed revision passes against the review gate
+        score: 0                  # completed revision passes against the score gate
+      quality_target: 8.5         # calibrated floor the score gate compares against
+      panel: []                   # paths to panel verdicts, e.g. evaluations/panel-unit-01.md
+      decisions: []               # one-line records; the ADR body is the durable record
+      open_questions: []          # disagreements waiting on the programmer
+
+# Writers:
+#   Phase 0  sets independence.* and quality_target
+#   Phase 4  sets audit_status
+#   Phase 5  increments passes.review / passes.score
+#   Phase 6  reads everything, writes nothing
+#   ship     copies the final genesis block into report.md § Genesis BEFORE
+#            removing the change entry (the entry is gone afterwards)
+#   reflect  reads report.md § Genesis, not state.yaml
