@@ -44,6 +44,9 @@ func (c *Config) SyncRepo(srcPath string) error {
 				fmt.Fprintln(os.Stderr, "      [dry-run] copy", filepath.Join(abs, ".agents"), "→", c.AgentsDir)
 			}
 		}
+		if _, err := os.Stat(filepath.Join(abs, routerBootstrapRel)); err == nil {
+			fmt.Fprintln(os.Stderr, "      [dry-run] cp", filepath.Join(abs, routerBootstrapRel), "→", filepath.Join(c.RepoHome, "router-bootstrap.md"))
+		}
 		fmt.Fprintln(os.Stderr, "      [dry-run] git config --global core.hooksPath", filepath.Join(c.RepoHome, "git-hooks"))
 		fmt.Fprintln(os.Stderr, "      no changes were written (dry run)")
 		return nil
@@ -58,6 +61,9 @@ func (c *Config) SyncRepo(srcPath string) error {
 	fmt.Fprintln(os.Stderr, "      copied repo")
 
 	if err := syncMirrorDirs(c); err != nil {
+		return err
+	}
+	if err := syncRouterBootstrap(c); err != nil {
 		return err
 	}
 

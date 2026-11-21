@@ -15,6 +15,8 @@ package install
 // logs, config.d) are never touched — they are not in the whitelist.
 
 import (
+	"bytes"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -24,6 +26,15 @@ import (
 
 // mirrorDirs are the repo-relative directories copied to ~/.skillgrid/.
 var mirrorDirs = []string{".agents", "docs", "git-hooks", "hooks"}
+
+// routerBootstrapRel is the shared router bootstrap asset (T6,
+// 2026-11-17-skillgrid-host-plugins). Every supported host's router loads
+// this one canonical copy at session start; the installer distributes it to
+// ~/.skillgrid/router-bootstrap.md so the per-host routers reference a stable
+// path. Deliberately distributed by syncRouterBootstrap, not by the mirror:
+// the mirror is a remove-then-copy tree, while the bootstrap is a single
+// idempotent file.
+const routerBootstrapRel = ".agents/skills/_shared/agent-config/router-bootstrap.md"
 
 // mirrorCopySkip reports whether rel (relative to the copied root) must be
 // skipped: .git and node_modules at any depth.
@@ -97,6 +108,47 @@ func syncMirrorDirs(c *Config) error {
 		}
 		Out("      mirrored", dst)
 	}
+	return nil
+}
+
+// syncRouterBootstrap copies the shared router bootstrap asset into
+// ~/.skillgrid/router-bootstrap.md. Host-agnostic: every supported host's
+// router reads the same canonical copy, so it is synced once per install run
+// regardless of the selected agents (Run, after syncMirrorDirs) and on
+// every repo sync (Config.SyncRepo).
+//
+// The copy is unconditional on change: when the source and installed copy
+// are byte-identical the installed file is left untouched (idempotent
+// re-run, stable mtime), when they differ the installed copy is overwritten.
+func syncRouterBootstrap(c *Config) error {
+	src := filepath.Join(c.RepoDir, routerBootstrapRel)
+	data, err := os.ReadFile(src)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Older checkouts ship no bootstrap asset; the runtime asset
+			// resolution (repo clone, then static fallback) still covers the
+			// hosts, so a missing source skips rather than fails the install.
+			VerboseOut(c, "router bootstrap skip (source missing):", src)
+			return nil
+		}
+		return fmt.Errorf("read router bootstrap: %w", err)
+	}
+	dst := filepath.Join(c.RepoHome, "router-bootstrap.md")
+	if existing, err := os.ReadFile(dst); err == nil && bytes.Equal(existing, data) {
+		VerboseOut(c, "router bootstrap unchanged:", dst)
+		return nil
+	}
+	if c.DryRun {
+		Out("      [dry-run] cp", src, "→", dst)
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(dst, data, 0o644); err != nil {
+		return err
+	}
+	Out("      router bootstrap →", dst)
 	return nil
 }
 
