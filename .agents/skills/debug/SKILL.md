@@ -94,10 +94,16 @@ what it already ruled out.
   came from the fresh-context diagnosis (Phase 1 step 3) — they were found
   *without* the session's anchor — so they are tried before session-formed
   ones.
+- **The bookkeeping is a script, not prose** — `node .agents/skills/debug/scripts/trail.mjs <cmd> <dir>`:
+  - `trail init <dir>` — create the table (idempotent).
+  - `trail append <dir> <hypothesis> <source> <evidence> [verdict]` — add a row (verdict defaults to `open`); the only mutation.
+  - `trail open <dir>` — the rows you resume at; `trail list <dir>` — the whole table.
+  - `trail status <dir>` — JSON: `{"attempts": n, "open": n, "confirmed": n, "gate": "go" | "architecture-question"}`. **`gate: "architecture-question"` fires at 3+ fix attempts** — that is the 3-fix architecture question from Phase 4, read from the file, not recalled from memory.
+  - Fix attempts are logged as `fix-attempt: <n> — <one line>` lines in the same file; `trail count <dir>` reads them.
 - **Append as you go** — after each Phase 2 comparison and each Phase 3 test,
   before the next step. Appending at the end is too late.
-- **On resume:** read the state file first; resume at the first `open`
-  hypothesis. Ruled-out hypotheses stay ruled out — never re-test them.
+- **On resume:** run `trail status <dir>` first; resume at the first `open`
+  hypothesis (`trail open <dir>`). Ruled-out hypotheses stay ruled out — never re-test them.
 - **On close:** if the root cause is a design decision, the ADR is the durable
   record; if it is a bug, the TDD evidence in the fix commit is. The state file
   can go.
@@ -182,9 +188,11 @@ other theories; converge only when the survivors can disprove the rest.
 3. **Verify with fresh evidence:** the failing test now passes (green output
    captured), no other tests broke, and the *original* reproduction from
    Phase 1 is re-run. No done-claim without this session's output.
-4. **Failed-fix counter.** The fix did not work: count attempts.
-   Fewer than 3 → back to Phase 1 with the new information. **3+ → STOP**
-   and run the architecture question (below) with the human before attempt 4.
+4. **Failed-fix counter.** The fix did not work: append the line
+   `fix-attempt: <n> — <one line>` to `state.md`, then read
+   `trail status <dir>`. **`gate: "architecture-question"` — STOP** and run
+   the architecture question (below) with the human before attempt 4;
+   `gate: "go"` → back to Phase 1 with the new information.
    Three patches that each reveal a new problem elsewhere is a wrong
    architecture, not a hard bug.
 
@@ -291,6 +299,7 @@ Per `_shared/craft/measurement.md`.
 
 ## References
 
+- [scripts/trail.mjs](scripts/trail.mjs) — the hypothesis-trail state machine (init / append / list / open / count / status + the 3-fix gate); [scripts/test-trail.mjs](scripts/test-trail.mjs) proves it
 - [references/root-cause-tracing.md](references/root-cause-tracing.md) — backward tracing through call stacks to the origin of the bad value
 - [references/defense-in-depth.md](references/defense-in-depth.md) — validation layers to add after the root-cause fix, so the same class of defect cannot slip through again
 - `skillgrid:test-driven-verification` — the gate function for the "fixed" claim (fresh evidence, no vibes)

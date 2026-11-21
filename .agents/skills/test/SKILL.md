@@ -5,7 +5,7 @@ description: Use when a change needs testing beyond the implementation — inten
 license: MIT
 metadata:
   author: devopstales
-  version: "1.0"
+  version: "2.0"
   part-of: skillgrid
   based_on: skillgrid:qa 1.1 + skillgrid:dogfood 1.0 + skillgrid:playwright-cli 1.0 + skillgrid:jscpd 1.0 + skillgrid:codebase-refactoring 1.0 + skillgrid:dry-refactoring 1.0 + skillgrid:trivy 1.0 + skillgrid:nuclei 1.0 + skillgrid:wapiti 1.0 + skillgrid:akca 1.0 + skillgrid:owasp-security 1.0 + skillgrid:code-review 1.0 + skillgrid:receiving-code-review 1.0
 ---
@@ -39,7 +39,7 @@ Read `.skillgrid/config.yaml` before starting. Use:
 
 | Config key | Used for |
 |------------|----------|
-| `testing.runner` | Test command in the functional area |
+| `testing.runner` | Test command in the functional area and the verification the review triage and the fix loop run |
 | `testing.layers` | Available test layers (`[unit, integration, e2e]`) for layer selection |
 | `testing.coverage` / `quality.coverage_min` | Coverage command and threshold (default 80) |
 | `testing.mutation` / `quality.mutation_min` | Mutation command and threshold (default 80) |
@@ -48,7 +48,7 @@ Read `.skillgrid/config.yaml` before starting. Use:
 | `security.trivy.command` / `.severities` / `.scan_types` / `.fail_on` | Trivy invocation; `fail_on` is the severity that FAILs the gate ("" = report only) |
 | `duplication.command` / `.target` / `.fail_on` / `.formats` / `.ignore` | jscpd invocation; `fail_on` is the duplication % that FAILs the gate (0 = advisory, never block) |
 | `rules.tiers.default` | Project rigor tier (T0–T3) that selects which audits run, the verification floor, and the review topology |
-| `testing.runner` / `commands.lint` / `commands.build` | Verification the review triage and the fix loop run (test runner + lint + build) |
+| `commands.lint` / `commands.build` | Lint and build commands for the review triage and the fix loop (alongside `testing.runner`) |
 | `conventions.glossary` (default `.skillgrid/projectwiki/glossary/`) | Terms + in-force ADRs the review Standards lens checks against |
 | `mnemonic.enabled` | If `true`, persist scan findings to mnemonic (fail-open) |
 | `ticketing.enabled` | If `true`, update ticket status at gate transitions |
@@ -63,7 +63,7 @@ If a `quality:` block is absent, use the defaults shown and note in the report: 
 
 **Target URL (ask at start):** before Step 1, ask the human for a `TARGET_URL` — a reachable, authorized URL the DAST security tools (nuclei / wapiti / akca) and the functional browser pass can scan. Ask exactly once, in a single gate, and yield on the answer:
 
-- **The human provides a URL** → it unlocks the DAST tools and the browser pass; `area-scope CHANGE_DIR <url>` selects them.
+- **The human provides a URL** → it unlocks the DAST tools and the browser pass; `node scripts/area-scope.mjs CHANGE_DIR <url>` selects them.
 - **The human says there is none** (static change, no running target, or "just the static areas") → record `TARGET_URL: (none)` and the DAST tools + browser pass are `N/A — no reachable target`. Never guess a URL, and never spin up a server just to have one unless the human agrees.
 - **A URL is already named** in the briefing, a prior turn, or the change's `findings.md` → use it without re-asking.
 
@@ -90,11 +90,26 @@ Not every change needs all five areas. Select the areas the change warrants:
 
 A change that is only a refactor still runs code quality and review — those are the areas it exists for. A change that crosses a new trust boundary still runs security even if the diff is small. The review area runs **after** intent + functional render PASS or CONCERNS — there is no point reviewing standards on a diff that does not do the right thing; and at T0 it is skipped entirely (per `_shared/planning/rigor-tiers.md`).
 
+```mermaid
+flowchart TD
+    A[Step 0: ask TARGET_URL - one gate] --> B[Step 1: read the change + tier]
+    B --> C[Step 2: run selected areas]
+    C --> C1[intent]
+    C1 --> C2[functional]
+    C2 --> C3[code quality]
+    C3 --> C4[security]
+    C2 --|PASS/CONCERNS only| C5[review + fix loop]
+    C4 --> C5
+    C5 --> D[Step 3: render four-state verdict, apply the floor]
+    D --> E[commit report - spec zone]
+    E --> F[Step 4: write durable knowledge to projectwiki]
+```
+
 ## The Process
 
 ### Step 0: Ask for the Target URL
 
-Before reading the change, ask the human for a `TARGET_URL` (per the rule above). One gate, yield on the answer. Record it — `TARGET_URL: <url>` or `TARGET_URL: (none)` — in the report header; it is the input that decides whether the DAST security tools and the functional browser pass run.
+Per the `TARGET_URL` rule in Config: one gate, yield on the answer, then record `TARGET_URL: <url>` or `TARGET_URL: (none)` in the report header before reading the change.
 
 ### Step 1: Read the Change
 
@@ -121,7 +136,7 @@ The review area runs only after intent + functional render PASS or CONCERNS (or 
 
 ### Step 3: Render the Verdict
 
-Complete the report from [templates/report.md](templates/report.md) and render the four-state gate:
+Complete the report from [templates/report.md](templates/report.md) and render the four-state gate — **the matrix is a script**: `node .agents/skills/test/scripts/verdict-render.mjs` (JSON in, JSON out). Feed it the area signals as the input shape in the script's header (each area's state per the criteria below); it returns `{verdict, floor_area, floor_reasons, non_answers, needs_human, notes}`. The matrix below is the contract the script implements — when they disagree, the script's output is the render and the matrix text is the bug to fix:
 
 | Verdict | Criteria |
 |---------|----------|
@@ -237,21 +252,13 @@ On-demand detail for this skill, in `references/`:
 
 - [intent-testing.md](references/intent-testing.md) — goal-backward verification of the briefing's truths and the acceptance scenarios; the four levels (Truth / Artifact / Key Link / Data Flow) and the status definitions.
 - [functional-testing.md](references/functional-testing.md) — the test suite, layer selection, cadence, the exploratory browser pass (driven by `playwright-cli`), and the regression check on the diff.
-- [playwright-cli.md](references/playwright-cli.md) — the browser automation tool: full command reference (open / navigate / interact / find / storage / network / devtools / sessions), raw output, snapshots, targeting elements, installation, and the task-specific guides below.
-- [playwright-tests.md](references/playwright-tests.md) — running and debugging Playwright tests (`npx playwright test`).
-- [request-mocking.md](references/request-mocking.md) — intercepting, mocking, and blocking network requests.
-- [running-code.md](references/running-code.md) — `run-code` for arbitrary Playwright code beyond the CLI commands.
-- [session-management.md](references/session-management.md) — concurrent named browser sessions with state persistence.
-- [storage-state.md](references/storage-state.md) — cookies, localStorage, sessionStorage, and storage state files.
-- [test-generation.md](references/test-generation.md) — authoring and maintaining Playwright tests (plan → generate → heal) from `playwright-cli`'s generated code.
-- [tracing.md](references/tracing.md) — execution traces for debugging (DOM snapshots, screenshots, network, console).
-- [video-recording.md](references/video-recording.md) — WebM video capture with chapters and action callouts.
-- [pr-attachments.md](references/pr-attachments.md) — attaching screenshots and videos to PRs via `gh --attach`.
-- [element-attributes.md](references/element-attributes.md) — inspecting DOM attributes the snapshot does not show.
+- [playwright-cli.md](references/playwright-cli.md) — the browser automation tool: full command reference (open / navigate / interact / find / storage / network / devtools / sessions), raw output, snapshots, targeting elements, installation.
+- `references/playwright/` — the ten task-specific browser guides, loaded only when the functional area's browser pass needs one: tests (run/debug), request-mocking, running-code, session-management, storage-state, test-generation, tracing, video-recording, pr-attachments, element-attributes.
 - [code-quality.md](references/code-quality.md) — jscpd: clone kinds, the health/dashboard score, the summary hotspots, dead code, and the coverage/mutation/lint/typecheck/P0/P1 gates.
 - [security.md](references/security.md) — the five tools: trivy, nuclei, wapiti, akca, owasp-security; when to run each, the triage rubric, and the finding block.
-- [review-and-fix-loop.md](references/review-and-fix-loop.md) — the topology-driven code review (Standards / Spec / Security + conditional specialists, red team last), the Blindness Contract, the six-value verdict table, and the receiving-code-review fix loop (triage → fix → validate → repeat).
+- [review-and-fix-loop.md](references/review-and-fix-loop.md) — the topology-driven code review (Standards / Spec / Security + conditional specialists, red team last), the Blindness Contract, the six-value verdict table, and the receiving-code-review fix loop (triage → fix → validate → repeat). When the diff touches a REST surface, the review area checks the contract against [api-design.md](../execute/references/api-design.md) (resource naming, semantic status codes, the envelope, pagination, and the breaking-vs-non-breaking versioning decision).
 
 Scripts in `scripts/`:
 
-- `area-scope CHANGE_DIR [TARGET_URL]` — emit the area-selection table for a change (which areas to run, which are N/A, and why), from the change shape. Exit 0 = selection made, 2 = usage error.
+- `node scripts/area-scope.mjs CHANGE_DIR [TARGET_URL]` — emit the area-selection table for a change (which areas to run, which are N/A, and why), from the change shape. Exit 0 = selection made, 2 = usage error.
+- `node scripts/verdict-render.mjs [input.json]` — the four-state gate as one call (area signals in → `{verdict, floor_area, floor_reasons, non_answers, needs_human}` out); the matrix in Step 3 is the contract it implements. Exit 0 = rendered, 2 = usage.

@@ -9,6 +9,7 @@
     "projectwiki": "large",
     "ship": "large",
     "test": "large",
+    "brainstorm": "large",
     "execute": "external",
     "blueprint": "external",
     "slicing": "xl",
@@ -16,17 +17,18 @@
     "codebase-refactoring": "large"
   },
   "skills": {
-    "blueprint": 48781,
-    "brainstorm": 19824,
+    "blueprint": 51403,
+    "brainstorm": 23270,
     "codebase-refactoring": 26191,
-    "debug": 14664,
-    "execute": 44030,
+    "debug": 17978,
+    "execute": 48972,
     "product-ui": 13580,
-    "ship": 31519,
-    "skill-creator": 28447,
-    "skillgrid": 10782,
-    "slicing": 35386,
-    "test": 26303,
-    "_shared": 5586
+    "ship": 34350,
+    "skill-creator": 31967,
+    "skillgrid": 11895,
+    "slicing": 37166,
+    "test": 26742,
+    "_shared": 5697,
+    "youtube-transcript": 1656
   }
 }

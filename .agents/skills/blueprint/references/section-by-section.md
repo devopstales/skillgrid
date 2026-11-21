@@ -22,7 +22,7 @@ explicit and adds the confirmation gate.
 ## Section order (R19)
 
 The drafting order: Phase 1 (Research) → Header → Hypothesis →
-Must-Haves → Threat Matrix (if applicable) → File Structure → Global
+Must-Haves → Validation → Threat Matrix (if applicable) → File Structure → Global
 Constraints → Tasks 1..N → Phase 3 (Project Wiki) → Phase 4 (Prototype,
 if the user opted in) → Self-Review → Phase 5 (Commit).
 
@@ -41,6 +41,8 @@ SKILL.md section — cite, don't restate):
   "Plan header and task structure" + `templates/blueprint.md`
 - **Hypothesis** — `SKILL.md` → "Hypothesis"
 - **Must-Haves** — `SKILL.md` → "Must-Haves (Goal-Backward Verification)"
+- **Validation** — `SKILL.md` → "Validation Matrix" (one row per in-scope
+  requirement: happy / edge / failure / check / falsifier)
 - **Threat Matrix (if applicable)** — `SKILL.md` → "Threat Matrix"
 - **File Structure** — `SKILL.md` → "File Structure"
 - **Global Constraints** — the header scaffold's `## Global Constraints`

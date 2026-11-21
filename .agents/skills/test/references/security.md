@@ -37,6 +37,8 @@ trivy fs --format spdx-json --output sbom.json .
 
 Adjust per config: `security.trivy.severities` → `--severity`, `security.trivy.scan_types` → `--scanners`.
 
+**Reading results (trivy MCP, when wired):** the `trivy` MCP server (run as `trivy mcp`) exposes `findings_list` / `findings_get` over the scan results. When it is connected, run the scan as above with a `-json-export`/`-o` output file, then read the findings as structured data via the MCP tools instead of parsing the terminal — `findings_list` to enumerate, `findings_get` for the full detail on a load-bearing one. The MCP reads results; it does not run the scan, so the CLI commands above are still the scan itself. If the MCP is not wired, triage from the exported JSON directly.
+
 **Classify each finding:**
 
 | Scanner | Severity | Classification |

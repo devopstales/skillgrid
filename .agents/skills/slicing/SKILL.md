@@ -4,12 +4,12 @@ description: Use after writing a blueprint to break it into vertical tracer-bull
 license: MIT
 metadata:
   author: devopstales
-  version: "1.0"
+  version: "2.0"
   part-of: skillgrid
   based_on: skillgrid:slicing 1.1 + skillgrid:ticketing 1.0
 ---
 
-# Sliece
+# Slicing
 
 ## Contents
 - Config / When to Use / Fast-Track Classification
@@ -22,6 +22,21 @@ Break a blueprint into vertical tracer-bullet tickets that each fit a single fre
 **Announce at start:** "I'm using the skillgrid:slicing skill to slice the blueprint into executable tickets and publish them to the tracker."
 
 This skill merges two former skills: `slicing` (blueprint → `tasks.md`) and `ticketing` (tracker publication + status lifecycle). The flow is one continuous pass: slice, then publish, then record IDs — no handoff between skills.
+
+```mermaid
+flowchart TD
+    A[Fast-track classification] --> B[Step 1: read blueprint + briefing]
+    B --> C[Step 2: identify vertical slices]
+    C --> D[Step 3: map dependency edges]
+    D --> E[Step 3.5: forecast review workload]
+    E --> F[Step 4: group into execution waves]
+    F --> G[Step 5: write tasks.md + slicing self-review]
+    G --> H[Part 2: Step 6 read input]
+    H --> I[Step 7: publish - discovery, duplicate check, privacy review]
+    I --> J[Step 8: record tracker IDs back into tasks.md]
+    J --> K[Step 9: report + set user-gate-slice]
+    K -->|user: Implement| L[skillgrid:execute]
+```
 
 ## Config
 
@@ -219,6 +234,8 @@ Before publishing tickets, check:
 5. **Waves are correct** — no ticket appears in a wave before its blockers are in earlier waves
 6. **No orphan work** — every task in the blueprint is covered by at least one ticket
 7. **Acceptance criteria are falsifiable** — each ticket's acceptance criteria can be checked pass/fail
+8. **Validation matrix is complete** — every requirement in `briefing.md` has a row in `blueprint.md`'s `## Validation` (happy / edge / failure / check / falsifier). A planner that dropped a requirement from the matrix is silently descopeing it: the slice is not publishable until the matrix covers the briefing (run `node .agents/skills/slicing/scripts/requirement-coverage.mjs <change-dir>` when the script is present — it prints the uncovered requirement IDs and exits 1; when it is absent, the check is the mechanical enumeration the script performs)
+9. **Traceability is closed** — the script's `satifies_checked` run also crosses `tasks.md` `SATISFIES:` against `acceptance.feature`: every scenario a ticket claims must exist, and every scenario must be claimed by at least one ticket (a scenario no ticket names is an acceptance spec written for nothing; a ticket that claims a missing scenario is a broken oracle). Findings `satifies-dangling` and `scenario-unclaimed` both block publish — fix the plan or the feature file, then re-run. The check skips (and reports `satifies_checked: false`) only when `tasks.md` or `acceptance.feature` is absent — a blueprint without slicing yet
 
 If any check fails, fix the slicing before continuing.
 

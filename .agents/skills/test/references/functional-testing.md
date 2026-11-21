@@ -44,7 +44,7 @@ A test that runs nightly but not on PR is not blocking — it's a regression net
 
 ## The Browser Pass (when a URL is reachable)
 
-If the change is user-facing and a URL is reachable (local dev server, preview, or a target the human names), do an exploratory pass with `playwright-cli` (full command reference: [playwright-cli.md](playwright-cli.md)):
+If the change is user-facing and a URL is reachable (local dev server, preview, or a target the human names), do an exploratory pass. Pick the driver in this order: the `agent-browser` MCP if it is wired in the session (tool names `agent_browser_*` — see below), else `playwright-cli` (full command reference: [playwright-cli.md](playwright-cli.md)). The steps are identical either way; the tool names map 1:1 (`open`/`goto` → navigate, `snapshot`, `click`, `fill`, `press`, `eval`, `console`, `screenshot`, `close`).
 
 1. **Plan** — sketch the sitemap under test: landing, nav, the changed flows, forms, edge states (empty, error, 404).
 2. **Explore** — `open <url>` → `snapshot` → **check the console (`console`) after every nav + interaction** → exercise interactives via refs from the snapshot (`fill`, `click`, `press`; valid + invalid + empty inputs, keyboard, scroll) → after each interaction re-check console and expected-vs-actual. Search a large snapshot with `find` instead of capturing it all; `eval` for DOM facts the snapshot omits.
@@ -52,7 +52,9 @@ If the change is user-facing and a URL is reachable (local dev server, preview, 
 
 The browser pass finds what the suite does not specify. A genuine correctness bug surfaced here is reported as a separate "found a bug" note, not folded into cleanup. Close the session when done (`close`). If `playwright-cli` is not installed, fall back per [playwright-cli.md](playwright-cli.md) § Installation (`npx playwright cli`, else `npm install -g @playwright/cli@latest`) — and if no browser tooling is available at all, say so and stop: don't narrate a test you can't run.
 
-**Evidence:** capture `screenshot` (or `video-start`/`video-stop`) of the failure state when a bug is found, and `--raw snapshot` before/after for behavioral deltas — the report section below carries these as the pass's evidence. Attach a screenshot or short video to the PR when it saves the reviewer a checkout ([pr-attachments.md](pr-attachments.md)).
+**agent-browser MCP (preferred when wired):** the `agent-browser` MCP server (run as `agent-browser mcp --tools all`) drives a real browser with the same snapshot-ref model as `playwright-cli`. Prefer it over the CLI when present: `agent_browser_open` / `agent_browser_goto` → `agent_browser_snapshot` (stable element refs) → `agent_browser_click` / `agent_browser_type` / `agent_browser_press` on refs → `agent_browser_console` after every nav + interaction → `agent_browser_screenshot` for evidence. Use `agent_browser_tab_list` to track multiple tabs and the `session` parameter to keep the pass in an isolated browser session. If the MCP is wired but a call fails (browser not launchable, no display), say so and fall back to `playwright-cli` for the same steps — don't silently skip the pass.
+
+**Evidence:** capture `screenshot` (or `video-start`/`video-stop`) of the failure state when a bug is found, and `--raw snapshot` before/after for behavioral deltas — the report section below carries these as the pass's evidence. Attach a screenshot or short video to the PR when it saves the reviewer a checkout ([pr-attachments.md](playwright/pr-attachments.md)).
 
 ## The Regression Check
 

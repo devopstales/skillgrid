@@ -43,6 +43,8 @@ The lens set (templates live in `skillgrid:code-review`'s `reviewers/` directory
 | Performance | N+1, hot paths, network, caching, rendering | diff touches data access / rendering |
 | Red team | what the others missed | always, runs last |
 
+**When the diff touches a REST surface** (a new/changed resource, route, contract, or status code), the Standards and Spec lenses review it against the conventions in [api-design.md](../../execute/references/api-design.md) — resource naming, semantic status codes (200-for-everything, missing `Location` on 201, 500-for-validation, 401-vs-403), the response envelope, and the breaking-vs-non-breaking versioning decision. A breaking change without a new version is a CRITICAL finding, not a suggestion.
+
 ### Blindness Contract
 
 The value of a review is its independence from the producer. Every lens is a **fresh subagent context** that sees only the work product — the diff and the sources named for that lens — never the coordinator's session history, rationale, or self-assessment.

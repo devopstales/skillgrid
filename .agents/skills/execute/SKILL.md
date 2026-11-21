@@ -153,7 +153,7 @@ Before dispatching Task 1 (subagent mode) or starting the first task (inline mod
    Ready to implement <feature-name>
    ```
 
-2. Run `scripts/sdd-workspace PLAN_FILE` (from this skill's directory) to get this plan's git-ignored workspace
+2. Run `node scripts/sdd-workspace.mjs PLAN_FILE` (from this skill's directory) to get this plan's git-ignored workspace
 3. Establish the progress ledger at `<workspace>/progress.md` (your recovery map that survives compaction — trust it and `git log` over your recollection after compaction)
 4. Read the plan (or `tasks.md` if `skillgrid:slicing` produced one)
 5. Run the pre-flight conflict scan
@@ -220,7 +220,7 @@ Before dispatching Task 1, decompose the plan and gate each task on its own owne
 - **Give each task exact file ownership and its dependencies.** Record two ledger lines per task before dispatch: `Task <N>: Owns: <repo-relative globs>` and `Task <N>: Needs: <task ids or interfaces it builds on>`. These are coordination metadata, not a filesystem sandbox — a task may still read outside its `Owns`, but it may not write to another in-flight task's `Owns`.
 - **Dependency-gated dispatch.** Dispatch a task only when every task named in its `Needs:` has a `Task <M>: complete` ledger line. For a plan of independent tasks this is a no-op; for a coupled plan it is the missing safety. Never dispatch a task whose declared dependency is still in flight.
 - **Branch integration gate.** If two or more tasks share an interface or file, name the task that *integrates* them and give it an extra `G<n>` gate: the child tasks' outputs compose and the shared interface holds end-to-end. This gate is independent of the child leaves — it verifies the branch, not just the parts. If it cannot be made runnable, it is a `manual` gate you review at the final review, not a silent skip.
-- **Parent re-verify.** A leaf's self-pass does not count as verification. Before marking a task complete, re-run its `#### Gates` oracles yourself (the runnable `CHECK:`+`EXPECT:` lines) — see `skillgrid:test-driven-verification`. The implementer's report is a claim; your re-run is the evidence.
+- **Parent re-verify.** A leaf's self-pass does not count as verification. Before marking a task complete, re-run its `#### Gates` oracles yourself (the runnable `CHECK:`+`EXPECT:` lines) — see `skillgrid:test-driven-verification`. The implementer's report is a claim; your re-run is the evidence. **Filesystem as truth:** a return message is never the completion signal. Spot-check the worker's claimed artifacts on disk and `git log --grep=<task-id>` for its commit before marking the task done — a worker whose claims do not match disk or git is not done, whatever the message says (a lost return message with the artifact on disk is still done; a green message with nothing on disk is not).
 
 Inline mode: the same discipline applies to the session itself — gates run before code, and a task's verification is the evidence, not a self-report.
 
@@ -246,8 +246,8 @@ Full per-role rules and complexity signals: [model-selection.md](references/mode
 
 The task loop — dispatch, review, fix rounds, the round-5 breaker, and the per-task cycle: [task-loop.md](references/task-loop.md).
 
-- Dispatch an implementer per the template in [implementer-prompt.md](references/implementer-prompt.md) with a complete task brief (the `scripts/task-brief PLAN_FILE N` output path in the prompt).
-- After each implementer: generate the review package (`scripts/review-package PLAN_FILE BASE HEAD`) and dispatch the task reviewer per [task-reviewer-prompt.md](references/task-reviewer-prompt.md) — spec compliance + code quality.
+- Dispatch an implementer per the template in [implementer-prompt.md](references/implementer-prompt.md) with a complete task brief (the `node scripts/task-brief.mjs PLAN_FILE N` output path in the prompt).
+- After each implementer: generate the review package (`node scripts/review-package.mjs PLAN_FILE BASE HEAD`) and dispatch the task reviewer per [task-reviewer-prompt.md](references/task-reviewer-prompt.md) — spec compliance + code quality.
 - Findings: fix rounds up to 5 (rounds ≤3 resume the implementer; rounds ≥4 a fresh implementer on a more capable model), each ending with a scoped re-review per [re-review-prompt.md](references/re-review-prompt.md). At the cap, adjudicate each open finding and ledger the ruling.
 
 **Why subagents:** you delegate tasks to specialized agents with isolated context. By precisely crafting their instructions and context, you ensure they stay focused and succeed. They never inherit your session's context or history — you construct exactly what they need. This also preserves your own context for coordination.
@@ -311,7 +311,7 @@ The QA gate answers "was the goal achieved and would verification catch a regres
 
 ### Subagent mode — final whole-branch review
 
-Once every task is complete and `skillgrid:qa` has passed, run the whole-branch review: package the branch diff (`scripts/review-package PLAN_FILE MERGE_BASE HEAD` from this skill's directory), run `skillgrid:code-review` per its topology on the most capable model — the 3-axis pass at small/low-risk, the fan-out at the review escalation threshold (per `_shared/planning/rigor-tiers.md`) — and present the reports side by side. Findings get ONE fix subagent + one scoped re-review, then the breaker adjudicates — there is no second fix wave.
+Once every task is complete and `skillgrid:qa` has passed, run the whole-branch review: package the branch diff (`node scripts/review-package.mjs PLAN_FILE MERGE_BASE HEAD` from this skill's directory), run `skillgrid:code-review` per its topology on the most capable model — the 3-axis pass at small/low-risk, the fan-out at the review escalation threshold (per `_shared/planning/rigor-tiers.md`) — and present the reports side by side. Findings get ONE fix subagent + one scoped re-review, then the breaker adjudicates — there is no second fix wave.
 
 Full protocol, escalation threshold, and fix-wave rules: [final-review.md](references/final-review.md).
 
@@ -403,6 +403,7 @@ Per `_shared/craft/measurement.md`.
 - Implementation started before the acceptance scenario was confirmed RED
 - A commit stages both `.skillgrid/change-specs/` and code (zone guard violation)
 - Task marked completed with no captured test output or exit code
+- A task marked complete on the implementer's return message alone — the claimed artifact or commit was not spot-checked on disk / in git
 - QA gate hit FAIL and the fix was applied without a failing test first
 - Ticket status jumped past `review` to `done` without a clean review
 - Work started on main/master without explicit user consent
@@ -465,6 +466,6 @@ Code style guides in `style-guides/` — Google's official per-language style co
 
 Scripts in `scripts/`:
 
-- `task-brief PLAN_FILE N [OUTFILE]` — extract one task's full text into a brief file the implementer reads in one call.
-- `sdd-workspace PLAN_FILE` — create/verify this plan's git-ignored workspace.
-- `review-package PLAN_FILE BASE HEAD` — package a diff for review.
+- `node scripts/task-brief.mjs PLAN_FILE N [OUTFILE]` — extract one task's full text into a brief file the implementer reads in one call.
+- `node scripts/sdd-workspace.mjs PLAN_FILE` — create/verify this plan's git-ignored workspace.
+- `node scripts/review-package.mjs PLAN_FILE BASE HEAD` — package a diff for review.

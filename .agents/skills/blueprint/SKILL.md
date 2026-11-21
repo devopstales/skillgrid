@@ -153,8 +153,8 @@ not in one pass and reviewed at the end. Protocol:
   `findings.md` if present, `adr.md` if present; present a 2–3 sentence summary
   of the briefing's key decisions; the user confirms the drafting context.
 - **Section order (R19):** the fixed drafting order — Header → Hypothesis →
-  Must-Haves → Threat Matrix (if applicable) → File Structure → Global
-  Constraints → Tasks 1..N → Self-Review → Commit. Each section carries its
+  Must-Haves → Validation → Threat Matrix (if applicable) → File Structure →
+  Global Constraints → Tasks 1..N → Self-Review → Commit. Each section carries its
   content contract (pointed at the SKILL.md section that defines it). The final
   document's layout follows `templates/blueprint.md`.
 - **Per-section gate (R19):** after each section is written to `blueprint.md`,
@@ -557,6 +557,15 @@ to a task that implements it? List any gaps.
 links) cover every spec requirement? If a spec requirement has no corresponding
 truth, artifact, or key link, the plan won't verify correctly — add it.
 
+**2. Must-haves + validation coverage:** does the Must-Haves section (truths, artifacts, key
+links) cover every spec requirement? If a spec requirement has no corresponding
+truth, artifact, or key link, the plan won't verify correctly — add it. Does
+`## Validation` carry a row for every
+in-scope spec requirement (happy / edge / failure / check / falsifier), with
+the check naming a runnable command or named gate? A requirement with no row
+is a plan defect — add the row. A `backstop` truth's held-out test must appear
+in its Check cell.
+
 **3. One-way-door completeness:** Are all hard-to-reverse decisions listed in
 the Must-Haves section AND tagged with `> ⚠ one-way:` on the task that
 implements them? If a migration, API change, or contract break is in a task but
@@ -856,7 +865,7 @@ Per `_shared/craft/measurement.md`.
       and the Section Approval Gate on the spec was approved.
 - [ ] **Phase 6** — the final `blueprint.md` and `acceptance.feature` are
       committed; the Self-Review
-      (all 7 checks including wiki reconciliation) ran; the Goldfish review
+      (all checks including validation-matrix coverage and wiki reconciliation) ran; the Goldfish review
       produced a verdict — READY FOR EXECUTION (findings resolved or parked per
       the loop), not NEEDS REVISION; the user-decide-then-fix loop ran and the
       final blueprint was approved.

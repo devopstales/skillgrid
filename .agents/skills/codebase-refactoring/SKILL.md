@@ -73,6 +73,17 @@ the same one-line summary shown above, not the breakdown, so don't reach for
 it expecting more than the score. Use `--reporters json` on `--dashboard` if
 you need the detail in a parseable form.
 
+**Complementary health signal (codescene MCP, when wired):** the `codescene`
+MCP server (`@codescene/codehealth-mcp`) measures a different thing — a Code
+Health score, not duplication / dead-code / complexity. Use it for the
+before/after delta, not for the refactoring decisions: `code_health_score`
+for a quick number on the file about to change, `code_health_review` for the
+file-level detail, and `analyze_change_set` before the PR for the
+branch-level view. Quote the score delta (before → after) in the report as
+the health outcome; let jscpd's sub-scores drive which dimension to fix.
+If the MCP is not wired, skip this — jscpd's health score is sufficient on
+its own.
+
 **Measurement discipline** (from `skillgrid:codebase-inspection`): the number
 must come from a stated tool, and the scope must exclude dependency/build
 dirs. Record the tool that produced the score and the `<path>` it scanned, so

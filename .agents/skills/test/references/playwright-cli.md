@@ -470,17 +470,17 @@ playwright-cli screenshot --filename=settings-after.png
 gh pr comment 123 --body "Settings page after the fix." --attach ./settings-after.png
 ```
 
-See [pr-attachments.md](pr-attachments.md) for alt text, inline references, size limits and attaching test artifacts from CI.
+See [pr-attachments.md](playwright/pr-attachments.md) for alt text, inline references, size limits and attaching test artifacts from CI.
 
 ## Specific tasks
 
-* **Running and Debugging Playwright tests** [playwright-tests.md](playwright-tests.md)
-* **Request mocking** [request-mocking.md](request-mocking.md)
-* **Running Playwright code** [running-code.md](running-code.md)
-* **Browser session management** [session-management.md](session-management.md)
-* **Storage state (cookies, localStorage)** [storage-state.md](storage-state.md)
-* **Test generation (plan / generate / heal)** [test-generation.md](test-generation.md)
-* **Tracing** [tracing.md](tracing.md)
-* **Video recording** [video-recording.md](video-recording.md)
-* **Attaching screenshots and videos to pull requests** [pr-attachments.md](pr-attachments.md)
-* **Inspecting element attributes** [element-attributes.md](element-attributes.md)
+* **Running and Debugging Playwright tests** [playwright-tests.md](playwright/playwright-tests.md)
+* **Request mocking** [request-mocking.md](playwright/request-mocking.md)
+* **Running Playwright code** [running-code.md](playwright/running-code.md)
+* **Browser session management** [session-management.md](playwright/session-management.md)
+* **Storage state (cookies, localStorage)** [storage-state.md](playwright/storage-state.md)
+* **Test generation (plan / generate / heal)** [test-generation.md](playwright/test-generation.md)
+* **Tracing** [tracing.md](playwright/tracing.md)
+* **Video recording** [video-recording.md](playwright/video-recording.md)
+* **Attaching screenshots and videos to pull requests** [pr-attachments.md](playwright/pr-attachments.md)
+* **Inspecting element attributes** [element-attributes.md](playwright/element-attributes.md)

@@ -380,7 +380,11 @@ the budget JSON records the last-known size.
 
 **Budget file:** `.agents/skills/_shared/skill-size-budget.json` — `{ ceiling, tiers, skills }`.
 
-**CLI:** `node .agents/skills/qa/scripts/skill-size-budget.mjs check [--write] [project-root]`.
+**CLI:** `node scripts/skill-size-budget.mjs check [--write] [project-root]` —
+shipped in the skill source repo at
+`.agents/skills/skill-creator/scripts/skill-size-budget.mjs`; consumer projects
+run it from their installed skill tree (the same path shape this rule's other
+scripts use — the `qa` skill's QA path runs the check before rendering the gate).
 
 **Tiers:** `standard` 22KB (default), `large` 38KB, `xl` 40KB. Skills
 explicitly assigned a tier in the `tiers` map; unlisted skills use `standard`.

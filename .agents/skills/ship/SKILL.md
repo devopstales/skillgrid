@@ -112,6 +112,8 @@ Before any step:
 
 If a hard gate fails, **STOP and return `blocked`** with the failing gate named. Do not reflect, do not move.
 
+**The gate read is one call** — `node .agents/skills/ship/scripts/ship-gates.mjs <change-dir>` (read-only, pre-move). It returns `{qa, qa_blocks, qa_needs_override, review, review_needs_override, blocked, block_reason, findings}`: the `report.md` → `## Gate Decision` verdict + the unresolved-CRITICAL scan, and the `review.md` → `## Verdict` + Grade-C axes. `blocked: true` (exit 1) with `block_reason` `qa-failed` / `qa-critical-unresolved` / `qa-unverifiable` → return `blocked`. `qa_needs_override` / `review_needs_override` are the human decisions to surface — the script names them, it never makes them. When the script is absent, the gate read is the mechanical table above.
+
 ## What to Do
 
 ### Step 1: Verify Tests on the Current Tree
@@ -241,36 +243,25 @@ Which option?
 
 ### Step 7: Archive (mechanical move — LAST step)
 
-The change folder moves from `change-specs/` (active) to `change-archive/` (closed historical record). A **mechanical filesystem operation** — content MUST NEVER pass through the model's Read/Write path. One shell transaction:
+The change folder moves from `change-specs/` (active) to `change-archive/` (closed historical record). A **mechanical filesystem operation** — content MUST NEVER pass through the model's Read/Write path. One call:
 
 ```bash
-snapshot_root="$(mktemp -d "${TMPDIR:-/tmp}/ship.move.XXXXXX")"
-trap 'rm -rf -- "$snapshot_root"' EXIT
-cp -R ".skillgrid/change-specs/YYYY-MM-DD-<topic>" "$snapshot_root/source"
-
-mkdir -p .skillgrid/change-archive
-if ! git mv ".skillgrid/change-specs/YYYY-MM-DD-<topic>" ".skillgrid/change-archive/YYYY-MM-DD-<topic>"; then
-  mv ".skillgrid/change-specs/YYYY-MM-DD-<topic>" ".skillgrid/change-archive/YYYY-MM-DD-<topic>" || exit $?
-fi
-
-# The source must be gone before comparing.
-if [ -e ".skillgrid/change-specs/YYYY-MM-DD-<topic>" ]; then
-  printf 'archive move left the source directory in place\n' >&2; exit 1
-fi
-
-# MANDATORY readback: only an empty diff passes.
-diff -r "$snapshot_root/source" ".skillgrid/change-archive/YYYY-MM-DD-<topic>" || exit $?
+node .agents/skills/ship/scripts/ship-archive.mjs YYYY-MM-DD-<topic>
 ```
 
-- The readback compares the archived folder against the **pre-move snapshot** — no model readback, no staged tree, no post-move source. Any non-empty `diff -r` output **FAILS** the phase.
+The script performs the whole transaction: pre-move snapshot → `git mv` (plain `mv` fallback for non-git trees) → source-gone check → **mandatory `diff -r` readback** against the pre-move snapshot → `state.yaml` close-out (remove `changes.<topic>`, increment `completed_changes`) → `state-lock release`.
+
+- **Exit 0 = clean move.** Read the JSON: `moved: true`, `readback: ""` (empty = pass), `source_gone: true`, `state.completed_changes` is the new counter. Any other shape **FAILS** the phase.
+- **Exit 2 = refused before any mutation** (no source folder, or the archive target already exists — the archive is an audit trail, never overwritten). Nothing was touched; fix and re-run.
+- **Exit 1 = move failed mid-transaction** (non-empty readback, or source left in place). Inspect the JSON `readback` field verbatim.
 - Commit the move (Step 5, commit 2) after the readback passes.
 - **The archive is an audit trail** — created lazily if absent; archived changes are never deleted or modified after the move. A defect found after archiving becomes a new change, not an edit.
-- If shell access is unavailable, STOP and return `blocked` (reason `shell-access-unavailable`) — do not fall back to Read/Write moving.
+- If Node/shell access is unavailable, STOP and return `blocked` (reason `shell-access-unavailable`) — do not fall back to Read/Write moving.
 
-**Close out state** (same edit):
+**Close out state** (the script does the file edits — you only verify the JSON reports them):
 
-- `state.yaml`: remove the `changes.<topic>` entry from the map, increment `progress.completed_changes`. (If the change was blocked, also decrement `progress.blocked_changes`.)
-- Session lock: run `node scripts/state-lock.mjs release <topic>` (always exit 0 — no-op if the lock doesn't name this change).
+- `state.yaml`: `changes.<topic>` entry removed, `progress.completed_changes` incremented. (If the change was blocked, also decrement `progress.blocked_changes` — the script leaves blocked changes to you, one manual line.)
+- Session lock: the script calls `state-lock.mjs release <topic>` when it finds one (JSON `lock` field); a missing script is reported, not fatal.
 - Mnemonic (skip if `mnemonic.enabled` is `false` — degrade explicitly, never fail silently):
 
 ```
@@ -346,7 +337,7 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 - **The acceptance verdict is advisory.** `rejected` is recorded and surfaced, never a hard block. The human decides follow-up.
 - **The environment retro proposes, never implements.** Real builds become tickets + `mem_save`, not edits made in this phase.
 - **Documentation writes from the record.** `git log` + `git diff` + the change folder are the sources; the AI's memory of its own work is not.
-- **The move is mechanical** — `git mv`/`mv` via the shell only, never model Read/Write, with a `diff -r` readback (empty = only passing evidence, verbatim in the result) after it.
+- **The move is mechanical** — one call to `ship-archive.mjs`, never model Read/Write and never hand-rolled `git mv` + `diff -r`, with an empty `diff -r` readback (empty = only passing evidence, verbatim in the JSON) after it.
 - **The move is the LAST step** — everything that must be archived (retro half, environment retro, docs, wiki pages) is committed before the folder leaves `change-specs/`.
 - **The archive is an audit trail** — never deleted or modified after the move. A post-archive defect is a new change.
 - **The integration decision (merge / PR / keep / discard) is the user's** — present the menu and wait. Discard happens only on the typed word `discard`.
@@ -406,7 +397,7 @@ Per `_shared/craft/measurement.md`.
 - A learning in the report with no source — no file:line, commit, ticket, or scenario cited.
 - The QA gate shows `FAIL` or an unresolved CRITICAL but the phase proceeds instead of returning `blocked`.
 - The workspace guard was skipped in a read-only workspace or across an unsafe boundary.
-- The archive move used model Read/Write instead of `git mv`/`mv`, or the `diff -r` readback is non-empty or absent.
+- The archive move was done by hand (model Read/Write, or ad-hoc `git mv` + manual `diff -r`) instead of `ship-archive.mjs` — or the script's `readback` field is non-empty or missing from the JSON.
 - A claim in the docs that names no commit, file, or change-folder source — an invented line.
 - A reusable Lesson/Surprise recorded only as a one-off, never routed to the governing skill or `_shared` rule — the next change repeats it.
 - A projectwiki page written without its `projectwiki index` run (`status --json` shows `stale > 0`).
@@ -422,12 +413,14 @@ Per `_shared/craft/measurement.md`.
 - [ ] Human-facing records written from the real diff (spot-check at least three claims against their source); the `report.md` verdict is named in the PR body / release note.
 - [ ] Projectwiki pages (if any) have valid frontmatter + 2+ outgoing wikilinks; `projectwiki index` ran in the same edit; `validate` + `lint` show no new findings.
 - [ ] Close-out committed per the work-unit commit contract (conventional subject, no AI-attribution trailer, `[skillgrid-context]` block; spec zone before code zone).
-- [ ] The archive move is mechanical (`git mv`/`mv`) with an empty `diff -r` readback against the pre-move snapshot; the change folder is at `.skillgrid/change-archive/YYYY-MM-DD-<topic>/` and the source is gone.
-- [ ] `state.yaml` updated (change entry removed, `completed_changes` incremented); session lock released; `mem_save` done (or explicitly degraded).
+- [ ] The archive move ran via `ship-archive.mjs` with exit 0 and JSON `moved: true`, `readback: ""`, `source_gone: true`; the change folder is at `.skillgrid/change-archive/YYYY-MM-DD-<topic>/`.
+- [ ] The script's JSON reports the `state.yaml` close-out (entry removed, `completed_changes` incremented); session lock released (JSON `lock` field); `mem_save` done (or explicitly degraded).
 - [ ] The Return Envelope is rendered with the acceptance verdict, gate results, integration evidence, move evidence, and rollback plan.
 
 ## References
 
+- [scripts/ship-gates.mjs](scripts/ship-gates.mjs) — the pre-mutation gate read as one call (report.md verdict + unresolved-CRITICAL scan, review.md verdict + Grade-C axes → `blocked` / override flags); [scripts/test-ship-gates.mjs](scripts/test-ship-gates.mjs) proves it
+- [scripts/ship-archive.mjs](scripts/ship-archive.mjs) — the Step 7 archive move as one call (snapshot → `git mv` → source-gone check → `diff -r` readback → `state.yaml` close-out → lock release); [scripts/test-ship-archive.mjs](scripts/test-ship-archive.mjs) proves it
 - [../test/SKILL.md](../test/SKILL.md) — upstream; wrote the QA half of `report.md`, whose `## Gate Decision` verdict drives the QA Gate (read pre-move), plus `review.md`.
 - [../_shared/projectwiki/SKILL.md](../_shared/projectwiki/SKILL.md) — the task bookends, the page contract, the pin contract, and the same-edit rule the Step 4 wiki writes follow.
 - [../_shared/adr-records/README.md](../_shared/adr-records/README.md) — ADR authoring + numbering; the `decisions/` pages ship routes through, never mints numbers itself.

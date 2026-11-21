@@ -5,7 +5,7 @@ disable-model-invocation: true
 user-invocable: false
 metadata:
   author: devopstales
-  version: "1.0"
+  version: "2.0"
   part-of: skillgrid
 ---
 
@@ -39,7 +39,7 @@ reference bundles that skills load on demand. A new standard that belongs in
 - `craft/` — skill-authoring rules:
    - [craft/skill-anatomy.md](craft/skill-anatomy.md) — the canonical `SKILL.md` format: directory shape, frontmatter, body rules, cross-reference rules.
    - [craft/measurement.md](craft/measurement.md) — the `## How to measure it` section contract (one leading + one lagging indicator, each with source and direction).
-   - [craft/deterministic-boundary.md](craft/deterministic-boundary.md) — the script/prose split: deterministic logic belongs in a script, not skill prose.
+   - [craft/deterministic-boundary.md](craft/deterministic-boundary.md) — the script/prose split (deterministic logic belongs in a script, not skill prose) and the agentic script contract (JSON stdout, exit 0/1/2, atomic writes, no prompts, tests beside the script).
    - [craft/cite-dont-restate.md](craft/cite-dont-restate.md) — cite decisions and ADRs by identifier; never restate their wording.
    - [craft/effort-budgets.md](craft/effort-budgets.md) — the `effort:` frontmatter budget signal (low / standard / max) and the honest-overhead "when NOT to use the pipeline" rule.
    - [craft/review-discipline.md](craft/review-discipline.md) — the review loop: blindness, verdicts, the fix loop.

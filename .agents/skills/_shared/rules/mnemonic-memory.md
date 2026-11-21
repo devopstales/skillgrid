@@ -2,6 +2,16 @@
 
 Save shape, session protocol, and topic-key rules for all Mnemonic memory saves.
 
+**How these tools reach the agent:** the `mnemonic` MCP server (run as
+`mnemonic mcp`) exposes the `mem_*` tools (mem_save, mem_search, mem_context,
+mem_get_observation, mem_session_start/summary/end, mem_inject_session) and
+the `projectwiki_*` tools (the ProjectWiki engine — see
+[_shared/projectwiki](../projectwiki/SKILL.md)). They are tool calls in any
+MCP-connected session, not shell commands. This convention applies only when
+`mnemonic.enabled: true` in `.skillgrid/config.yaml`; when it is `false` or
+the MCP is not wired, degrade explicitly (skip the save, note it in the
+report) — never fail the skill over a missing memory store.
+
 ## Save Shape
 
 ```

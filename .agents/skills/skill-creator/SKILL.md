@@ -282,10 +282,11 @@ no-op. Delete it.
 
 ### 4. Token Audit
 
-Run `node .agents/skills/qa/scripts/skill-size-budget.mjs check .`
-from the project root. The skill must be within its tier ceiling (standard:
-22000 bytes). If over budget, push the tail into `references/`. Add the skill
-to `skill-size-budget.json` with its actual byte size.
+Run `node .agents/skills/skill-creator/scripts/skill-size-budget.mjs check .`
+from the project root (the script ships with this skill). The skill must be
+within its tier ceiling (standard: 22000 bytes). If over budget, push the tail
+into `references/`. Add the skill to `skill-size-budget.json` with its actual
+byte size.
 
 Line-by-line: confirm each line changes agent behavior; flag pure
 restatements of a script's logic.

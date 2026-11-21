@@ -21,7 +21,7 @@ single most expensive failure observed. Track progress in a ledger file, not
 only in todos.
 
 - Each plan owns a workspace: at skill start, run this skill's
-  `.agents/skills/execute/scripts/sdd-workspace PLAN_FILE` — it prints the plan's git-ignored
+  `node .agents/skills/execute/scripts/sdd-workspace.mjs PLAN_FILE` — it prints the plan's git-ignored
   directory (`<repo-root>/.skillgrid/meta/.sdd/<plan-basename>/`), home to every
   artifact for THIS plan: ledger, briefs, reports, review packages. Another
   plan's directory is never yours to read or write.

@@ -22,7 +22,9 @@ Before task lifecycle actions, read the matching detailed guide:
 
 Use `backlog <command> --help` before running unfamiliar commands. Help shows options, fields, and examples.
 
-Do not edit Backlog task, draft, document, decision, or milestone markdown files directly. Use the `backlog` CLI so metadata, relationships, and history stay consistent. The filesystem fallback below is only for a CLI crash.
+Do not edit Backlog task, draft, document, decision, or milestone markdown files directly. Use the `backlog` CLI (or the `backlog` MCP server when it is wired — see below) so metadata, relationships, and history stay consistent. The filesystem fallback below is only for a CLI crash.
+
+**backlog MCP (preferred when wired):** the `backlog` MCP server (run as `backlog mcp start`) exposes the same engine as the CLI. Prefer its tools for create / read / update in an MCP-connected session: they take the title, body, and field values as structured arguments, which avoids the shell-quoting footguns of `backlog task create '[FEATURE] …'` (titles with quotes, backticks, or `$`). The CLI commands below remain the fallback when the MCP is not wired; the required-fields, formatting, and workflow rules are identical either way.
 
 The overview is the routing step, not the procedure. It says when to act; the detailed guides define how. Create a task when the work needs planning, decisions, or handoff notes — ask whether you need to think about how to do it. If yes, search for an existing task first, then create one. If no, make the small mechanical change directly. Skip task creation for questions, explanations, quick lookups, and obvious mechanical edits.
 

@@ -59,6 +59,20 @@ Load only the active phase's prompt and the references `references/pipeline/mani
 
 `references/pipeline/phases.md` is the one-screen overview. `references/pipeline/workflow.md` is the chain summary.
 
+```mermaid
+flowchart TD
+    A[Phase 0: Intake - onboarding + brainstorm] --> B[Phase 1: Foundation - ADRs, glossary, invariants]
+    B --> C[Phase 2: Architecture - blueprint + goldfish validation]
+    C --> D[Phase 3: Drafting - acceptance spec, slicing, ticketing, execution]
+    D -->|user-gate-slice| E[Phase 4: Adversarial Audit - qa + code-review, fresh context]
+    E --> F[Phase 5: Revision Loop - fix + re-run, cap 3]
+    F --> G[Phase 6: Final Score - qa gate + calibration + floor]
+    G --> H[Phase 7: Editorial Package - document + ship + reflect]
+    H -->|ship-decision| I[archived: change-archive/]
+    E -.->|gate FAIL: back to revision| F
+    F -.->|pass limit reached: stop, programmer decides| E
+```
+
 ## What makes the criticism worth reading
 
 - **Reviewers are blind.** They see the code and the acceptance scenarios, never the blueprint's targets, earlier scores or the panel's verdicts. `references/scoring/evaluator-protocol.md` sets who sees what.
@@ -120,6 +134,7 @@ Per `_shared/craft/measurement.md`.
 ## Verification
 
 - [ ] `state.yaml` matches the deepest artifact present (`qa` drift guard exits 0).
+- [ ] **Self-validation backstop:** every new gate or checker this change introduces was run against this change's own spec folder before hand-off — with its negative half proven first (the checker catches a deliberately broken copy, e.g. a requirement with no `## Validation` row) and its positive half after (a clean run exits 0). A checker that never caught its own change is not wired.
 - [ ] Every phase in `manifest.yaml` has its listed outputs on disk, read back.
 - [ ] Phase 4 ran before any score; the audit packet contains no targets or scores.
 - [ ] Every verdict in `report.md`/`review.md` names its independence grade.

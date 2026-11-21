@@ -10,7 +10,7 @@ Companion contracts:
 - [commits.md](commits.md) — commit message contract.
 - [verification-ladder.md](verification-ladder.md) — L1–L4 evidence floors (the gate runs the tests this file defines).
 - [deterministic-boundary.md](../craft/deterministic-boundary.md) — the same "logic that repeats identically belongs in a script, not prose" idea, applied to code: repeatable logic becomes a function, not inline steps.
-- `skillgrid:ponytail` — for choosing the simplest implementation *within* these standards.
+- `skillgrid:execute`'s lazy discipline — for choosing the simplest implementation *within* these standards.
 
 ## Design principles
 
@@ -146,8 +146,8 @@ see the `skillgrid:improve-codebase-architecture` skill.
 - **Table-driven where it fits.** Multiple cases of the same shape → one
   table, one loop, one case per row.
 - **The test is the spec.** If a behavior can break, a test covers it. "Too
-  small to test" is rationalized away by `skillgrid:ponytail`'s "when NOT to be
-  lazy" list — tests are on it.
+  small to test" is rationalized away by the `skillgrid:execute` lazy
+  discipline's "when NOT to be lazy" list — tests are on it.
 - **Race-clean.** Concurrency bugs are found with a race detector, not by
   re-running until it looks fine.
 
