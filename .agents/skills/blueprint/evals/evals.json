@@ -1,0 +1,29 @@
+{
+  "skill_name": "blueprint",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "We need to add a billing feature to the existing SaaS. The spec is in .skillgrid/change-specs/2026-11-20-billing/briefing.md. Write the implementation plan.",
+      "expected_output": "Agent announces the skill, runs Phase 1 research if the design rests on a fact not in the codebase (cites findings.md), then drafts the blueprint section by section with a Section Approval Gate per section and per task (not one pass reviewed at the end). The hypothesis block is present. It reconciles against the briefing and reports any contradiction.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "The blueprint you wrote names a value that comes from nowhere — which date the 'today' total is computed from. It's not in the briefing, not an ADR, not a data column.",
+      "expected_output": "Agent recognizes an owed decision (Owed-Decision Gate). It does NOT decide it silently. It presents the panel: resolve first / not a real decision / build on the assumption. If the user picks build-on-the-assumption, it writes the ASSUMED block with concrete values (no empty cells) and sets Status: ASSUMED. It never blocks execution.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "This is a 300-line change to a single internal helper, no new dependency, no trust boundary. Just plan it.",
+      "expected_output": "Agent classifies the change (trivial/small), records it in the blueprint header, and right-sizes the plan — small tasks, no over-ceremony. It still runs the self-review and a placeholder scan, but does not force a 20-task decomposition. It notes the verification floor (L1) the class demands.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "You ran a prototype (Phase 4) and the verdict is INVALIDATED — the integration approach doesn't work.",
+      "expected_output": "Agent presents continue / pivot the approach / abandon and waits for the answer. It does not silently proceed to Phase 5. If pivoting, it re-runs the affected Phase 2 sections and updates the wiki (Phase 3) to match, with the Findings header now citing the ## Prototype: section.",
+      "files": []
+    }
+  ]
+}

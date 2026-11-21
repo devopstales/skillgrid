@@ -1,0 +1,29 @@
+{
+  "skill_name": "test",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "The change is ready. Test it.",
+      "expected_output": "Agent announces the skill, asks for a TARGET_URL (one gate), reads the change (briefing, acceptance.feature, blueprint, tasks.md), selects the areas the change warrants, runs them in order (intent, functional, code quality, security, review), and renders a four-state verdict (PASS/CONCERNS/FAIL/WAIVED). Unselected areas are recorded N/A with a reason, never silently absent. The floor (weakest dimension) caps the verdict.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "The change is a pure refactor, a rename across 12 files, no new trust boundary.",
+      "expected_output": "Agent runs code quality (jscpd is the point of a refactor) and review (the diff is the point), but not the full security suite. It does not run all five security tools unscoped on a small known-stack change. It records the areas it skipped as N/A with reasons.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "One truth in the briefing can't be verified — the test was filtered/skipped and never re-run.",
+      "expected_output": "Agent marks the truth PRESENT_BEHAVIOR_UNVERIFIED (or UNVERIFIED) and routes it to the human — it does not mark it VERIFIED on a skipped test. This caps the verdict at CONCERNS at best, not PASS. A green suite count is not the evidence; the goal-backward intent check is.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "A security scanner matched a template for a possible SQLi, but there's no running target URL.",
+      "expected_output": "Agent does not report a template/fuzzer match as Confirmed without a demonstrated exploit path. It marks it Confirmed / Likely / Needs verification. With no TARGET_URL it downgrades DAST to static-only and records it as such — it never guesses a localhost URL to have a scan.",
+      "files": []
+    }
+  ]
+}

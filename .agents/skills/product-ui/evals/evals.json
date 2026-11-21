@@ -1,0 +1,23 @@
+{
+  "skill_name": "product-ui",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Design the settings page for our admin panel — about 40 fields across profile, security, and billing.",
+      "expected_output": "Agent classifies the surface (Operate), names it before drawing. It applies progressive disclosure instead of a 40-field always-visible form. It defines all five interaction states (default, hover/focus, active, loading, disabled) for every control, plus empty/loading/error for data regions. It walks the task path to verify.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Build a high-density analytics dashboard with 6 data tables and live-updating charts.",
+      "expected_output": "Agent classifies it Operate-dense, loads references/data-tables.md for grid/column/virtualization conventions. It uses a high density scale (8/12/16/24), a deliberate full-bleed grid, and hierarchy by placement not decoration. It handles very long tables (pagination/virtualization) and the empty state for each table.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "This is a marketing landing page for our new product hero.",
+      "expected_output": "Agent does NOT use this skill — it's for product/app UI (Operate bias), not marketing. It routes to skillgrid:design-taste-frontend (anti-slop) or a style skill. It does not force an Operate-mode bias onto a brand/aesthetic surface.",
+      "files": []
+    }
+  ]
+}

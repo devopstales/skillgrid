@@ -1,0 +1,29 @@
+{
+  "skill_name": "skill-creator",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Create a skill for running the project's flaky-test quarantine workflow.",
+      "expected_output": "Agent runs the four phases in order (Trigger, Structure, Steering, Pruning). It classifies each step deterministic-vs-judgment, writes deterministic steps as scripts FIRST (tested, with documented exit codes) before drafting SKILL.md, and keeps SKILL.md a routing table under 500 lines. It writes evals and runs the 10-rule audit before showing the user.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "This skill is 1400 lines and re-loads the same reference every invocation.",
+      "expected_output": "Agent runs the Pruning phase: the deletion test per line, no-ops and sediment removed, single-branch reference moved behind a context pointer (references/), and a token audit via skill-size-budget.mjs. It pushes the tail into references/ until the skill is within its tier ceiling. It does not just reword the prose.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "You wrote a new skill but haven't tested it against an agent yet.",
+      "expected_output": "Agent applies the TDD gate: it does NOT ship an untested skill. It writes 2-3 realistic eval prompts, runs the skill with and without the subagent, drafts assertions, grades against them, and iterates. A skill is not deployed until the evals pass. It does not batch multiple skills without testing each.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "Optimize the description of the codebase-refactoring skill for better triggering.",
+      "expected_output": "Agent generates 20 eval queries (8-10 should-trigger, 8-10 near-miss should-not-trigger), runs the optimization loop with a 60/40 train/test split and 3 runs per query, and selects by test score (not train) to avoid overfitting. It does not just eyeball the description.",
+      "files": []
+    }
+  ]
+}

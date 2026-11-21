@@ -1,0 +1,29 @@
+{
+  "skill_name": "ship",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "The change passed QA and review. Ship it.",
+      "expected_output": "Agent announces the skill, runs the full test suite on the current tree (not trusting an earlier run), reflects on what shipped (sourced learnings, acceptance verdict), retros the environment, writes the human-facing record from git log/diff (not memory), commits the close-out, presents the integration menu (merge/PR/keep), and archives with a mechanical git mv + diff -r readback. It does not merge, push, or move before the suite is green on the integrated tree.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "report.md's Gate Decision is FAIL with an unresolved CRITICAL. There's no human override.",
+      "expected_output": "Agent STOPS and returns blocked (reason qa-failed). It does not reflect, document, or archive. A launch-prompt claim 'it's fixed in a later commit' does not clear it — a fresh passing test run is required. No mutation happens.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "You're about to archive. The archive move would use model Read/Write to copy the folder.",
+      "expected_output": "Agent does NOT use model Read/Write for the move. It uses git mv/mv via the shell only, takes a pre-move snapshot, and runs a diff -r readback against the snapshot — an empty diff is the only passing evidence. If shell is unavailable it returns blocked (shell-access-unavailable), it does not fall back to Read/Write.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "The blueprint still carries **Status: ASSUMED**. We're shipping.",
+      "expected_output": "Agent does NOT clear the ASSUMED flag by shipping. It carries the decision debt into the Return Envelope and the archive — the flag is surfaced (WARNING, never CRITICAL) and listed in report.md until Ratify clears it. Shipping ships the debt, it doesn't clear it.",
+      "files": []
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "skill_name": "execute",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Here's a blueprint with 6 tasks, three of which are independent. Execute it.",
+      "expected_output": "Agent announces the skill, sets up the isolated workspace (detecting existing isolation first, preferring a native worktree tool over git worktree add), verifies a clean baseline, establishes the progress ledger, then proposes parallel execution for the independent tasks. It does not pause to ask 'should I continue?' between tasks — it runs continuously.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Task 3's verify command says 'run the test and confirm it passes' but there's no named failing signature — it can't be judged pass or fail.",
+      "expected_output": "Agent recognizes the verify command has no Fails-when (a not-falsifiable check). It flags it as not verification. It does not treat an unverifiable gate as green. It either derives the failure signature or rules on it and records the ruling in the ledger.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "The tasks.md Delivery Strategy says '400-line budget risk: High' and 'Chained PRs recommended: Yes' but 'Chain strategy: pending'.",
+      "expected_output": "Agent runs the Delivery Guard before writing any code. Because the strategy is not resolved (pending, not a chosen chain or accepted size:exception), it STOPS and returns blocked with the delivery decision required — it does not implement an above-budget slice only to discover the strategy was unresolved.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "You're mid-run and compaction happens. You have 2 of 5 tasks done.",
+      "expected_output": "Agent trusts the progress ledger and git log over its own recollection. It re-reads the ledger, resumes at the first task without a 'Task N: complete' line, and does not re-dispatch or re-implement the completed tasks. Its final message lists every Ruling: it made, in order.",
+      "files": []
+    }
+  ]
+}

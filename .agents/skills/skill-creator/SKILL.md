@@ -451,6 +451,30 @@ Finding, Fix.
 
 ## 7. Creating a Skill
 
+### 0. The TDD Gate (no skill without a failing test first)
+
+A skill is code that shapes agent behavior, so it is tested like code:
+RED-GREEN-REFACTOR. This applies to **new skills AND edits to existing ones**.
+
+- **RED** — before writing (or changing) the skill body, write the eval
+  prompts (`evals/evals.json`) that describe the behavior you want, and run at
+  least one against an agent **without** the skill (or against the prior
+  version for an edit). Document what the agent does wrong — the exact
+  rationalization or the missing behavior. This is the failing test.
+- **GREEN** — write the minimal skill that addresses *those specific*
+  failures. Run the same evals with the skill present. The agent should now
+  comply.
+- **REFACTOR** — if the agent found a new loophole, add an explicit counter
+  and re-run. Do not add content for hypothetical failures you have not
+  observed.
+
+A skill is **not deployed** until its evals pass. Do not batch several skills
+without testing each. A skill you did not watch fail without is a skill you do
+not know teaches the right thing. (For pure reference skills with no
+behavior-shaping, the eval is a retrieval test: can the agent find and apply
+the right section? The RED step is still "try to answer the question without
+the file.")
+
 ### 1. Capture Intent and Interview
 
 Extract from the current conversation first (tools used, steps, corrections,
@@ -521,9 +545,12 @@ Writing style:
   command AND explains what the command does in words is two lines in one —
   cut the explanation, keep the command.
 
-### 5. Write Test Cases
+### 5. Write Test Cases (the RED step — write these BEFORE the body if new)
 
-2-3 realistic prompts a real user would actually say. Save to `evals/evals.json`:
+2-3 realistic prompts a real user would actually say. Save to `evals/evals.json`.
+For a new skill, author these *before* the SKILL.md body so you have the failing
+test to watch fail (TDD Gate, §7.0); for an edit, the prompt that reproduces
+the old behavior is the failing test.
 
 ```json
 {
@@ -643,6 +670,10 @@ metadata:
 
 ## 11. Verification Checklist
 
+- [ ] **TDD Gate:** the eval prompts were written *before* the body (new) or
+      the edit was reproduced against the prior version (edit); the agent was
+      watched fail without the change and comply with it. No untested skill is
+      deployed
 - [ ] **Trigger:** invocation mode is a deliberate choice (T1)
 - [ ] **Trigger:** description is third-person, trigger-specific, ≤ 1024
       chars, no workflow steps (T2)

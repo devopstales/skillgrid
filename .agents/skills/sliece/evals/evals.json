@@ -1,0 +1,29 @@
+{
+  "skill_name": "sliece",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Here's a blueprint with 8 tasks. Slice it into tickets.",
+      "expected_output": "Agent announces the skill, classifies the change (standard/risky here), reads the blueprint + briefing, slices into vertical tracer-bullet tickets (not horizontal layers), maps real dependency edges, groups into waves, and writes tasks.md with a dependency graph. It runs the Slicing Self-Review before publishing. Every ticket is sized for one fresh context window and is demoable.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "The blueprint has a Build shape: Facade recorded in the header.",
+      "expected_output": "Agent reads the Build shape from the blueprint header and uses it to order the first wave — the UI shell ticket comes first (on placeholder data), with a Fails-when on the wire-up boundary. The shape orders the first wave only; risk-first/contract-first still applies within and after it.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "This is a trivial 2-file change, no behavior change, no migration.",
+      "expected_output": "Agent classifies it trivial per rules.fast_track, records the waiver in briefing.md, and produces a light tasks.md (1-3 tickets, 1-2 lines each) instead of a full dependency graph. It does not run the full slicing ceremony for a trivial change.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "You sliced 5 tickets and the tracker is Backlog.md. Publish them.",
+      "expected_output": "Agent reads the tracker's CLI + formatting reference, runs Discovery (auth/repo/policy/labels), checks for duplicates, builds the bodies from the template, runs the Pre-submission Privacy Review (no usernames/hostnames/tokens), creates the epic + tickets via the backlog CLI, satisfies the Backlog completeness gate (type, references, DoD, plan), and records the tracker IDs back into tasks.md. It does not hand-edit task files.",
+      "files": []
+    }
+  ]
+}
