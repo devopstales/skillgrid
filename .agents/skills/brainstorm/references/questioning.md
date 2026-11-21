@@ -116,6 +116,10 @@ Score each dimension 0.0 (completely unclear) to 1.0 (crystal clear):
 
 If the gate fails, identify which dimension is lowest, ask targeted questions to raise it, and re-score. Repeat until the gate passes.
 
+**Confidence stop (number, not feel).** A clarity gate you score yourself is self-graded. Before declaring the gate passed, put a number on your confidence that the *programmer* — not your read of the conversation — would confirm each dimension is settled: state "I'm N/10 confident the goal is settled" (and so on) in the chat summary. If any dimension is under 8/10, the gate is *not* passed no matter what your self-score says — the low number names the next question to ask. This converts "I think we're clear" into a falsifiable claim the programmer can veto in one word.
+
+**Out-of-scope line (explicit, not implied).** The Boundary dimension is the one that decays silently. Do not let "what's out of scope" live only in your inference — close the interview with an explicit **Out-of-scope** list in the chat summary (and carry it into the briefing's scope section): the specific adjacent capabilities, systems, or edge cases you are *not* building. Each entry is one line — "<capability> is out of scope because <reason>". An out-of-scope list with zero entries is a red flag, not a clean bill: it usually means the boundary was never stated, only assumed.
+
 **Domain-model completeness (exit check):** before declaring done, confirm the paper trail is current — every resolved term is in the glossary, and every decision that cleared the ADR bar was either recorded or explicitly declined. A glossary untouched by a long interview means the ADR half got skipped; go back and backfill, or say why there was nothing to record.
 
 Record the final scores in the design brief's **Clarity Report** section.
@@ -137,10 +141,14 @@ Record the final scores in the design brief's **Clarity Report** section.
 - The glossary is untouched by a long interview: the domain model half was skipped.
 - Declaring "done" when the frontier is empty but the clarity gate hasn't been scored.
 - A decision recorded as made that the programmer never actually put to.
+- The clarity gate passed on a self-score while a dimension was under 8/10 confidence in the programmer's own confirmation.
+- An Out-of-scope list with zero entries on a non-trivial design — the boundary was assumed, not stated.
 
 ## Verification
 
 - [ ] The clarity gate passed — clarity ≤ 0.20 AND every dimension ≥ its minimum, with final scores recorded in the Clarity Report.
+- [ ] The confidence stop was applied: each dimension's "programmer would confirm" number was stated in chat and all were ≥ 8/10.
+- [ ] An explicit Out-of-scope list was closed in the chat summary and carried into the briefing's scope section (zero entries flagged, not accepted).
 - [ ] Each question targeted a real decision point with a recommended answer, not a yes/no rubber-stamp.
 - [ ] No frontier question was asked before its prerequisites were settled.
 - [ ] The programmer was never asked for a fact you could have looked up yourself.

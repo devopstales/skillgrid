@@ -22,7 +22,7 @@ Create, iterate, and audit Skillgrid skills. The process has four phases —
 before the skill ships. The loop: draft → test → review → improve → repeat.
 
 **When NOT to use:** bounded prose edits (typo, rewording); feature design
-(`skillgrid:brainstorming`); simplest code inside a script (`skillgrid:ponytail`).
+(`skillgrid:brainstorming`); simplest code inside a script (`skillgrid:execute`'s lazy discipline).
 
 ## Workflow
 
@@ -234,6 +234,27 @@ rushes there. Classic case: plan mode — the agent sees "create a plan" is the
 end goal, so it does minimal legwork on "ask clarifying questions" and eagerly
 plans. The fix: split the step into its own skill so the agent sees only the
 current phase. Use where you specifically need a chunk of legwork.
+
+### Match the form to the failure
+
+The TDD gate (§7.0) tells you the skill failed; this tells you *which fix* the
+failure calls for. Do not reach for a new paragraph of prose by default — the
+form of the fix must match the shape of the failure. First name the failure
+class from the eval, then pick the matching form:
+
+| Failure shape (what the eval shows) | Fix form | Do NOT |
+|---|---|---|
+| Agent skipped a deterministic step / got the order wrong | A **script** (deterministic boundary, §3a/§3c) or a numbered gate | more prose exhorting it to remember the step |
+| Agent rushed a step to a later goal | **Legwork** — split it into its own skill / phase | a "be thorough" sentence |
+| Agent ignored a constraint it *read* | A **leading word** it must re-emit, or a **Red Flag** row naming the exact rationalization | a longer restatement of the constraint |
+| Agent rationalized its way out of a rule | A **Common Rationalizations** row ("excuse / reality") or a **Red Flag** | rewording the rule more firmly |
+| Agent picked the wrong skill / didn't trigger | **Description** optimization (§9) | adding body the agent never reads when not triggered |
+| Agent did the step but in the wrong *shape* (output format, structure) | A **template** or an **evals/evals.json** assertion on the shape | a prose description of the shape |
+
+The discipline: the RED eval gives you the failure class; you apply exactly one
+matching form; the GREEN eval confirms that form closed *that* failure. If you
+find yourself adding prose to fix a skip, you are treating a deterministic
+failure as a judgment failure — the form is wrong, not the words.
 
 ---
 
@@ -710,8 +731,8 @@ metadata:
   diagram rules
 - `references/rationalizations.md` — six rationalizations and the reality for
   each
-- `skillgrid:ponytail` — for choosing the simplest implementation *inside* the
-  scripts this skill produces
+- `skillgrid:execute`'s lazy discipline — for choosing the simplest
+  implementation *inside* the scripts this skill produces
 - `_shared/craft/deterministic-boundary.md` — script vs. prose classification
 - `_shared/craft/skill-anatomy.md` — format contract
 - `_shared/templates/skill-template.md` — fill-in skeleton

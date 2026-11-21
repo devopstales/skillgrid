@@ -1,11 +1,11 @@
 ---
 name: brainstorm
-description: "Use before any creative work — creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation."
+description: "Turns a raw idea into an approved design and spec — classifying the request onto a path, exploring user intent, requirements and design options with the user, and gating on an explicit approval before any implementation. Use before any creative work — creating features, building components, adding functionality, or modifying behavior."
 license: MIT
 disable-model-invocation: true
 metadata:
   author: devopstales
-  version: "1.1"
+  version: "2.0"
   part-of: skillgrid
   based_on: superpowers:brainstorming + egm:egm-brainstorm (Goldfish Brainstorming — 7-lens shootdown, synthesizer, readiness gate)
 ---
@@ -102,7 +102,8 @@ override it:
 - **New Function** — a new feature, endpoint, or capability added to an
    existing project whose architecture is already in place. Follow the
    full process: interview the user (`references/questioning.md` — design tree,
-   rounds, clarity gate), approaches, sectioned design. Run the Goldfish
+   rounds, clarity gate, confidence stop, Out-of-scope line), approaches,
+   sectioned design. Run the Goldfish
    brainstorming shootdown per `references/shootdown.md` (readiness gate →
    7 parallel fresh lenses → synthesizer; all 🔴 Blockers dispositioned
    before the ADR manifest is written). Then write the
@@ -221,6 +222,25 @@ Classify first, announce the path, then complete that file's checklist for the p
 
 
 ## The Process
+
+```mermaid
+flowchart TD
+    A[Classify the request - announce the path] --> B{which path?}
+    B -->|prototype| C[present the probe, get a nod]
+    C --> D[report the finding in chat]
+    B -->|bounded| E[clarifying questions one at a time]
+    E --> F[short design in chat]
+    B -->|new project / new function| G[questioning loop - design tree, frontier rounds, clarity gate]
+    G --> H[approaches: 2-3 options with trade-offs]
+    H --> I[sectioned design + feasibility check]
+    I --> J[Goldfish shootdown: readiness gate, 7 lenses, synthesizer]
+    J -->|blockers dispositioned| K[write 00-prd.md / ASSUMPTIONS.md / ARCHITECTURE.md + briefing.md]
+    F --> L{approval gate}
+    D --> L
+    K --> L
+    L -->|yes| M[bounded: implement / full paths: skillgrid:blueprint]
+    L -->|revisions| G
+```
 
 The subsections below serve the bounded, new project, and new function
 paths (a prototype stops at "present the probe, get a nod"). Sections from

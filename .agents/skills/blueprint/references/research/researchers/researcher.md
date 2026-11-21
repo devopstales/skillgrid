@@ -28,8 +28,11 @@ Subagent (general-purpose):
     - Primary sources only: official docs, source code, specs, first-party
       APIs, filings, original papers. Follow every claim to the source that
       owns it.
-    - Tooling: context7 for library/framework API docs; exa and webfetch for
-      the rest. Prefer the source's own docs over a blog about them.
+    - Tooling: context7 (MCP) for library/framework API docs —
+      resolve-library-id then fetch the doc page for the exact topic; exa
+      (MCP: web_search_exa to find the page, web_fetch_exa to read it) and
+      webfetch for the rest. Prefer the source's own docs over a blog about
+      them. If the MCP servers are not wired, fall back to websearch + webfetch.
     - Red flags that downgrade confidence: speculative language, marketing
       register, cherry-picked/unsourced numbers, aggregators recycling one
       upstream report. Answer engines (Perplexity, Grok) are aggregators —

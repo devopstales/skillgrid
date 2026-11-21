@@ -1,6 +1,6 @@
 ---
 name: blueprint
-description: Use when you have a spec or requirements for a multi-step task, before touching code
+description: "Turns a spec into a buildable implementation plan in six gated phases — research, section-by-section draft with the user approving each section, project-wiki persistence, optional prototype, BDD acceptance spec, and the committed blueprint.md. Use when you have a spec or requirements for a multi-step task, before touching code."
 license: MIT
 metadata:
   author: devopstales
@@ -66,7 +66,7 @@ cited as `per AGENTS.md § Rules`.
 
 ## The Phase Flow
 
-The blueprint runs in five phases, **internal to this skill** — distinct from
+The blueprint runs in six phases, **internal to this skill** — distinct from
 the orchestrator's `skillgrid` eight-phase delivery lifecycle (Intake →
 Foundation → Architecture → Drafting → Adversarial Audit → Revision → Final
 Score → Editorial). Within this skill, "Phase N" means the planning phase below;
@@ -85,14 +85,18 @@ handoff; phase 2 is the heart of the skill.
 | 5 | Acceptance spec | `{specs_root}/YYYY-MM-DD-<topic>/acceptance.feature` (lint-clean) | Gherkin parse + lint 0 errors; Section Approval Gate on the spec |
 | 6 | Write file | committed `blueprint.md` + `acceptance.feature` | commit (spec zone, before any code) |
 
-```
-briefing.md ──▶ Phase 1 ──▶ Phase 2 ──▶ Phase 3 ──▶ [Phase 4?] ──▶ Phase 5 ──▶ Phase 6
-              (research)   (draft)      (wiki)      (prototype)    (acceptance) (write)
-                              │  ▲           │             │
-                              │  └───────────┘             │
-                              │     findings.md feeds back│
-                              │     (wiki + prototype)    │
-                              └───────────────────────────┘
+```mermaid
+flowchart TD
+    A[briefing.md] --> B[Phase 1: Research]
+    B -->|research plan approval| C[Phase 2: Blueprint draft]
+    C -->|Section Approval Gate per section + per task| D[Phase 3: Project wiki]
+    D -->|prototype opt-in?| E{opt in?}
+    E -->|yes| F[Phase 4: Prototype]
+    E -->|no, skip| G[Phase 5: Acceptance spec]
+    F -->|verdict feeds back| C
+    F -->|Gherkin parse + lint 0 errors| G
+    G -->|Section Approval Gate on the spec| H[Phase 6: Write file + commit]
+    G -.->|invalid spec, re-run| G
 ```
 
 - **Phase 1 → 2:** research findings feed the draft. A design decision that
@@ -173,6 +177,22 @@ not in one pass and reviewed at the end. Protocol:
 (Phase 1), a feasibility result (Phase 4), or a chosen layout (a sketch) must
 cite `findings.md` (the header's **Findings** line carries the path). If no
 research/prototype ran, omit that line.
+
+**The in-flight doubt gate.** The Section Approval Gate asks the user to
+approve what is written; the doubt gate asks *you* whether a load-bearing claim
+in the section is actually true before you present it. When a section asserts a
+fact that, if wrong, would invalidate the section — a value that came from
+nowhere, an interface assumed to exist, a constraint stated without a source —
+run the check in the same turn, before the gate: **CLAIM** — name the one
+load-bearing fact the section rests on. **EXTRACT** — point at its source
+(a `findings.md` line, an ADR, a `briefing.md` decision, or the code itself).
+**DOUBT** — is there a way the fact is asserted but unsourced (no citation, a
+value that matches no column/field, a constraint that no research produced)?
+**RECONCILE** — if sourced, proceed to the gate; if unsourced, treat it as an
+Owed-Decision (the panel fires) rather than letting it ride into the blueprint
+as if decided. This runs per section, in the drafting turn, and never blocks
+the user — it converts a silent assumption into a named decision before it is
+approved.
 
 ## Phase 3 — Project Wiki
 
@@ -312,15 +332,9 @@ fails for the right reason, implement until it passes, then commit).
 
 Write and commit the final `blueprint.md` and `acceptance.feature`.
 
-- **Reconcile against the briefing** (Self-Review check 6): re-read
-  `briefing.md` and compare it against the blueprint — a **contradiction**
-  (the briefing decided a question, the blueprint decides it differently) is
-  reported every time, quoting both; an **addition** (the blueprint decides
-  something the briefing never raised) is reported only if it changes
-  architecture, an external interface, or a dependency. List contradictions
-  first. Do NOT change the blueprint to match the briefing on your own —
-  drafting reads code the brainstorm did not. If nothing diverges, say so in
-  one line.
+- **Reconcile against the briefing** per Self-Review check 6 (contradictions
+  quoted and listed first, additions reported when load-bearing, no silent
+  rewrites — check 6 is the canonical statement).
 - **Re-run the final Self-Review** (below) on the complete file — the
   section-by-section drafting may have drifted from the spec.
 - **Acceptance spec present:** `acceptance.feature` exists in the change
@@ -433,6 +447,27 @@ The hypothesis is the thinnest experiment that would prove or kill the
 approach before the full build commits to it. The **door check** is the first
 task in the blueprint that tests it — if the door check fails, the blueprint
 is invalidated and the user decides whether to revise or abandon.
+
+## Validation Matrix
+
+Before defining tasks, derive the **`## Validation`** section from the
+spec's requirements — the plan's statement of *how it will be proven*, written
+before slicing. One row per in-scope requirement: the happy path, the edge,
+the failure mode; the check (a runnable command or a named gate); and the
+falsifier — the result that would falsify the plan. An out-of-scope row names
+what is deliberately not proven.
+
+- The **Check** column merges with the per-requirement test command (every
+  in-scope requirement names a runnable signal before implementation).
+- The **Happy / Edge / Failure** columns must line up with the
+  `happy path` / `edge` / `failure` scenarios in `acceptance.feature` (Phase 5).
+- Coverage is mechanical: a requirement with no row is a plan defect. `skillgrid:slicing`
+  checks it before publishing, and `skillgrid:test`'s intent area re-runs the
+  rows at gate time. A green suite is not the verdict — the matrix is.
+- A `backstop` Must-Have truth (one the diff alone cannot confirm) gets its
+  held-out test named in this matrix's Check column.
+
+Copy the section into `blueprint.md` per the template block.
 
 ## Threat Matrix
 

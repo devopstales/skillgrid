@@ -7,13 +7,13 @@ metadata:
   author: devopstales
   version: "2.0"
   part-of: skillgrid
-  based_on: skillgrid:subagent-execution 1.0 + skillgrid:simple-execution 1.0 + skillgrid:isolated-workspace 1.0 + skillgrid:parallel-execution 1.0
+  based_on: skillgrid:subagent-execution 1.0 + skillgrid:simple-execution 1.0 + skillgrid:isolated-workspace 1.0 + skillgrid:parallel-execution 1.0 + skillgrid:ponytail 1.0
 ---
 
 # Execute
 
 ## Contents
-- Config / When to Use / The Process (Step 0 Setup, Status Guard, Execution Contract, Delivery Guard)
+- Config / When to Use / The Lazy Discipline / The Process (Step 0 Setup, Status Guard, Execution Contract, Delivery Guard)
 - Step 1 Load & Review Plan / Step 2 Execute (subagent, inline, fan-out) / Step 3 QA Gate / Step 4 Review / Step 5 Finish
 - When to Stop and Ask / Remember / Common Rationalizations / Red Flags / Verification / References
 
@@ -21,12 +21,13 @@ Load the plan (or sliced `tasks.md`), review it critically, execute every task o
 
 **Announce at start:** "I'm using the skillgrid:execute skill to execute this plan."
 
-This skill merges four former skills into one: workspace setup, three execution modes, and the parallel fan-out pattern.
+This skill merges five former skills into one: workspace setup, three execution modes, the parallel fan-out pattern, and the lazy-minimal solution discipline.
 
 - **Workspace setup** (from `isolated-workspace`) — before anything else: detect existing isolation, create an isolated workspace via native tools or git worktree fallback, run project setup, verify a clean baseline.
 - **Subagent mode** (from `subagent-execution`) — dispatch a fresh implementer subagent per task/ticket, a task review (spec compliance + code quality) after each, and a broad whole-branch review at the end. Default when subagents are available.
 - **Inline mode** (from `simple-execution`) — execute the tasks in the current session, step by step, with the same gates. Use when the platform has no subagent access or the user prefers inline.
 - **Fan-out mode** (from `parallel-execution`) — 2+ independent problem domains (different test files, subsystems, root causes) get one agent each in its own worktree, dispatched in a single response, integrated from a fan-out ledger.
+- **Lazy discipline** (from `ponytail`) — fully active on every coding response: before writing code, climb the ladder (YAGNI → reuse → stdlib → native → installed dep → one line → minimum code) and stop at the first rung that holds.
 
 All modes share the same config, gates, wave order, ticket lifecycle, QA gate, and review protocol. The mode only changes *who writes the code and in what order* — dispatched implementers, this session, or concurrent agents.
 
@@ -77,6 +78,20 @@ Carry the in-force ADRs — per the change's ADR Review Manifest at `.skillgrid/
 **Rulings, not stalls.** A running plan does not wait on a human. Conflicts, ambiguities, plan defects, a cap you would have asked to exceed — decide them. The spec is the binding authority, the plan is its argument, and your judgment settles what neither answers. Record every decision in the ledger as `Ruling: <what you decided> — <why> — <what it costs if wrong>`, and keep going. A wrong ruling costs rework your human partner can see and undo; a session parked on a question costs their whole day and buys nothing.
 
 Four things stop you, and only these: an irreversible or destructive operation; a security-sensitive action; a side effect outside this worktree that norms say you ask about first (a merge, a push to a shared branch, a publish); and a plan so broken that every path forward is a guess. For those, stop and ask.
+
+## The Lazy Discipline
+
+Folded in from the `ponytail` skill (full protocol: [ponytail.md](references/ponytail.md)). It is **fully active on every coding response** in this skill — no drift back to over-building, still active if unsure. Before writing code, climb the ladder once and stop at the first rung that holds:
+
+1. Does it need to exist at all? (YAGNI — speculative need = skip it, say so in one line)
+2. Already in this codebase? Reuse it.
+3. Stdlib does it? Use it.
+4. A native platform feature covers it?
+5. An already-installed dependency solves it? Never add a new one for what a few lines can do.
+6. Can it be one line?
+7. Only then: the minimum code that works.
+
+The ladder runs *after* you understand the problem, never instead of it — trace the files the change touches first. Mark any real corner you cut with a `ponytail:` comment naming the ceiling and upgrade path. Never simplify away input validation at trust boundaries, data-loss error handling, security, accessibility, or anything the spec/blueprint explicitly requests — an explicit requirement outranks the ladder. Intensity: `/ponytail lite|full|ultra` (default **full**); "normal mode" / "stop ponytail" reverts for the session.
 
 ## When to Use
 
@@ -170,6 +185,8 @@ Before dispatching a ticket (subagent) or starting a ticket (inline), read its o
 
 - **`Precondition:`** assert it with **read-only** checks only (file exists, env var set, health ping) before any code is written. Unmet → **STOP with a checkpoint** and name the unmet precondition; do not do partial work. A precondition you can't check read-only was written wrong — ledger it and re-check.
 - **`Reversibility: one-way`** is a declared stop signal: it folds into the "four things stop you" rule (an irreversible operation). The ticket now *names* why it stops — surface the checkpoint explicitly instead of relying on judgment. `costly`/`reversible`/absent change nothing.
+
+**The in-flight doubt gate.** A task whose verify passes is not the same as a task whose *claim* is true. When you (or a dispatched subagent) are about to mark a one-way or otherwise hard-to-reverse task complete, and a load-bearing fact about it rests only on the implementer's report, run the claim-check before the ledger line: **CLAIM** — state the one load-bearing fact the completion rests on. **EXTRACT** — pull the supporting evidence (the test output, the diff, the command you actually ran). **DOUBT** — ask: is the evidence consistent with the claim, or is there a way the claim is true *despite* the evidence (the test was skipped, the command matched the wrong target, the diff touched a file outside `Owns:`)? **RECONCILE** — if consistent, ledger the task complete with the evidence path; if not, name the gap and treat it as a failed gate, not a pass. This is the one-way mirror of the verify gate: verify answers "does it run?", doubt answers "is the claim I'm about to record true?". It runs only on the hard-to-reverse tasks — reversible tasks are caught by the ordinary fix loop.
 - **`Fails-when:`** the verify command's failure signature. When a ticket's runnable verify has a `Fails-when`, a green pass is only green if the output does **not** match it. A verify command that can be neither passed nor failed (no `Fails-when`, no falsifiable `Then`) is not verification — flag it.
 
 ### Delivery Guard
@@ -243,7 +260,7 @@ For each task (or ticket, if sliced), in wave order:
 
 1. Mark as `in_progress` (and ticket status `in-progress` if `ticketing.enabled`).
 2. Follow each step exactly (the plan has bite-sized steps; a ticket has scope + acceptance criteria).
-3. **Lazy check** (per `skillgrid:ponytail`, fully active): before writing code, climb the ladder once — does this need to exist at all (YAGNI), is it already in the codebase, does stdlib or a native platform feature cover it, is it one line? Take the first rung that holds; ship the laziest working version and mark any real corner cut with a `ponytail:` ceiling comment. Never simplify away input validation at trust boundaries, data-loss error handling, security, accessibility, or anything the spec/blueprint explicitly requests.
+3. **Lazy check** (per [The Lazy Discipline](#the-lazy-discipline), fully active): before writing code, climb the ladder once — does this need to exist at all (YAGNI), is it already in the codebase, does stdlib or a native platform feature cover it, is it one line? Take the first rung that holds; ship the laziest working version and mark any real corner cut with a `ponytail:` ceiling comment. Never simplify away input validation at trust boundaries, data-loss error handling, security, accessibility, or anything the spec/blueprint explicitly requests.
 4. **Structure check** (per `skillgrid:execute` → [code-structuring.md](references/code-structuring.md)): if the task **creates a new module/interface or reshapes an existing one** (splitting a file, extracting a seam, moving code to a shared module), apply the deep-module vocabulary — small interface, behaviour hidden behind the seam, the deletion test, the interface as the test surface, no single-adapter seams. If the task is a **clean-up / improve / refactor** of the code the change lands in (not a single bug fix), run the scoped jscpd health pass (duplication → dead code → complexity) on the affected areas, committing each step separately. If the task **adds or reshapes a REST endpoint** (a new resource/route, a changed contract, or an "API design/review" request), apply [api-design.md](references/api-design.md) — resource naming, semantic status codes, the response envelope, pagination, and the breaking-vs-non-breaking versioning decision before the code.
 5. **Gates first:** before writing code, ensure the `#### Gates` block for this task's requirements in `acceptance.feature` is complete — every happy-path scenario has a `G<n>` (runnable `CHECK:`+`EXPECT:`, or `manual`/`ABANDON` with a reason). Author any missing gate now; an `ABANDON` becomes a handoff you surface, not a pass. (Per `skillgrid:test-driven-verification`.)
 6. **TDD is always on:** follow `skillgrid:test-driven-development` — write the failing test first, watch it fail, then write the minimal code to pass. Never start implementation without a failing test. **BDD is always on** — the failing test is the task's `SATISFIES` scenario: confirm the acceptance scenario is RED before writing code, and name TDD Evidence after the scenario.
@@ -332,6 +349,7 @@ Announce: "I'm using the skillgrid:ship skill to integrate and close this change
 ## Remember
 
 - Review the plan critically first
+- Climb the lazy ladder before every coding task (The Lazy Discipline) — never simplify away what the ladder protects
 - Follow plan steps exactly
 - Don't skip verifications
 - Commit after every task per `skillgrid:work-unit-commits` — commits are your checkpoints
@@ -376,6 +394,9 @@ Per `_shared/craft/measurement.md`.
 | "I'll merge the fan-out results without checking each agent's output" | Agents can make systematic errors. Integrate from the ledger + git and review each summary and diff — never a blind merge. |
 | "It's only two tasks, parallel is overkill" | Two independent investigations still save a full round-trip of wall-clock time. Dispatch cost is near zero; the benefit scales with independence, not count. |
 | "One worktree for all the agents, they'll coordinate" | Shared checkouts race on the index and produce unmergeable diffs. One worktree per agent, always. |
+| "I'll add the robust version to be safe" | Speculative robustness is a new dependency with a bug surface. Ship the lazy version, question it in the same response, let the user ask for the full version. |
+| "Lazy means untested" | The check rule: a non-trivial change MUST leave its happy-path gate green, freshly run. Lazy shortens the code, not the check. |
+| "I'll skip understanding the problem to ship a smaller diff" | The ladder runs after you understand, never instead of. A small diff in the wrong place isn't lazy, it's a second bug. |
 
 ## Red Flags
 
@@ -401,6 +422,10 @@ Per `_shared/craft/measurement.md`.
 - A task reviewer was dispatched without a diff file, or without all three inputs (brief, report, review package)
 - The QA gate was skipped or its findings were not triaged before the final review ran
 - A ticket without a complete Work Unit Evidence row was marked complete
+- A `use case` / interface / factory / config block for one implementation or a value that never changes
+- A new dependency added for what a few lines of stdlib or a native platform feature can do
+- A `ponytail:`-marked corner with no named ceiling and upgrade path
+- A non-trivial change declared done while its happy-path gate is unmet or unrun
 
 ## Verification
 
@@ -408,6 +433,7 @@ Per `_shared/craft/measurement.md`.
 - [ ] Every task's gate is green: `CHECK:`+`EXPECT:` ran (or `manual` executed, `ABANDON` surfaced as a handoff) with captured output
 - [ ] Test runner from `testing.runner` exits 0; build from `commands.build` and lint from `commands.lint` are clean
 - [ ] Every ticket has a complete Work Unit Evidence row (focused test, runtime harness, rollback boundary)
+- [ ] The lazy ladder was climbed before every coding task: the chosen rung is the minimum that satisfies the constraints, real corners carry a `ponytail:` ceiling comment, and nothing protected by "When NOT to be lazy" was simplified away
 - [ ] The QA gate returned PASS or WAIVED with the waiver recorded; FAIL findings were fixed with a failing test first
 - [ ] Subagent mode: every dispatched implementer received a complete task brief (the `task-brief` output path was in the dispatch prompt), and every subagent's `#### Gates` oracles were re-run by the parent before the task was marked complete
 - [ ] The final review is clean or capped (per `_shared/planning/rigor-tiers.md`, fix loop cap); open findings logged with rulings
@@ -432,6 +458,7 @@ On-demand detail for this skill, in `references/`:
 - [concurrent-leaves.md](references/concurrent-leaves.md) — the concurrent coupled build: disjoint `Owns:` contract, branch integration gate, parent re-verify (fan-out mode).
 - [style-guide.md](references/style-guide.md) — how this skill and its `references/` / `scripts/` are written and kept current (authoring + drift sweep).
 - [code-structuring.md](references/code-structuring.md) — the code-structuring part: measure a brownfield repo before planning (pygount), a scoped health pass (jscpd duplication → dead code → complexity), and the deep-module vocabulary for the interfaces a task creates or reshapes.
+- [ponytail.md](references/ponytail.md) — the lazy discipline part: the ladder (YAGNI → reuse → stdlib → native → installed dep → one line → minimum), the check rule re-bound to `#### Gates`, intensity levels, and the "when NOT to be lazy" protections.
 - [api-design.md](references/api-design.md) — the API-design part: REST resource naming, semantic status codes, the response envelope, pagination, filtering, auth, rate limiting, and versioning for the endpoints a task adds or reshapes.
 
 Code style guides in `style-guides/` — Google's official per-language style conventions, one file per language (`typescript.md`, `javascript.md`, `python.md`, `go.md`, `cpp.md`, `java.md`, `csharp.md`, `swift.md`, `shell.md`, and 7 more). Load the matching guide before writing or reviewing code in that language; overview of all guides and cross-language golden rules: [google-styleguides.md](style-guides/google-styleguides.md).

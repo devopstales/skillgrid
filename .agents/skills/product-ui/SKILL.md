@@ -4,7 +4,7 @@ description: "Designs product and application UIs — dashboards, admin panels, 
 license: MIT
 metadata:
   author: devopstales
-  version: "1.0"
+  version: "2.0"
   part-of: skillgrid
   based_on: original (no upstream fold) — derived from the Operate-mode surface-class bias; cross-references `skillgrid:ui-ux-pro-max`, `skillgrid:ui-styling`, `skillgrid:design-system`, `skillgrid:design-taste-frontend`
 ---
@@ -34,6 +34,17 @@ DESIGN FOR THE TASK, NOT THE AESTHETIC
 A product UI that looks beautiful but costs a step per action is a failure.
 Every layout, density, and state decision must trace back to a user's task
 path. When the brief and the task conflict, the task wins.
+
+**Persona-scope rule (reply language ≠ artifact language).** The persona this
+skill adopts — Operate-mode, task-first, scanability-over-aesthetic — scopes
+the *artifacts* it produces (the UI spec, the design, the layout, the
+component notes), not the language of your reply to the user. Reply in the
+language the user used; write the UI artifact in the language the artifact's
+consumers use (the product's locale, or the user's instruction language). Never
+let the persona leak into the reply tone: do not answer a German question in
+English because the skill "thinks in product terms", and do not render a
+product's UI labels in the reviewer's language when the product ships in
+another. The persona is a lens on the *design*, not a setting on the *chat*.
 
 ## When to Use
 

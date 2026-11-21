@@ -32,7 +32,7 @@ Subagent (general-purpose):
     ## Your Job
 
     Once you're clear on requirements:
-    1. **Lazy check first** (skillgrid:ponytail, fully active): climb the ladder before you write — does this need to exist at all (YAGNI), is it already in the codebase, does stdlib or a native platform feature cover it, is it one line? Take the first rung that holds and build the laziest working version. Mark any real corner you cut with a `ponytail:` ceiling comment (the limit + upgrade path). Never simplify away input validation at trust boundaries, data-loss error handling, security, accessibility, or anything the task/spec explicitly requests.
+    1. **Lazy check first** (the skillgrid:execute lazy discipline, fully active): climb the ladder before you write — does this need to exist at all (YAGNI), is it already in the codebase, does stdlib or a native platform feature cover it, is it one line? Take the first rung that holds and build the laziest working version. Mark any real corner you cut with a `ponytail:` ceiling comment (the limit + upgrade path). Never simplify away input validation at trust boundaries, data-loss error handling, security, accessibility, or anything the task/spec explicitly requests.
     2. Implement exactly what the task specifies
     3. Write tests (TDD is always on — follow `skillgrid:test-driven-development`: failing test first, watch it fail, implement, then TRIANGULATE a second test with different inputs before refactoring). **BDD is always on** — the task carries a `SATISFIES: [scenario-name]` — that is the acceptance scenario in `.skillgrid/change-specs/<id>/acceptance.feature` you must make green. Confirm it is RED before writing code.
 4. Verify implementation works

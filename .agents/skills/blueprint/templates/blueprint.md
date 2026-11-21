@@ -83,6 +83,21 @@ this list, not just that tasks exist. Every item must be verifiable.]
 - [e.g., "Changing the public `Order` API response shape — breaks existing consumers"]
 - [If none: "None"]
 
+## Validation
+
+[One row per in-scope requirement — the plan's statement of *how it will be
+proven*, written before slicing. A green suite is not the verdict; this table
+names, per requirement, the check that would catch a regression and the result
+that falsifies the plan. Coverage is mechanical: a requirement with no row is a
+plan defect (the slicing coverage check and `skillgrid:test`'s intent area both
+consume it). Out-of-scope rows state what is NOT proven.]
+
+| Req | Happy | Edge | Failure | Check | Falsifier |
+|-----|-------|------|---------|-------|-----------|
+| R1 | <happy-path behavior> | <boundary condition> | <failure mode> | `<command or gate>` | <the result that would falsify the plan> |
+| R2 | <happy-path behavior> | <boundary condition> | <failure mode> | `<command or gate>` | <the result that would falsify the plan> |
+| <out-of-scope> | — | — | — | — | <what is deliberately not proven> |
+
 ## Global Constraints
 
 [The spec's project-wide requirements — version floors, dependency limits,

@@ -45,9 +45,10 @@ and fix-round diffs need it. Mark the task's todo `in_progress` now
   (brief `…/task-N-brief.md` → report `…/task-N-report.md`) and put it in
   the dispatch prompt. The implementer writes the full report there and
   returns only status, commits, a one-line test summary, and concerns.
-- **Contract:** the brief carries the task's `#### Gates` oracles and the 4-pass
-  refinement loop (implement complete → expert re-read → defect hunt → polish
-  until a full pass finds nothing). A scenario is met only when its declared
+- **Contract:** the brief carries the task's `#### Gates` oracles, the lazy
+  ladder (the skillgrid:execute lazy discipline — the implementer's first step),
+  and the 4-pass refinement loop (implement complete → expert re-read →
+  defect hunt → polish until a full pass finds nothing). A scenario is met only when its declared
   `CHECK:` exits 0 + `EXPECT:` matches, freshly run; an `ABANDON` is a handoff,
   not done. The implementer reports its `Refinement:` evidence (see the
   implementer template), and you re-verify the oracles at the parent before

@@ -67,9 +67,12 @@ evidence is what you verify *this run*.
 - **Primary sources only.** Official documentation, source code, specs,
   first-party APIs, filings, original papers. Follow every claim back to the
   source that owns it — not a secondary write-up of that source.
-- **Tooling:** `context7` for library/framework API docs (current, versioned);
-  `exa` and `webfetch` for everything else. Prefer the source's own docs over a
-  blog about them.
+- **Tooling:** `context7` for library/framework API docs (current, versioned) —
+  `resolve-library-id` to get the Context7 library ID, then fetch the doc page
+  for the exact topic. `exa` (`web_search_exa` to find the page, `web_fetch_exa`
+  to read it) and `webfetch` for everything else. Prefer the source's own docs
+  over a blog about them. These are MCP tools in a connected session; if the
+  server is not wired, fall back to `websearch` + `webfetch`.
 - **Red flags that downgrade confidence:** speculative language ("could",
   "may", projections presented as findings), marketing register, cherry-picked
   or unsourced numbers, aggregators recycling a single upstream report. Answer

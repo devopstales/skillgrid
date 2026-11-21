@@ -5,7 +5,7 @@ description: "Use when a change has passed QA and review and needs to be closed 
 license: MIT
 metadata:
   author: devopstales
-  version: "1.0"
+  version: "2.0"
   part-of: skillgrid
   based_on: skillgrid:reflect 1.0 + skillgrid:environment-retro 1.0 + skillgrid:document 1.0 + skillgrid:ship 1.1
 ---
@@ -31,6 +31,36 @@ You are the **TERMINAL** phase — the close of the SDD cycle. In one pass you d
 
 The pipeline is `execute` → `test` → **`ship`** (terminal). Nothing runs after this phase except the next change.
 
+**Persona-scope rule (reply language ≠ artifact language).** The persona this
+skill adopts — the terminal-phase closer, working from the real diff and
+commits — scopes the *artifacts* it writes (the report, the docs, the wiki
+pages, the PR body), not the language of your reply to the user. Reply in the
+language the user used; write the human-facing record in the language the
+record's consumers read (the repo's documentation language, or the user's
+instruction language). Never let the persona leak into the reply tone, and
+never render an artifact in the reviewer's language when the repo's docs ship
+in another. The persona is a lens on the *record*, not a setting on the *chat*.
+
+```mermaid
+flowchart TD
+    A[Enter: gates read pre-move] --> B{Status + Workspace Guard}
+    B -->|read-only / FAIL / no override| X[return blocked]
+    B -->|clear| C[Step 1: Verify tests on current tree]
+    C -->|red| X
+    C -->|green| D[Step 2: Reflect - retro half in report.md]
+    D --> E[Step 3: Environment Retro]
+    E --> F[Step 4: Document + projectwiki pages]
+    F --> G[Step 5: Commit close-out]
+    G --> H[Step 6: Integrate menu]
+    H -->|1, merge locally| I[re-run suite on merged tree]
+    H -->|2, push + PR| J[PR against base]
+    H -->|3, keep as-is| K[report branch + worktree]
+    I --> L[Step 7: Archive - git mv + diff -r readback]
+    J --> L
+    K --> L
+    L --> M[Step 8: Return Envelope]
+```
+
 **Iron law:**
 
 ```
@@ -41,7 +71,7 @@ A green run only proves the tree it ran on. QA ran against the feature tree — 
 
 ## Overview
 
-Ship closes a verified change: it reflects on what shipped, retros the environment, writes the human record from the real diff, commits the close-out, integrates the work to its base branch, and mechanically archives the change folder. It matters because shipping is where unverified work leaks into the base branch and the archive — the point of no return. Core principle: **do not merge, push, or move the folder until the test suite is green on the integrated tree.**
+Ship closes a verified change: it reflects on what shipped, retros the environment, writes the human record from the real diff, commits the close-out, integrates the work to its base branch, and mechanically archives the change folder. It matters because shipping is where unverified work leaks into the base branch and the archive — the point of no return. The iron law above is the principle this phase enforces.
 
 ## When to Use
 
@@ -311,7 +341,7 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 ## Rules
 
 - You close **verified** work. A `FAIL` in `report.md` → `## Gate Decision` or an unresolved CRITICAL blocks ship — no prompt override; require a fresh passing test run.
-- **Do not merge, push, or move until tests are green on the integrated tree.** A green run only proves the tree it ran on.
+- **The iron law** (above) — no merge, push, or folder move before a fresh green run on the integrated tree.
 - **Every learning is sourced.** A finding with no file:line / commit / ticket / scenario is a guess — cite it or mark it undiagnosed.
 - **The acceptance verdict is advisory.** `rejected` is recorded and surfaced, never a hard block. The human decides follow-up.
 - **The environment retro proposes, never implements.** Real builds become tickets + `mem_save`, not edits made in this phase.
