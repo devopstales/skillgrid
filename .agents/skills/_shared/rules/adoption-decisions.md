@@ -40,6 +40,34 @@ change: the grep for the old name returns zero hits outside the new rule file
 leaves stale references in two files is drift, not a rename — the sweep is
 one atomic commit, and the verification step is the grep.
 
+## The tooling budget
+
+When the adoption adds a *tool* (a CLI, a transport, a source) rather than a
+decision, the tool's allow-list lives in config, not in skill prose: the
+`research.sources` list (or the project's equivalent) is the **authoritative
+budget** — if the tool is in the list, the skills that call it may; if it is
+not, it is not available. Adding a tool is a one-line config edit plus the
+pointer updates; editing the skill's sourcing prose to name the tool is the
+drift this rule exists to prevent.
+
+Three invariants for budgeted tools:
+
+- **Transport, not workflow.** A capability that fetches the same kind of data
+  through a different surface (a CLI that reads login-walled platforms, a
+  transcript extractor, a structured-data fetcher) is a *tool the existing
+  skills call when the surface demands it* — not a new skill. A new skill is
+  justified only by a new *workflow* (new steps, new gates, new artifacts).
+- **Non-fatal install.** An optional tool degrades its stack, it does not
+  break the install: skip if the binary is already on PATH, warn if its
+  package manager is missing, respect `--dry-run`, capture output. A hard
+  prerequisite that the tool's manager already is (e.g. `uv`) stays hard; the
+  tool itself does not become one.
+- **The gotcha lives at the point of use.** If the correct invocation is
+  non-obvious (a name collision with a different package on the same
+  registry, a required flag, a version pin), the install command and its
+  manual-install hint carry the warning — not a separate document the
+  installer never reads.
+
 ## Park, don't defer
 
 Follow-ups that are *tools* (new binaries, new scanners) or *reworks* (a

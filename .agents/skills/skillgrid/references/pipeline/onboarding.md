@@ -46,6 +46,16 @@
 - If not available: warn the programmer by printing "WARNING: trivy is not installed."
 - Defaults: `severities: "CRITICAL"`, `scan_types: "vuln,secret,misconfig"`, `fail_on: "CRITICAL"`
 
+**Research sources (tooling budget):**
+- Optional research CLIs (transcript extractors, login-walled-platform readers,
+  structured-data fetchers) are budgeted per
+  `_shared/rules/adoption-decisions.md` § Tooling budget: their allow-list is
+  the `research.sources` list in `.skillgrid/config.yaml`, and onboarding
+  detects each as **non-fatal** — skip if the binary is on PATH, warn if its
+  package manager (e.g. `uv`) is missing, and record the detected tools in
+  `research.sources`. An absent tool degrades the research stack; it does not
+  fail onboarding. Detect, don't force.
+
 **Ticketing:**
 - `git remote get-url origin` → contains `github` → `gh`
 - `git remote get-url origin` → contains `gitlab` → `glab`

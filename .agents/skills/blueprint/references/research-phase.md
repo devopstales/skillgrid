@@ -67,12 +67,24 @@ evidence is what you verify *this run*.
 - **Primary sources only.** Official documentation, source code, specs,
   first-party APIs, filings, original papers. Follow every claim back to the
   source that owns it — not a secondary write-up of that source.
-- **Tooling:** `context7` for library/framework API docs (current, versioned) —
-  `resolve-library-id` to get the Context7 library ID, then fetch the doc page
-  for the exact topic. `exa` (`web_search_exa` to find the page, `web_fetch_exa`
-  to read it) and `webfetch` for everything else. Prefer the source's own docs
-  over a blog about them. These are MCP tools in a connected session; if the
-  server is not wired, fall back to `websearch` + `webfetch`.
+- **Tooling budget (the allow-list).** The research tools you may call are the
+  project's `research.sources` list in `.skillgrid/config.yaml` — the
+  **authoritative tooling budget** (per `_shared/rules/adoption-decisions.md`
+  § Tooling budget). If a tool is in the list, you may call it; if it is not,
+  it is not available — a budgeted tool is discoverable and auditable, and
+  adding one is a one-line config edit plus the pointer updates, not a rewrite
+  of this prose. The list names *which* surface each tool covers; the craft
+  below names *how* to use the defaults:
+  - `context7` for library/framework API docs (current, versioned) —
+    `resolve-library-id` to get the Context7 library ID, then fetch the doc
+    page for the exact topic.
+  - `exa` (`web_search_exa` to find the page, `web_fetch_exa` to read it) and
+    `webfetch` for everything else.
+  - Login-walled platforms, video/audio transcripts, and structured data are
+    the surfaces a budgeted CLI transport covers (e.g. `agent-reach` when it
+    is in the list); call it when the surface demands it.
+  - These are MCP tools in a connected session; if the server is not wired,
+    fall back to `websearch` + `webfetch`.
 - **Red flags that downgrade confidence:** speculative language ("could",
   "may", projections presented as findings), marketing register, cherry-picked
   or unsourced numbers, aggregators recycling a single upstream report. Answer

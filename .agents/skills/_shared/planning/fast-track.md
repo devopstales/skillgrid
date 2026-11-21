@@ -34,6 +34,33 @@ When in doubt, run the full pipeline.
 Carry the same block (or `Waiver: trivial/small — see briefing.md`) into `tasks.md` top and
 `report.md`'s QA half as `Fast-track: {trivial|small} (waiver in briefing.md)`.
 
+## The briefing-only shape (worked example)
+
+A `trivial` change carries no blueprint — the "how" lives in the briefing.
+The briefing then must stand on its own: a worked example of this shape is the
+`2026-10-24-agent-reach-integration` change (skillgrid repo,
+`.skillgrid/change-specs/`), which is a briefing with no blueprint and shows
+the full fast-track shape:
+
+- **Goal / Problem** — what and why, in two short sections.
+- **Research Sources** — a cited table (source, URL, key takeaway) for every
+  external fact the design rests on.
+- **Design Decisions** — the *how*, numbered, each decision stated as a
+  rule the executor follows (e.g. "non-fatal install", "no new skill").
+- **Steps** — a table: `# | Step | Deliverable | Key files`, with the **zone
+  order** stated (spec-zone steps commit before code-zone steps).
+- **Trust Boundaries** — "None" when genuinely none, otherwise the new
+  surface named.
+- **Verification Floor** — the ladder level and why it is sufficient.
+- **Rollback** — Code / Config / Machine, each with the exact revert.
+- **Open Questions** — "None" when resolved, otherwise the list.
+
+A briefing that carries the how must carry **all of the above** — a missing
+Rollback or a Steps table without zone order is a WARNING at `qa`, not a
+silent gap. The worked example's design decisions are also the model for the
+two invariants in `_shared/rules/adoption-decisions.md` § Tooling budget
+(transport-not-workflow, non-fatal install, gotcha-at-point-of-use).
+
 ## Phase behavior under waiver
 
 - `slicing`: light `tasks.md` allowed (fewer phases, 1–2 lines per ticket).
