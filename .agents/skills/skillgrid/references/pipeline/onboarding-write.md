@@ -50,6 +50,7 @@ Step 3 and Step 4 of `references/pipeline/onboarding.md`. Detect and confirm hap
 - If `ticketing.type: gh`: verify `gh` CLI is available (`gh --version`)
 - If `ticketing.type: glab`: verify `glab` CLI is available (`glab --version`)
 - If `ticketing.type: jira`: verify `jira` CLI is available (`jira config`)
+- If `ticketing.type: hermes-kanban`: verify `hermes` CLI is available (`hermes --version`); the `ticketing.kanban.*` block (board slug + assignee) is written by `skillgrid install --agents hermes` — if the block is absent from `config.yaml`, run that install or record the board/assignee from the onboarding override question. Verify the board: `hermes kanban boards list` — board missing → `hermes kanban boards create <slug>` (non-fatal; a missing board must not block onboarding, see `slicing/references/ticketing/hermes-kanban/hermes-kanban.md` § Discovery)
 - If `ticketing.enabled: false`: skip all tracker bootstrap
 
 **7. Mnemonic saves (if `mnemonic.enabled: true`):** follow the save shape + session protocol in `skillgrid:_shared/rules/mnemonic-memory.md`. For onboarding specifically:

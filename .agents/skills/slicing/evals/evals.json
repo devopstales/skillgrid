@@ -24,6 +24,12 @@
       "prompt": "You sliced 5 tickets and the tracker is Backlog.md. Publish them.",
       "expected_output": "Agent reads the tracker's CLI + formatting reference, runs Discovery (auth/repo/policy/labels), checks for duplicates, builds the bodies from the template, runs the Pre-submission Privacy Review (no usernames/hostnames/tokens), creates the epic + tickets via the backlog CLI, satisfies the Backlog completeness gate (type, references, DoD, plan), and records the tracker IDs back into tasks.md. It does not hand-edit task files.",
       "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "You sliced 4 tickets, two of them blocked by the first. The tracker is Hermes Kanban (ticketing.type: hermes-kanban, board and assignee in config). Publish them.",
+      "expected_output": "Agent reads hermes-kanban.md + hermes-kanban-formatting.md, runs Discovery (hermes --version, boards list, board missing -> create it non-fatally, duplicate check per status), creates the epic card first (top-level, --workspace scratch, Spec: line with the full spec folder name), then the tickets in wave order (parents before children) as TICKET-<NN>: <title> (ASCII only) with --parent links, --workspace worktree for coding / scratch for research, and --assignee from ticketing.kanban.assignee. It runs the post-create show check (title, assignee, parents, workspace) on every task, records the Kanban task IDs back into tasks.md, and reports the board as the source of truth. It does not hand-edit board data.",
+      "files": []
     }
   ]
 }

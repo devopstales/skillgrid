@@ -68,6 +68,7 @@ Read `.skillgrid/config.yaml` before starting. Use:
 | `testing.setup` | Install command for new workspaces (e.g. `npm install`, `go mod download`) instead of auto-detecting |
 | `conventions.artifacts` | Terms-file vocabulary (the `01-business-terms.md` / `02-technical-terms.md` under `.skillgrid/projectwiki/glossary/`) for briefs and rulings |
 | `ticketing.enabled` | If `true` AND a `tasks.md` with tracker IDs exists (produced by `skillgrid:slicing`), update ticket status at each transition: `ready` (wave start) → `in-progress` (implementer dispatched / ticket started) → `review` (review started / verification passed) → `done` (review clean) |
+| `ticketing.type` | Per-tracker CLI for the status updates above (see `skillgrid:slicing` § Tracker Adapters). When `hermes-kanban`: `claim` at execution start is the in-progress transition — it is atomic and prints the resolved workspace path, which becomes the implementer's worktree (Step 0a/0c below) |
 
 Carry the in-force ADRs — per the change's ADR Review Manifest at `.skillgrid/change-specs/YYYY-MM-DD-<topic>/adr.md` — into implementer briefs so a worker doesn't re-litigate a settled decision or name things outside the ubiquitous language. Every implementation task follows `skillgrid:test-driven-development`: basic TDD (a failing test before code) is always on. **BDD is always on** — the brief names the task's `SATISFIES` scenario and the reviewer checks the acceptance scenario went RED→GREEN (TDD Evidence references the scenario name); enforce the spec-zone rule — commit `.skillgrid/change-specs/` changes before code changes, never both uncommitted (the `pre-commit` zone guard, `skillgrid:work-unit-commits`, blocks a mixed commit).
 
@@ -133,6 +134,8 @@ Before dispatching Task 1 (subagent mode) or starting the first task (inline mod
 
    - **Already in a linked worktree** (and not a submodule): skip creation and report with branch state — "Already in isolated workspace at `<path>` on branch `<name>`." (Detached HEAD: note that branch creation is needed at finish time.) Do NOT create another worktree.
    - **Normal checkout:** has the user already indicated a worktree preference? If not, ask for consent: "Would you like me to set up an isolated worktree? It protects your current branch from changes." Honor any declared preference without asking. If the user declines, work in place.
+
+   **0a'. Tracker-claimed workspaces override 0a–0c.** When the tracker is `hermes-kanban` (`ticketing.type`) and the ticket was claimed via `hermes kanban --board <slug> claim <task-id>`, the claim printed a resolved workspace path — use it as the implementer's worktree and skip 0a–0c (the claim already owns directory placement, isolation, and cleanup). Create a new worktree only when the ticket is not claimed (e.g. `ticketing.enabled: false`) or the claim's path is unavailable.
 
    **0b. Create via native worktree tools (preferred).** If the harness provides a worktree tool (`EnterWorktree`, `WorktreeCreate`, a `/worktree` command, or a `--worktree` flag), use it — it owns directory placement, branch creation, and cleanup. Using `git worktree add` when a native tool exists creates phantom state the harness can't see or manage.
 

@@ -328,7 +328,7 @@ Read `.skillgrid/config.yaml` `ticketing.type`. Each tracker has one folder in `
 | `gh` | [github.md](references/ticketing/github/github.md) → [github-formatting.md](references/ticketing/github-formatting.md) → `templates/` when building bodies |
 | `glab` | [gitlab.md](references/ticketing/gitlab/gitlab.md) → [gitlab-formatting.md](references/ticketing/gitlab-formatting.md) → `templates/` when building bodies |
 | `jira` | [jira.md](references/ticketing/jira/jira.md) → [jira-formatting.md](references/ticketing/jira-formatting.md) → `templates/` when building bodies |
-| `hermes-kanban` | [hermes-kanban.md](references/ticketing/hermes-kanban/hermes-kanban.md) → [templates/ticket.md](references/ticketing/hermes-kanban/templates/ticket.md) when building bodies |
+| `hermes-kanban` | [hermes-kanban.md](references/ticketing/hermes-kanban/hermes-kanban.md) → [hermes-kanban-formatting.md](references/ticketing/hermes-kanban-formatting.md) → [templates/ticket.md](references/ticketing/hermes-kanban/templates/ticket.md) when building bodies |
 
 For `hermes-kanban`, the **Kanban board is the source of truth** for status; a local Backlog.md entry (if any) is a human-readable mirror that carries the Kanban task ID and whose status is updated *from* the board. Read [hermes-kanban.md](references/ticketing/hermes-kanban/hermes-kanban.md) before every Kanban publish.
 

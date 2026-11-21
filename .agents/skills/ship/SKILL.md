@@ -189,7 +189,7 @@ plus the change folder: `briefing.md` (goal), `blueprint.md` (approach), `tasks.
 
 | Record | Output |
 |---|---|
-| **PR body** | title + body for the forge (`gh`/`glab`) or chat — lead with what changed and why, name the gate verdict, point at the evidence; include a `## Merge Danger` section (one-way vs two-way door + one-word blast radius) |
+| **PR body** | title + body for the forge (`gh`/`glab`) or chat — lead with what changed and why, name the gate verdict, point at the evidence; include a `## Merge Danger` section (one-way vs two-way door + one-word blast radius). When the tracker is `hermes-kanban`, also list the change's Kanban task IDs (from `tasks.md` → `Tracker ID`) so the board and the PR cross-reference each other |
 | **Changelog** | entry appended to `CHANGELOG.md` (root; created with a `# Changelog` header on first use; Keep a Changelog format) — bullet the user-visible changes, group by Added/Changed/Fixed/Breaking |
 | **Release note** | `.skillgrid/releases/<version>.md` (created on first use) — plain language, no internal names, lead with what the user can now do |
 

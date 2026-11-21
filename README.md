@@ -10,7 +10,7 @@
   * write intent driven tests
   * `prototype`
 * `sliece`
-  * `ticketing`
+  * `ticketing` (backlogmd, gh, glab, jira, hermes-kanban)
   * weticle sliceing
   * task size max 20% of context window
 * `execute`

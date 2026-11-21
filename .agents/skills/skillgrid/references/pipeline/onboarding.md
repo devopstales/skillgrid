@@ -60,6 +60,10 @@
 - `git remote get-url origin` → contains `github` → `gh`
 - `git remote get-url origin` → contains `gitlab` → `glab`
 - No remote or programmer preference → `backlogmd` (default, local)
+- `command -v hermes` on PATH → note that `hermes-kanban` is available as an
+  override (non-fatal — detect, don't force, per the research CLI budget rule
+  above). The remote-based detection wins when it resolves; hermes is offered
+  in the override question, not auto-detected.
 - Ask the programmer: "The following ticketing was detected: <tracker-type>. Do you want to override it? Answer no to continue, or name the tracker to override."
     - If no keep detected
     - Otherwise use programmer answer. Validate before use:
@@ -69,6 +73,8 @@
         - Programmer names backlog → `backlogmd`
         - Programmer names backlog.md → `backlogmd`
         - Programmer names local → `backlogmd`
+        - Programmer names Hermes → `hermes-kanban` (ask for board slug — default the `project` name — and assignee profile — default `default` — and record them under `ticketing.kanban.*`)
+        - Programmer names Kanban → `hermes-kanban` (same follow-ups)
 - Ask the programmer: "Do you want to publish tickets to a tracker? Or work local-only from tasks.md?"
   - If yes → `ticketing.enabled: true`, use detected tracker type
   - If no → `ticketing.enabled: false`, use `backlogmd` tracker type
