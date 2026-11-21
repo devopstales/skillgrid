@@ -153,3 +153,82 @@ func TestInstallNativePluginsCopiesKiloRouter(t *testing.T) {
 		t.Errorf("kilo config missing router registration: %s", cfgData)
 	}
 }
+
+// TestInstallOpenCodeNativePluginsRouterSurvivesMissingNatives: the router is
+// distributed BEFORE the native copy set (T6 follow-up), so a checkout whose
+// native sources are missing (the release/2 state after d5148778) still gets
+// the router plugin + registration even though the native loop fails.
+func TestInstallOpenCodeNativePluginsRouterSurvivesMissingNatives(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	// Only the router source — no native sources.
+	srcDir := filepath.Join(repo, "plugins", "opencode")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, routerPluginRel+".ts"),
+		[]byte("// router\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfgDir := filepath.Join(home, ".config", "opencode")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(cfgDir, "opencode.jsonc")
+	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := installOpenCodeNativePlugins(home, repo, cfgPath, false)
+	if err == nil {
+		t.Fatal("expected the native loop to fail on missing native sources")
+	}
+	if _, err := os.Stat(filepath.Join(cfgDir, "plugins", routerPluginRel+".ts")); err != nil {
+		t.Errorf("router .ts must land before the native loop fails: %v", err)
+	}
+	cfgData, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cfgData), "./plugins/"+routerPluginRel+".ts") {
+		t.Errorf("config must register the router even when the native loop fails: %s", cfgData)
+	}
+}
+
+// TestInstallNativePluginsKiloRouterSurvivesMissingNatives: same contract for
+// the kilo variant.
+func TestInstallNativePluginsKiloRouterSurvivesMissingNatives(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	srcDir := filepath.Join(repo, "plugins", "kilo")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, routerPluginRel+".ts"),
+		[]byte("// kilo router\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfgDir := filepath.Join(home, ".config", "kilo")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(cfgDir, "kilo.jsonc")
+	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := installNativePlugins(home, repo, cfgPath, "kilo", false)
+	if err == nil {
+		t.Fatal("expected the native loop to fail on missing native sources")
+	}
+	if _, err := os.Stat(filepath.Join(cfgDir, "plugin", routerPluginRel+".ts")); err != nil {
+		t.Errorf("kilo router .ts must land before the native loop fails: %v", err)
+	}
+	cfgData, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cfgData), "./plugin/"+routerPluginRel+".ts") {
+		t.Errorf("kilo config must register the router even when the native loop fails: %s", cfgData)
+	}
+}

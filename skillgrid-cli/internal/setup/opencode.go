@@ -57,6 +57,22 @@ func SetupOpenCode(home, repoRoot string, mcpEntries []MCPServerConfig, privateT
 // plugin/ dir + config registration, because Kilo reads its own config file.
 func installOpenCodeNativePlugins(home, repoRoot, cfgPath string, dryRun bool) error {
 	pluginDir := filepath.Join(home, ".config", "opencode", "plugins")
+	// Router bootstrap plugin (T6): distributed BEFORE the native copy set —
+	// independent of it (ADR-0067 reworks that set; this step must survive
+	// the rework independently, including a failing native loop). A missing
+	// source is skipped, matching the cursor hook-script precedent: older
+	// checkouts simply install no router, and the runtime asset resolution
+	// keeps a fallback.
+	routerSrc := "plugins/opencode/" + routerPluginRel + ".ts"
+	if _, err := os.Stat(filepath.Join(repoRoot, routerSrc)); err == nil {
+		routerDst := filepath.Join(pluginDir, routerPluginRel+".ts")
+		if err := copyFromRepo(repoRoot, routerSrc, routerDst, dryRun); err != nil {
+			return err
+		}
+		if err := upsertPluginKey(cfgPath, "./plugins/"+routerPluginRel+".ts", dryRun); err != nil {
+			return err
+		}
+	}
 	for _, base := range nativePluginBases {
 		srcRel := "plugins/opencode/" + base + ".ts"
 		dst := filepath.Join(pluginDir, base+".ts")
@@ -69,20 +85,7 @@ func installOpenCodeNativePlugins(home, repoRoot, cfgPath string, dryRun bool) e
 			return err
 		}
 	}
-	// Router bootstrap plugin (T6): distributed from its own source dir and
-	// standalone from the native set (ADR-0067 reworks that copy set; this
-	// step must survive it independently). A missing source is skipped,
-	// matching the cursor hook-script precedent: older checkouts simply
-	// install no router, and the runtime asset resolution keeps a fallback.
-	routerSrc := "plugins/opencode/" + routerPluginRel + ".ts"
-	if _, err := os.Stat(filepath.Join(repoRoot, routerSrc)); err != nil {
-		return nil
-	}
-	routerDst := filepath.Join(pluginDir, routerPluginRel+".ts")
-	if err := copyFromRepo(repoRoot, routerSrc, routerDst, dryRun); err != nil {
-		return err
-	}
-	return upsertPluginKey(cfgPath, "./plugins/"+routerPluginRel+".ts", dryRun)
+	return nil
 }
 
 // installNativePlugins copies the native TS plugins from plugins/opencode/
@@ -92,20 +95,11 @@ func installOpenCodeNativePlugins(home, repoRoot, cfgPath string, dryRun bool) e
 // plugin/ dir + config registration).
 func installNativePlugins(home, repoRoot, cfgPath, harness string, dryRun bool) error {
 	pluginDir := filepath.Join(home, ".config", harness, "plugin")
-	for _, base := range nativePluginBases {
-		srcRel := "plugins/opencode/" + base + ".ts"
-		dst := filepath.Join(pluginDir, base+".ts")
-		if err := copyFromRepo(repoRoot, srcRel, dst, dryRun); err != nil {
-			return err
-		}
-		if err := upsertPluginKey(cfgPath, "./plugin/"+base+".ts", dryRun); err != nil {
-			return err
-		}
-	}
 	// Router bootstrap plugin (T6): kilo loads its own variant from
-	// plugins/kilo/ (the kilo harness API differs from opencode's),
-	// standalone from the native set. Missing source is skipped (older
-	// checkouts install no router; see the opencode counterpart).
+	// plugins/kilo/ (the kilo harness API differs from opencode's).
+	// Distributed BEFORE the native copy set so it survives a failing
+	// native loop (see the opencode counterpart). Missing source is
+	// skipped (older checkouts install no router).
 	kiloRouterSrc := "plugins/kilo/" + routerPluginRel + ".ts"
 	if _, err := os.Stat(filepath.Join(repoRoot, kiloRouterSrc)); err == nil {
 		if err := copyFromRepo(repoRoot, kiloRouterSrc,
@@ -113,6 +107,16 @@ func installNativePlugins(home, repoRoot, cfgPath, harness string, dryRun bool) 
 			return err
 		}
 		if err := upsertPluginKey(cfgPath, "./plugin/"+routerPluginRel+".ts", dryRun); err != nil {
+			return err
+		}
+	}
+	for _, base := range nativePluginBases {
+		srcRel := "plugins/opencode/" + base + ".ts"
+		dst := filepath.Join(pluginDir, base+".ts")
+		if err := copyFromRepo(repoRoot, srcRel, dst, dryRun); err != nil {
+			return err
+		}
+		if err := upsertPluginKey(cfgPath, "./plugin/"+base+".ts", dryRun); err != nil {
 			return err
 		}
 	}
