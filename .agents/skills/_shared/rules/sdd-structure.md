@@ -34,7 +34,7 @@ brainstorm → blueprint (Phase 1 research → Phase 2 draft → Phase 3 project
 | `test-driven-verification` | Evidence before any "done" claim |
 | `_shared/work-unit-commits` | Commit protocol + commit events for resume (contract + hooks, cited by execution skills) |
 | `isolated-workspace` | Worktree isolation before execution |
-| `ponytail` | Lazy-minimal solution discipline (auto, on coding tasks) |
+| `ponytail` | *(folded into `execute` as the lazy discipline)* — lazy-minimal solution ladder (fully active on every coding task during execution) |
 | `qa` | Quality gate → `report.md` (QA half: test plan + verdict + evidence) |
 | `code-review` | Review → `review.md` |
 | `receiving-code-review` | Process findings |
@@ -130,6 +130,27 @@ The deepest artifact present in the change dir determines the phase. This is the
 | Folder in `change-archive/`, retro sections empty | `reflect` | `reflect` |
 | Folder in `change-archive/`, retro sections filled | `complete` | none |
 
+### Directional implication (validation semantics)
+
+A **present artifact requires only the artifacts that canonically precede it** —
+never a full-inventory check. The artifact order above is a sequence, not a
+checklist:
+
+- `briefing.md` + `blueprint.md` (no `acceptance.feature`, no `tasks.md`) is a
+  normal, valid mid-phase state (phase `blueprint`) — it **passes** any
+  phase-order check.
+- `tasks.md` present without `acceptance.feature` is a **violation**: the
+  cucumber file canonically precedes tasks.
+- `tasks.md` (the deepest artifact, index 3) implies `blueprint.md` and
+  `acceptance.feature` — never `briefing.md`, which is already present.
+
+Every validator of spec-folder state (the `state.yaml` drift guard, a
+`skillgrid validate`-style command, resume's phase derivation) MUST use this
+semantics: the deepest present artifact is checked against the set of
+artifacts before it, and only missing predecessors are findings. A
+full-inventory rule flags every in-flight change and trains the agent to
+ignore it.
+
 ### Resume rule
 
 `resume` and `using-skillgrid` MUST derive phase from artifacts first, then cross-check `state.yaml`. If they disagree, **artifacts win** (the spec zone is the deeper truth — same principle as the state-drift-guard). The skill records the disagreement as a dated entry in `.skillgrid/projectwiki/index/log.md` and patches the phase to match. `state.yaml` holds no freeform journal — prose goes to the KB write log, not `state.yaml`.
@@ -210,7 +231,7 @@ constraints_ref: .skillgrid/projectwiki/ASSUMPTIONS.md                       # p
 
 A user gate is a persisted decision point, not a conversational pause. It applies to spec-dir changes (entries in `changes:`); Bounded and fast-track work without a spec dir stays conversational.
 
-- **Write on reach:** the skill that pauses for a user decision writes `changes.<slug>.gate: <gate>` in the same edit that updates `phase`. Named gates: `blueprint-validation` (`blueprint`, at the User Review Gate), `user-gate-slice` (`slicing`, when it writes `tasks.md`), `qa-verdict` (`qa`, when the verdict is `CONCERNS` or `FAIL` — a human decision is required), `ship-decision` (`ship`, when the override path needs a human).
+- **Write on reach:** the skill that pauses for a user decision writes `changes.<slug>.gate: <gate>` in the same edit that updates `phase`. Named gates: `blueprint-validation` (`blueprint`, at the User Review Gate), `owed-decision` (`blueprint`, when the in-flight doubt gate finds an unsourced load-bearing claim — the panel: resolve first / not a real decision / build on the assumption; `Status: ASSUMED` when the user picks the third), `user-gate-slice` (`slicing`, when it writes `tasks.md`), `qa-verdict` (`qa`, when the verdict is `CONCERNS` or `FAIL` — a human decision is required), `ship-decision` (`ship`, when the override path needs a human).
 - **Screen:** one screen, readable in thirty seconds — **Done** (what was saved, with file names), **Assumed** (new assumptions, one line each, at most five), **Next** (the next step and roughly how long it takes), plus the reply menu: "ok to continue · tell me what to change · go to the end."
 - **Clear on respond:** the user's choice (ok, the named option, or a recorded override) clears the field in the same edit that advances the phase. A change request is written to the artifact under gate, the affected output is redone (at most twice; after that, record the disagreement and ask which version to keep), and the screen re-shows.
 - **Re-show on resume:** `resume` finds a non-empty `gate` and re-shows the same screen before any other action. It never passes the gate itself. A status report at a gated change names the pending gate without advancing.
@@ -363,6 +384,18 @@ the budget JSON records the last-known size.
 
 **Tiers:** `standard` 22KB (default), `large` 38KB, `xl` 40KB. Skills
 explicitly assigned a tier in the `tiers` map; unlisted skills use `standard`.
+
+**Measured scope:** a skill's size is `SKILL.md` + `references/` + `scripts/`
++ `evals/`. Bulky non-prose material that would push a skill over its ceiling
+lives in a **peer folder** (sibling of `references/`, e.g. `style-guides/`) so
+it stays out of the measured scope — the `SKILL.md` spine is the routing table,
+the peer folder is the load-on-demand reference.
+
+**Evals are part of the skill.** `evals/evals.json` sits in the measured scope
+and is a first-class artifact: per the `skill-creator` TDD gate, a pipeline
+skill without evals is incomplete (the RED step has no failing test to watch).
+A skill that grows past its ceiling to carry new behavior should push that
+behavior into `references/` — or drop the eval — rather than raise the ceiling.
 
 **Lifecycle:**
 - **`qa`** (check): runs `check` before rendering the gate. Overages become
