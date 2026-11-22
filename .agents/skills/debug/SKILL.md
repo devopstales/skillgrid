@@ -4,9 +4,12 @@ description: Use when encountering any bug, test failure, build failure, perform
 license: MIT
 metadata:
   author: devopstales
-  version: "2.0"
+  version: "2.1"
   part-of: skillgrid
   based_on: skillgrid:structured-debugging 1.1 + skillgrid:test-driven-verification 1.0 + skillgrid:regression-dog 1.0 + skillgrid:prototype 1.0 (verdict discipline)
+  created_by: human
+  related_skills: [projectwiki, test]
+  version: "2.3"
 ---
 
 # Debug
@@ -205,6 +208,20 @@ next blueprint's owed-decision list; mid-change → back to the blueprint
 owner. A patch ships only as a recorded workaround while the decision stands.
 Three patches around a bad decision is the same incident shipping twice.
 
+## Decision Gates
+
+| Condition | Action |
+|---|---|
+| Trivial one-liner, cause already known, fix mechanical | Skip the four phases — state the cause, verify the fix, done. |
+| Not reproducible | Back to Phase 1: gather data (logs, fixtures, env state) until it is. Never fix on a one-time sighting. |
+| Goldfish diagnosis diverges from the session's hypothesis | Its candidates enter the trail FIRST; tell the user both, ask before proceeding. |
+| A test against the reported mechanism passes on unmodified main | The report is right, the diagnosis is not — strengthen the test, re-diagnose (per `_shared/rules/evidence-claims.md`). |
+| Confirmed cause is a decision, not code (data model, API shape, provider) | Stop patching — record the ADR, route the decision; a patch ships only as a recorded workaround. |
+| 3+ failed fix attempts (`trail status` → `gate: architecture-question`) | STOP and run the architecture question with the human before attempt 4. |
+| Each fix reveals a new problem in a different place | Wrong architecture, not a hard bug — architecture question. |
+| Investigation complete, defect genuinely environmental/timing/external | Verdict `NO_ROOT_CAUSE` with the ruled-out evidence — add handling + monitoring. |
+| 3+ failed fixes with the architecture question still open | Verdict `ESCALATED` — state the handoff. |
+
 ## The Verdict (three states, evidence-gated)
 
 Every debug session ends with exactly one:
@@ -306,3 +323,5 @@ Per `_shared/craft/measurement.md`.
 - `skillgrid:regression-dog` — the behavioral-delta check on the fix diff before it commits
 - `skillgrid:architectural-decision-records` — decision-cause recording and routing
 - `skillgrid:prototype` — when the fix is itself an unproven technical claim, de-risk it before committing to the approach
+- [../_shared/rules/evidence-claims.md](../_shared/rules/evidence-claims.md) — the evidence rules behind the verdict gate: repro-before-closure, named-test closure, the mechanism-passes-on-main rule, taught-to-agree fixtures, baseline discipline, deletion-first fix ranking
+- [../skill-creator/references/rationalizations.md](../skill-creator/references/rationalizations.md) — the authoring rationalizations (script extraction, size, spine sections); load when you or the user push back on this skill's shape

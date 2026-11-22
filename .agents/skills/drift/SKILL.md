@@ -5,9 +5,11 @@ description: Use after execute or ship, or on demand, to detect where the code h
 license: MIT
 metadata:
   author: devopstales
-  version: "1.0"
+  version: "1.1"
   part-of: skillgrid
   based_on: elephant-goldfish-model:egm-drift-report (doc-vs-code drift detection, report-only-differences filter)
+  created_by: human
+  version: "1.3"
 ---
 
 # Drift
@@ -146,6 +148,34 @@ No "the code looks correct overall."
   Adding the path/symbol makes the next drift check cheaper." Record the gap
   in the report as a **DOC LINK** note, not a drift finding.
 
+## Decision Gates
+
+| Condition | Action |
+|---|---|
+| Doc has no code claims (pure process note) | Stop — nothing to drift against; report so. |
+| Artifact found but the code does *more* than the doc says | Not drift — note as a doc gap if material. |
+| Search cannot locate the code the doc names | Record **UNLOCATED** with the search trace — not a drift finding. |
+| A claimed number/constant differs from the code's value | Reportable drift (logic shortcut) — cite both values with file:line. |
+| BLOCKER divergence at ship gate | **WAIVE or FIX** — named human waiver with recorded risk, or fix before archive. |
+| MAJOR divergence at ship gate | Surface in the ship report; user decides. Not a hard block. |
+| Code matches the doc for every artifact | Report exactly: "No drift detected." — nothing else. |
+| Drift claim based on memory, not a file read | Re-read the live file before reporting it. |
+
+## Output Contract
+
+The drift report is the deliverable — appended to
+`{YYYY-MM-DD}_DRIFT_REPORT.md` (working directory, or the change-specs dir for
+an in-flight change). Exact shape:
+
+- One line per divergence, prefixed with its category tag
+  (`MISSING FEATURE` / `INCOMPLETE MODEL` / `LOGIC SHORTCUT` /
+  `ARCH DIVERGENCE`), each naming the doc claim and the code state with
+  file:line.
+- `DOC LINK` notes for missing/stale source links — separate from findings.
+- `UNLOCATED` entries with their search trace — separate from findings.
+- If nothing diverged: exactly `No drift detected.` — no other content.
+- No matching items, no prose paragraphs, no "looks correct overall."
+
 ## The Gate (at ship)
 
 When run as a pre-archive gate (after `execute`, before `ship` archives the
@@ -186,6 +216,7 @@ against the broader spec. Both are needed.
 - [ ] "No drift detected" is present only when every artifact matched
 - [ ] BLOCKER divergences have a named waiver or a fix commit before archive
 - [ ] Doc-link gaps are noted (DOC LINK), not silently dropped
+- [ ] Every drift claim cites a file read or search trace (a claim is not evidence — per `../_shared/rules/evidence-claims.md`)
 
 ## How to measure it
 
@@ -205,3 +236,7 @@ Per `_shared/craft/measurement.md`.
 | "It's a minor field, not worth reporting" | A missing field on a data model is an INCOMPLETE MODEL. The next integration that expects that field breaks. Report it. |
 | "I can't find the code, so it probably doesn't exist" | UNLOCATED is not the same as MISSING. If you searched and could not find it, say UNLOCATED. If the symbol is genuinely absent, that is a MISSING FEATURE — but the search trace is the evidence. |
 | "Drift is the doc's problem, not mine" | If you changed the code and the doc now disagrees, the drift is yours. The doc is the specification; the code that drifted from it is the change you made. |
+
+## References
+
+- [../skill-creator/references/rationalizations.md](../skill-creator/references/rationalizations.md) — the authoring rationalizations (script extraction, size, spine sections); load when you or the user push back on this skill's shape

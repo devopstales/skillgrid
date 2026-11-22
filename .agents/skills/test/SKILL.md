@@ -5,9 +5,12 @@ description: Use when a change needs testing beyond the implementation — inten
 license: MIT
 metadata:
   author: devopstales
-  version: "2.0"
+  version: "2.1"
   part-of: skillgrid
   based_on: skillgrid:qa 1.1 + skillgrid:dogfood 1.0 + skillgrid:playwright-cli 1.0 + skillgrid:jscpd 1.0 + skillgrid:refactoring 2.0 + skillgrid:dry-refactoring 1.0 + skillgrid:trivy 1.0 + skillgrid:nuclei 1.0 + skillgrid:wapiti 1.0 + skillgrid:akca 1.0 + skillgrid:owasp-security 1.0 + skillgrid:code-review 1.0 + skillgrid:receiving-code-review 1.0
+  created_by: human
+  related_skills: [projectwiki]
+  version: "2.3"
 ---
 
 # Test
@@ -153,6 +156,19 @@ Complete the report from [templates/report.md](templates/report.md) and render t
 5. The floor caps the verdict: one FAIL-valued area makes it FAIL, any non-answer area caps it at CONCERNS. Never let a strong overall compensate for a weak part.
 6. Fail-closed on scope: only a `COMPLETE`-scope verification satisfies the gate (per `references/verification-scope.md`). A `TRUNCATED`/`UNSCOPED`/`UNREADABLE` scope routes to CONCERNS (named re-run) or FAIL, never a silent PASS.
 
+**Decision gates:**
+
+| Condition | Action |
+|---|---|
+| No `TARGET_URL` provided | DAST tools and browser pass are `N/A — no URL`; record it in the report header. |
+| Any area renders a FAIL-valued signal | Verdict **FAIL** — the floor caps; a strong overall never compensates for a weak part. |
+| No CRITICAL, but a non-answer (unverified truth, WARNING, P0 without triangulation, TRUNCATED/UNSCOPED scope, STALE verification) | Verdict **CONCERNS** — name the re-run path; the human can clear it. |
+| A gate threshold is 0 | That gate is N/A — it cannot FAIL. |
+| Verification scope is not `COMPLETE` | Fail-closed: route to CONCERNS (named re-run) or FAIL, never a silent PASS. |
+| The human explicitly waives a specific criterion | Verdict **WAIVED** — record the waiver, the criterion, and the accepted risk. Never a machine decision. |
+| The human decides otherwise | The human decision overrides the machine verdict. |
+| No durable, non-obvious knowledge surfaced | File nothing to the wiki — a clean PASS that learned nothing files nothing. |
+
 **Commit the report** (spec zone rule: commit `.skillgrid/change-specs/` before code — the `pre-commit` zone guard enforces it).
 
 ### Step 4: Write the Results Back to the Project Wiki
@@ -181,6 +197,29 @@ File only what is durable and non-obvious; a clean PASS with no new knowledge fi
 If the engine is down, degrade to direct markdown writes and declare `Degraded: projectwiki` — never invent a substitute retrieval path silently.
 
 **Record in the report:** a `## Project Wiki` section listing the pages filed (path + one line each), or `Project Wiki: nothing filed — no durable, non-obvious knowledge surfaced` when the run learned nothing.
+
+## Output Contract
+
+The deliverable is the completed `report.md` (from `templates/report.md`)
+committed in the change folder, plus the wiki write-back record. It MUST
+contain:
+
+- `TARGET_URL: <url>` or `TARGET_URL: (none)` in the header.
+- One section per selected area (intent / functional / code quality /
+  security / review), each with its findings classified CRITICAL / WARNING /
+  SUGGESTION; unselected areas as `N/A — <reason>`, never silently absent.
+- `## Gate Decision` — the four-state verdict (PASS / CONCERNS / FAIL /
+  WAIVED) with the floor area and the named non-answers; WAIVED carries the
+  waiver, the criterion, and the accepted risk.
+- `## Fix Plans` (when the verdict is FAIL or CONCERNS) — one entry per
+  diagnosed gap: the finding, its root cause, the fix (what to change, in
+  which file), and the verification that proves the fix. These are the
+  deliverable that feeds back into `skillgrid:execute` gap-closure mode —
+  the loop is `execute → test → execute --gaps-only → test → …` until the
+  verdict is PASS. A FAIL/CONCERNS report with no fix plans is a verdict
+  without a next step.
+- `## Project Wiki` — the pages filed (path + one line each), or `nothing
+  filed — no durable, non-obvious knowledge surfaced`.
 
 ## How to measure it
 
@@ -262,3 +301,8 @@ Scripts in `scripts/`:
 
 - `node scripts/area-scope.mjs CHANGE_DIR [TARGET_URL]` — emit the area-selection table for a change (which areas to run, which are N/A, and why), from the change shape. Exit 0 = selection made, 2 = usage error.
 - `node scripts/verdict-render.mjs [input.json]` — the four-state gate as one call (area signals in → `{verdict, floor_area, floor_reasons, non_answers, needs_human}` out); the matrix in Step 3 is the contract it implements. Exit 0 = rendered, 2 = usage.
+
+Shared rules:
+
+- [../_shared/rules/evidence-claims.md](../_shared/rules/evidence-claims.md) — the evidence rules behind the verdict: named-test closure, the taught-to-agree fixture check, baseline discipline (clean-base comparison, no stash/pop).
+- [../skill-creator/references/rationalizations.md](../skill-creator/references/rationalizations.md) — the authoring rationalizations (script extraction, size, spine sections); load when you or the user push back on this skill's shape
