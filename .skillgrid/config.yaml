@@ -1,0 +1,218 @@
+schema: skillgrid/v1
+project: skillgrid-skills
+context: >-
+  The skillgrid skill family: agent skills that take a software idea to a
+  shipped program (plan, build, audit, revise, package). Docs-first repo —
+  the deliverable is markdown skills under .agents/skills/, tested by their
+  scripts' test-*.mjs suites and scenario evals. New in 2026-11: plugins/
+  hosts family packages (Pi agent plugins), starting with
+  plugins/pi/pi-worktree (TypeScript, bun test).
+
+# --- Ticketing ---
+ticketing:
+  enabled: false
+  type: backlogmd
+  backlogmd:
+    dir: .skillgrid/projectwiki/backlog
+    task_prefix: "task"
+    zero_padded_ids: 3
+  gh:
+    labels:
+      triage: "needs-triage"
+      info: "needs-info"
+      ready_agent: "ready-for-agent"
+      ready_human: "ready-for-human"
+      wontfix: "wontfix"
+  glab:
+    labels:
+      triage: "needs-triage"
+      info: "needs-info"
+      ready_agent: "ready-for-agent"
+      ready_human: "ready-for-human"
+      wontfix: "wontfix"
+
+# --- Testing ---
+testing:
+  runner: "bun test"
+  setup: ""
+  layers: [plugins/**/tests, .agents/skills/*/scripts/test-*.mjs]
+  coverage: ""
+  mutation: ""
+  tdd: true
+
+# --- QA Gates ---
+quality:
+  coverage_min: 0
+  mutation_min: 0
+  p0_pass_rate: 100
+  p1_pass_rate: 95
+
+# --- Duplication (jscpd) ---
+duplication:
+  command: "npx jscpd"
+  target: "changed-files"
+  fail_on: 0
+  formats: ""
+  ignore: "**/node_modules/**,**/dist/**"
+
+# --- Security Scan (Trivy) ---
+security:
+  trivy:
+    command: "trivy fs"
+    target: "."
+    severities: "CRITICAL"
+    scan_types: "vuln,secret,misconfig"
+    fail_on: "CRITICAL"
+
+# --- Commands ---
+commands:
+  build: ""
+  lint: ""
+  format: ""
+  typecheck: ""
+
+# --- AGENTS.md preamble ---
+agents:
+  directories:
+    - path: .agents/skills/
+      purpose: >-
+        the skill family — one dir per skill, SKILL.md + references/ +
+        scripts/ + evals/
+    - path: .agents/skills/_shared/
+      purpose: >-
+        shared rules, planning policy, craft docs, templates, ADR records
+    - path: plugins/
+      purpose: >-
+        family packages (agent harness plugins); plugins/pi/ = Pi agent
+        plugins
+    - path: docs/
+      purpose: >-
+        repo documentation (pipeline, tools, lifecycle, commands)
+    - path: .skillgrid/
+      purpose: >-
+        pipeline state + knowledge bundle (config, state, change-specs,
+        projectwiki)
+  security_boundaries: []
+  dependency_policies: []
+  architecture_constraints: []
+  definition_of_done: []
+  engineering_standards: []
+
+# --- Conventions ---
+conventions:
+  specs_root: .skillgrid/change-specs
+  scratch_dir: .skillgrid/work
+  artifacts: .skillgrid/artifacts
+  worktree_dir: .worktree
+  commit_style: conventional
+  worktree_tool: worktrunk
+  state_file: .skillgrid/state.yaml
+
+# --- Work-unit commits ---
+checkpoint:
+  enabled: true
+
+# --- Chain strategy ---
+# Project-level PR chain choice (see _shared/rules/chain-strategy.md).
+# Working style: work on the current branch; chains only when a change is
+# sliced into multiple PRs.
+chain:
+  strategy: stacked-to-main
+
+# --- ADR format ---
+adr_style: madr-minimal
+
+# --- BDD / Acceptance Testing ---
+bdd:
+  enabled: true
+  stack: javascript
+  specs_dir: .skillgrid/change-specs
+  runner_dir: acceptance-tests
+  lint: gherkin
+
+# --- Mnemonic (persistent memory + code index + web cache) ---
+mnemonic:
+  enabled: true
+  data_dir: ~/.skillgrid/mnemonic
+  embedder:
+    provider: ollama
+    base_url: http://localhost:11434
+    model: embeddinggemma:300m
+    dimension: 768
+
+# --- Research ---
+research:
+  default: research
+  output_dir: .skillgrid/change-specs
+  code_research_preset: standard
+  sources:
+    - youtube-transcript  # uv run scripts/get_transcript.py (skill)
+
+# --- Prototype ---
+prototype:
+  enabled: true
+  dir: .skillgrid/prototype
+  findings: .skillgrid/change-specs/{topic}/findings.md
+  module_dir: .skillgrid/change-specs/{topic}/modules
+
+# --- Sketch ---
+sketch:
+  enabled: true
+  findings: .skillgrid/change-specs/{topic}/findings.md
+  dir: .skillgrid/change-specs/{topic}/sketches
+
+# --- Rules (per-phase overrides) ---
+rules:
+  brainstorm: []
+  blueprint: []
+  slicing: []
+  execution: []
+  review: []
+  tiers:
+    default: T1
+    T0:
+      name: Prototype
+      blueprint: none
+      qa: self-check
+    T1:
+      name: Alpha
+      blueprint: light
+      qa: L1+verify
+    T2:
+      name: Beta
+      blueprint: full
+      qa: L2+L3
+      review: two-axis
+    T3:
+      name: GA
+      blueprint: full
+      qa: L4
+      review: parallel+fresh-model
+  ship:
+    fast_track_light: true
+  reflect:
+    verdict_gate: advisory
+  fast_track:
+    enabled: true
+    classes:
+      trivial:
+        criteria:
+          - "single concern, ≤3 files, no behavior change
+            (typo, copy, single-line config, pure rename)"
+          - "no migration, no new dependency, no trust-boundary change"
+        skips: [brainstorm, blueprint, acceptance.feature]
+        tasks: light
+      small:
+        criteria:
+          - "single file or single concern, no new capability, no migration"
+          - "≤10 files"
+        skips: [brainstorm, blueprint]
+        tasks: light
+    waiver:
+      required: true
+      recorded_in: briefing.md
+    blocked_when:
+      - "any threat-matrix row Applicable"
+      - "new trust boundary or migration"
+      - "multi-domain impact"
+      - "400+ line change"

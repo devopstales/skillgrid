@@ -1,0 +1,34 @@
+schema: skillgrid/state/v2
+changes:
+  2026-11-22-pi-worktree-plugin:
+    phase: "blueprint"
+    status: in_progress
+    gate: ""
+    autonomy: check-in
+    genesis:
+      independence:
+        level: isolated-subagent
+        grade: B
+        writer_model: qwen3.8
+        reviewer_model: qwen3.8
+        isolation_check: not_run
+      audit_status: ""
+      passes:
+        review: 0
+        score: 0
+      quality_target: 8.5
+      panel: []
+      decisions:
+        - "build location: plugins/pi/pi-worktree inside
+          skillgrid-skills (programmer override, 2026-11-22)"
+        - "working style: work on the current branch (programmer,
+          2026-11-22); chain.strategy stored as stacked-to-main"
+        - "tier default T1 (programmer, 2026-11-22); the plugin change
+          stays T2 per its blueprint"
+      open_questions:
+        - "pin exact minimum wt version for the directive
+          protocol (wt 0.50.0 verified on PATH 2026-11-22)"
+progress:
+  completed_changes: 0
+  blocked_changes: 0
+constraints_ref: .skillgrid/projectwiki/ASSUMPTIONS.md
