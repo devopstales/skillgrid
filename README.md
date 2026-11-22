@@ -48,6 +48,9 @@ Tools the skills invoke that you need installed. "optional" = only when the corr
   - `jira` — Jira CLI for epics / tasks (slicing; optional — when `ticketing.type: jira`)
   - `backlog` — Backlog.md CLI for file-based tickets (slicing, ship; optional — when `ticketing.type: backlogmd`)
   - `hermes` — Hermes Kanban CLI for ticket tracking (slicing; optional — when `ticketing.type: hermes-kanban`)
+  - `ast-grep` — structural code search, syntax-aware pattern find/replace (debug, test, refactor)
+  - `fd` — fast file finder, replaces `find` for name/glob lookups (execute, debug)
+  - `ripgrep` (`rg`) — fast text search across codebases, `rg -t <type> '<pattern>'` (debug, test, refactor, execute)
 - **MCP servers — wired by a skill (install + wire in the agent's MCP config):**
   - `mnemonic` — run as `mnemonic mcp`; also a CLI (`mnemonic init`, `mnemonic projectwiki ...`); exposes `mem_*` + `projectwiki_*` tools (optional — only when `mnemonic.enabled: true` in `.skillgrid/config.yaml`; needs an embedder: ollama / external / onnx) — used by the SDD memory convention (`_shared/rules/mnemonic-memory.md`) and projectwiki
   - `agent-browser` — run as `agent-browser mcp --tools all`; browser automation with stable element refs — preferred driver for the functional browser pass (`test/references/functional-testing.md`)
@@ -56,6 +59,7 @@ Tools the skills invoke that you need installed. "optional" = only when the corr
   - `codescene` — run as `npx @codescene/codehealth-mcp`; Code Health score (different metric than jscpd) for before/after refactoring deltas — `refactor/SKILL.md`
 - **MCP servers — remote, no install (just enabled in the agent's MCP config):**
   - `context7` — current library/framework API docs (`resolve-library-id` → fetch doc page) — blueprint research + prototype
+  - `docuwiki` — `docuwiki_search` — search documentation across wiki/doc sites — blueprint research
   - `exa` — `web_search_exa` (find the page) + `web_fetch_exa` (read it) — blueprint research
 - **Run via npx (no install needed, fetched per run):**
   - `npx jscpd` — duplication / dead-code / complexity (test, refactoring, execute)

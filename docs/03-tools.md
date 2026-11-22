@@ -69,6 +69,9 @@ Tools the skills invoke that you need installed. "Optional" means only when the 
 | `jira` | slicing | Jira CLI for epics / tasks. Optional — when `ticketing.type: jira`. |
 | `backlog` | slicing, ship | Backlog.md CLI for file-based tickets. Optional — when `ticketing.type: backlogmd`. |
 | `hermes` | slicing | Hermes Kanban CLI for ticket tracking. Optional — when `ticketing.type: hermes-kanban`. |
+| `ast-grep` | debug, test, refactor | Structural code search (syntax-aware, not text). `ast-grep run -p '<pattern>'` for pattern-based find/replace across files. |
+| `fd` | execute, debug | Fast file finder. Replaces `find` for locating files by name/glob pattern. |
+| `ripgrep` (`rg`) | debug, test, refactor, execute | Fast text search across codebases. `rg -t <type> '<pattern>'` for type-filtered grep. |
 
 ### MCP Servers (install + wire in the agent's MCP config)
 
@@ -85,6 +88,7 @@ Tools the skills invoke that you need installed. "Optional" means only when the 
 | Server | Tools | Used by | Purpose |
 |---|---|---|---|
 | `context7` | `resolve-library-id`, fetch doc page | blueprint | Current library/framework API docs for research + prototype. |
+| `docuwiki` | `docuwiki_search` | blueprint | Search documentation across wiki/doc sites for research. |
 | `exa` | `web_search_exa`, `web_fetch_exa` | blueprint | Web search (find the page) + web fetch (read it) for research. |
 
 ### Run via npx (no install needed, fetched per run)
@@ -118,14 +122,16 @@ Which tools each pipeline phase needs:
 flowchart TD
   subgraph Brainstorm
     B1[context7 MCP]
-    B2[exa MCP]
-    B3[server.cjs + frame-template.html]
+    B2[docuwiki MCP]
+    B3[exa MCP]
+    B4[server.cjs + frame-template.html]
   end
   subgraph Blueprint
     BP1[context7 MCP]
-    BP2[exa MCP]
-    BP3[npx gherkin-lint]
-    BP4[npx cucumber-js]
+    BP2[docuwiki MCP]
+    BP3[exa MCP]
+    BP4[npx gherkin-lint]
+    BP5[npx cucumber-js]
   end
   subgraph Slicing
     S1[gh / glab / jira / backlog / hermes]
@@ -136,8 +142,9 @@ flowchart TD
     E1[worktrunk / git worktree]
     E2[uvx pygount]
     E3[npx jscpd]
-    E4[sdd-workspace.mjs + task-brief.mjs]
-    E5[review-package.mjs]
+    E4[fd + ripgrep]
+    E5[sdd-workspace.mjs + task-brief.mjs]
+    E6[review-package.mjs]
   end
   subgraph Test
     T1[trivy + trivy MCP]
@@ -146,7 +153,8 @@ flowchart TD
     T4[npx jscpd]
     T5[npx cucumber-js]
     T6[npx stryker run]
-    T7[area-scope.mjs + verdict-render.mjs]
+    T7[ripgrep + ast-grep]
+    T8[area-scope.mjs + verdict-render.mjs]
   end
   subgraph Ship
     SH1[gh / glab]
