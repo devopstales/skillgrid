@@ -21,7 +21,7 @@ Where the installer writes, per host:
 
 | Host | Config root | What lands there |
 |------|-------------|------------------|
-| omp | `~/.omp/agent/` | `extensions/` (TS), `AGENTS.md`, `mcp.json` (`mnemonic mcp`); plugin bundles under `~/.omp/plugins/` |
+| omp | `~/.omp/agent/` | `extensions/` (TS), `AGENTS.md`, `mcp.json` (`mnemonic memory mcp`); plugin bundles under `~/.omp/plugins/` |
 | pi (skill-pi) | `~/.pi/agent/` + `~/.skill-pi/agent/` | `extensions/` (TS), skills, `AGENTS.md` |
 | opencode | `~/.config/opencode/` | `opencode.jsonc`, `tui.json`, native TS plugins, `AGENTS.md` |
 | Kilo | `~/.config/kilo/` | `kilo.jsonc`, `tui.json`, `plugin/` (TS), `AGENTS.md` |
@@ -64,7 +64,7 @@ Registers the native `mem_*` / `code_*` / `kb_*` tools and captures session acti
 - **opencode / Kilo**: five native TS plugins in `plugins/opencode/` (dual V1+V2 export, since V1 impls do not run in V2), installed to `~/.config/opencode/plugins/`; Kilo reuses the same adapters through the `kilo.jsonc` → `opencode.jsonc` bridges.
 - **pi**: the extension in `plugins/pi/mnemonic/` (entry `index.ts`) registers the tools, captures prompts on `before_agent_start`, injects the memory protocol into the system prompt, builds the compaction context on `session_before_compact`, and ends the session on `session_shutdown`.
 - **Cursor**: `plugins/cursor/mcp.json` exposes the Mnemonic MCP server (`skillgrid mcp`) through the Cursor plugin; `hooks/hooks-cursor.json` wires the sessionStart/sessionEnd/stop/tool-capture shell hooks.
-- **omp**: the MCP server is registered in `~/.omp/agent/mcp.json` (`mnemonic mcp`), which mounts the tools as `xd://` devices.
+- **omp**: the MCP server is registered in `~/.omp/agent/mcp.json` (`mnemonic memory mcp --profile agent`), which mounts the tools as `xd://` devices.
 
 See [Memory and indexing](05-memory-and-indexing.md) for the memory model and the HTTP server the adapters talk to.
 
