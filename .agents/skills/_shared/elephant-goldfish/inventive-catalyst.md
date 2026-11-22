@@ -129,3 +129,7 @@ Otherwise, for each contradiction:
 6. **Ideal Final Result (IFR):** what the self-sufficient architecture would
    look like (BRAINSTORM). For REVIEW, add **Affected Scope** (section header
    or subsystem) and **False Compromise** (the accepted trade-off in the text).
+7. **Falsifying evidence (BRAINSTORM):** the observation that would rule this
+   contradiction out (e.g. the two parameters are not actually in tension at
+   the stated scale — one is dominated by the other and the trade-off is
+   theoretical).

@@ -78,6 +78,9 @@ evidence is what you verify *this run*.
   - `context7` for library/framework API docs (current, versioned) —
     `resolve-library-id` to get the Context7 library ID, then fetch the doc
     page for the exact topic.
+  - `docuwiki` (`docuwiki_search`) for searching across wiki and doc sites —
+    use it when the question is "where is the doc page for X" and the answer
+    is on a wiki or documentation site.
   - `exa` (`web_search_exa` to find the page, `web_fetch_exa` to read it) and
     `webfetch` for everything else.
   - Login-walled platforms, video/audio transcripts, and structured data are

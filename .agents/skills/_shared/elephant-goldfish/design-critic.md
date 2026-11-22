@@ -65,6 +65,12 @@ Plain, natural language. No chitchat, no narration of tool usage.
 3. **Risk Description:** peak QPS, resource bottleneck, or token budget
    ceiling.
 4. **Mitigation Requirement:** the mandatory architectural safeguard.
+5. **Cost of the fix:** the operational, maintenance, or budget cost of
+   applying the mitigation above (e.g. the added infrastructure, the added
+   latency, the added operational surface). If the mitigation has no material
+   cost, say so in one line.
+6. **Falsifying evidence:** the observation that would rule this finding out
+   (e.g. load-test data showing the bottleneck is not hit at the stated QPS).
 
 **REVIEW** — for each finding:
 1. **Severity:** Blocker | Major | Nit

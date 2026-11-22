@@ -5,11 +5,10 @@ license: MIT
 effort: max
 metadata:
   author: devopstales
- version: "2.2"
   part-of: skillgrid
   based_on: book-genesis
   created_by: human
-  version: "2.4"
+  version: "2.5"
 ---
 
 # SkillGrid
@@ -174,6 +173,7 @@ Per `_shared/craft/measurement.md`.
 ## Red Flags
 
 - A phase output written without the previous artifact existing.
+- `.skillgrid/config.yaml` written without the programmer approving the full rendered draft first (the onboarding gate) — per-item confirmations are not the approval.
 - A critic packet that contains a target, an earlier score or a panel verdict.
 - A verdict reported without its independence grade.
 - `state.yaml` updated before the artifact was read back.
@@ -183,6 +183,7 @@ Per `_shared/craft/measurement.md`.
 
 ## Verification
 
+- [ ] `.skillgrid/config.yaml` — the onboarding gate ran: the full rendered draft was shown to the programmer and approved before the write (approval visible in the conversation, not inferred from per-item confirmations).
 - [ ] `state.yaml` matches the deepest artifact present (`qa` drift guard exits 0).
 - [ ] **Self-validation backstop:** every new gate or checker this change introduces was run against this change's own spec folder before hand-off — with its negative half proven first (the checker catches a deliberately broken copy, e.g. a requirement with no `## Validation` row) and its positive half after (a clean run exits 0). A checker that never caught its own change is not wired.
 - [ ] Every phase in `manifest.yaml` has its listed outputs on disk, read back.

@@ -83,6 +83,12 @@ Plain, natural language. No chitchat, no narration of tool usage.
 3. **Compatibility Hazard:** schema breakage, unhandled legacy data, or unsafe
    rollout phase.
 4. **Migration Requirement:** the mandatory rollout/rollback strategy.
+5. **Cost of the fix:** the operational, maintenance, or budget cost of
+   applying the migration requirement above (e.g. the added migration window,
+   the dual-write period, the added rollback complexity). If the requirement
+   has no material cost, say so in one line.
+6. **Falsifying evidence:** the observation that would rule this finding out
+   (e.g. the schema change is additive-only and no legacy data is affected).
 
 **REVIEW** — for each finding:
 1. **Severity:** Blocker | Major | Nit

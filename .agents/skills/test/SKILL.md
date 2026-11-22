@@ -122,6 +122,7 @@ Read, in order:
 3. `blueprint.md` — the task breakdown, `SATISFIES` lines, the `Tier:` line, and the `**Status:**` line
 4. `tasks.md` — the ticket list and dependency graph
 5. `findings.md` (if present) — prototype/sketch results that constrain verification
+6. `.skillgrid/deferred-work.md` (if present) — the project's open deferred work: surface every `status: open` entry in the report (per `_shared/craft/review-ledger.md` § Debt surfacing — context, not a gate), flag stale entries, and add the WARNING when this change's scope touches an open entry's evidence file. When the ledger is absent, record "Deferred work: no ledger (nothing open)" — a project with open debt but no ledger is a red flag for the report.
 
 Identify every scenario name, every ticket, every `SATISFIES` mapping, the stated goal, and the effective rigor tier.
 
@@ -266,6 +267,7 @@ Per `_shared/craft/measurement.md`.
 - A review run inline (no fresh subagent context) presented as independent evidence — it is Grade C, diagnostic only.
 - A reviewer's self-assigned severity taken as the final verdict, or two findings merged because they share a file rather than a root cause.
 - A `could-not-verify` review entry dropped on a silent pass instead of routed to a held-out test.
+- A deferral logged only in the change's ledger or `tasks.md` with no `DW-<n>` entry in `.skillgrid/deferred-work.md` (debt the next change cannot see).
 - A finding fixed without a test that was RED before the fix, or multiple findings fixed and tested together so a regression can't be attributed.
 - The review signal recorded as `REVIEW-PASS` while an unresolved `high`/`medium` entry remains.
 - The report committed before the verdict was rendered, or the verdict changed after the commit without a re-commit.
@@ -279,7 +281,7 @@ Per `_shared/craft/measurement.md`.
 - [ ] Functional: every scenario is covered by a test that ran and passed; the browser pass ran when a URL was reachable; the regression check on the diff is present.
 - [ ] Code quality: jscpd ran (the pass that matches the change), the health/summary is captured, and coverage / mutation / lint / typecheck / P0 / P1 are at thresholds or N/A.
 - [ ] Security: the tools the target warranted ran; every reported finding states severity, the concrete match, reachability, blast radius, and confidence; no template/fuzzer match is reported as Confirmed without a demonstrated path.
-- [ ] Review: the topology was selected from diff size/risk/tier and named; every selected lens ran fresh (Blindness Contract, independence grade labeled); each entry verified at its location and rendered one of the six verdicts; the fix loop closed the in-scope set with RED→GREEN tests; the review signal (`REVIEW-PASS`/`BACK-TO-APPLY` + counts) is recorded in `tasks.md` and `review.md` committed.
+- [ ] Review: the topology was selected from diff size/risk/tier and named; every selected lens ran fresh (Blindness Contract, independence grade labeled); each entry verified at its location and rendered one of the six verdicts; the fix loop closed the in-scope set with RED→GREEN tests; the review signal (`REVIEW-PASS`/`BACK-TO-APPLY` + counts) is recorded in `tasks.md` and `review.md` committed; the bar guards ran on the pinned diff (the five weakening moves checked) and the result is in the report.
 - [ ] The verdict was rendered from the four-state gate and the floor (weakest dimension) was applied; the report was committed.
 - [ ] Durable, non-obvious knowledge was filed to the project wiki (gotchas / concepts / invariants / architecture) with `projectwiki index` + `validate` + `lint` run after, the orphan count not growing — or the report states `Project Wiki: nothing filed` when the run learned nothing.
 - [ ] If `mnemonic.enabled: true`, scan findings were persisted (fail-open).

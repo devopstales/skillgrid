@@ -151,6 +151,8 @@ You are the **completion checkpoint**: the last chance to honestly say what work
 
 **Where it lands:** complete `report.md` IN PLACE in the change folder — do not recreate it. The QA half (through `## Gate Decision`) is already written; append the retro half from `## Final-State Facts` onward: final-state facts (what shipped, to which base, at which commit/PR — from git), the sourced learnings, the acceptance verdict, and any open items for the next change.
 
+**Deferred-work sweep (when open entries exist):** if `.skillgrid/deferred-work.md` has `status: open` entries, run the sweep per `_shared/craft/deferred-work.md` — verify each open entry against the current code, partition (resolved / bundle / blocked / skip / decision), apply the status updates, and report the partition with the decisions surfaced to the human (zero-tool turn-yield). This is the scheduled moment the deferred work gets looked at: shipping a change while stale debt sits unverified is exactly the drift the sweep exists to catch. When no open entries exist, record "Deferred work: none open" in the retro half.
+
 ### Step 3: Environment Retro (sub-step)
 
 Invoke the six-category sweep (full protocol: [../_shared/rules/sdd-structure.md](../_shared/rules/sdd-structure.md) § phase table + the category definitions below). For each, present a finding **only when its "Use when" fires**; a clean session legitimately produces none.

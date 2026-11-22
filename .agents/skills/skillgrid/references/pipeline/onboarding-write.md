@@ -4,9 +4,11 @@ Step 3 and Step 4 of `references/pipeline/onboarding.md`. Detect and confirm hap
 
 ## Step 3: Write
 
+**Precondition (hard gate):** the programmer approved the full rendered `config.yaml` draft in `onboarding.md` § "Gate: programmer approval is the precondition for Step 3". If that approval is not in the conversation, stop here and run the gate first — the agent MUST NOT write `.skillgrid/config.yaml` on per-item confirmations alone.
+
 **1. Write `.skillgrid/config.yaml`:**
 - Copy `references/patterns/config.yaml` from this skill's directory
-- Fill in all detected values, including the `agents:` block (directories, security_boundaries, dependency_policies, architecture_constraints, definition_of_done, engineering_standards) from the preamble facts detected in Step 1 — render these into the AGENTS.md preamble (see `references/patterns/agent-config.md`). 
+- Fill in all detected values, including the `agents:` block (directories, security_boundaries, dependency_policies, architecture_constraints, definition_of_done, engineering_standards) from the preamble facts detected in Step 1 — render these into the AGENTS.md preamble (see `references/patterns/agent-config.md`). The file written is byte-identical to the draft the programmer approved in the gate; a different file = the gate ran on the wrong content — show the delta, get a fresh yes, then write.
 - If the file already exists, merge: keep existing values the programmer confirmed, update changed ones
 - Do NOT overwrite `rules:` sections the programmer has customized
 
@@ -80,39 +82,11 @@ mnemonic:
     #   input_type: query
 ```
 
-- **Ollama** example:
-```yaml
-mnemonic:
-  embedder:
-    provider: ollama
-    base_url: http://localhost:11434
-    model: nomic-embed-code
-    dimension: 768
-```
-- **External API** example:
-```yaml
-mnemonic:
-  embedder:
-    provider: external
-    base_url: https://api.openai.com/v1
-    model: text-embedding-3-small
-    dimension: 1536
-    api_key: sk-...
-```
-- **ONNX** (default) — no block needed; the built-in default applies. Write the block only if the programmer explicitly chose ONNX and wants it visible:
-```yaml
-mnemonic:
-  embedder:
-    provider: onnx
-    model: nomic-embed-code
-    dimension: 768
-```
-- **Off** — write the block to disable vector search explicitly:
-```yaml
-mnemonic:
-  embedder:
-    provider: off
-```
+- **Provider examples** (the values the gate's draft carries — rendered into the draft before it is shown):
+  - **Ollama** — `provider: ollama`, `base_url: http://localhost:11434`, `model: nomic-embed-code`, `dimension: 768`
+  - **External API** — `provider: external`, `base_url: https://api.openai.com/v1`, `model: text-embedding-3-small`, `dimension: 1536`, `api_key: sk-...`
+  - **ONNX** (default) — no block needed; the built-in default applies. Write the block only if the programmer explicitly chose ONNX and wants it visible: `provider: onnx`, `model: nomic-embed-code`, `dimension: 768`
+  - **Off** — write the block to disable vector search explicitly: `provider: off`
 - **Precedence note:** this repo-local file takes precedence over `~/.skillgrid/config.d/indexing.yaml` (home-local). The home-local file is a per-key fallback — it supplies any key the repo-local file leaves unset. Machine-specific endpoints (e.g. a non-default Ollama host) can live in the home-local file to avoid committing them. Mention this to the programmer if they express concern about committing a base_url.
 - If the programmer chose the default (ONNX) and no `indexing.yaml` exists in the repo, skip the write — the built-in default applies without a file.
 
@@ -131,6 +105,7 @@ mnemonic:
 ## Step 4: Verify
 
 Show the programmer:
+- **Config approval gate outcome** — that the full `config.yaml` draft was shown in full and approved before the write (the gate in `onboarding.md`). If the write happened without the approval being visible in the conversation, flag it as a gate miss and offer to re-open the gate now (show the written file, get a yes, or roll the file back to its pre-onboarding state).
 - **Recall evidence (re-runs only)** and **Step 1.5b bootstrap outcome (brownfield only)** — per the SKILL.md verification items (what was recalled; each draft's anchor, confirm/drop outcome, no unconfirmed draft survives)
 - The written config (summarized, not full file)
 - The `state.yaml` + knowledge bundle zone created

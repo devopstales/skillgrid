@@ -77,6 +77,12 @@ Plain, natural language. No chitchat, no narration of tool usage.
    replaceable.
 4. **Alternative / Reuse Opportunity:** the existing API/library or simpler
    alternative.
+5. **Cost of the fix:** the operational, maintenance, or budget cost of
+   applying the alternative above (e.g. the integration surface of adopting the
+   existing library, the migration cost of the simpler path). If the
+   alternative has no material cost, say so in one line.
+6. **Falsifying evidence:** the observation that would rule this finding out
+   (e.g. the existing library was checked and lacks the required capability).
 
 **REVIEW** — for each finding:
 1. **Severity:** Blocker | Major | Nit

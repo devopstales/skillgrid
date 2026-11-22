@@ -248,10 +248,12 @@ wrong, and you read that reason before deleting.
    reason before deleting; `--min-confidence` (default 60) only sets the
    floor for what's reported, it doesn't make a low-confidence finding safe
 3. For each **load-bearing** finding (unused-file, unused-export), dispatch a
-   fresh-context verifier or verify Grade A by hand: grep the symbol name
-   across the repo *the way the tool didn't* (dynamic access, a string-based
-   router, a template file jscpd doesn't parse can all hide a real use), check
-   the test suite, and check the build. Render one verdict from the table.
+   fresh-context verifier or verify Grade A by hand: `rg -t <lang> -n
+   '<symbol>'` for a text pass, `ast-grep run -p '<symbol>' --lang <lang>`
+   for a structural pass (catches aliased imports, dynamic references, and
+   string-based router calls that plain grep misses) — the point is to search
+   the way jscpd's traversal didn't, then check the test suite and the
+   build. Render one verdict from the table.
    For `unused-import`/`unused-symbol`, verify Grade B in session
 4. Apply the fix from the table above **only to `verified` findings**. A
    `disputed` finding goes to a human look with both checks cited; an

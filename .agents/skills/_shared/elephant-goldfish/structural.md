@@ -66,6 +66,13 @@ Plain, natural language. No chitchat, no narration of tool usage.
 3. **Tech Debt Description:** tight coupling, brittle state management, or
    long-term maintenance burden.
 4. **Maintainability Requirement:** the mandatory decoupling principle.
+5. **Cost of the fix:** the operational, maintenance, or budget cost of
+   applying the decoupling requirement above (e.g. the added interface
+   boundary, the added refactoring surface, the added test coverage
+   requirement). If the requirement has no material cost, say so in one line.
+6. **Falsifying evidence:** the observation that would rule this finding out
+   (e.g. the coupling is already behind a stable interface that can be
+   changed independently).
 
 **REVIEW** — for each finding:
 1. **Severity:** Blocker | Major | Nit

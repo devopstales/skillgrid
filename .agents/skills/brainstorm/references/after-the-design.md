@@ -56,7 +56,7 @@ proceeding:
 > Please review and let me know if you want to make any changes before we start
 > writing out the implementation plan."
 
-Wait for the user's response. If they request changes, make them and re-run the spec review loop. Only proceed once the user approves.
+Wait for the user's response. If they request changes, make them and re-run the spec review loop. Only proceed once the user approves. On approval, set the briefing's `**Intent frozen:**` line to `yes (YYYY-MM-DD)` and commit — from that line forward, `## Problem / Intent` + `## Purpose & Success Criteria` (including Out of scope) are read-only for agent steps; a later finding that needs them changed is an `intent_gap` (HALT + human decision), per `_shared/craft/review-ledger.md` § Frozen intent.
 
 **Implementation:**
 

@@ -62,12 +62,19 @@ code-vs-doc drift."
 
 For each named artifact in the doc:
 - If the doc gives a **path** — read that file.
-- If the doc gives a **symbol** (function, class, endpoint) — search for the
-  definition. If the symbol is absent, that is itself a drift finding (missing
-  feature).
-- If the doc gives **prose only** — use code search to find the implementation
-  the doc describes. If you cannot locate it after a reasonable search, record
-  it as **UNLOCATED** (not drift — you could not find the code to compare).
+- If the doc gives a **symbol** (function, class, endpoint) — use
+  `ast-grep run -p '<symbol>' <repo>` for a syntax-aware structural lookup;
+  fall back to `rg -n '<symbol>'` for a plain-text pass if the structural
+  result is empty. If the symbol is absent from both, that is itself a drift
+  finding (missing feature).
+- If the doc gives **prose only** — use `rg -i '<key phrase from doc>'` to
+  find the implementation the doc describes. If the doc names a file type,
+  add `-t <lang>` to scope. If you cannot locate it after a reasonable
+  search, record it as **UNLOCATED** (not drift — you could not find the
+  code to compare).
+
+**File lookup:** when the doc names a file by partial name or glob, use
+`fd '<name-or-glob>' <repo>` rather than `find`.
 
 **Read the live files.** Never drift from memory of what the code "should" be.
 The current state of the file is the only source of truth. A doc that was

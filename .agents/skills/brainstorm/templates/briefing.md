@@ -1,6 +1,8 @@
 # [Feature Name] — Design Briefing (requirements & intent)
 
 > **STATUS:** `draft` (YYYY-MM-DD)
+> **Author:** [resolved per SKILL.md § Author resolution: `git config user.name` → `GIT_AUTHOR_NAME` → ask in chat; never a placeholder]
+> **Intent frozen:** no (YYYY-MM-DD) ← set to "yes (YYYY-MM-DD)" when the user approves the briefing (the approval gate); after that, the frozen block below is read-only for agent steps
 
 > Copy this template to `.skillgrid/change-specs/YYYY-MM-DD-<topic>/briefing.md`.
 > **Role:** this is the *what* — the validated design/spec: problem, intent,
@@ -13,6 +15,16 @@
 > (placeholders, internal consistency, scope, ambiguity, and: does every
 > requirement have all three fields?) before handing it to the user.
 > (User preferences for spec location override this default.)
+>
+> **Frozen intent:** the `## Problem / Intent` and `## Purpose & Success
+> Criteria` sections — including **Out of scope** — form the frozen block
+> (per `_shared/craft/review-ledger.md` § Frozen intent). After the
+> `Intent frozen: yes` line is set, no agent step (blueprint, slicing, execute,
+> test, ship) may modify those sections. A finding whose fix requires it is an
+> **intent_gap** — HALT and ask the human; on renegotiation, the human edits
+> the sections, re-dates the freeze line, and downstream artifacts are
+> re-derived. "Out of scope" changes are scope renegotiations, never silent
+> edits.
 
 ## Problem / Intent
 
@@ -34,11 +46,16 @@ operational rules) and `.skillgrid/projectwiki/ARCHITECTURE.md` sections where a
 
 ## Approaches Considered
 
-[List the 2-3 approaches proposed during brainstorming, with trade-offs and
-the chosen one + why. Keep it brief — the chosen design is below.]
+[List the 2-3 approaches proposed during brainstorming as a comparison table
+(columns: approach, key trade-off, verdict), then the chosen one + why. Keep
+it brief — the chosen design is below.]
+
+| Approach | Key trade-off | Verdict |
+|----------|---------------|---------|
+| [approach] | [the trade-off that decides it] | [chosen / rejected] |
 
 - **Chosen:** [Approach + one-line rationale]
-- **Rejected:** [Approach — why not]
+- **Rejected by author:** [Approach — reason, attributed to the author, not to a maintainer]
 
 ## Requirements
 
@@ -97,6 +114,11 @@ verified," not "clean." Bounded/prototype changes carry an explicit
 
 **Anchored hypothesis:** [2-3 sentences, as confirmed by the user at the
 readiness gate.]
+
+**Disposition options (one per 🔴 finding, user selects):**
+- `resolved` — the design is revised to address the finding; loop back to the feasibility check.
+- `accepted-with-note` — the risk is recorded as a known risk in this section; the spec proceeds.
+- `downgraded-to-non-goal` — the finding is moved to the spec's Out of Scope.
 
 | Severity | Lens | Description | Disposition | Note |
 |----------|------|-------------|-------------|------|

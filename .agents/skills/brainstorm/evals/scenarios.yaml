@@ -1,0 +1,158 @@
+# Copyright 2026
+# Behavioral evaluation scenario suite for the brainstorm skill.
+# Machine-checkable assertions over crafted replies, per
+# _shared/craft/scenario-evals.md. One invariant per scenario.
+#
+# The harness loads skills/brainstorm/SKILL.md into the agent's context, runs
+# the turn, and checks the reply against the patterns below.
+#
+# Ported from the EGM egm-brainstorm scenario suite, adapted to skillgrid
+# naming (egm-draft → blueprint, concepts_brief.md → briefing.md).
+
+skill: "brainstorm"
+description: "Behavioral evaluation scenario suite for the brainstorm skill."
+
+scenarios:
+  - scenario_id: "open_ended_discovery_no_menu"
+    description: "The initial problem-drilling phase uses open-ended chat questions, not structured multiple-choice menus."
+    eval_type: "deterministic"
+    system_prompt:
+      skill_file: "skills/brainstorm/SKILL.md"
+    turns:
+      - user_input: "I have a rough idea for a dynamic cache warming service that proactively fetches user profiles before peak morning traffic, but the requirements and operational limits are completely undefined. How should we explore this?"
+        assertions:
+          - type: "required_pattern"
+            pattern: "(?i)(\\?|clarif|requirements|traffic|constraints|failure|goals)"
+            message: "Brainstorming must initiate open inquiry directly in chat."
+          - type: "forbidden_pattern"
+            pattern: "(\\(Recommended\\)|Option 1|Option A|\\[1\\])"
+            message: "Brainstorming must not present multiple-choice menus during initial discovery."
+
+  - scenario_id: "readiness_gate_modal"
+    description: "The readiness gate is a single-select modal with the two canonical options and no (Recommended) prefix."
+    eval_type: "deterministic"
+    system_prompt:
+      skill_file: "skills/brainstorm/SKILL.md"
+    turns:
+      - user_input: "We have thoroughly explored the dynamic cache warming problem: it will run as an hourly cron pre-fetching the top 10k active user profiles from Postgres into Redis, constrained to a 5-minute execution window and under 100MB memory footprint. Please summarize the anchored hypothesis and present the readiness gate."
+        assertions:
+          - type: "required_pattern"
+            pattern: "Review with Goldfishes"
+            message: "Readiness gate must offer Review with Goldfishes."
+          - type: "required_pattern"
+            pattern: "Clarify additional constraints or assumptions in chat"
+            message: "Readiness gate must offer option to clarify in chat."
+          - type: "forbidden_pattern"
+            pattern: "\\(Recommended\\)"
+            message: "Readiness gate must not contain (Recommended) prefix."
+
+  - scenario_id: "handoff_gate_modal_routing"
+    description: "The Step 4 handoff gate is a single-select modal routing to blueprint, not to a deprecated skill."
+    eval_type: "deterministic"
+    system_prompt:
+      skill_file: "skills/brainstorm/SKILL.md"
+    turns:
+      - user_input: "The Goldfish review and iteration loops are finished. I have reviewed and fully approved the finalized briefing.md. Please execute the handoff."
+        assertions:
+          - type: "required_pattern"
+            pattern: "blueprint"
+            message: "Handoff gate must offer proceeding to blueprint."
+          - type: "forbidden_pattern"
+            pattern: "\\(Recommended\\)"
+            message: "Handoff gate must not contain (Recommended) prefix."
+
+  - scenario_id: "author_resolution_fallback_prompts_chat"
+    description: "When git user.name and GIT_AUTHOR_NAME are unset, brainstorm asks for the author in chat; never defaults to OS login or maintainers."
+    eval_type: "deterministic"
+    system_prompt:
+      skill_file: "skills/brainstorm/SKILL.md"
+    turns:
+      - user_input: "I want to brainstorm a new telemetry aggregator feature. No git user.name or GIT_AUTHOR_NAME is set in the environment."
+        assertions:
+          - type: "required_pattern"
+            pattern: "(?i)(author|your name|github handle)[^?\\n]*\\?"
+            message: "Brainstorming must ask for author name or handle when git config is unset."
+          - type: "forbidden_pattern"
+            pattern: "(?i)Author:\\*{0,2}\\s*(root\\b|runner\\b|[^\\n]*maintainers)"
+            message: "Brainstorming must not default to maintainers or OS logins."
+
+  - scenario_id: "alternatives_rejection_attribution_by_author"
+    description: "Rejected alternatives in the briefing's Approaches section are attributed to the author, not to a maintainer."
+    eval_type: "deterministic"
+    system_prompt:
+      skill_file: "skills/brainstorm/SKILL.md"
+    turns:
+      - user_input: "We weighed Kafka vs RabbitMQ during ideation, and I rejected RabbitMQ due to partition scaling limits. Format the Approaches Considered section."
+        assertions:
+          - type: "required_pattern"
+            pattern: "Rejected by author:"
+            message: "Brainstorming must record rejection as author decision."
+          - type: "forbidden_pattern"
+            pattern: "Rejected by maintainer"
+            message: "Brainstorming must not attribute contributor rejections to maintainer."
+
+  - scenario_id: "decision_matrix_generation"
+    description: "Approaches weighed come out as a markdown comparison table."
+    eval_type: "deterministic"
+    system_prompt:
+      skill_file: "skills/brainstorm/SKILL.md"
+    turns:
+      - user_input: "Create the approaches comparison for our pipeline, weighing Kafka vs RabbitMQ vs Pub/Sub."
+        assertions:
+          - type: "required_pattern"
+            pattern: "\\|.*\\|.*\\|"
+            message: "Approaches must be formatted as a Markdown comparison table."
+          - type: "contains"
+            pattern: "Kafka"
+            message: "Approaches table must evaluate Kafka."
+          - type: "contains"
+            pattern: "RabbitMQ"
+            message: "Approaches table must evaluate RabbitMQ."
+
+  - scenario_id: "no_false_compromise_early_exit"
+    description: "When the Inventive Catalyst reports no false compromise, the brief carries that phrase through and does not invent a catalog pattern."
+    eval_type: "deterministic"
+    system_prompt:
+      skill_file: "skills/brainstorm/SKILL.md"
+    turns:
+      - user_input: "Inventive Catalyst returned \"No false compromise detected\" for the event streaming concept. Format the Shootdown Findings section of briefing.md."
+        assertions:
+          - type: "required_pattern"
+            pattern: "(?i)no false compromise"
+            message: "The brief must carry the Catalyst's early exit through instead of dropping it."
+          - type: "forbidden_pattern"
+            pattern: "(?i)\\b(Segmentation|Preliminary Action|Beforehand Cushioning|Intermediary|Cheap Dispensables)\\b"
+            message: "The brief must not invent a catalog pattern when the Catalyst found no contradiction."
+
+  - scenario_id: "falsifying_evidence_field_present"
+    description: "BRAINSTORM findings carry a falsifying-evidence field — the observation that would rule the finding out."
+    eval_type: "deterministic"
+    system_prompt:
+      skill_file: "skills/brainstorm/SKILL.md"
+    turns:
+      - user_input: "A Goldfish lens reported a Blocker finding on the cache warming design: the hourly cron will exceed the 5-minute window under peak load. Format that finding in the Shootdown Findings table."
+        assertions:
+          - type: "required_pattern"
+            pattern: "(?i)falsifying"
+            message: "BRAINSTORM findings must carry a falsifying-evidence field."
+          - type: "required_pattern"
+            pattern: "(?i)(cost of the fix|secondary.*trade-?off)"
+            message: "BRAINSTORM findings must carry a cost-of-fix or secondary-trade-off field."
+
+  - scenario_id: "disposition_legend_present"
+    description: "The briefing's Shootdown Findings section carries the three named disposition options as a legend."
+    eval_type: "deterministic"
+    system_prompt:
+      skill_file: "skills/brainstorm/SKILL.md"
+    turns:
+      - user_input: "The shootdown produced two Blocker findings. Format the Shootdown Findings section of briefing.md with the disposition legend."
+        assertions:
+          - type: "required_pattern"
+            pattern: "resolved"
+            message: "Disposition legend must name the resolved option."
+          - type: "required_pattern"
+            pattern: "accepted-with-note"
+            message: "Disposition legend must name the accepted-with-note option."
+          - type: "required_pattern"
+            pattern: "downgraded-to-non-goal"
+            message: "Disposition legend must name the downgraded-to-non-goal option."

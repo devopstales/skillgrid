@@ -54,6 +54,7 @@ brainstorm → blueprint (Phase 1 research → Phase 2 draft → Phase 3 project
 .skillgrid/
 ├── config.yaml                 # REQUIRED static SoT — stack, testing, tracker, rules.*
 ├── state.yaml                  # DYNAMIC project state — phase, current change, genesis block (updated by pipeline skills)
+├── deferred-work.md            # Cross-change deferred-work ledger (append-only DW-<n> entries; the review triage "defer" sink; per _shared/craft/deferred-work.md)
 ├── work/                       # LIVE execution scratch (gitignored) — one dir per in-flight change
 │   └── YYYY-MM-DD-<topic>/
 │       ├── progress.md         # execution ledger

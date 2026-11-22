@@ -43,11 +43,13 @@ Present every frontier question through the agent's **built-in question tool** �
 | Claude Code | `AskUserQuestion` | structured options |
 | Codex / other | equivalent native tool | use whatever the host exposes |
 
+**Phase scoping (open-ended vs single-select):** the built-in tool is the channel for *frontier decision rounds* — questions whose prerequisite decisions are already settled. The initial problem-drilling phase (before the design tree exists) is **open-ended**: ask plain-text questions in chat, no structured tool, no pre-canned multiple-choice options. The structured tool starts at the first frontier round. The full split is `skill-creator/references/interaction-gates.md` § Open-Ended vs Single-Select (open-ended = exploration, single-select = fixed-option decision; the two are never mixed in one turn).
+
 Rules for the built-in tool:
 
 - **One round = one call** (or one call per question, depending on host limits). Do not paste the whole frontier as a wall of markdown; use the tool's option mechanism so the programmer gets tappable choices.
 - **Every question has options.** Even free-text questions get a short list of realistic choices plus a "type your own" fallback. The options are the frontier's shape made concrete.
-- **The `➡️` recommendation is the first option**, labelled "(recommended)" or placed first in the list. The programmer can override.
+- **The `➡️` recommendation is the first option**, placed first in the list. The programmer can override. A `(Recommended)` prefix on the option label itself is the single-select gate format (see the Phase scoping note above) — the frontier tool call carries the recommendation by position, not by label.
 - **Multiple-choice where the decision is genuinely multi-select** (e.g. "which of these constraints apply?"). Use the tool's multi-select where available.
 - **Wait for the answer before the next round.** The tool blocks; do not fire the next round until the programmer has responded.
 
@@ -118,6 +120,8 @@ If the gate fails, identify which dimension is lowest, ask targeted questions to
 
 **Confidence stop (number, not feel).** A clarity gate you score yourself is self-graded. Before declaring the gate passed, put a number on your confidence that the *programmer* — not your read of the conversation — would confirm each dimension is settled: state "I'm N/10 confident the goal is settled" (and so on) in the chat summary. If any dimension is under 8/10, the gate is *not* passed no matter what your self-score says — the low number names the next question to ask. This converts "I think we're clear" into a falsifiable claim the programmer can veto in one word.
 
+**Three-question test (predictability, not scoring).** The clarity gate scores the *answers you have*; this test checks whether your *model of the programmer* is complete — can you predict what they would say if you asked three more questions? Before declaring done, write the three questions you would ask next (the real ones, the ones still live in your head), and for each, write what you predict they will answer and why. If you can predict all three with confidence, the interview has converged — stop. If you cannot, the question you cannot predict is the next one to ask. This is the complement of the confidence stop: the stop measures your certainty that settled dimensions are settled; the test measures your certainty that nothing *unsettled* is hiding. It has a floor too: if you have run several rounds and still cannot predict three answers, something foundational is missing — say so to the programmer ("I've asked N questions and I still can't predict your answer on X — want to step back and reframe?") instead of grinding a sixth round of the same questions.
+
 **Out-of-scope line (explicit, not implied).** The Boundary dimension is the one that decays silently. Do not let "what's out of scope" live only in your inference — close the interview with an explicit **Out-of-scope** list in the chat summary (and carry it into the briefing's scope section): the specific adjacent capabilities, systems, or edge cases you are *not* building. Each entry is one line — "<capability> is out of scope because <reason>". An out-of-scope list with zero entries is a red flag, not a clean bill: it usually means the boundary was never stated, only assumed.
 
 **Domain-model completeness (exit check):** before declaring done, confirm the paper trail is current — every resolved term is in the glossary, and every decision that cleared the ADR bar was either recorded or explicitly declined. A glossary untouched by a long interview means the ADR half got skipped; go back and backfill, or say why there was nothing to record.
@@ -142,12 +146,15 @@ Record the final scores in the design brief's **Clarity Report** section.
 - Declaring "done" when the frontier is empty but the clarity gate hasn't been scored.
 - A decision recorded as made that the programmer never actually put to.
 - The clarity gate passed on a self-score while a dimension was under 8/10 confidence in the programmer's own confirmation.
+- The interview ended on an empty frontier without the three-question test being run — convergence was assumed, not predicted.
+- Three or more rounds with the same questions re-asked because the agent couldn't predict the next answer and didn't offer to step back.
 - An Out-of-scope list with zero entries on a non-trivial design — the boundary was assumed, not stated.
 
 ## Verification
 
 - [ ] The clarity gate passed — clarity ≤ 0.20 AND every dimension ≥ its minimum, with final scores recorded in the Clarity Report.
 - [ ] The confidence stop was applied: each dimension's "programmer would confirm" number was stated in chat and all were ≥ 8/10.
+- [ ] The three-question test was run: three real next-questions were written with predicted answers, and either all were predictable (converged) or the unpredictable one was asked next; a floor stop ("can't predict, step back?") was offered when several rounds failed to converge.
 - [ ] An explicit Out-of-scope list was closed in the chat summary and carried into the briefing's scope section (zero entries flagged, not accepted).
 - [ ] Each question targeted a real decision point with a recommended answer, not a yes/no rubber-stamp.
 - [ ] No frontier question was asked before its prerequisites were settled.

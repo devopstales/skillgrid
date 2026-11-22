@@ -84,8 +84,65 @@ On invalidation:
 
 **Disposition values:**
 - `fixed` — a fix commit exists. The `Fix Commit` column carries the hash. The finding is closed.
-- `parked` — deferred with a ruling. The finding is open. It surfaces in the next change's QA report.
+- `parked` — deferred with a ruling. The finding is open. It surfaces in the next change's QA report, and it earns a `DW-<n>` entry in the project's deferred-work ledger (per `_shared/craft/deferred-work.md`) in the same edit — a parked row without a `DW-` entry is debt the next change never sees.
 - `waived` — explicitly waived by a named human with an accepted risk. The finding is closed.
+
+**Root-cause routing (triage split, per finding).** Before assigning a
+disposition, ask where the root cause lives. This decides what "fixed" means:
+
+- **Root cause in the code** (wrong logic, missing edge handling, spec
+  satisfied but implementation broken) → `fixed` — fix the code in this pass.
+- **Root cause in the spec** (the briefing / acceptance scenario / blueprint
+  said the wrong thing, or was ambiguous enough to produce the defect) → fix
+  the spec first, then re-derive the affected code. Record the spec change in
+  the change folder's change log (the blueprint's `## Change Log` section, or
+  `findings.md` when no blueprint exists) with: the triggering finding, what
+  was amended, and the known-bad state the amendment avoids. When the re-run
+  of a review round follows a spec amendment, note in the round entry which
+  spec sections changed — so a future reader can tell code-fix convergence
+  from spec-amendment re-derivation.
+- **Root cause in human intent** (the spec captured intent that the human
+  renegotiates — scope, approach, acceptance criteria) → HALT: this is a
+  human decision, not a finding to fix. Surface it, yield (per
+  `_shared/craft/review-discipline.md`), and resume after the human rules.
+  Record the ruling in the briefing so it is frozen for the rest of the
+  change.
+
+When in doubt between code-fix and spec-amendment, prefer the spec amendment —
+a spec-level fix is more likely to produce coherent code than a patch that
+works around an underspecified requirement.
+
+## Frozen intent
+
+The human's intent is fenced, not restated. The **frozen block** of a change
+is `briefing.md`'s `## Problem / Intent` + `## Purpose & Success Criteria`
+(including **Out of scope**) — the *what* the whole spec hangs from.
+
+**Freeze.** When the user approves the briefing (the brainstorm approval
+gate), the approver sets the briefing's `**Intent frozen:**` line to
+`yes (YYYY-MM-DD)`. From that line forward, the frozen block is **read-only
+for agent steps** — blueprint, slicing, execute, test, ship may cite it, amend
+the sections *below* it (Context, Requirements, Implementation Decisions, …),
+but not edit the frozen sections themselves.
+
+**`intent_gap` is a HALT, not a finding.** A review/QA finding whose fix
+requires modifying the frozen block is an `intent_gap` (per § Root-cause
+routing — root cause in human intent): the workflow HALTs, names what
+intent is being renegotiated and why, yields (per
+`_shared/craft/review-discipline.md`), and resumes after the human rules.
+The human — only the human — edits the frozen sections; the `Intent frozen`
+line is re-dated, and downstream artifacts (blueprint, tasks, acceptance
+scenarios) that depended on the old intent are re-derived, not patched.
+
+**The loop cap counts intent gaps too.** An `intent_gap` that looped back is
+a round like any other in the loop termination rules below — a change whose
+intent keeps renegotiating has a design problem, not a review problem; the
+cap (5 rounds) and the user decision at the cap apply.
+
+**Pre-freeze changes are normal.** Before the `Intent frozen: yes` line is
+set, the frozen sections are edited like any other section of the briefing —
+the gate exists to make *post-approval* intent changes explicit, human, and
+dated, not to prevent refinement during brainstorming.
 
 ## Lineage
 
@@ -107,23 +164,46 @@ A parked finding has a lifecycle:
 - `addressed` → `closed`: `ship` moves the change to archive; the finding is closed.
 - `open` → `expired`: a human explicitly marks it expired with a reason (e.g. "feature removed in <change>").
 
+**The cross-change mirror:** the same lifecycle is tracked per-finding in the
+project's `.skillgrid/deferred-work.md` as the `DW-<n>` entry's `status:` line
+(`open` → `done <date> — <evidence>`), per `_shared/craft/deferred-work.md`.
+The review ledger is the per-change record (it dies in the archive); the
+deferred-work ledger is the cross-change view. When the two disagree, the
+deferred-work ledger is authoritative for open debt — the sweep verifies it
+against the code on a schedule the per-change ledger does not have.
+
 ### Debt surfacing (at QA time)
 
-When `skillgrid:qa` runs for a **new** change, it reads `review-ledger.md` files from **prior archived changes** (`.skillgrid/change-archive/*/review-ledger.md`) and surfaces any findings with disposition `parked`:
+When `skillgrid:qa` (the `test` skill) runs for a **new** change, it reads the
+project's `.skillgrid/deferred-work.md` (the cross-change view) and surfaces
+every `status: open` entry, with the originating change's `R<N>-F<NNN>` id
+from the entry's `source:` line:
 
 ```
-Review debt from prior changes:
-- R1-F002 (2026-09-15-auth-migration): parked — "needs DBA sign-off". Open.
-- R2-F001 (2026-09-20-api-rate-limit): parked — "deferred to Q4". Open.
+Deferred work (open):
+- DW-3 (R1-F002, 2026-09-15-auth-migration): "needs DBA sign-off". Open since 2026-09-15.
+- DW-7 (R2-F001, 2026-09-20-api-rate-limit): "deferred to Q4". Open since 2026-09-20. STALE — 3+ changes shipped.
 ```
 
-This is **context, not a gate**. Open parked findings do not block the new change's QA verdict. They are surfaced so the human sees the accumulated debt and can decide to address it.
+This is **context, not a gate**. Open deferred work does not block the new
+change's QA verdict. It is surfaced so the human sees the accumulated debt and
+can decide to address it. When the new change's scope overlaps an open entry's
+evidence file, the QA report adds a WARNING: "This change modifies <file>,
+which has an open deferred entry DW-<n> from <change>. Verify the finding
+still applies or close it."
 
-If the new change's scope overlaps a parked finding's file, the QA report adds a WARNING: "This change modifies <file>, which has an open parked finding R<N>-F<NNN> from <change>. Verify the finding still applies or close it."
+(For changes that predate the deferred-work ledger, fall back to reading
+`review-ledger.md` files from prior archived changes,
+`.skillgrid/change-archive/*/review-ledger.md`, and surfacing `parked` rows
+directly.)
 
 ## Stale flag
 
-A parked finding that is `open` for more than 3 archived changes is flagged as **stale** in the QA report: "Finding R<N>-F<NNN> has been open for 3+ changes. Address or expire."
+Staleness is defined once, for the deferred-work ledger: an entry open across
+3+ archived changes is stale (per `_shared/craft/deferred-work.md` § Staleness).
+The per-change review ledger inherits the same rule — a `parked` row whose
+`DW-<n>` mirror is stale is reported as stale in the QA report: "Finding
+R<N>-F<NNN> (DW-<n>) has been open for 3+ changes. Address or expire."
 
 ## Loop Termination
 
@@ -165,8 +245,9 @@ After appending the round entry, check:
 1. **Every finding has a disposition.** A finding with no disposition is a bug in this step.
 2. **Every `fixed` finding has a fix commit hash.** The hash resolves in git history.
 3. **Every `parked` finding has a ruling and a named human.** "Park it" without a ruling is not a disposition.
-4. **The frozen candidate hash matches the files actually reviewed.** If the reviewer saw files not in the frozen candidate, the round is invalid.
-5. **The round number is sequential.** No gaps, no duplicates.
+4. **Every `parked` finding has a matching `DW-<n>` entry** in `.skillgrid/deferred-work.md` (per `_shared/craft/deferred-work.md`). A parked row without its cross-change mirror is debt the next change cannot see.
+5. **The frozen candidate hash matches the files actually reviewed.** If the reviewer saw files not in the frozen candidate, the round is invalid.
+6. **The round number is sequential.** No gaps, no duplicates.
 
 If any check fails, fix the ledger entry before committing.
 
@@ -184,7 +265,7 @@ Per `_shared/craft/measurement.md`.
 |---|-----------|-------------|-----------|
 | Leading | % of review findings dispositioned in the same round (not parked) | `review-ledger.md` | should rise |
 | Leading | % of review loops that converge within the 5-round cap (no overrun) | `review-ledger.md` | should rise |
-| Lagging | Review debt: count of open parked findings across all archived changes | `.skillgrid/change-archive/*/review-ledger.md` | should fall |
+| Lagging | Review debt: count of open `DW-` entries (the cross-change view of parked findings) | `.skillgrid/deferred-work.md` | should fall |
 
 ## Common Rationalizations
 
@@ -202,6 +283,8 @@ Per `_shared/craft/measurement.md`.
 - A finding with no disposition
 - A `fixed` finding with no fix commit hash
 - A `parked` finding with no ruling or no named human
+- A `parked` finding with no matching `DW-<n>` entry in the deferred-work ledger
+- A post-freeze edit to the briefing's frozen block made by an agent step (not the human), or an `Intent frozen` line with no date
 - A round that is not invalidated after a commit lands mid-review
 - Review debt that grows monotonically across changes (no findings being addressed)
 - A finding that is `open` for 3+ changes without a stale flag
@@ -213,9 +296,10 @@ Per `_shared/craft/measurement.md`.
 - [ ] Every finding has a disposition (fixed / parked / waived)
 - [ ] Every `fixed` finding has a fix commit hash that resolves in git history
 - [ ] Every `parked` finding has a ruling and a named human
+- [ ] Every `parked` finding has a matching `DW-<n>` entry in `.skillgrid/deferred-work.md` (same edit)
 - [ ] The frozen candidate hash matches the files the reviewer actually inspected
 - [ ] The ledger is committed with the review round
-- [ ] At QA time, prior-change review debt was surfaced (or "no open findings" recorded)
+- [ ] At QA time, open deferred work was surfaced from `.skillgrid/deferred-work.md` (or "no open deferred work" recorded)
 - [ ] The loop stopped on two consecutive clean rounds, the 5-round cap, or a user decision — not on a single zero-finding round (see `## Loop Termination`)
 
 ## Final Rule
@@ -223,7 +307,7 @@ Per `_shared/craft/measurement.md`.
 ```
 Review round → frozen candidate → findings → dispositions → ledger entry
 Fixed finding → fix commit → lineage binding
-Parked finding → ruling + human → review debt → surfaces in next QA
+Parked finding → ruling + human → DW-<n> (deferred-work ledger) → surfaces in next QA
 Invalidated round → new candidate → new round (old round stays for audit)
 → The ledger is the audit trail: finding → disposition → commit → ship
 ```

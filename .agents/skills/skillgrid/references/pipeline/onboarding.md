@@ -217,6 +217,16 @@ Show the detected facts to the programmer. Confirm one at a time — don't dump 
 
 If the programmer corrects anything, use their value. If they say "looks good" or "yes", move on.
 
+## Gate: programmer approval is the precondition for Step 3
+
+**The write step is blocked until the programmer has seen the exact config content and approved it.** Step 2's per-item confirmations are not enough: they confirm the detected facts, not the rendered file. Before the agent hands control to `onboarding-write.md`, it MUST:
+
+1. **Render the full `config.yaml` draft** — the template (`references/patterns/config.yaml`) with every placeholder filled from Step 2's confirmed values, and every `{placeholder}` resolved. Nothing left as `{...}` and no invented values.
+2. **Show the complete draft to the programmer** — the whole file, not a summary of it. The draft is the artifact being approved; a summary of it is not.
+3. **Wait for an explicit yes.** "Looks good", "yes", "write it" — or a correction, which goes back through steps 1–3 for the changed values (at most one re-render per correction; two re-renders for the same value and the agent asks which version to keep, per the gate contract in `_shared/rules/sdd-structure.md`).
+4. **Only then continue to Step 3.** `onboarding-write.md`'s Step 3 MUST NOT write `.skillgrid/config.yaml` unless this gate's approval is in the conversation. The merge case (existing file) is the same gate: show the merged draft, get the yes, write.
+
+This is the same gate as the User Review Gate in the pipeline (`blueprint-validation`): a screen, an explicit decision, and a write that happens only after. The difference is what is screened — here it is the file's full content, because a config written without approval is read by every later phase and its wrong values propagate silently.
 
 ## Next
 

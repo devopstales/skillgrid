@@ -73,6 +73,12 @@ Plain, natural language. No chitchat, no narration of tool usage.
 3. **Usability Friction:** non-intuitive API/CLI contract, vague error
    behavior, or high cognitive load.
 4. **Ergonomic Requirement:** the mandatory UX/ergonomics standard.
+5. **Cost of the fix:** the operational, maintenance, or budget cost of
+   applying the ergonomic requirement above (e.g. the added documentation
+   surface, the added API complexity, the added onboarding step). If the
+   requirement has no material cost, say so in one line.
+6. **Falsifying evidence:** the observation that would rule this finding out
+   (e.g. the error message was read and is already actionable).
 
 **REVIEW** — begin with the paraphrase under two headings: **What this
 proposes** and **How the existing system works, per this document** (2–5

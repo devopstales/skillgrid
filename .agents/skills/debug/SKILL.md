@@ -124,7 +124,8 @@ Each phase completes before the next begins.
    Not reproducible → gather data (log lines, input fixtures, env state)
    until it is. Never fix on a one-time sighting.
 3. **Check recent changes.** `git log` / `git diff` around the symptom; new
-   dependencies, config drift, environment differences.
+   dependencies, config drift, environment differences. To locate files by
+   name in a large tree, use `fd '<name>'` rather than `find`.
 4. **Goldfish Diagnosis (before you state your hypothesis as the working one).**
    Dispatch a fresh read-only subagent per the brief at
    `_shared/elephant-goldfish/goldfish-diagnosis.md`. The dispatch carries
@@ -154,7 +155,9 @@ Each phase completes before the next begins.
 
 ### Phase 2: Pattern Analysis
 
-1. Find a **working example** of similar code in this codebase.
+1. Find a **working example** of similar code in this codebase:
+   `rg -t <lang> -l '<symbol or function name>'` to list candidate files,
+   then read the closest match.
 2. Read the relevant reference implementation completely — every line.
 3. List **every difference** between working and broken, however small; "that
    can't matter" is untested and usually wrong.

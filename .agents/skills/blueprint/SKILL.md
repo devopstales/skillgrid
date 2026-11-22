@@ -197,6 +197,31 @@ as if decided. This runs per section, in the drafting turn, and never blocks
 the user — it converts a silent assumption into a named decision before it is
 approved.
 
+**The reviewer gets the artifact, not your conclusion.** When the doubt gate
+dispatches a fresh-context reviewer (a non-trivial section, a contested
+Owed-Decision), hand it the section text (the artifact) plus the constraint it
+must satisfy (the contract) — **never the CLAIM as framed by you**. Naming your
+conclusion biases the reviewer toward agreement; the reviewer must independently
+determine whether the section holds. Strip your reasoning from the dispatch, but
+keep contradicting evidence in — a caller, guard, or test that conflicts with
+the claim belongs in the unit.
+
+**Doubt theater is a checkable failure.** If two or more consecutive doubt
+cycles surface substantive findings and **zero** are classified as actionable
+(every one dismissed as noise or trade-off without changing the section), you
+are validating, not doubting — stop and escalate to the user with the dismissed
+findings listed. The same signal applies at the review loop: a fresh reviewer
+that keeps finding things you keep waiving is information about the artifact,
+not a reason to keep looping.
+
+**A failing test is a doubt made concrete.** When a load-bearing claim is
+behavioral ("this function handles X", "this flow recovers from Y"), the
+cheapest doubt is TDD's RED step: write the test that would disprove it and
+run it before the implementation stands. A RED→GREEN pair satisfies the doubt
+gate for that claim — no separate reviewer dispatch needed. The doubt gate and
+the test suite are the same discipline at different moments: the gate checks
+the claim before the code, the test checks it after.
+
 ## Phase 3 — Project Wiki
 
 Persist the blueprint's durable knowledge to the project wiki vault at

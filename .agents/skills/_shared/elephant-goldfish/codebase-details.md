@@ -77,6 +77,13 @@ Plain, natural language. No chitchat, no narration of tool usage.
 3. **Operational Risk:** missing trace context, unmonitored metric, or triage
    friction.
 4. **Mitigation Requirement:** the mandatory telemetry requirement.
+5. **Cost of the fix:** the operational, maintenance, or budget cost of
+   applying the telemetry requirement above (e.g. the added instrumentation
+   surface, the added monitoring dashboard, the added log volume). If the
+   requirement has no material cost, say so in one line.
+6. **Falsifying evidence:** the observation that would rule this finding out
+   (e.g. the trace context is already propagated through the relevant
+   call path).
 
 **REVIEW** — for each finding:
 1. **Severity:** Blocker | Major | Nit
