@@ -33,22 +33,22 @@ func main() {
 	}
 
 	var (
-		vVersion    bool
-		vSkip       bool
-		vSync       string
-		vDry        bool
-		vVerbose    bool
-		vYes        bool
-		vRepoURL    string
-		vBranch     string
-		vAgents     string
-		vSkipTools  bool
-		vSkipAgents bool
-		vLSP        bool
-		vProvider   string
+		vVersion      bool
+		vSkip         bool
+		vSync         string
+		vDry          bool
+		vVerbose      bool
+		vYes          bool
+		vRepoURL      string
+		vBranch       string
+		vAgents       string
+		vSkipTools    bool
+		vSkipAgents   bool
+		vLSP          bool
+		vProvider     string
 		vSkipProvider bool
-		vBaseURL    string
-		vAPIKey     string
+		vBaseURL      string
+		vAPIKey       string
 	)
 	fs.BoolVar(&vVersion, "version", false, "print version and exit")
 	fs.BoolVar(&vVersion, "v", false, "shorthand for --version")
