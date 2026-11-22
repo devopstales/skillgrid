@@ -38,7 +38,8 @@ Chain strategy: stacked-to-main
 
 ## Tickets
 
-### TICKET-01 — Scaffold pi-worktree repo + contract constants + import-scan
+### TICKET-01
+- **Tracker ID:** TASK-001 — Scaffold pi-worktree repo + contract constants + import-scan
 
 - **Scope:** Create the `devopstales/pi-worktree` repo (git init, MIT LICENSE, .gitignore), `package.json` (pi.extensions, engines, scripts, files), `src/core/constants.ts` (REF_BASE, AGENT_BRANCH_RE, IGNORED_DIRS, MAX_UNTRACKED_FILE_SIZE, MAX_UNTRACKED_DIR_FILES, MAX_PER_SESSION, isSafeRefId), and `tests/import-scan.test.ts` (no Pi imports in src/core/ + constants match contract values).
 - **Acceptance:** `bun test tests/import-scan.test.ts` passes (2 tests: import-scan + constants-match). The constants module exports the exact contract values.
@@ -51,7 +52,8 @@ Chain strategy: stacked-to-main
 - **Reversibility:** one-way (OD-1 ref namespace `refs/skillgrid/` is declared here; OD-3 merge-default argv is consumed by Task 6)
 - **Fails-when:** `bun test tests/import-scan.test.ts` exits non-zero
 
-### TICKET-02 — scratch-core: temp-index capture + tree-SHA dedup
+### TICKET-02
+- **Tracker ID:** TASK-002 — scratch-core: temp-index capture + tree-SHA dedup
 
 - **Scope:** Implement `createCheckpoint`, `git`, `repoRoot`, `Checkpoint`/`CheckpointResult` types, `lastTree` dedup map, `resetSessionState` in `src/core/scratch-core.ts` (capture half). 5 tests: mutating-turn metadata, index-identical, read-only-skip, unborn-HEAD zero-SHA, ignored-paths-absent.
 - **Acceptance:** `bun test tests/scratch.test.ts -t "capture|dedup|unborn|ignored"` passes (5 tests). The real git index is byte-identical before/after capture. A read-only turn returns `{status:"skipped",reason:"unchanged"}`.
@@ -62,7 +64,8 @@ Chain strategy: stacked-to-main
 - **Blocked by:** TICKET-01
 - **Fails-when:** `bun test tests/scratch.test.ts` exits non-zero
 
-### TICKET-03 — scratch-core: safe restore with branch-keyed check
+### TICKET-03
+- **Tracker ID:** TASK-003 — scratch-core: safe restore with branch-keyed check
 
 - **Scope:** Implement `restoreCheckpoint`, `loadCheckpoint`, `listCheckpoints`, `safeClean` in `src/core/scratch-core.ts` (restore half). 5 tests: restore-on-matching-branch (deleted tracked returns, post-checkpoint untracked removed, pre-existing survives), before-restore checkpoint, refused-branch-mismatch-named, refused-missing-checkpoint, detached-HEAD-restore-refused.
 - **Acceptance:** `bun test tests/scratch.test.ts -t "restore"` passes (5 tests). A restore on a mismatched branch is refused with reason `branch` + both branch names. A before-restore checkpoint always exists.
@@ -73,7 +76,8 @@ Chain strategy: stacked-to-main
 - **Blocked by:** TICKET-02
 - **Fails-when:** `bun test tests/scratch.test.ts` exits non-zero
 
-### TICKET-04 — scratch-core: session pruning + latency bench
+### TICKET-04
+- **Tracker ID:** TASK-004 — scratch-core: session pruning + latency bench
 
 - **Scope:** Implement `prune` (50-cap), `pruneOtherSessions` (liveness-aware, `PRUNE_MIN_AGE_MS` = 1h, injectable `now`), `PRUNE_MIN_AGE_MS` in `src/core/scratch-core.ts` (prune half). Create `tests/bench.ts` (capture latency at 20/500/5000/50000 files; exit 1 if 5k-file median > 150ms). 4 prune tests: 51st-capture-prunes-oldest, pruneOtherSessions-removes-other-sessions, liveness-threshold-keeps-fresh-sibling, exactly-50-no-prune.
 - **Acceptance:** `bun test tests/scratch.test.ts -t "prune|cap"` passes (4 tests) + `bun run bench` prints the table with 5k-file median ≤ 150ms. Total scratch test count = 14.
@@ -84,7 +88,8 @@ Chain strategy: stacked-to-main
 - **Blocked by:** TICKET-03
 - **Fails-when:** `bun test tests/scratch.test.ts` exits non-zero OR `bun run bench` exits non-zero
 
-### TICKET-05 — scratch.ts extension wiring: turn_end, restore tool, /checkpoint, footer
+### TICKET-05
+- **Tracker ID:** TASK-005 — scratch.ts extension wiring: turn_end, restore tool, /checkpoint, footer
 
 - **Scope:** Create `src/scratch.ts` (extension file 1: `turn_end` → capture + footer, `session_start` → cache rebuild + resume dedup + background prune, `scratch-restore` tool, `/checkpoint` command) and `src/ui.ts` (`updateFooter`, `rebuildCache`, `restoreDialog` — the pinned shapes from Stage 9 F1). Create `tests/scratch-ext.smoke.md` (documented `pi -e` smoke script).
 - **Acceptance:** `pi -e ./src/scratch.ts` in a temp repo: edit a file via the agent → footer shows `◆ 1 checkpoint`; `/checkpoint` lists it with label; restore after a second edit → file back, dialog confirmed, `◆ 2 checkpoints`. Smoke script observations all hold.
@@ -96,7 +101,8 @@ Chain strategy: stacked-to-main
 - **Precondition:** a Pi install (≥0.99.1) with `pi -e` on PATH
 - **Fails-when:** `pi -e ./src/scratch.ts` smoke observations in `tests/scratch-ext.smoke.md` do not all hold
 
-### TICKET-06 — wt-core: directive runner + three invariants (root-observation, allow-list, merge-defaults)
+### TICKET-06
+- **Tracker ID:** TASK-006 — wt-core: directive runner + three invariants (root-observation, allow-list, merge-defaults)
 
 - **Scope:** Implement `runDirectedWt` (directive protocol: mkdtemp + 0o600, WORKTRUNK_DIRECTIVE_CD_FILE, spawn without shell, drain-then-delete, in-process mutex), `supportsDirectiveProtocol`, `observeWorktreeRoot` (first-use one-line observation), `checkBranchAllowList` (regex + nearest-form suggestion), `applyMergeDefaults` (prepends `--no-squash --no-commit` unless explicit) in `src/core/wt-core.ts`. Tests: pure-parse groups (applyMergeDefaults, checkBranchAllowList) run without `wt`; runner groups (observeWorktreeRoot, directive-outside-repo, mutex, directive-file-cleanup) skip with a named reason when `wt` is absent.
 - **Acceptance:** `bun test tests/wt-core.test.ts` passes (all groups; runner groups skipped with named reason when `wt` absent). `applyMergeDefaults(["merge","main"])` returns `["merge","--no-squash","--no-commit","main"]`. `checkBranchAllowList("feature-x", true)` returns `{ok:false, suggestion:/agent-feature-x/}`.
@@ -107,7 +113,8 @@ Chain strategy: stacked-to-main
 - **Blocked by:** TICKET-01
 - **Fails-when:** `bun test tests/wt-core.test.ts` exits non-zero
 
-### TICKET-07 — wt-core recovery + wt.ts: worktrunk tool, session moves, approvals
+### TICKET-07
+- **Tracker ID:** TASK-007 — wt-core recovery + wt.ts: worktrunk tool, session moves, approvals
 
 - **Scope:** Implement `recordWorktrees` (in-memory Map), `recover` (repository identity re-verified, default-branch preference via `git symbolic-ref`, no-replay, linked-session creation via `ctx.sessionManager`) in `src/core/wt-core.ts` (recovery half). Create `src/wt.ts` (extension file 2: `worktrunk` tool `{command, args?}` sequential, `/wt` command, directive follow → linked-session move, print/json → `stopped`, approval dialog passthrough, recovery hook). Update `README.md` (min `wt` version pin). Tests: recovery group (cwd-removed → recover to survivor, no-surviving → report). Smoke: `tests/wt-ext.smoke.md`.
 - **Acceptance:** `bun test tests/wt-core.test.ts -t "recovery"` passes (2 tests). `pi -e ./src/wt.ts` smoke: `wt switch --create agent-smoke` via the tool → session cwd is the new worktree, source session in `/resume`; print mode → `stopped` + path; unapproved `[pre-start]` hook → dialog, approve → runs once.
@@ -119,7 +126,8 @@ Chain strategy: stacked-to-main
 - **Precondition:** a Pi install (≥0.99.1) with `pi -e` on PATH; `wt` binary on PATH for the recovery tests
 - **Fails-when:** `bun test tests/wt-core.test.ts -t "recovery"` exits non-zero OR smoke observations do not hold
 
-### TICKET-08 — markers + ui: lifecycle, stale report, dual-plugin note
+### TICKET-08
+- **Tracker ID:** TASK-008 — markers + ui: lifecycle, stale report, dual-plugin note
 
 - **Scope:** Create `src/markers.ts` (`markWaiting`, `markWorking`, `clearMarker` — the exact argv from findings.md R1; sole marker writer). Modify `src/ui.ts` (dialog half), `src/scratch.ts` + `src/wt.ts` (import markers, drop direct marker writes). Update `README.md` (dual-plugin note). Tests: marker group (lifecycle sequence in `wt list`, stale detection, manual clear).
 - **Acceptance:** `bun test tests/markers.test.ts` passes (lifecycle: session_start→💬, agent_start→🤖, agent_end→💬, session_shutdown→clear; stale: kill-before-shutdown → reported; clear: `wt config state marker clear` removes it).
@@ -131,7 +139,8 @@ Chain strategy: stacked-to-main
 - **Precondition:** `wt` binary on PATH for the marker state commands
 - **Fails-when:** `bun test tests/markers.test.ts` exits non-zero
 
-### TICKET-09 — evals + changelog + README + reference docs + contract-drift guard
+### TICKET-09
+- **Tracker ID:** TASK-009 — evals + changelog + README + reference docs + contract-drift guard
 
 - **Scope:** Create `evals/evals.json` (array of `{name,description,input,expect}`; ported `scratch_dedup_readonly_turn` + `scratch_branch_safety_refused` + marker + approval scenarios), `changelog/releases/v0.1.0/` (manifest.yaml, entries/, notes.md — pi-worktrunk's structure), `references/wt-commands.md` (hand-written one-page pointer), `references/scratch-restore.md` (restore protocol, refusal reasons, branch-keyed check), `README.md` (full: install, Pi ≥0.99.1, wt min version, two-extension-file manifest note, marker-writer warning, git-fallback behavior). Create `tests/contract-drift.test.ts` (parses `~~~skillgrid-constants` fence from `SKILLGRID_CONTRACT_PATH`, diffs against exported constants; missing fence → FAIL; missing env → FAIL).
 - **Acceptance:** `bun test` (full suite) passes. `SKILLGRID_CONTRACT_PATH=... bun test tests/contract-drift.test.ts` passes when constants match; fails naming the mismatch when they don't. `evals/evals.json` is valid JSON with the pinned format.
@@ -142,7 +151,8 @@ Chain strategy: stacked-to-main
 - **Blocked by:** TICKET-08
 - **Fails-when:** `bun test` exits non-zero
 
-### TICKET-10 — End-to-end smoke + npm pack
+### TICKET-10
+- **Tracker ID:** TASK-010 — End-to-end smoke + npm pack
 
 - **Scope:** Create `tests/e2e.sh` (full smoke: scripted Pi session via `pi --print -p` per turn, restore via tool `execute` with `id` set, the full checkpoint → restore → worktree-move → recovery → marker cycle). Run `bun pack` to verify the npm package structure. Fix whatever the smoke reveals (a fix here is a plan defect — stop and report).
 - **Acceptance:** `bash tests/e2e.sh` exits 0 (all assertions pass). `bun pack` produces a valid `.tgz` with the `src/` + `references/` files.
@@ -154,7 +164,8 @@ Chain strategy: stacked-to-main
 - **Precondition:** Pi install (≥0.99.1) + `wt` binary + `git` all on PATH; a temp repo with at least one commit
 - **Fails-when:** `bash tests/e2e.sh` exits non-zero OR `bun pack` fails
 
-### TICKET-11 — In-repo spec-zone edits (skillgrid-skills)
+### TICKET-11
+- **Tracker ID:** TASK-011 — In-repo spec-zone edits (skillgrid-skills)
 
 - **Scope:** In `skillgrid-skills`: update root `README.md` (Tool Dependency list: add the `pi-worktree` line), update `.agents/skills/_shared/work-unit-commits/README.md` § Scratch checkpoints (reference-implementation pointer line + the `~~~skillgrid-constants` fence at column 0). Run the contract-drift guard against the edited contract (`SKILLGRID_CONTRACT_PATH=... bun test tests/contract-drift.test.ts` in the plugin repo). Commit (spec zone).
 - **Acceptance:** The `~~~skillgrid-constants` fence is present at column 0 in `work-unit-commits/README.md` with the exact values from Task 1 `constants.ts`. `SKILLGRID_CONTRACT_PATH=.agents/skills/_shared/work-unit-commits/README.md bun test tests/contract-drift.test.ts` (in the plugin repo) passes.
@@ -205,4 +216,4 @@ graph LR
 - **TICKET-07 is the largest ticket (~500 lines, L).** It touches 3 files + 2 test surfaces. Acceptable at T2; if the executor prefers, it can be split into T07a (recovery in wt-core) + T07b (wt.ts wiring) at slicing time — but the blueprint's TDD steps are written as one unit.
 - **TICKET-11 is in a different repo** (skillgrid-skills, not pi-worktree). It is the spec-zone commit that adds the `~~~skillgrid-constants` fence the drift guard parses. It must run after TICKET-09 (the drift guard test must exist) and commits in the spec zone before any further code-zone work in skillgrid-skills.
 - **Assumed blueprints:** none — `blueprint.md` carries `Status: APPROVED`.
-- **Ticketing:** `ticketing.enabled: false` in `.skillgrid/config.yaml` — local-only waiver; no tracker publication. Execution reads from `tasks.md` directly.
+- **Ticketing:** published to Backlog.md as milestone `m-0` (2026-11-22-pi-worktree-plugin), TASK-001 through TASK-011 with dependency edges. `ticketing.enabled` set to `true` in `.skillgrid/config.yaml` (user override at the slice gate).
