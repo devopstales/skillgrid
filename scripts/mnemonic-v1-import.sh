@@ -75,6 +75,7 @@ INSERT INTO observations
 COMMIT;
 "
 
-skipped_obs=$(( src_valid_obs - planned_obs ))
+already_obs=$(( src_valid_obs - planned_obs ))
+skipped_obs=$(( orphan + already_obs ))
 echo "sessions: $planned_sess imported, $(( src_sess - planned_sess )) skipped"
-echo "observations: $planned_obs imported, $skipped_obs skipped ($orphan orphan-session, $(( src_valid_obs - planned_obs )) already-imported)"
+echo "observations: $planned_obs imported, $skipped_obs skipped ($orphan orphan-session, $already_obs already-imported)"

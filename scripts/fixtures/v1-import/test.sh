@@ -21,7 +21,9 @@ cp "$v2" "$v2.pre"
 cmp -s "$v2" "$v2.pre" || { echo "dry-run wrote to the target"; exit 1; }
 
 # 4. the import: rows land, search finds them
-"$repo"/scripts/mnemonic-v1-import.sh --from "$tmp/v1.sqlite" --to "$v2" | grep -q 'observations: 3 imported'
+out="$("$repo"/scripts/mnemonic-v1-import.sh --from "$tmp/v1.sqlite" --to "$v2")"
+echo "$out" | grep -q '^sessions: 2 imported, 0 skipped$' || { echo "fresh sessions counts line wrong: $out"; exit 1; }
+echo "$out" | grep -q '^observations: 3 imported, 1 skipped (1 orphan-session, 0 already-imported)$' || { echo "fresh observations counts line wrong: $out"; exit 1; }
 n=$(sqlite3 "$v2" "SELECT count(*) FROM observations")
 [ "$n" = "3" ] || { echo "want 3 observations, got $n"; exit 1; }
 s=$(sqlite3 "$v2" "SELECT count(*) FROM sessions")
@@ -43,7 +45,8 @@ grep -q 'batched fetch' "$tmp/search.out" || { echo "memory search did not find 
 
 # 5. re-run adds 0
 out="$("$repo"/scripts/mnemonic-v1-import.sh --from "$tmp/v1.sqlite" --to "$v2")"
-echo "$out" | grep -q 'observations: 0 imported' || { echo "re-run not idempotent: $out"; exit 1; }
+echo "$out" | grep -q '^observations: 0 imported, 4 skipped (1 orphan-session, 3 already-imported)$' || { echo "re-run not idempotent: $out"; exit 1; }
+echo "$out" | grep -q '^sessions: 0 imported, 2 skipped$' || { echo "re-run sessions counts line wrong: $out"; exit 1; }
 n=$(sqlite3 "$v2" "SELECT count(*) FROM observations")
 [ "$n" = "3" ] || { echo "re-run changed the count: $n"; exit 1; }
 
