@@ -15,7 +15,7 @@ includes it plus a sample task — use it as the starting scaffold):
 ```markdown
 # [Feature Name] Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use skillgrid:subagent-execution (recommended) or skillgrid:simple-execution to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use skillgrid:execute (subagent mode recommended, or inline mode) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Status:** PROPOSED (default. Set to `ASSUMED` only via the Owed-Decision
 Gate option 3 — the Assumed block follows the header; cleared only by Ratify.)

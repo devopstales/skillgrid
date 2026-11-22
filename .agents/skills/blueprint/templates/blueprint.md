@@ -11,7 +11,7 @@
 > Frequent commits. No placeholders. (User preferences for plan location
 > override this default.)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-execution (recommended) or simple-execution to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use skillgrid:execute (subagent mode recommended, or inline mode) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 <!-- Self-Review reminder: before the User Review Gate, the drafting agent runs the Self-Review checklist (blueprint SKILL.md → "Self-Review") — including check 6, Spec Reconciliation against briefing.md per references/section-by-section.md → "Spec Reconciliation (R21)" — while the blueprint is still PROPOSED. -->
 
