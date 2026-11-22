@@ -37,6 +37,7 @@
 Tools the skills invoke that you need installed. "optional" = only when the corresponding tracker/feature is configured in `.skillgrid/config.yaml` or a live target is available.
 
 - **Install (binary/CLI):**
+  - `pi-worktree` — Pi plugin: `pi install npm:@devopstales/pi-worktree`. Scratch checkpoints (`refs/skillgrid/`, turn-level, safe restore) + worktrunk runner with linked-session movement (execute Step 0b tier 1/2, ship Step 6; optional — the git fallback path is unchanged without it)
   - `worktrunk` (`wt`) — git worktree manager for parallel agents: `wt switch --create` / `wt merge` / `wt remove --reap` (execute Step 0b, ship Step 6; **preferred-when-present** — the skills fall back to `git worktree add` when absent, so it is optional but recommended for fan-out)
   - `trivy` — static security scanning: deps, secrets, IaC, containers, SBOM (test; always for security gate)
   - `nuclei` — broad DAST at a running target, CVE templates (test; optional — needs a live target)

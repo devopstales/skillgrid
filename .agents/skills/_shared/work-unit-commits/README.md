@@ -29,11 +29,17 @@ submodule — `git rev-parse --show-superproject-working-tree` printing a path
 means a normal repo, not a worktree.
 
 **Directory selection priority** (for `execute` 0c): (1) a worktree directory
-declared in your instructions, (2) the project-root `.worktree/`, (3)
-`conventions.worktree_dir` from config (default `.worktree`). **MUST verify the
+declared in your instructions, (2) `conventions.worktree_dir` from config,
+(3) the project-root `.worktree/` — the default when config is absent or
+unset. The resolved directory MUST live **inside `<project-root>`** — never a
+sibling of the checkout, never outside the repo root; a bare path with no
+`/` is a sibling of the root, not a child of it. **MUST verify the
 directory is ignored before creating** (`git check-ignore -q <dir>`) — if not
 ignored, add it to `.gitignore` and commit first, or the whole tree gets
-committed.
+committed. Onboarding creates the root (gitignored, with a `.gitkeep`) at
+project setup — `onboarding-write.md` Step 3 items 5/5b — so by execution
+time it exists; a missing root at execute time is an onboarding gap, not a
+reason to invent a new location.
 
 **Tooling tiers** (who creates and manages worktrees; `execute` Step 0 and
 `ship` Step 6 follow this order):
@@ -42,13 +48,19 @@ committed.
    `WorktreeCreate`, a `/worktree` command, or a `--worktree` flag), it wins:
    it owns session state.
 2. **Worktrunk (`wt`) — preferred when present.** Check `command -v wt` and
-   that `wt list` succeeds in the repo. Worktrees still land in the standard
-   root: user config `worktree-path = "{{ repo_path }}/.worktree/{{ branch | sanitize }}"`
+   that `wt list` succeeds in the repo. Worktrees MUST land in the standard
+   root: the repo-root `.config/wt.toml` (or user config) MUST set
+   `worktree-path = "{{ repo_path }}/.worktree/{{ branch | sanitize }}"`
    (branch `/` → `-`; dispatch briefs state the sanitized name so ledger paths
-   resolve). Fan-out branches stay on the per-agent allow-list (`worktree-wf_*`
-   for fan-out domains, `agent-*` for single implementers) — worktrunk
-   addresses by branch name and is agnostic to it. Project hooks (setup,
-   pre-merge tests) live in the **committed** `.config/wt.toml`.
+   resolve) — without the template, `wt` places worktrees in its own default
+   layout *outside* `.worktree/`, which `git worktree list` does not flag.
+   Verify the created worktree's path starts with `<project-root>/.worktree/`
+   after every `wt switch --create`; a path outside the standard root is a
+   placement error — record it, report it, do not silently work there. Fan-out
+   branches stay on the per-agent allow-list (`worktree-wf_*` for fan-out
+   domains, `agent-*` for single implementers) — worktrunk addresses by branch
+   name and is agnostic to it. Project hooks (setup, pre-merge tests) live in
+   the **committed** `.config/wt.toml`.
 3. **`git worktree add` — the fallback.** Only when no tool from tier 1/2
    exists.
 
@@ -223,6 +235,17 @@ stopped. They are not commits: they never enter history, never carry a
 - **Scope boundary:** no conversation-state restore (harness session layer
   owns that), no per-tool granularity, no auto-restore — restore is always a
   decision, files-only, noted in the ledger (`(scratch restore <label>)`).
+
+Reference implementation: `@devopstales/pi-worktree` (`scratch-core.ts`); the constants in this section are its source of truth (its contract-drift guard test enforces the direction).
+
+~~~skillgrid-constants
+REF_BASE: refs/skillgrid
+AGENT_BRANCH_RE: "^(agent-|worktree-agent-|worktree-wf_)[A-Za-z0-9._/-]+$"
+IGNORED_DIRS: ["node_modules", ".venv", "venv", "env", ".env", "dist", "build", ".pytest_cache", ".mypy_cache", ".cache", ".tox", "__pycache__", ".worktree"]
+MAX_UNTRACKED_FILE_SIZE: 10485760
+MAX_UNTRACKED_DIR_FILES: 200
+MAX_PER_SESSION: 50
+~~~
 
 ## Worktree removal + branch deletion (shared safety)
 
