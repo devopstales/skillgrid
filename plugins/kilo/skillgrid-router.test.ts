@@ -88,9 +88,16 @@ const runCases = async (): Promise<string[]> => {
   const bootstrap4 = bootstrapPartsFor(output4.messages);
   check(bootstrap4.length === 0, `case4: non-project cwd unchanged (bootstrap parts=${bootstrap4.length})`);
 
-  // Case 5 — missing asset: static fallback.
+  // Case 5 — missing asset (BOTH sources): static fallback.
+  // Hermetic: the installed copy (~/.skillgrid/router-bootstrap.md) takes
+  // precedence over the checkout asset, so a machine with a completed
+  // `skillgrid install` would otherwise serve the live installed asset. Point
+  // HOME at an empty temp dir so the installed path is absent too.
   __resetBootstrapCacheForTests();
   fs.renameSync(assetPath, `${assetPath}.bak`);
+  const realHome = process.env.HOME;
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'skillgrid-kilo-home-'));
+  process.env.HOME = tmpHome;
   try {
     const plugin5 = await SkillgridRouterPlugin({ client: {}, directory: projectDir });
     const transform5 = plugin5['experimental.chat.messages.transform'];
@@ -103,7 +110,9 @@ const runCases = async (): Promise<string[]> => {
     check(fallbackText.includes(FALLBACK_MARKER), 'case5: static fallback used (not the live asset)');
     check(!fallbackText.includes(LIVE_MARKER), 'case5: static fallback is the fallback, not the live asset');
   } finally {
+    process.env.HOME = realHome;
     fs.renameSync(`${assetPath}.bak`, assetPath);
+    fs.rmSync(tmpHome, { recursive: true, force: true });
   }
 
   // Config hook: pushes the repo .agents/skills dir into config.skills.paths.
