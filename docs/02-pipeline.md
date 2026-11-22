@@ -28,7 +28,7 @@ Solid edges are the happy-path pipeline. Dashed edges are cross-cutting skills r
 
 ### 1. Brainstorm
 
-Turn a raw idea into an approved design and spec. The agent questions the user until goal, scope, constraints, and tradeoffs are shared understanding. Gates on explicit user approval before any implementation.
+Turn a raw idea into an approved design and spec. The agent questions the user until goal, scope, constraints, and tradeoffs are shared understanding. The interview converges on a **three-question test**: before declaring done, the agent writes the three questions it would ask next and predicts the answers — predictable all three means converged; the unpredictable one is the next question. Gates on explicit user approval before any implementation, at which point the briefing's intent sections are frozen (per `_shared/craft/review-ledger.md` § Frozen intent).
 
 **When to use:** before any creative work — creating features, building components, adding functionality, or modifying behavior.
 
@@ -65,6 +65,10 @@ Run the areas the change warrants, in order: intent testing (does it satisfy the
 **When to use:** a change needs testing beyond the implementation.
 
 **Artifacts:** test evidence, security scan results, four-state verdict.
+
+The **review + fix loop** is part of this phase (the "review" area of the test skill): a topology-driven code review runs fresh, blind lens subagents over the diff, the coordinator re-grades each finding by consumer consequence (a reviewer's self-assigned severity is dropped — information asymmetry), and triage routes by **root cause**: code → fix now / defer / human look / noise; spec → amend the spec and re-derive the code; human intent → HALT (the briefing's frozen block was renegotiated — only the human edits it). Every deferred finding lands in the per-change `review-ledger.md` (disposition `parked`) and a `DW-<n>` entry in the project's cross-change `.skillgrid/deferred-work.md`.
+
+**Deferred work** is the cross-change memory for "real, but not now": an append-only ledger (`.skillgrid/deferred-work.md`) that review triage writes into, that `test` surfaces at the start of every new change, and that `ship` sweeps on close-out — verifying each open entry against the current code ("probably fixed" is not evidence; a file:line or commit is) and partitioning it into resolved / bundle / blocked / skip / decision. Per `_shared/craft/deferred-work.md`.
 
 ### 6. Ship
 
