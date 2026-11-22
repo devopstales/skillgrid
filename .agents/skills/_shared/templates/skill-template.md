@@ -25,6 +25,13 @@ flowchart TD                   ←   a diamond per interactive gate
     B --|confirm| C[Step 2]
     B --|loop back| A
 
+## Input Contract             ← operational skills only (§3e):
+| Input | Source | Type | Required? |
+       ←   one line per input; skip if already a named section (e.g. ## Config)
+
+## Decision Gates              ← operational skills only (§3e):
+| Condition | Action |     ←   condition→action table, rows sourced from existing rules
+
 ## Steps                       ← checklist with go-back lines
 - [ ] Step 1: ...
 - [ ] Step 2: ...
@@ -32,6 +39,12 @@ flowchart TD                   ←   a diamond per interactive gate
 - [ ] Step 3: Verify (repeat until all pass)
 - [ ] Step 4: Gate — chat summary first, then the single-select question
       (EGM format, §5c; payload in `references/interaction-gates.md`)
+
+## Output Contract             ← exact final output shape (fields, paths,
+                               ←   verdict values); skip if already a named
+                               ←   section — cite it
+
+## Anti-Patterns               ← tail: | Anti-pattern | Symptom | Fix |
 
 ## References                  ← context pointers, not inlines
 - For pricing details: `references/pricing.md`
@@ -54,7 +67,10 @@ skill-name/
 │   └── <name>.mjs
 ├── references/           ← optional: docs loaded on demand
 │   └── <topic>.md
-└── assets/               ← optional: files used in output (templates, icons)
+├── templates/            ← optional: fill-in skeletons copied into the
+│   └── <type>-template.md   user's workspace (one per output type)
+└── assets/               ← optional: static files used in output but not
+                            copied (icons, reference data)
 ```
 
 ## Writing rules (the ones that bite during the draft)

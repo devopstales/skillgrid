@@ -61,6 +61,24 @@ silent gap. The worked example's design decisions are also the model for the
 two invariants in `_shared/rules/adoption-decisions.md` § Tooling budget
 (transport-not-workflow, non-fatal install, gotcha-at-point-of-use).
 
+**Compact steps form (`small` class).** When a `small` briefing's steps are
+self-evidently small (no zone order needed, each step verifiable in one
+command), the Steps table MAY collapse to the step-with-verify form — each
+step names its own check, and the check is what the executor runs:
+
+```
+1. [Step] → verify: [command or check that proves it]
+2. [Step] → verify: [command or check]
+```
+
+The form earns its place because a strong per-step check lets the executor
+loop independently (run the step, run the check, move on) — a step with a
+weak check ("make it work") is a stall in disguise. The full column table
+(`# | Step | Deliverable | Key files`) remains the default whenever zone
+order, multiple deliverables, or non-trivial verification apply. `trivial`
+changes keep the full table — the briefing is the only artifact, and the
+columns are what keep it honest.
+
 ## Phase behavior under waiver
 
 - `slicing`: light `tasks.md` allowed (fewer phases, 1–2 lines per ticket).

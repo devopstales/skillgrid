@@ -67,8 +67,8 @@ The maximum number of review rounds per change, by tier. This is the upfront bud
 
 The single source for fix/review loop caps. Do not restate the round counts elsewhere — reference this section.
 
-- **Gate fix loop** (QA gate FAIL, or a review fix loop: `skillgrid:qa`, `skillgrid:code-review`, `skillgrid:receiving-code-review`, `skillgrid:simple-execution`): **3 rounds, then escalate to the human**. Past the cap the failure is structural (architectural or scope), not a test gap.
-- **Task-level fix loop** (`skillgrid:subagent-execution`, per task): **5 rounds, then the breaker adjudicates** each open finding (park with a ruling, or rule on the smallest change that unblocks dependent work). Rounds 1-3 resume the original implementer; rounds 4-5 dispatch a fresh implementer on a more capable model.
+- **Gate fix loop** (QA gate FAIL, or a review fix loop: `skillgrid:qa`, `skillgrid:code-review`, `skillgrid:receiving-code-review`, `skillgrid:execute`): **3 rounds, then escalate to the human**. Past the cap the failure is structural (architectural or scope), not a test gap.
+- **Task-level fix loop** (`skillgrid:execute`, subagent mode, per task): **5 rounds, then the breaker adjudicates** each open finding (park with a ruling, or rule on the smallest change that unblocks dependent work). Rounds 1-3 resume the original implementer; rounds 4-5 dispatch a fresh implementer on a more capable model.
 
 ## Rules
 

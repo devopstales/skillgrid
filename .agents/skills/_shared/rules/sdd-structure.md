@@ -21,19 +21,19 @@ brainstorm → blueprint (Phase 1 research → Phase 2 draft → Phase 3 project
 | `blueprint` Phase 5 (acceptance spec) | BDD `acceptance.feature` — valid Cucumber syntax, traceability oracle (folded in from the deleted `acceptance-test-authoring` skill) |
 | `blueprint` | Five-phase plan → `blueprint.md`: Phase 1 research → Phase 2 section-by-section draft (Section Approval Gate) → Phase 3 project-wiki persistence → [Phase 4 prototype, user-selectable] → Phase 5 write file; **must** run goldfish review + user validation before completion |
 | ADR records | Domain model (terms in `glossary/`) + ADR authoring / supersession — contract + templates in `_shared/adr-records/` (cited, not restated); driven by `brainstorm` during the interview; adopting an external method/pattern follows `_shared/rules/adoption-decisions.md` (method-not-plugin test, Not-adopted list, smoke test, rename sweep, park-don't-defer) |
-| `_shared/projectwiki` | Read/maintain the `.skillgrid/projectwiki/` vault via the `projectwiki` engine (`mnemonic projectwiki ...`) — recall before re-deriving; concepts live in `decisions/`/`invariants/`/`workflows/`/`glossary/`/`gotchas/`/`architecture/` with `index/` projections rebuilt by `projectwiki index` in the same edit; ingests search/research + reflect results as typed, cross-linked pages (`DATA-LOADING.md`: `sources/` + `syntheses/` + `concepts/`). Shared skill in `_shared/projectwiki/` (cited, not restated) |
+| `projectwiki` | Read/maintain the `.skillgrid/projectwiki/` vault via the `projectwiki` engine (`mnemonic projectwiki ...`) — recall before re-deriving; concepts live in `decisions/`/`invariants/`/`workflows/`/`glossary/`/`gotchas/`/`architecture/` with `index/` projections rebuilt by `projectwiki index` in the same edit; ingests search/research + reflect results as typed, cross-linked pages (`DATA-LOADING.md`: `sources/` + `syntheses/` + `concepts/`). Top-level skill (cited, not restated) |
 | `research` / `code-research` | *(absorbed into `blueprint` Phase 1)* — external fact-finding → `findings.md` (Research section); still runnable standalone |
 | `prototype` | *(absorbed into `blueprint` Phase 4)* — feasibility probe → `findings.md` (Prototype section); still runnable standalone |
 | `sketch` | UI/interaction variants → `findings.md` (Sketch section) |
 | `slicing` | Vertical tickets → `tasks.md`; **always** uses task creation skills |
 | `ticketing` | Publish to tracker, track status |
-| `subagent-execution` / `simple-execution` | Implement tickets |
-| `parallel-execution` | Fan out independent tasks across subagents |
+| `subagent-execution` / `simple-execution` | *(absorbed into `execute` modes)* — implement tickets (subagent / inline mode) |
+| `parallel-execution` | *(absorbed into `execute` fan-out mode)* — fan out independent tasks across subagents |
 | `structured-debugging` | Root-cause-first debugging discipline |
 | `test-driven-development` | RED → GREEN → TRIANGULATE → REFACTOR |
 | `test-driven-verification` | Evidence before any "done" claim |
 | `_shared/work-unit-commits` | Commit protocol + commit events for resume (contract + hooks, cited by execution skills) |
-| `isolated-workspace` | Worktree isolation before execution |
+| `isolated-workspace` | *(absorbed into `execute` Step 0)* — worktree isolation before execution |
 | `ponytail` | *(folded into `execute` as the lazy discipline)* — lazy-minimal solution ladder (fully active on every coding task during execution) |
 | `qa` | Quality gate → `report.md` (QA half: test plan + verdict + evidence) |
 | `code-review` | Review → `review.md` |
@@ -123,7 +123,7 @@ The deepest artifact present in the change dir determines the phase. This is the
 | `blueprint.md` (no validation) | `blueprint` | `blueprint-validation` (critic subagent + user) |
 | `blueprint.md` (validated) | `blueprint-validated` | `blueprint` Phase 5 (acceptance spec) |
 | `acceptance.feature` (valid syntax) | `spec-tests` | `slicing` |
-| `tasks.md` (no execution signal) | `slicing` | `subagent-execution` / `simple-execution` |
+| `tasks.md` (no execution signal) | `slicing` | `execute` |
 | `tasks.md` + execution signal (`[x]` marks or `work/<YYYY-MM-DD-topic>/progress.md`) | `execution` | `qa` |
 | `report.md` (QA half written) | `qa` | `code-review` |
 | `review.md` (floor met) | `review` | `receiving-code-review` → `ship` |
@@ -250,8 +250,8 @@ The **project wiki vault** (`.skillgrid/projectwiki/`, OKF v0.2) holds the produ
 | onboarding | skeleton | `config.yaml`, `state.yaml`, `projectwiki/ASSUMPTIONS.md`, `projectwiki/ARCHITECTURE.md` (lazy), project wiki vault (via `projectwiki bootstrap`: `projectwiki/config.json` sentinel + `PROJECTWIKI_SCHEMA.md` + `.ignore` + page-type folders), AGENTS block, `.gitignore` |
 | brainstorming | briefing + state (questioning via agent answer-select tool) | `change-specs/<topic>/briefing.md`, `change-specs/<topic>/adr.md`, `projectwiki/ASSUMPTIONS.md` (new project or scope change → product + stack VERIFIED tier; VERIFIED/INFERRED tiers auto-written; LOCKED on user OK), `state.yaml` (`changes.<topic>` entry) |
 | `_shared/adr-records` (via brainstorm) | terms + ADRs | `projectwiki/glossary/01-business-terms.md`, `projectwiki/glossary/02-technical-terms.md` (from the shared business/technical templates), `projectwiki/decisions/NNNN-slug.md` (body per config `adr_style` template in `_shared/adr-records/README.md`), `projectwiki/ASSUMPTIONS.md` (§ `LOCKED` ADR index pointer row only), `<specs_root>/<topic>/adr.md` (manifest from `brainstorm/references/adr-manifest.md`) |
-| `_shared/projectwiki` | concepts + catalogs | `.skillgrid/projectwiki/<decisions\|invariants\|workflows\|glossary\|gotchas\|architecture>/*.md` + `projectwiki/index/` projections (same-edit rule: every page write is followed by `projectwiki index`); ADR numbering stays with `_shared/adr-records/README.md`; derived index is engine-owned (`projectwiki index` rebuilds) |
-| `_shared/projectwiki` (`DATA-LOADING.md`) | ingested research + reflect results | `.skillgrid/projectwiki/sources/*.md` (one `SourceSummary` per external source, full `external:` citation), `syntheses/*.md` (one hub per research question), `concepts/*.md` (cut-out reusable ideas) + `preferences/<area>.md` from reflect; same-edit `projectwiki index` |
+| `projectwiki` | concepts + catalogs | `.skillgrid/projectwiki/<decisions\|invariants\|workflows\|glossary\|gotchas\|architecture>/*.md` + `projectwiki/index/` projections (same-edit rule: every page write is followed by `projectwiki index`); ADR numbering stays with `_shared/adr-records/README.md`; derived index is engine-owned (`projectwiki index` rebuilds) |
+| `projectwiki` (`DATA-LOADING.md`) | ingested research + reflect results | `.skillgrid/projectwiki/sources/*.md` (one `SourceSummary` per external source, full `external:` citation), `syntheses/*.md` (one hub per research question), `concepts/*.md` (cut-out reusable ideas) + `preferences/<area>.md` from reflect; same-edit `projectwiki index` |
 | research | findings | `change-specs/<topic>/findings.md` (`## Research:` section) + durable findings to the project wiki vault (`projectwiki/decisions/` ADR or `projectwiki/gotchas/` page) |
 | prototype | findings + probe | `prototype/<YYYY-MM-DD-topic>/` (`prototype.md` + throwaway code, permanently retained) + `change-specs/<topic>/findings.md` (`## Prototype:` section) |
 | sketch | findings | `change-specs/<topic>/findings.md` (`## Sketch:` section) |

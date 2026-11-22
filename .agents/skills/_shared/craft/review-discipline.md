@@ -45,6 +45,29 @@ These carry no information and are deleted on sight:
 The escape hatch is the Orwell rule 6 in `_shared/rules/prose-style.md`: break
 the ban when a sentence reads better for the word — but the default is cut.
 
+## The paired-example format (steering by contrast)
+
+A rule in prose is easy to self-justify; a concrete before/after is hard to miss
+in the moment. When a finding or a steering rule names a *class* of failure —
+over-abstraction, drive-by reformat, silent assumption, vague success criteria
+— state it as one minimal ❌/✅ pair, not another paragraph of prose:
+
+- **❌ the failure, ✅ the fix** — the pair shows the same task done wrong and
+  done right; the reader recognizes the mistake in a diff by comparison, not by
+  re-reading the rule.
+- **One pair per finding class, minimal code.** A few lines per side. The pair
+  teaches the *shape* of the failure; it is not a tutorial and not a test case.
+- **Pair the pair with the one-line test.** The example shows what the failure
+  looks like; the one-line test (e.g. "every changed line traces to the
+  request") is what the agent runs at decision time. Example without test =
+  uncheckable; test without example = self-justifiable.
+
+The format applies to skill anti-pattern sections (the `| Anti-pattern |
+Symptom | Fix |` table's companion), to review findings that recur across
+changes, and to any rule whose prose form has been observed to go unread. A
+skill that can only state its rules in sentences and never in a pair is
+missing its sharpest steering surface.
+
 ## Cited, not restated
 
 The banned list and the rules above live only in this file. A skill that
