@@ -7,7 +7,7 @@ metadata:
   author: devopstales
   version: "2.0"
   part-of: skillgrid
-  based_on: skillgrid:qa 1.1 + skillgrid:dogfood 1.0 + skillgrid:playwright-cli 1.0 + skillgrid:jscpd 1.0 + skillgrid:codebase-refactoring 1.0 + skillgrid:dry-refactoring 1.0 + skillgrid:trivy 1.0 + skillgrid:nuclei 1.0 + skillgrid:wapiti 1.0 + skillgrid:akca 1.0 + skillgrid:owasp-security 1.0 + skillgrid:code-review 1.0 + skillgrid:receiving-code-review 1.0
+  based_on: skillgrid:qa 1.1 + skillgrid:dogfood 1.0 + skillgrid:playwright-cli 1.0 + skillgrid:jscpd 1.0 + skillgrid:refactoring 2.0 + skillgrid:dry-refactoring 1.0 + skillgrid:trivy 1.0 + skillgrid:nuclei 1.0 + skillgrid:wapiti 1.0 + skillgrid:akca 1.0 + skillgrid:owasp-security 1.0 + skillgrid:code-review 1.0 + skillgrid:receiving-code-review 1.0
 ---
 
 # Test

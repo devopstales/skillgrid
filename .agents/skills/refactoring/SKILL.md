@@ -1,5 +1,5 @@
 ---
-name: codebase-refactoring
+name: refactoring
 description: "Three-part workflow to improve overall codebase health with jscpd — find and fix duplicated code, find and remove or refactor dead code, then find and simplify the largest/most complex files. Findings are treated as claims verified in fresh context before any code is touched, the major conclusions get a red-team pass, and a high-complexity file can fan out design-it-twice candidates. Starts from --health/--dashboard to prioritize, re-measures the score to close, and reports what it couldn't verify rather than claiming a clean pass."
 license: MIT
 metadata:
@@ -21,7 +21,7 @@ code, dead code, and complexity — using jscpd to find each and a strategy to
 fix it. Use this skill when asked to "clean up", "improve", "refactor", or
 "pay down tech debt in" a codebase, rather than to fix one specific bug.
 
-**Announce at start:** "I'm using the skillgrid:codebase-refactoring skill to
+**Announce at start:** "I'm using the skillgrid:refactoring skill to
 measure, then prioritize, this codebase."
 
 **Iron law:**

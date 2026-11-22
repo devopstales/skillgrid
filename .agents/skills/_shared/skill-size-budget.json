@@ -14,12 +14,12 @@
     "blueprint": "external",
     "slicing": "xl",
     "skill-creator": "large",
-    "codebase-refactoring": "large"
+    "refactoring": "large"
   },
   "skills": {
     "blueprint": 51519,
     "brainstorm": 23270,
-    "codebase-refactoring": 26191,
+    "refactoring": 26191,
     "debug": 17978,
     "drift": 10189,
     "execute": 51664,

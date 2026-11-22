@@ -21,7 +21,7 @@
     },
     {
       "id": 4,
-      "prompt": "Optimize the description of the codebase-refactoring skill for better triggering.",
+      "prompt": "Optimize the description of the refactoring skill for better triggering.",
       "expected_output": "Agent generates 20 eval queries (8-10 should-trigger, 8-10 near-miss should-not-trigger), runs the optimization loop with a 60/40 train/test split and 3 runs per query, and selects by test score (not train) to avoid overfitting. It does not just eyeball the description.",
       "files": []
     }

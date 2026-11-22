@@ -52,12 +52,12 @@ Tools the skills invoke that you need installed. "optional" = only when the corr
   - `agent-browser` — run as `agent-browser mcp --tools all`; browser automation with stable element refs — preferred driver for the functional browser pass (`test/references/functional-testing.md`)
   - `trivy` — also run as `trivy mcp`; `findings_list`/`findings_get` to read scan results as structured data (the scan itself still runs via the CLI) — `test/references/security.md`
   - `backlog` — also run as `backlog mcp start`; structured create/read/update that avoids shell-quoting footguns — `slicing/references/ticketing/backlogmd/`
-  - `codescene` — run as `npx @codescene/codehealth-mcp`; Code Health score (different metric than jscpd) for before/after refactoring deltas — `codebase-refactoring/SKILL.md`
+  - `codescene` — run as `npx @codescene/codehealth-mcp`; Code Health score (different metric than jscpd) for before/after refactoring deltas — `refactoring/SKILL.md`
 - **MCP servers — remote, no install (just enabled in the agent's MCP config):**
   - `context7` — current library/framework API docs (`resolve-library-id` → fetch doc page) — blueprint research + prototype
   - `exa` — `web_search_exa` (find the page) + `web_fetch_exa` (read it) — blueprint research
 - **Run via npx (no install needed, fetched per run):**
-  - `npx jscpd` — duplication / dead-code / complexity (test, codebase-refactoring, execute)
+  - `npx jscpd` — duplication / dead-code / complexity (test, refactoring, execute)
   - `npx cucumber-js` — BDD acceptance test runner (blueprint, execute; `@cucumber/cucumber` as project devDependency)
   - `npx gherkin-lint` — Gherkin spec linting (blueprint)
   - `npx stryker run` — mutation testing (test; optional — only if `stryker.config.js` is present)
