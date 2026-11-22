@@ -18,15 +18,28 @@ import (
 	"github.com/devopstales/skillgrid/mnemonic/internal/transport/handler"
 )
 
-// installRunEnv wires the fixture: the store seam opens a fresh SQLite
+// runEnvDataDir is the active fixture data dir (set by installRunEnvDir).
+// The run helpers (runCLI/runCLIError) re-install on each call, so the
+// data dir must stay stable across re-installs within a test for the
+// store-file assertions — a second call for the same test returns the
+// existing dir instead of a fresh one.
+var runEnvDataDir string
+
+// installRunEnvDir wires the fixture: the store seam opens a fresh SQLite
 // store in a temp data dir on each call (the commands close the store
 // after use, so a shared store would be closed after the first command),
 // the handler seam builds the test handler over it (the stub detector
 // never shells out), and the git binding is a no-op. It restores the
-// seams on cleanup.
-func installRunEnv(t *testing.T) {
+// seams on cleanup and returns the fixture data dir (tests that assert
+// against the per-project store files need the path —
+// dataDir/<project>.sqlite).
+func installRunEnvDir(t *testing.T) string {
 	t.Helper()
+	if runEnvDataDir != "" {
+		return runEnvDataDir
+	}
 	dataDir := t.TempDir()
+	runEnvDataDir = dataDir
 
 	prevStoreFor, prevHandlerFor, prevCodeHandlerFor, prevGit := storeFor, handlerFor, codeHandlerFor, gitToplevel
 
@@ -46,7 +59,16 @@ func installRunEnv(t *testing.T) {
 
 	t.Cleanup(func() {
 		storeFor, handlerFor, codeHandlerFor, gitToplevel = prevStoreFor, prevHandlerFor, prevCodeHandlerFor, prevGit
+		runEnvDataDir = ""
 	})
+	return dataDir
+}
+
+// installRunEnv is installRunEnvDir without the data dir (callers that do
+// not assert against the store files).
+func installRunEnv(t *testing.T) {
+	t.Helper()
+	installRunEnvDir(t)
 }
 
 // runCLI runs the command in-process with the fixture and returns the

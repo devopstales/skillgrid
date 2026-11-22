@@ -1851,6 +1851,21 @@ func (s *sqliteStore) InsertPrompt(ctx context.Context, sessionID, content, proj
 	return id, err
 }
 
+// HasRecentPrompt reports whether user_prompts holds an identical
+// (session, content) row at/after since (the save-prompt verb's dedup
+// probe). created_at stores datetime('now') — "YYYY-MM-DD HH:MM:SS" UTC.
+func (s *sqliteStore) HasRecentPrompt(ctx context.Context, sessionID, content string, since time.Time) (bool, error) {
+	var one int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT 1 FROM user_prompts
+		WHERE session_id = ? AND content = ? AND created_at >= ? LIMIT 1`,
+		sessionID, content, since.UTC().Format("2006-01-02 15:04:05")).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 // SetTxnHook sets the committed-transaction counter (Task 10 seam).
 func (s *sqliteStore) SetTxnHook(hook func()) {
 	s.txnHook = hook

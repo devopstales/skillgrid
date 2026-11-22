@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/devopstales/skillgrid/mnemonic/internal/core/store"
 )
@@ -43,6 +44,44 @@ func (s *Service) SavePrompt(ctx context.Context, sessionID, content, project, s
 		return 0, fmt.Errorf("memory: store %T does not implement the prompt seam", s.st)
 	}
 	return backend.InsertPrompt(ctx, sessionID, prompt, project)
+}
+
+// promptDedupWindow bounds the SavePromptOnce dedup: a host hook re-fire
+// within a turn is a retry (the harness may fire beforeSubmitPrompt more
+// than once for the same prompt); a human re-typing the same text after
+// the window is a legitimate new capture.
+const promptDedupWindow = 10 * time.Minute
+
+// promptDedupSeam is the store's dialect-rendered prompt-dedup probe
+// (the verb's only store-surface addition; the SQLite leg renders the
+// datetime('now') text format, the Postgres leg binds time.Time to
+// TIMESTAMPTZ).
+type promptDedupSeam interface {
+	HasRecentPrompt(ctx context.Context, sessionID, content string, since time.Time) (bool, error)
+}
+
+// SavePromptOnce persists the turn's prompt exactly once per (session,
+// content) within promptDedupWindow. Empty (post-redaction) content
+// stores nothing. A store without the seam skips the probe (fail-open).
+func (s *Service) SavePromptOnce(ctx context.Context, sessionID, content, project, sourceInboxID string) (int64, error) {
+	if s == nil || s.st == nil {
+		return 0, errNoStore
+	}
+	prompt := s.redactPrompt(content)
+	if prompt == "" {
+		return 0, nil
+	}
+	if se, ok := s.st.(promptDedupSeam); ok {
+		since := time.Now().UTC().Add(-promptDedupWindow)
+		dup, err := se.HasRecentPrompt(ctx, sessionID, prompt, since)
+		if err != nil {
+			return 0, err
+		}
+		if dup {
+			return 0, nil
+		}
+	}
+	return s.SavePrompt(ctx, sessionID, content, project, sourceInboxID)
 }
 
 var _ promptSeam = nil

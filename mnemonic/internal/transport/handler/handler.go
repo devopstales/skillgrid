@@ -362,6 +362,20 @@ func (h *Handler) SavePrompt(ctx context.Context, sessionID, content, project, s
 	return h.svc.SavePrompt(ctx, sessionID, content, project, sourceInboxID)
 }
 
+// SavePromptOnce persists a user prompt exactly once per (session,
+// content) within the dedup window — the host-capture verb's surface
+// (the hook's re-fire is a retry, not a new prompt).
+func (h *Handler) SavePromptOnce(ctx context.Context, sessionID, content, project, sourceInboxID string) (int64, error) {
+	if strings.TrimSpace(project) == "" {
+		p, err := h.resolveProject(DefaultCWD, "")
+		if err != nil {
+			return 0, err
+		}
+		project = p
+	}
+	return h.svc.SavePromptOnce(ctx, sessionID, content, project, sourceInboxID)
+}
+
 // SearchPrompts searches the captured prompts (spec 002-schema §2.4).
 func (h *Handler) SearchPrompts(ctx context.Context, query, project string, limit int) (store.PromptSearchResult, error) {
 	if strings.TrimSpace(project) == "" {

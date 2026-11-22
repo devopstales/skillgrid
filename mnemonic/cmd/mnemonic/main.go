@@ -309,7 +309,7 @@ Usage:
   mnemonic <command> [flags]
 
 Commands:
-  memory        Memory tools (save|search|get|lookup|context|review|timeline|pin|unpin|delete|session|stats|doctor|mcp)
+  memory        Memory tools (save|save-prompt|search|get|lookup|context|review|timeline|pin|unpin|delete|session|stats|doctor|mcp)
   code          Code index (index|status|search|orient|explain|path|impact|affected|grep|read|watch|mcp)
   projectwiki   Project wiki tools (query|read|search|generate|validate|lint|status|cite-source|index|reindex|bootstrap|rebuild-meta|eval|mcp)
   sync          Sync (status|push|pull|export|import|enroll)

@@ -74,11 +74,13 @@ func isBoolFlag(flag string) bool {
 // runMem dispatches the memory subcommands.
 func runMem(fl config.Flags, cwd string, args []string) int {
 	if len(args) == 0 {
-		return errExit("memory: a subcommand is required (save|search|get|lookup|context|review|timeline|pin|unpin|delete|session|stats|doctor|mcp)")
+		return errExit("memory: a subcommand is required (save|save-prompt|search|get|lookup|context|review|timeline|pin|unpin|delete|session|stats|doctor|mcp)")
 	}
 	switch args[0] {
 	case "save":
 		return memSave(fl, cwd, args[1:])
+	case "save-prompt":
+		return memSavePrompt(fl, cwd, args[1:])
 	case "search":
 		return memSearch(fl, cwd, args[1:])
 	case "get":

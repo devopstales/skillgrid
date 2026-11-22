@@ -1302,6 +1302,21 @@ func (s *pgStore) InsertPrompt(ctx context.Context, sessionID, content, project 
 	return id, tx.Commit()
 }
 
+// HasRecentPrompt — the Postgres leg of the save-prompt verb's dedup
+// probe (created_at is TIMESTAMPTZ; the cutoff binds as time.Time; the
+// table is schema-qualified like the rest of the domain reads).
+func (s *pgStore) HasRecentPrompt(ctx context.Context, sessionID, content string, since time.Time) (bool, error) {
+	var one int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT 1 FROM `+s.qualified("user_prompts")+`
+		WHERE session_id = $1 AND content = $2 AND created_at >= $3 LIMIT 1`,
+		sessionID, content, since.UTC()).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 // SetTxnHook sets the committed-transaction counter (the Task 10 seam).
 func (s *pgStore) SetTxnHook(hook func()) {
 	s.txnHook = hook
