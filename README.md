@@ -37,6 +37,7 @@
 Tools the skills invoke that you need installed. "optional" = only when the corresponding tracker/feature is configured in `.skillgrid/config.yaml` or a live target is available.
 
 - **Install (binary/CLI):**
+  - `worktrunk` (`wt`) — git worktree manager for parallel agents: `wt switch --create` / `wt merge` / `wt remove --reap` (execute Step 0b, ship Step 6; **preferred-when-present** — the skills fall back to `git worktree add` when absent, so it is optional but recommended for fan-out)
   - `trivy` — static security scanning: deps, secrets, IaC, containers, SBOM (test; always for security gate)
   - `nuclei` — broad DAST at a running target, CVE templates (test; optional — needs a live target)
   - `wapiti` — lightweight DAST fuzzer (test; optional — needs a live target)
@@ -52,7 +53,7 @@ Tools the skills invoke that you need installed. "optional" = only when the corr
   - `agent-browser` — run as `agent-browser mcp --tools all`; browser automation with stable element refs — preferred driver for the functional browser pass (`test/references/functional-testing.md`)
   - `trivy` — also run as `trivy mcp`; `findings_list`/`findings_get` to read scan results as structured data (the scan itself still runs via the CLI) — `test/references/security.md`
   - `backlog` — also run as `backlog mcp start`; structured create/read/update that avoids shell-quoting footguns — `slicing/references/ticketing/backlogmd/`
-  - `codescene` — run as `npx @codescene/codehealth-mcp`; Code Health score (different metric than jscpd) for before/after refactoring deltas — `refactoring/SKILL.md`
+  - `codescene` — run as `npx @codescene/codehealth-mcp`; Code Health score (different metric than jscpd) for before/after refactoring deltas — `refactor/SKILL.md`
 - **MCP servers — remote, no install (just enabled in the agent's MCP config):**
   - `context7` — current library/framework API docs (`resolve-library-id` → fetch doc page) — blueprint research + prototype
   - `exa` — `web_search_exa` (find the page) + `web_fetch_exa` (read it) — blueprint research

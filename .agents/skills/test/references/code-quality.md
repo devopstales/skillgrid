@@ -41,7 +41,7 @@ Copy-paste detector across 220+ languages. Run it per `skillgrid:jscpd` — the 
 
 ### Refactoring the clones
 
-Once exact clones are identified, refactor them per `skillgrid:dry-refactoring` (extract function, parameterize, module, constant, base class). For a broader "clean up this codebase" pass — duplication → dead code → largest/most-complex files, prioritized from `--health`/`--dashboard` and re-measured at the end — use `skillgrid:refactoring`.
+Once exact clones are identified, refactor them per `skillgrid:dry-refactoring` (extract function, parameterize, module, constant, base class). For a broader "clean up this codebase" pass — duplication → dead code → largest/most-complex files, prioritized from `--health`/`--dashboard` and re-measured at the end — use `skillgrid:refactor`.
 
 ### Gate
 
