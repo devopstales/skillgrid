@@ -18,8 +18,11 @@
 // as a JSON hook payload). Other harnesses can reuse the script; each wires it in
 // its own settings file (see .claude/settings.json for the Claude Code form).
 //
-// Output contract: a single JSON object on stdout. On any error the hook degrades
-// to an INFO note and exits 0 — it never blocks session start.
+// Output contract (pi-hooks v0.0.2 / Claude Code compatible): the injected
+// context goes to stdout as `hookSpecificOutput.additionalContext`. INFO
+// paths (not a project, child session, missing router) write a note to
+// stderr and emit no stdout, so nothing is injected. On any error the hook
+// degrades to an INFO note and exits 0 — it never blocks session start.
 'use strict';
 
 const fs = require('node:fs');
@@ -35,7 +38,18 @@ const INFO_NOT_PROJECT = 'skillgrid: no skillgrid project detected (.skillgrid/c
 const INFO_NOT_MAIN = 'skillgrid: session is not a main-agent session - router injection skipped.';
 
 function emit(priority, message) {
-  const payload = { hookSpecificName: 'SessionStart', priority, message };
+  if (priority === 'INFO') {
+    // No context to inject: keep the note on stderr for debugging, stdout
+    // stays empty so pi-hooks appends nothing to the session context.
+    process.stderr.write(`${message}\n`);
+    return;
+  }
+  const payload = {
+    hookSpecificOutput: {
+      hookEventName: 'SessionStart',
+      additionalContext: message,
+    },
+  };
   process.stdout.write(`${JSON.stringify(payload)}\n`);
 }
 

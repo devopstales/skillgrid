@@ -30,25 +30,23 @@ function runMain(cwd) {
   return runHook(cwd, { session_id: 'test-session', cwd, hook_event_name: 'SessionStart', source: 'startup' });
 }
 
-test('in-repo main session: full router content injected (IMPORTANT), exit 0', async () => {
+test('in-repo main session: full router content injected (additionalContext), exit 0', async () => {
   const { code, stdout, stderr } = await runMain(REPO_ROOT);
   assert.equal(code, 0);
   const payload = JSON.parse(stdout);
-  assert.equal(payload.hookSpecificName, 'SessionStart');
-  assert.equal(payload.priority, 'IMPORTANT');
-  assert.ok(payload.message.includes('skillgrid loaded'));
-  assert.ok(payload.message.includes('Route through the using-skillgrid flow'));
-  assert.ok(payload.message.includes('using-skillgrid'));
+  assert.equal(payload.hookSpecificOutput.hookEventName, 'SessionStart');
+  const ctx = payload.hookSpecificOutput.additionalContext;
+  assert.ok(ctx.includes('skillgrid loaded'));
+  assert.ok(ctx.includes('Route through the using-skillgrid flow'));
+  assert.ok(ctx.includes('using-skillgrid'));
   assert.equal(stderr, '');
 });
 
-test('non-skillgrid cwd (/tmp): no router injection, INFO note, exit 0', async () => {
+test('non-skillgrid cwd (/tmp): no injection, INFO note on stderr, exit 0', async () => {
   const { code, stdout, stderr } = await runMain('/tmp');
   assert.equal(code, 0);
-  const payload = JSON.parse(stdout);
-  assert.equal(payload.priority, 'INFO');
-  assert.ok(!payload.message.includes('skillgrid loaded'));
-  assert.equal(stderr, '');
+  assert.equal(stdout, '');
+  assert.ok(stderr.includes('no skillgrid project detected'));
 });
 
 test('unreadable skillgrid config: treated as no project, no injection, exit 0', async () => {
@@ -60,10 +58,8 @@ test('unreadable skillgrid config: treated as no project, no injection, exit 0',
     chmodSync(config, 0o000);
     const { code, stdout, stderr } = await runMain(dir);
     assert.equal(code, 0);
-    const payload = JSON.parse(stdout);
-    assert.equal(payload.priority, 'INFO');
-    assert.ok(!payload.message.includes('skillgrid loaded'));
-    assert.equal(stderr, '');
+    assert.equal(stdout, '');
+    assert.ok(stderr.includes('skillgrid'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -78,8 +74,6 @@ test('child session (agent_kind sub) in skillgrid project: no injection, exit 0'
     agent_kind: 'sub',
   });
   assert.equal(code, 0);
-  const payload = JSON.parse(stdout);
-  assert.equal(payload.priority, 'INFO');
-  assert.ok(!payload.message.includes('skillgrid loaded'));
-  assert.equal(stderr, '');
+  assert.equal(stdout, '');
+  assert.ok(stderr.includes('not a main-agent session'));
 });
