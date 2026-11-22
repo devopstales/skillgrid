@@ -142,8 +142,15 @@ Template: [task-reviewer-prompt.md](task-reviewer-prompt.md)
 
 ### 4. The fix loop
 
+Read this section again before every round, even if you read it earlier in
+this session — it holds the cap (per `_shared/planning/rigor-tiers.md`,
+fix loop cap), the breaker, and the ledger line each round writes, and your
+memory of it does not survive compaction.
+
 The loop triggers when the review reports spec ❌, any Critical or Important
 finding, or a ⚠️ item you confirmed as a real gap.
+
+**Adjudicate only at the cap.** Parking or ruling on a finding before the cap to end the loop early is pre-judging with a different name: you can always convince yourself the fix wouldn't work. The loop runs its rounds; the breaker is the only place a finding may be closed without a fix.
 
 Before the loop starts, two routes leave it immediately:
 
