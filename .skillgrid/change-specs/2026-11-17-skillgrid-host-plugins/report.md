@@ -61,7 +61,7 @@ Most likely to break in production: **silent non-injection** — the router neve
 
 | Level | Item | Evidence | Status |
 |-------|------|----------|--------|
-| Truth R1 | one shared live asset, no reinstall for edits | G1 suites (live fs read per host); live: marker edit verified in TICKET-07 opencode run | VERIFIED |
+| Truth R1 | one shared live asset, no reinstall for edits | G1 suites (live fs read per host); live: marker edit verified in TICKET-01 Oracle 4 (checkout layout, installed copy absent); T7 opencode run confirmed injection on 2.0.28 (path b) | VERIFIED |
 | Truth R2 | all 5 hosts inject at session start | 5 unit suites + live smoke: opencode/omp/cursor PASS, kilo/pi env-limited (unit-verified) | VERIFIED |
 | Truth R3 | project-conditional + main-agent only | guard cases in all suites; live /tmp negatives (0/2) + live omp subagent skip | VERIFIED |
 | Truth R4 | fail-open + static fallback + installed precedence | fallback cases in all suites; hook contract test; kilo case5 | VERIFIED |
@@ -69,7 +69,7 @@ Most likely to break in production: **silent non-injection** — the router neve
 | Truth R6 | tool-mapping hints for pi/opencode only | G6 content oracle + bootstrap asset read-back | VERIFIED |
 | Artifact | `plugins/{opencode,kilo}/skillgrid-router.ts`, `.pi/extensions/skillgrid-router.ts`, `.omp/extensions/skillgrid-router-omp.ts`, `hooks/session-start.js` (guard), `router-bootstrap.md` | files on disk at release/2; each exercised by a named test above | VERIFIED |
 | Key Link | installer → host config dirs → host runtime injection | integration tests + live smoke (installed copy served in first-turn context) | VERIFIED |
-| Data Flow | edited asset → next session first-turn context | TICKET-07 live opencode run: proxy-captured request carries the edited bootstrap (len 118391) | VERIFIED |
+| Data Flow | edited asset → next session first-turn context | TICKET-01 Oracle 4 (checkout layout, installed copy absent): edited line in next-session context; TICKET-07 live opencode run: proxy-captured request (len 118391) carries the live bootstrap (path b, 2.0.28) | VERIFIED |
 
 ## Traceability Matrix
 

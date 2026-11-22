@@ -1,6 +1,6 @@
 # Tasks — Skillgrid host plugins (router auto-load at session start)
 
-> **STATUS:** `sliced` (2026-11-19)
+> **STATUS:** `code-review` (2026-11-22; round 1 PASS after fix loop: 13 fixed, 13 parked with owners); next: ship
 
 > Sliced from `.skillgrid/change-specs/2026-11-17-skillgrid-host-plugins/blueprint.md` (validated candidate b12cd7d1, goldfish round 1 PASS).
 > Vertical tracer-bullet tickets, dependency-ordered, sized for one fresh agent context window.

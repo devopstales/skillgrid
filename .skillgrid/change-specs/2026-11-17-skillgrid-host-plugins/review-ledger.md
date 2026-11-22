@@ -98,3 +98,53 @@ Totals: 47 raised — 13 CRITICAL, 25 WARNING, 9 SUGGESTION. Dispositions: 35 FI
 ### Round Verdict
 
 **PASS — revised candidate b12cd7d1 (496 lines).** All 47 findings resolved (35 fixed, 4 partial with recorded remainder, 8 rejected with evidence); no CRITICAL open. One persona not verified (recorded, capped). Consolidated cross-stage dedup + traceability matrix: `review/consolidated_review_report.md`. Next: the R13 user-review gate (blueprint approval).
+
+## Round 2 — 2026-11-22 (code review r1)
+
+**Frozen candidate:** base d3026233 → head 9146b1f3, 43 files, +4,456 −514
+**Reviewer:** code-review skill — core five (Standards, Spec, Security, Edge-case, Verification-gap) + Red-team after consolidation; fresh subagents, Blindness Contract
+**Independence grade:** A (fresh context, read-only, pinned range only, working-tree WIP ignored)
+**Budget:** round 2/5 (tier T2)
+
+Full audit record: `review.md` (same directory). Findings below are the normalized ledger view (reviewer vocabulary → CRITICAL/WARNING/SUGGESTION).
+
+### Findings
+
+| ID | SEVERITY | LOCATION | FINDING | DISPOSITION | FIX COMMIT | SOURCE |
+|---|---|---|---|---|---|---|
+| CR2-1 | CRITICAL | `.omp/extensions/skillgrid-router-omp.ts:62-71` | no idempotency guard; per-turn re-push of full router on live systemPrompt array | FIXED (INTRO marker guard + case) | pending (code-zone, this round) | edge-case + standards (2-lens) |
+| CR2-2 | CRITICAL | `plugins/kilo/skillgrid-router.ts:70-72` | `__dirname/../..` dead in installed layout; dead checkout leg + bogus skills push | FIXED (project-root derivation + mirror fallback + 2 cases) | pending (code-zone, this round) | spec + security + standards + verification-gap (4-lens) |
+| CR2-3 | CRITICAL | `hooks/cursor-session-start.sh:81` | R3 unreadable-config: `-f` only → injected (empirically verified pre-fix) | FIXED (`-f && -r`; isFile+R_OK on all 5 walks) | pending (code-zone, this round) | spec (coordinator empirical) |
+| CR2-4 | CRITICAL | `plugins/opencode/skillgrid-router.ts:186-203` | ≥2.2 path (a): `setup()` never settles (unbounded for-await); untested default path | FIXED (background IIFE listener) | pending (code-zone, this round) | red-team |
+| CR2-5 | WARNING | pi/omp/kilo resolvers | whitespace-only installed asset shadows checkout leg | FIXED (trim-guard) | pending (code-zone, this round) | edge-case |
+| CR2-6 | WARNING | `hooks/session-start.js:110` | `process.cwd()` instead of harness payload cwd | FIXED (payload preferred + case) | pending (code-zone, this round) | edge-case + security |
+| CR2-7 | WARNING | `plugins/opencode/skillgrid-router.ts` | plan agent filtered as subagent; Plugin-import fail-closed; messages-branch dedup; stream-iteration throw | FIXED (4 sub-fixes) | pending (code-zone, this round) | edge-case |
+| CR2-8 | WARNING | `report.md:64,72` | R1/data-flow claim vs evidence mismatch (T7 recorded no edit) | FIXED (lines corrected) | this round (spec-zone) | red-team + verification-gap |
+| CR2-9 | WARNING | `docs/user-guide/04-hooks.md` | absent `.claude/settings.json` claim; omp "superseded" overstated | FIXED (wiring + wording) | pending (code-zone, this round) | standards + red-team |
+| CR2-10 | WARNING | `hooks/session-start.js:61-74` | config.yaml as directory passes detection | FIXED (isFile, all 5 walks) | pending (code-zone, this round) | edge-case |
+| CR2-11 | SUGGESTION | `plugins/kilo/skillgrid-router.ts` | dead code (frontmatter/normalizePath/envConfigDir/configDir) | FIXED (deleted) | pending (code-zone, this round) | standards + edge-case |
+| CR2-12 | SUGGESTION | `plugins/kilo/skillgrid-router.ts:115` | module-level bootstrap cache stale across cases | FIXED (cwd-keyed + seam reset) | pending (code-zone, this round) | verification-gap |
+| CR2-13 | SUGGESTION | `plugins/opencode/test/skillgrid-router.test.ts:71` | `REPO_ROOT = process.cwd()` cwd-dependent | FIXED (file-derived) | pending (code-zone, this round) | standards + edge-case |
+| CR2-P1 | SUGGESTION | `README.md:42` | `--agents …,omp` is post-rename key set; head key is `skill-pi` | PARKED — rename commit reconciles | n/a | red-team |
+| CR2-P2 | SUGGESTION | opencode ≥2.2 path (a) | live-unverified on target version (env-limited) | PARKED — held-out live run ≥2.2 | n/a | verification-gap |
+| CR2-P3 | SUGGESTION | `hooks/session-start.js` output contract | no live host-consumption observation (env-limited) | PARKED — held-out live session | n/a | verification-gap |
+| CR2-P4 | SUGGESTION | all 5 resolvers | installed-vs-checkout precedence (both present, different) untested | PARKED — QA W016 adjudication (SUGGESTION) | n/a | verification-gap (QA W016) |
+| CR2-P5 | SUGGESTION | `installOmpHookBridge` | omp SessionStart hook dormant via dispatch-order quirk; double-inject risk if it changes | PARKED — drop hook entry if dispatch changes (doc states this) | n/a | red-team |
+| CR2-P6 | SUGGESTION | `plugins/opencode/skillgrid-router.ts:40` | `MAX_WALK_UP = 12` vs unbounded walks (R3 divergence >12 levels) | PARKED — align or document | n/a | standards |
+| CR2-P7 | SUGGESTION | `setup/opencode.go` + `install/agents.go` | skip-tolerance stats repoRoot only; retired plugins never dropped | PARKED — ADR-0067 rework / retirement pass | n/a | edge-case |
+| CR2-P8 | SUGGESTION | kilo transform hooks | dual-channel guards independent (both can inject) | PARKED — env-limited runtime check | n/a | standards |
+| CR2-P9 | SUGGESTION | `router_distribution_test.go` `skill-pi` branch | stale vs in-flight omp rename (user WIP) | PARKED — rename commit | n/a | standards |
+| CR2-P10 | SUGGESTION | `hooks/cursor-session-start.sh:78-84` | relative payload cwd walk (cursor passes absolute) | PARKED — env-limited | n/a | edge-case |
+| CR2-P11 | SUGGESTION | `hooks/session-start.js:78-88` | stdin without EOF awaits until harness timeout | PARKED — harness contract | n/a | edge-case |
+| CR2-P12 | SUGGESTION | `session-start.test.mjs` unreadable-config case | chmod-000 flaky as root | PARKED — skip-with-note if it bites | n/a | edge-case |
+| CR2-P13 | SUGGESTION | `review/smoke-evidence.md` | duplicate TICKET-02/03 sections | PARKED — next evidence append | n/a | verification-gap |
+
+### Dispositions
+
+- **FIXED (13):** CR2-1..13, all in the round-2 code-zone fix commit (+ spec-zone CR2-8 in the review.md/report.md commit). 10 new regression cases added (walk-up ×4, kilo installed-layout, omp static-fallback, session-start router-missing, session-start payload-cwd); all five affected suites green; cursor R3 scenario empirically re-verified.
+- **PARKED (13):** CR2-P1..P13 — each with a named follow-up owner in `review.md` § Parked.
+- **REJECTED (8, verified at location):** Security's 11 excluded candidates (no exploit path, its report), SpecLens kilo walk-up "divergence" (residual covered by the CR2-2 mirror fallback), the omp pinned-head divergence call (observable contract met; mechanism is not the authority), Edge-case opencode V1 "no mechanism" (path (b) context-hook is the 1.x mechanism; residual = CR2-P2 env-limited verification), plus three Edge-case items subsumed by CR2-2/CR2-7 fixes (kilo `_bootstrapCache` trap → CR2-12; kilo config-hook guard → CR2-2 sub-fix; opencode test cwd → CR2-13).
+
+### Round Verdict
+
+**PASS** — 34 distinct findings resolved (13 fixed, 13 parked with owners, 8 rejected with evidence); no CRITICAL open. Fix-loop verification: five suites green + empirical cursor R3 re-check. Next: ship.
