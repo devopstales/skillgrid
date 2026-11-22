@@ -78,7 +78,8 @@ if [ -n "${DIR:-}" ]; then
   _d="${DIR}"
   _found=0
   while [ -n "$_d" ]; do
-    if [ -f "${_d}/.skillgrid/config.yaml" ]; then _found=1; break; fi
+    # R3: an unreadable config is "no project" (-r, not just -f).
+    if [ -f "${_d}/.skillgrid/config.yaml" ] && [ -r "${_d}/.skillgrid/config.yaml" ]; then _found=1; break; fi
     if [ "$_d" = "/" ] || [ "$_d" = "." ]; then break; fi
     _d="$(dirname "$_d")"
   done

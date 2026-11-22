@@ -198,9 +198,11 @@ Parses a change's `#### Gates` blocks and reports each `G<n>`'s state. A gate is
 ## Session-start router injection
 
 `session-start.js` injects the `using-skillgrid` router (full content) into new
-sessions of skillgrid projects. It is wired as a harness SessionStart hook —
-Claude Code through `.claude/settings.json`; any harness that reads a
-SessionStart stdout payload can reuse the script in its own settings file.
+sessions of skillgrid projects. It is wired as a harness SessionStart hook
+(pi: `~/.skill-pi/agent/settings.json` via the installer's hook bridge; the
+script is installed to `~/.skillgrid/hooks/session-start.js`). Any harness
+that reads a SessionStart stdout payload can wire the same script in its own
+settings file (e.g. Claude Code's SessionStart hook).
 
 - **Project-conditional (R3):** walks up from the session cwd for
   `.skillgrid/config.yaml`; no project detected → no injection (INFO note on
@@ -213,11 +215,14 @@ SessionStart stdout payload can reuse the script in its own settings file.
   `hookSpecificOutput.additionalContext` payload is written to stdout only on
   success — session start never breaks and never shows a user-visible error.
 
-On **omp** this hook is superseded by the committed project extension
-`.omp/extensions/skillgrid-router-omp.ts` (full-content, `before_agent_start`):
-`@hsingjui/pi-hooks`' SessionStart listener never fires on omp — the npm
-plugin registers after the `session_start` dispatch (probe-verified in
-TICKET-07). See [Plugins](11-plugins.md#skillgrid-router) for the per-host
+On **omp** the committed project extension
+`.omp/extensions/skillgrid-router-omp.ts` is the effective router mechanism:
+the SessionStart hook is still installed by the hook bridge, but
+`@hsingjui/pi-hooks`' SessionStart listener never fires on current omp — the
+npm plugin registers after the `session_start` dispatch (probe-verified in
+TICKET-07). If that dispatch order ever changes, drop the SessionStart entry
+from `installOmpHookBridge` to avoid double-injection (code-review round 1,
+deferred). See [Plugins](11-plugins.md#skillgrid-router) for the per-host
 mechanism table.
 
 ## Agent tool hooks (beyond git + Stop)

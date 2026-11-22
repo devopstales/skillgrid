@@ -13,6 +13,7 @@
 // Run: node --experimental-strip-types plugins/opencode/test/skillgrid-router.test.ts
 
 import assert from "node:assert/strict"
+import { fileURLToPath } from "node:url"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
@@ -68,11 +69,23 @@ function makeV2Ctx(directory, events) {
   return { ctx, puts }
 }
 
-const REPO_ROOT = process.cwd()
+// Derived from this file's location so the suite passes from any cwd.
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
 const NOT_PROJECT = path.join(os.tmpdir(), "skillgrid-router-not-a-project")
 const FAKE_PROJECT = path.join(os.tmpdir(), "skillgrid-router-fake-project")
 fs.mkdirSync(path.join(FAKE_PROJECT, ".skillgrid"), { recursive: true })
 fs.writeFileSync(path.join(FAKE_PROJECT, ".skillgrid", "config.yaml"), "ticketing:\n  enabled: true\n")
+
+// The path-(a) listener runs in the background (setup resolves immediately),
+// so give it a bounded number of turns to process the queued event before
+// asserting on puts.
+const drainPuts = async (puts: unknown[], want: number, maxTurns = 50): Promise<void> => {
+  for (let i = 0; i < maxTurns && puts.length !== want; i++) {
+    const { promise, resolve } = Promise.withResolvers<void>()
+    setImmediate(resolve)
+    await promise
+  }
+}
 
 // ── V2 entry shape ────────────────────────────────────────────────────────────
 check("v2 default export is Plugin.define-shaped ({id, setup})", () => {
@@ -86,9 +99,27 @@ check("v2 in-project: session.created puts the bootstrap context entry", async (
   const events = [{ type: "session.created", properties: { sessionID: "s1", agent: "main" } }]
   const { ctx, puts } = makeV2Ctx(REPO_ROOT, events)
   await mod.default.setup(ctx)
+  await drainPuts(puts, 1)
   assert.equal(puts.length, 1, "in-project session.created put exactly one entry")
   assert.equal(puts[0].key, "skillgrid-router")
   assert.equal(puts[0].sessionID, "s1")
+  assert.ok(
+    typeof puts[0].value === "string" && puts[0].value.length > 0,
+    "entry value carries the bootstrap",
+  )
+})
+
+// ── V2: walk-up — config above the session start dir ───────────────────────────
+check("v2 walk-up: session start dir below the project root puts the bootstrap", async () => {
+  const sub = path.join(FAKE_PROJECT, "sub", "dir")
+  fs.mkdirSync(sub, { recursive: true })
+  const events = [{ type: "session.created", properties: { sessionID: "s7", agent: "main" } }]
+  const { ctx, puts } = makeV2Ctx(sub, events)
+  await mod.default.setup(ctx)
+  await drainPuts(puts, 1)
+  assert.equal(puts.length, 1, "walk-up found the config above the start dir; one entry put")
+  assert.equal(puts[0].key, "skillgrid-router")
+  assert.equal(puts[0].sessionID, "s7")
   assert.ok(
     typeof puts[0].value === "string" && puts[0].value.length > 0,
     "entry value carries the bootstrap",
@@ -119,6 +150,7 @@ check("v2 missing asset: static fallback is put", async () => {
     const events = [{ type: "session.created", properties: { sessionID: "s4", agent: "main" } }]
     const { ctx, puts } = makeV2Ctx(FAKE_PROJECT, events)
     await mod.default.setup(ctx)
+    await drainPuts(puts, 1)
     assert.equal(puts.length, 1)
     assert.ok(
       puts[0].value.includes("router bootstrap fallback"),

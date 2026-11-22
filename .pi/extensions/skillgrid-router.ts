@@ -26,10 +26,21 @@ const STATIC_BOOTSTRAP =
 type RouterBeforeAgentStartEvent = { systemPromptOptions?: { appendSystemPrompt?: string } };
 type RouterBeforeAgentStartContext = { cwd?: string; agent?: { kind?: string } };
 
+// R3: an unreadable or non-regular-file config is "no project" (fail-open).
+function isReadableProjectConfig(p: string): boolean {
+  try {
+    if (!fs.statSync(p).isFile()) return false;
+    fs.accessSync(p, fs.constants.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function findProjectRoot(cwd: string): string | null {
   let dir = path.resolve(cwd || process.cwd());
   for (;;) {
-    if (fs.existsSync(path.join(dir, ".skillgrid", "config.yaml"))) return dir;
+    if (isReadableProjectConfig(path.join(dir, ".skillgrid", "config.yaml"))) return dir;
     const parent = path.dirname(dir);
     if (parent === dir) return null;
     dir = parent;
@@ -37,20 +48,17 @@ function findProjectRoot(cwd: string): string | null {
 }
 
 function resolveBootstrap(projectRoot: string): string {
-  const installed = path.join(process.env.HOME || homedir(), ".skillgrid", "router-bootstrap.md");
-  if (fs.existsSync(installed)) {
+  // Installed copy wins, then the checkout asset; missing, unreadable, or
+  // whitespace-only copies fall through (R4).
+  for (const candidate of [
+    path.join(process.env.HOME || homedir(), ".skillgrid", "router-bootstrap.md"),
+    path.join(projectRoot, BOOTSTRAP_REL),
+  ]) {
     try {
-      return fs.readFileSync(installed, "utf8");
+      const raw = fs.readFileSync(candidate, "utf8");
+      if (raw.trim()) return raw;
     } catch {
-      // unreadable installed copy -> fall through to the next source
-    }
-  }
-  const asset = path.join(projectRoot, BOOTSTRAP_REL);
-  if (fs.existsSync(asset)) {
-    try {
-      return fs.readFileSync(asset, "utf8");
-    } catch {
-      // unreadable checkout asset -> static fallback
+      // missing/unreadable copy -> next source
     }
   }
   return STATIC_BOOTSTRAP;

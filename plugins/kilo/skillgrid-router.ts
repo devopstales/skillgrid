@@ -25,67 +25,48 @@ type RouterMessages = { messages?: RouterMessage[] };
 type RouterSystem = { system?: string[] };
 type SkillgridPluginConfig = { skills?: { paths?: string[] } };
 
-// Simple frontmatter extraction (avoid dependency on skills-core for bootstrap)
-const extractAndStripFrontmatter = (content: string) => {
-  const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-  if (!match) return { frontmatter: {}, content };
-
-  const frontmatterStr = match[1];
-  const body = match[2];
-  const frontmatter: Record<string, string> = {};
-
-  for (const line of frontmatterStr.split('\n')) {
-    const colonIdx = line.indexOf(':');
-    if (colonIdx > 0) {
-      const key = line.slice(0, colonIdx).trim();
-      const value = line.slice(colonIdx + 1).trim().replace(/^["']|["']$/g, '');
-      frontmatter[key] = value;
-    }
-  }
-
-  return { frontmatter, content: body };
-};
-
-// Normalize a path: trim whitespace, expand ~, resolve to absolute
-const normalizePath = (p: string | null | undefined, homeDir: string): string | null => {
-  if (!p || typeof p !== 'string') return null;
-  let normalized = p.trim();
-  if (!normalized) return null;
-  if (normalized.startsWith('~/')) {
-    normalized = path.join(homeDir, normalized.slice(2));
-  } else if (normalized === '~') {
-    normalized = homeDir;
-  }
-  return path.resolve(normalized);
-};
-
 // Module-level cache for bootstrap content.
 // The bootstrap asset does not change during a session, so reading + resolving
 // it once eliminates redundant fs.existsSync + fs.readFileSync + regex work on
 // every agent step. See #1202 for the full analysis.
 let _bootstrapCache: string | null | undefined = undefined; // undefined = not yet loaded, null = missing, string = content
+let _bootstrapCacheKey: string | null = null; // session cwd the cache was resolved for
 
 export const SkillgridRouterPlugin = async ({ client, directory }: { client?: unknown; directory?: string }) => {
   const homeDir = os.homedir();
-  const repoRoot = path.resolve(__dirname, '../..');
-  const skillsDir = path.join(repoRoot, '.agents', 'skills');
-  const repoBootstrapPath = path.join(repoRoot, '.agents', 'skills', '_shared', 'agent-config', 'router-bootstrap.md');
-  const installedBootstrapPath = path.join(homeDir, '.skillgrid', 'router-bootstrap.md');
-  const envConfigDir = normalizePath(process.env.KILO_CONFIG_DIR || process.env.KILO_CONFIG, homeDir);
-  const configDir = envConfigDir || path.join(homeDir, '.config/kilo');
   const cwd = directory || process.cwd();
 
   // Project-conditional (R3): a skillgrid project has a `.skillgrid/config.yaml`
   // at or above the working directory. Bounded walk-up stops at the filesystem root.
-  const isSkillgridProject = (dir: string): boolean => {
+  // R3: an unreadable or non-regular-file config is "no project" (fail-open).
+  const isReadableProjectConfig = (p: string): boolean => {
+    try {
+      if (!fs.statSync(p).isFile()) return false;
+      fs.accessSync(p, fs.constants.R_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const findProjectRoot = (dir: string): string | null => {
     let current = path.resolve(dir || '.');
     while (true) {
-      if (fs.existsSync(path.join(current, '.skillgrid', 'config.yaml'))) return true;
+      if (isReadableProjectConfig(path.join(current, '.skillgrid', 'config.yaml'))) return current;
       const parent = path.dirname(current);
-      if (parent === current) return false;
+      if (parent === current) return null;
       current = parent;
     }
   };
+
+  const projectRoot = findProjectRoot(cwd);
+  const repoBootstrapPath = projectRoot
+    ? path.join(projectRoot, '.agents', 'skills', '_shared', 'agent-config', 'router-bootstrap.md')
+    : null;
+  const installedBootstrapPath = path.join(homeDir, '.skillgrid', 'router-bootstrap.md');
+  const skillsDir = projectRoot
+    ? path.join(projectRoot, '.agents', 'skills')
+    : path.join(homeDir, '.skillgrid', '.agents', 'skills');
 
   // Subagent/child sessions are skipped (R3, mirrors `<SUBAGENT-STOP>` and the
   // superpowers `parentID` skip): the router bootstrap is main-agent context.
@@ -97,21 +78,23 @@ export const SkillgridRouterPlugin = async ({ client, directory }: { client?: un
   };
 
   const resolveBootstrap = (): string => {
-    if (_bootstrapCache !== undefined) return _bootstrapCache as string;
+    if (_bootstrapCacheKey === cwd && _bootstrapCache !== undefined) return _bootstrapCache as string;
 
     let bootstrap: string | null = null;
-    const candidates = [installedBootstrapPath, repoBootstrapPath];
+    const candidates = [installedBootstrapPath, repoBootstrapPath].filter(Boolean) as string[];
     for (const candidate of candidates) {
       try {
-        if (fs.existsSync(candidate)) {
-          bootstrap = fs.readFileSync(candidate, 'utf8');
+        const raw = fs.readFileSync(candidate, 'utf8');
+        if (raw.trim()) {
+          bootstrap = raw; // whitespace-only copy -> next source
           break;
         }
       } catch {
-        // fail-open: try the next resolution leg
+        // fail-open: missing/unreadable leg -> next resolution leg
       }
     }
     const content = bootstrap ?? STATIC_BOOTSTRAP;
+    _bootstrapCacheKey = cwd;
     _bootstrapCache = content;
     return content;
   };
@@ -123,7 +106,7 @@ export const SkillgridRouterPlugin = async ({ client, directory }: { client?: un
     const firstUser = messages.find((m) => m.info?.role === 'user');
     if (!firstUser || !firstUser.parts || firstUser.parts.length === 0) return;
     if (isSubagentMessage(firstUser)) return;
-    if (!isSkillgridProject(cwd)) return;
+    if (!projectRoot) return;
     const alreadyInjected = firstUser.parts.some((p) => p.type === 'text' && p.text?.includes(bootstrap));
     if (alreadyInjected) return;
     const ref = firstUser.parts[0];
@@ -137,11 +120,15 @@ export const SkillgridRouterPlugin = async ({ client, directory }: { client?: un
     // cached singleton; Kilo may treat config as read-only — keep explicit
     // skills.paths in INSTALL as fallback.
     config: async (config: SkillgridPluginConfig): Promise<void> => {
-      config.skills = config.skills || {};
-      config.skills.paths = config.skills.paths || [];
-      const skills = config.skills;
-      if (!skills.paths.includes(skillsDir)) {
-        skills.paths.push(skillsDir);
+      try {
+        // Kilo may hand us a frozen/readonly config: fail-open like the other hooks.
+        config.skills = config.skills || {};
+        config.skills.paths = config.skills.paths || [];
+        if (!config.skills.paths.includes(skillsDir)) {
+          config.skills.paths.push(skillsDir);
+        }
+      } catch {
+        // fail-open
       }
     },
 
@@ -179,6 +166,7 @@ export const SkillgridRouterPlugin = async ({ client, directory }: { client?: un
 // Test-only reset of the module-level bootstrap cache (undefined = not loaded).
 export const __resetBootstrapCacheForTests = (): void => {
   _bootstrapCache = undefined;
+  _bootstrapCacheKey = null;
 };
 
 export default { id: 'skillgrid-router', server: SkillgridRouterPlugin };

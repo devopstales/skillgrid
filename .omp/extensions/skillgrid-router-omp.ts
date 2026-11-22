@@ -28,10 +28,21 @@ const INTRO =
 const STATIC_ROUTER =
   "skillgrid: using-skillgrid router not resolvable (installed copy + checkout both missing) - read `.agents/skills/using-skillgrid/SKILL.md` as the first action of any skillgrid task.";
 
+// R3: an unreadable or non-regular-file config is "no project" (fail-open).
+function isReadableProjectConfig(p: string): boolean {
+  try {
+    if (!fs.statSync(p).isFile()) return false;
+    fs.accessSync(p, fs.constants.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function findProjectRoot(cwd: string): string | null {
   let dir = path.resolve(cwd || process.cwd());
   for (;;) {
-    if (fs.existsSync(path.join(dir, ".skillgrid", "config.yaml"))) return dir;
+    if (isReadableProjectConfig(path.join(dir, ".skillgrid", "config.yaml"))) return dir;
     const parent = path.dirname(dir);
     if (parent === dir) return null;
     dir = parent;
@@ -39,19 +50,20 @@ function findProjectRoot(cwd: string): string | null {
 }
 
 function resolveRouter(projectRoot: string): string {
-  // Installed copy (installer-mirrored .agents) wins, then the checkout
-  // asset, then the static fallback (fail-open, R4).
-  const installed = path.join(process.env.HOME || homedir(), ".skillgrid", ROUTER_REL);
-  try {
-    return fs.readFileSync(installed, "utf8");
-  } catch {
-    // fall through
+  // Installed copy wins, then the checkout asset; missing, unreadable, or
+  // whitespace-only copies fall through (R4).
+  for (const candidate of [
+    path.join(process.env.HOME || homedir(), ROUTER_REL),
+    path.join(projectRoot, ROUTER_REL),
+  ]) {
+    try {
+      const raw = fs.readFileSync(candidate, "utf8");
+      if (raw.trim()) return raw;
+    } catch {
+      // fall through
+    }
   }
-  try {
-    return fs.readFileSync(path.join(projectRoot, ROUTER_REL), "utf8");
-  } catch {
-    return STATIC_ROUTER;
-  }
+  return STATIC_ROUTER;
 }
 
 type RouterBeforeAgentStartEvent = { systemPrompt?: string[] };
@@ -67,6 +79,9 @@ export default function (pi: ExtensionAPI) {
       if (!root) return;
       const sections = event.systemPrompt;
       if (!Array.isArray(sections)) return; // unexpected shape: fail open
+      // Idempotency: before_agent_start fires per turn against the live
+      // systemPrompt array — re-pushing would duplicate the router each turn.
+      if (sections.some((s) => typeof s === "string" && s.includes(INTRO))) return;
       sections.push(`${INTRO}\n\n${resolveRouter(root)}`);
     } catch {
       // Fail-open: injection must never break session start (R4).

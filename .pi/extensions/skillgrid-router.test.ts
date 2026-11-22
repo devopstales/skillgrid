@@ -62,6 +62,28 @@ check("main agent in project: bootstrap appended exactly once", () => {
   assert.equal(appended.split("Using skillgrid:using-skillgrid").length - 1, 1, "bootstrap present exactly once");
 });
 
+// R3: `.skillgrid/config.yaml` at or above cwd (bounded walk-up) — bootstrap
+// is appended when the config is found above the session cwd.
+check("walk-up: config above cwd (subdirectory): bootstrap appended", () => {
+  const prevHome = process.env.HOME;
+  const emptyHome = fs.mkdtempSync("/tmp/skillgrid-router-home-");
+  const tmpProject = makeTempProject();
+  const sub = path.join(tmpProject, "sub", "dir");
+  fs.mkdirSync(sub, { recursive: true });
+  process.env.HOME = emptyHome;
+  try {
+    const ev = eventWith("EXISTING RULE");
+    run(ev, ctxFor(sub, "main"));
+    const appended = ev.systemPromptOptions?.appendSystemPrompt;
+    assert.ok(typeof appended === "string", "appendSystemPrompt should be a string");
+    assert.ok(appended.startsWith("EXISTING RULE"), "pre-existing append preserved");
+    assert.ok(appended.includes("Using skillgrid:using-skillgrid"), "bootstrap present");
+    assert.equal(appended.split("Using skillgrid:using-skillgrid").length - 1, 1, "bootstrap present exactly once");
+  } finally {
+    process.env.HOME = prevHome;
+  }
+});
+
 // TICKET-03 acceptance: subagent -> unchanged.
 check("subagent: unchanged", () => {
   const ev = eventWith("EXISTING RULE");

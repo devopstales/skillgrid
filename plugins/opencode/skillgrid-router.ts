@@ -67,10 +67,21 @@ async function resolveStartDir(ctx, session, ev) {
 
 // Project-conditional: `.skillgrid/config.yaml` at or above the start dir
 // (bounded walk-up). No file means "not a skillgrid project".
+// R3: an unreadable or non-regular-file config is "no project" (fail-open).
+function isReadableProjectConfig(p) {
+  try {
+    if (!fs.statSync(p).isFile()) return false
+    fs.accessSync(p, fs.constants.R_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
 function isSkillgridProject(start) {
   let dir = path.resolve(start)
   for (let i = 0; i < MAX_WALK_UP; i++) {
-    if (fs.existsSync(path.join(dir, ".skillgrid", "config.yaml"))) return true
+    if (isReadableProjectConfig(path.join(dir, ".skillgrid", "config.yaml"))) return true
     const parent = path.dirname(dir)
     if (parent === dir) break
     dir = parent
@@ -129,7 +140,8 @@ function isMainAgent(properties) {
   const agent = properties ? properties.agent : null
   if (typeof agent === "string") {
     const a = agent.trim()
-    if (a && a !== "main" && a !== "build") return false
+    // "plan" is opencode's plan-mode primary agent: main, not subagent.
+    if (a && a !== "main" && a !== "build" && a !== "plan") return false
   }
   return true
 }
@@ -175,7 +187,9 @@ async function importPlugin() {
   }
 }
 
-const { Plugin } = await importPlugin()
+// Host API change guard: a resolvable @opencode/plugin that exports no Plugin
+// must not fail-close the module load (fail-open to a plain-define stub).
+const Plugin = (await importPlugin())?.Plugin ?? { define: (def) => def }
 
 // V2 entry (opencode >= 2.0). Mechanism (a) when the durable instruction-entry
 // API is present (opencode >= 2.2), else the (b) "context" session-hook
@@ -193,17 +207,33 @@ export default Plugin.define({
     )
 
     if (hasInstructionsEntry) {
-      // (a) durable <context key="skillgrid-router"> entry on session.created
-      try {
-        const stream = ctx.event.subscribe({ types: ["session.created"] })
-        if (stream && typeof stream[Symbol.asyncIterator] === "function") {
-          for await (const event of stream) {
-            await injectRouter(ctx, event)
+      // (a) durable <context key="skillgrid-router"> entry on session.created.
+      // Background listener: setup() must resolve for the plugin to load — an
+      // awaited infinite loop would hang plugin setup on opencode >= 2.2.
+      void (async () => {
+        try {
+          const stream = ctx.event.subscribe({ types: ["session.created"] })
+          if (stream && typeof stream[Symbol.asyncIterator] === "function") {
+            const it = stream[Symbol.asyncIterator]()
+            for (;;) {
+              let step
+              try {
+                step = await it.next()
+              } catch {
+                break // a dead stream must not kill injection for later sessions
+              }
+              if (step.done) break
+              try {
+                await injectRouter(ctx, step.value)
+              } catch {
+                // fail-open: never let one event block the stream
+              }
+            }
           }
+        } catch {
+          // fail-open: a broken event stream must never block session start
         }
-      } catch {
-        // fail-open: a broken event stream must never block session start
-      }
+      })()
       return
     }
 
@@ -237,6 +267,10 @@ export default Plugin.define({
               return
             }
             if (Array.isArray(ev.messages)) {
+              // Idempotency: if the host reuses the messages array across
+              // requests, don't unshift the bootstrap again (same marker as
+              // the system branch above).
+              if (ev.messages.some((m) => JSON.stringify(m).includes("router bootstrap"))) return
               ev.messages.unshift({ role: "user", content: [{ type: "text", text: bootstrap }] })
             }
           } catch {

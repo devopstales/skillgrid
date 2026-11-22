@@ -61,8 +61,9 @@ function isSkillgridProject(cwd) {
   for (;;) {
     const candidate = path.join(dir, PROJECT_CONFIG);
     if (fs.existsSync(candidate)) {
-      // Fail-open: an unreadable config is treated as "no project".
+      // Fail-open: an unreadable or non-regular-file config is "no project".
       try {
+        if (!fs.statSync(candidate).isFile()) return false;
         fs.accessSync(candidate, fs.constants.R_OK);
         return true;
       } catch {
@@ -107,7 +108,11 @@ async function main() {
     emit('INFO', INFO_NOT_MAIN);
     return;
   }
-  if (isSkillgridProject(process.cwd())) {
+  // Prefer the harness-provided session cwd (stdin payload field); the harness
+  // may spawn the hook from a different directory than the session's.
+  const cwd =
+    input && typeof input.cwd === 'string' && input.cwd ? input.cwd : process.cwd();
+  if (isSkillgridProject(cwd)) {
     if (fs.existsSync(ROUTER)) {
       const msg = fs.readFileSync(ROUTER, 'utf8');
       emit('IMPORTANT', `${INTRO}\n\n${msg}`);
