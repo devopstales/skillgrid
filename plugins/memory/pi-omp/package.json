@@ -1,0 +1,9 @@
+{
+  "name": "mnemonic-memory-piomp",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Mnemonic-v2 memory for pi/omp (ADR-0067): session registration + per-prompt capture through the mnemonic binary. The mem_* tools come from the mnemonic-memory MCP entry.",
+  "pi": { "extensions": ["./index.ts"] },
+  "omp": { "extensions": ["./index.ts"] },
+  "files": ["index.ts", "src/session.js", "src/capture.js", "package.json"]
+}
