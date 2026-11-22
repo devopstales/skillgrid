@@ -56,3 +56,5 @@ site/public/
 .skillgrid/**/okf-metrics.jsonl
 .pi/*
 !.pi/extensions/
+.omp/*
+!.omp/extensions/
