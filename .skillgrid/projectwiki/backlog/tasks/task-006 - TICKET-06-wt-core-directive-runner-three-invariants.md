@@ -1,10 +1,10 @@
 ---
 id: TASK-006
 title: 'TICKET-06: wt-core directive runner + three invariants'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-22 15:43'
-updated_date: '2026-11-22 15:43'
+updated_date: '2026-11-22 16:20'
 labels: []
 milestone: m-0
 dependencies:

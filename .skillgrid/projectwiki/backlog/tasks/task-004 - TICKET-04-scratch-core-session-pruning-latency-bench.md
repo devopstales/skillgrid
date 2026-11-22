@@ -1,10 +1,10 @@
 ---
 id: TASK-004
 title: 'TICKET-04: scratch-core session pruning + latency bench'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-22 15:43'
-updated_date: '2026-11-22 15:43'
+updated_date: '2026-11-22 17:13'
 labels: []
 milestone: m-0
 dependencies:

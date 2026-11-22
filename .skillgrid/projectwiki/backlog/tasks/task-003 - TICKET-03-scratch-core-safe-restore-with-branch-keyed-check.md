@@ -1,10 +1,10 @@
 ---
 id: TASK-003
 title: 'TICKET-03: scratch-core safe restore with branch-keyed check'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-22 15:43'
-updated_date: '2026-11-22 15:43'
+updated_date: '2026-11-22 17:13'
 labels: []
 milestone: m-0
 dependencies:

@@ -1,10 +1,10 @@
 ---
 id: TASK-001
 title: 'TICKET-01: Scaffold pi-worktree repo + contract constants + import-scan'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-11-22 15:40'
-updated_date: '2026-11-22 15:45'
+updated_date: '2026-11-22 16:20'
 labels: []
 milestone: m-0
 dependencies: []
