@@ -3,8 +3,8 @@
 The single source of truth for commit discipline: conventional-commit format,
 atomic + independently-revertable sizing, when-to-commit, the
 `[skillgrid-context]` block, and the git-hook safety guards. Consumed by the
-execution skills (`subagent-execution` / `simple-execution` — not yet in this
-repo; the protocol applies to them when they land) and by `blueprint`
+execution skills (`execute` — the subagent / inline / fan-out modes that
+absorbed `subagent-execution` and `simple-execution`) and by `blueprint`
 (spec-zone commit rule, phase-transition commits). **Fully active by default
 during execution** — not on-demand. No consumer restates this contract; they
 cite it.
@@ -34,6 +34,26 @@ declared in your instructions, (2) the project-root `.worktree/`, (3)
 directory is ignored before creating** (`git check-ignore -q <dir>`) — if not
 ignored, add it to `.gitignore` and commit first, or the whole tree gets
 committed.
+
+**Tooling tiers** (who creates and manages worktrees; `execute` Step 0 and
+`ship` Step 6 follow this order):
+
+1. **Harness-native tool** — if the harness provides one (`EnterWorktree`,
+   `WorktreeCreate`, a `/worktree` command, or a `--worktree` flag), it wins:
+   it owns session state.
+2. **Worktrunk (`wt`) — preferred when present.** Check `command -v wt` and
+   that `wt list` succeeds in the repo. Worktrees still land in the standard
+   root: user config `worktree-path = "{{ repo_path }}/.worktree/{{ branch | sanitize }}"`
+   (branch `/` → `-`; dispatch briefs state the sanitized name so ledger paths
+   resolve). Fan-out branches stay on the per-agent allow-list (`worktree-wf_*`
+   for fan-out domains, `agent-*` for single implementers) — worktrunk
+   addresses by branch name and is agnostic to it. Project hooks (setup,
+   pre-merge tests) live in the **committed** `.config/wt.toml`.
+3. **`git worktree add` — the fallback.** Only when no tool from tier 1/2
+   exists.
+
+Worktrunk is optional: every rule in this contract has a plain-git equivalent,
+and a machine without `wt` runs the git path with no other difference.
 
 ## The two layers
 
@@ -90,6 +110,60 @@ The `commit-msg` hook rejects a non-conventional subject and any
 - **Commit first, then review.** Review diffs `merge-base...HEAD`; an uncommitted
   change is invisible to it. Commit, review, then amend or add a fixup.
 
+## PR review budget (400 changed lines)
+
+**400 changed lines (`additions + deletions`) per PR** is the review budget.
+A PR above it needs one of:
+
+1. **Chain it** — split into chained/stacked PRs (see the chain-strategy
+   decision table below). This is the default path.
+2. **Documented exception** — an explicit human-selected `size:exception`
+   with a written over-budget rationale, recorded in the PR body.
+
+Count authored additions plus deletions from the forge API after the PR is
+created (or `git diff --stat <base>...<head>` locally, labeled *provisional*,
+before). Generated goldens are excluded from the authored count but included
+in snapshot identity checks.
+
+Forecast the budget *before* implementing: if the work-unit table in
+`tasks.md` forecasts a >400-line change, group the units into chained PR
+slices before the first commit, not after the diff is big.
+
+## Chain strategy decision
+
+The project-level choice lives in `chain.strategy` (`.skillgrid/config.yaml`,
+set at onboarding — `skillgrid:ship` Step 6 resolves the base branch from it).
+When the slicer must pick a strategy for a specific change:
+
+| Condition | Strategy |
+|---|---|
+| Every slice lands independently on the base | **Stacked PRs** — each slice is its own PR against the base; merge in order. |
+| The feature must integrate as one atomic unit (slices do not work alone) | **Feature branch chain** — draft/no-merge tracker PR on the feature branch; slice PR #1 targets the tracker branch, later slices target the immediate parent branch. The tracker stays draft until all children merge. |
+| A slice alone is >400 lines | Split the slice into smaller work units; a slice that cannot split takes the documented exception path. |
+
+**Cross-fork limitation:** the forge does not support cross-fork base refs.
+If the slice branches live only in a contributor's repo, only *stacked to
+base* works contributor-side; the feature-branch chain needs the slice
+branches pushed to the main repo, which only a maintainer can do. State which
+side holds the branches before choosing.
+
+## PR body honesty
+
+Every `[x]` in a PR checklist is a **public claim requiring evidence**
+(per `../rules/evidence-claims.md`):
+
+- API-backed claims (labels, issue linkage, line counts) — `[x]` only when
+  the forge API shows it. If the label is absent, leave the box unchecked and
+  record the pending action.
+- Test claims — `[x]` only for a command run in this session with captured
+  output; "tests pass" is not a claim from memory.
+- Counts follow the lifecycle: local `git diff --stat <base>...<head>` is
+  *provisional* before the PR exists; reconcile against the forge API only
+  after confirmed creation.
+- Honest rewrites **add**, not remove: an unsupported claim becomes a
+  `## Pending workflow actions` section naming the pending action, not a
+  silently unchecked box.
+
 ## When to commit
 
 Commit **after** a verified gate (a green `G<n>` from
@@ -102,6 +176,93 @@ Also:
 - Before spawning parallel work or crossing a review gate.
 - On a PreCompact / session-end hook — commit first, so the event stream holds
   the position.
+
+## Scratch checkpoints (turn-level)
+
+Commits are the durable record; **scratch refs** are the safety net *between*
+commits — the uncommitted state of a turn that got interrupted, wrong, or
+stopped. They are not commits: they never enter history, never carry a
+`[skillgrid-context]` block, and are pruned.
+
+- **Storage:** git refs under `refs/skillgrid/` in the *actual* repo (no shadow
+  git). A ref points at a `commit-tree` object whose message carries the
+  metadata: `branch <name>`, `head <sha>`, `index-tree <sha>`,
+  `worktree-tree <sha>`, `session <id>`, `turn <n>`, `label <prompt ≤60 chars
+  + mutating calls>`, `created <iso>`, `preexisting-untracked <json>`.
+  Worktrunk's merge-time sweep uses `refs/wt-backup/<branch>` — separate
+  namespace, coexists, never pruned by the scratch rules.
+- **Timing:** once per *completed* turn (end of the response), never per tool.
+  **Dedup:** skip when the worktree tree SHA is unchanged from the last
+  checkpoint (a read-only turn creates no ref).
+- **Capture:** temporary index — `GIT_INDEX_FILE` in a tempdir → `read-tree
+  HEAD` → `add --all` in batches of 100 (filtered set) → `write-tree` =
+  worktree tree. The real index is untouched; no commit is created.
+- **Filtering (never snapshot):** `.gitignore`'d paths, plus the dir-name set
+  `node_modules`, `.venv`, `venv`, `env`, `.env`, `dist`, `build`,
+  `.pytest_cache`, `.mypy_cache`, `.cache`, `.tox`, `__pycache__`, `.worktree`;
+  untracked files >10MiB; untracked dirs with >200 files. The pre-existing
+  untracked list (post-filter) is recorded **in the ref metadata** — that list
+  is the never-delete set at restore time.
+- **Restore:** a *before-restore* checkpoint is taken first (automatic). Then:
+  `reset --hard <head>` → `read-tree --reset -u <worktree-tree>` → restore the
+  real index from `index-tree` → safe-clean: delete snapshot files that are
+  neither pre-existing nor skipped. **Never delete:** ignored dirs, skipped
+  large files/dirs, pre-existing untracked.
+- **Branch + worktree safety (atomic pair):** restore is refused when the
+  current branch **or** the current worktree root differs from the recorded
+  pair. This is what keeps fan-out unambiguous: 5 worktrees × 5 branches,
+  refs never cross.
+- **Per-worktree by construction:** each worktree has its own ref namespace;
+  prune at session start touches only the *current* worktree's refs.
+- **Lifecycle:** max **50 refs per session** (prune oldest first); at session
+  start, prune refs from other sessions (background, non-blocking).
+- **Hook wiring:** `checkpoint-state.js` subcommands `scratch` (capture) and
+  `scratch-restore <id>` (before-restore snapshot + pair check + diff preview
+  on stdout). Same shim discipline as the existing subcommands; the git core
+  stays testable without the harness.
+- **Scope boundary:** no conversation-state restore (harness session layer
+  owns that), no per-tool granularity, no auto-restore — restore is always a
+  decision, files-only, noted in the ledger (`(scratch restore <label>)`).
+
+## Worktree removal + branch deletion (shared safety)
+
+Applies to `ship` Step 6 cleanup and to any worktree the session created.
+
+- **Branch deletion — no-added-changes rule:** never delete a worktree branch
+  unless it would add **no changes** to the base. Check, in order (first
+  failure stops): (1) branch HEAD equals base HEAD; (2) branch is an ancestor
+  of base; (3) `git diff --quiet <base>...<branch>` (three-dot) is empty.
+  Unmerged branch → keep it, report it — "branch kept is the rollback."
+  Force-deleting an unmerged branch on your own initiative is a blocker, not a
+  choice.
+- **Worktree removal — force only with a backup ref:** `git worktree remove
+  --force` (or `wt remove --force`) may be used only *after* uncommitted
+  changes are saved — `git stash create` → `git update-ref
+  refs/skillgrid/pre-remove-<branch> <sha>` — and the recovery path is in the
+  report. Without worktrunk, also check for processes with cwd under the
+  worktree before removal and report them; never kill a process holding an
+  interactive terminal. With worktrunk: `wt remove --reap` (reaps detached
+  processes by working directory, spares TTY-attached ones).
+- **Reconciliation (wave end):** a worktree with a live agent process but no
+  row in the fan-out ledger is a lost dispatch — report it; never silently
+  reap it. With worktrunk installed, `wt list` (🤖/💬 activity markers) is the
+  visual check.
+
+## Worktree lifecycle (forking)
+
+- **Fork before integration:** at any point, a worktree branch can be forked
+  — `git worktree add .worktree/<branch>-alt -b <branch>-alt <branch>` (or
+  `wt switch --create <branch>-alt --base <branch>`) — for "try option B
+  while PR feedback iterates on A," or when the user keeps a branch and
+  branches off it. The fork inherits the parent's commits; the new branch
+  stays on the per-agent allow-list.
+- **Scratch refs do NOT cross a fork** — a ref recorded in worktree A is not
+  restorable in fork B (different worktree root: the pair check refuses).
+  The fork starts its own checkpoint line from a fresh resume checkpoint.
+- **Integration stays single-sink:** a worktree's branch integrates to the
+  base exactly once (`ship` Step 6). A fork that also integrates is a
+  *second* change with its own spec folder — two forks of one branch are two
+  changes, not one change done twice.
 
 ## Where the hooks live
 
@@ -119,7 +280,10 @@ identically from the repo checkout and from `~/.skillgrid/`.
 `skillgrid install` mirrors the whole repo tree to `~/.skillgrid/`
 (remove-then-copy per top-level entry; `.git`/`node_modules` and the repo's own
 `.skillgrid/` excluded, live `mnemonic/`/`repos/`/`config.d/` never touched)
-and points git's global `core.hooksPath` at `~/.skillgrid/git-hooks`.
+and points git's global `core.hooksPath` at `~/.skillgrid/git-hooks`. The
+`git-hooks/` + `hooks/` tree is **not** part of the skill tree in this repo —
+it ships with the `skillgrid` CLI that performs the install; the table above is
+its contract, verifiable on any installed machine at `~/.skillgrid/hooks/`.
 Consumers then read from the mirror: plugins from `~/.skillgrid/plugins`, git
 hooks from `~/.skillgrid/git-hooks`, implementations via copy from
 `~/.skillgrid/hooks`. Re-run install after the repo updates the hook tree.

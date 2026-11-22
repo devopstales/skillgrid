@@ -5,9 +5,12 @@ description: Use when executing an implementation plan or sliced tasks.md — se
 license: MIT
 metadata:
   author: devopstales
-  version: "2.1"
+  version: "2.2"
   part-of: skillgrid
   based_on: skillgrid:subagent-execution 1.0 + skillgrid:simple-execution 1.0 + skillgrid:isolated-workspace 1.0 + skillgrid:parallel-execution 1.0 + skillgrid:ponytail 1.0
+  created_by: human
+  related_skills: [blueprint, brainstorm, ship, slicing]
+  version: "2.4"
 ---
 
 # Execute
@@ -65,7 +68,8 @@ Read `.skillgrid/config.yaml` before starting. Use:
 | `testing.tdd` | Strict-TDD branch machinery switch (basic TDD — a failing test before code — is always on regardless) |
 | `commands.build` / `commands.lint` | Build and lint commands (inline mode) |
 | `conventions.worktree_dir` | Worktree directory for isolated workspaces (default `.worktree/`) |
-| `testing.setup` | Install command for new workspaces (e.g. `npm install`, `go mod download`) instead of auto-detecting |
+| `conventions.worktree_tool` | `wt` (worktrunk, **preferred when present** — Step 0b) \| `native` (harness tool only) \| `git` (fallback only). Absent = auto: harness tool → `wt` if installed → git |
+| `testing.setup` | Install command for new workspaces (e.g. `npm install`, `go mod download`); with worktrunk active, also written to `.config/wt.toml` `[pre-start]` (Step 0d) |
 | `conventions.artifacts` | Terms-file vocabulary (the `01-business-terms.md` / `02-technical-terms.md` under `.skillgrid/projectwiki/glossary/`) for briefs and rulings |
 | `ticketing.enabled` | If `true` AND a `tasks.md` with tracker IDs exists (produced by `skillgrid:slicing`), update ticket status at each transition: `ready` (wave start) → `in-progress` (implementer dispatched / ticket started) → `review` (review started / verification passed) → `done` (review clean) |
 | `ticketing.type` | Per-tracker CLI for the status updates above (see `skillgrid:slicing` § Tracker Adapters). When `hermes-kanban`: `claim` at execution start is the in-progress transition — it is atomic and prints the resolved workspace path, which becomes the implementer's worktree (Step 0a/0c below) |
@@ -99,8 +103,14 @@ The ladder runs *after* you understand the problem, never instead of it — trac
 - You have a written implementation plan (or a `tasks.md` from `skillgrid:slicing`) to execute
 - You need review checkpoints and a QA gate before integration
 - A sliced change is at the `user-gate-slice` gate and the user said "Implement"
+- **Gap-closure mode:** a prior `test` run rendered FAIL or CONCERNS and its report contains diagnosed fix plans — execute *only* those fix plans (read `report.md` → `## Gate Decision` → the non-answers and CRITICAL findings; each becomes a scoped fix task), not the full plan. This is the re-execution half of the verification loop (`skillgrid:test` produces the fix plans, this mode executes them). The loop is `execute → test → (if gaps) execute --gaps-only → test → …` until the verdict is PASS or a human stops it.
 
 **When NOT to use:** there is no written plan yet (use `skillgrid:brainstorm` / `skillgrid:blueprint` first, then `skillgrid:slicing`). A single 1-2 ticket change that fits one context window can run inline without this skill's machinery.
+
+**Structure note (thin-router):** this skill is 385 lines with a dominant
+procedure (Steps 0–5). If it grows past 500 lines, split the step walk into
+`workflow.md` and keep SKILL.md as the router (config, mode table, gates,
+contracts) — per `skillgrid:skill-creator` §3g.
 
 **Mode choice:**
 
@@ -127,7 +137,7 @@ Before dispatching Task 1 (subagent mode) or starting the first task (inline mod
 
 1. **Isolated workspace** (never start on main/master without consent):
 
-   **0a. Detect existing isolation first** — before creating anything, check whether you are already in an isolated workspace (worktree-detection snippet per `_shared/work-unit-commits/README.md` § Worktree detection):
+   **0a. Detect existing isolation first** — before creating anything, check whether you are already in an isolated workspace (worktree-detection snippet per `_shared/work-unit-commits/README.md` § Worktree root + detection; branch-name check below):
 
    ```bash
    GIT_DIR=$(cd "$(git rev-parse --git-dir)" 2>/dev/null && pwd -P)
@@ -135,25 +145,31 @@ Before dispatching Task 1 (subagent mode) or starting the first task (inline mod
    BRANCH=$(git branch --show-current)
    ```
 
-   **Submodule guard:** `GIT_DIR != GIT_COMMON` is also true inside git submodules — verify you are not in a submodule first (`git rev-parse --show-superproject-working-tree` returning a path means treat it as a normal repo).
+   **Submodule guard:** `GIT_DIR != GIT_COMMON` is also true inside git submodules — verify you are not in a submodule first (`git rev-parse --show-superproject-working-tree` returning a path means treat it as a normal repo). **Branch name:** the `pre-commit` guard enforces the per-agent branch allow-list (`agent-*`, `worktree-agent-*`, `worktree-wf_*`, per `_shared/work-unit-commits/README.md` § hooks) on *every* worktree — including a linked worktree you detected here. A worktree whose branch is not on the allow-list is a blocker at commit time, so report it and fix the branch before implementation starts; in 0c, create worktrees on per-agent branches (0c's `git worktree add ... -b` does this; native-tool creation, 0b, may use its own naming — verify the allow-list against the created branch).
 
    - **Already in a linked worktree** (and not a submodule): skip creation and report with branch state — "Already in isolated workspace at `<path>` on branch `<name>`." (Detached HEAD: note that branch creation is needed at finish time.) Do NOT create another worktree.
    - **Normal checkout:** has the user already indicated a worktree preference? If not, ask for consent: "Would you like me to set up an isolated worktree? It protects your current branch from changes." Honor any declared preference without asking. If the user declines, work in place.
 
-   **0a'. Tracker-claimed workspaces override 0a–0c.** When the tracker is `hermes-kanban` (`ticketing.type`) and the ticket was claimed via `hermes kanban --board <slug> claim <task-id>`, the claim printed a resolved workspace path — use it as the implementer's worktree and skip 0a–0c (the claim already owns directory placement, isolation, and cleanup). Create a new worktree only when the ticket is not claimed (e.g. `ticketing.enabled: false`) or the claim's path is unavailable.
+   **0a'. Tracker-claimed workspaces override 0a–0c.** When the tracker is `hermes-kanban` (`ticketing.type`) and the ticket was claimed via `hermes kanban --board <slug> claim <task-id>`, the claim printed a resolved workspace path — use it as the implementer's worktree and skip 0a–0c (the claim already owns directory placement, isolation, and cleanup). Run 0d (project setup + clean baseline) in the claimed path. Create a new worktree only when the ticket is not claimed (e.g. `ticketing.enabled: false`) or the claim's path is unavailable.
 
-   **0b. Create via native worktree tools (preferred).** If the harness provides a worktree tool (`EnterWorktree`, `WorktreeCreate`, a `/worktree` command, or a `--worktree` flag), use it — it owns directory placement, branch creation, and cleanup. Using `git worktree add` when a native tool exists creates phantom state the harness can't see or manage.
+   **0b. Create via the tooling tier** (order per `_shared/work-unit-commits/README.md` § Worktree root + detection → Tooling tiers; `conventions.worktree_tool` overrides auto-detection):
 
-   **0c. Git worktree fallback (only when no native tool).** Directory selection priority per `_shared/work-unit-commits/README.md` § Worktree root + detection: (1) a worktree directory declared in your instructions, (2) the project-root `.worktree/`, (3) `conventions.worktree_dir` from config, default `.worktree`. **MUST verify the directory is ignored before creating** (`git check-ignore -q <dir>`) — if not ignored, add it to `.gitignore` and commit first, or the whole tree gets committed. Then:
+   - **Tier 1 — harness-native tool** (`EnterWorktree`, `WorktreeCreate`, a `/worktree` command, a `--worktree` flag): use it — it owns directory placement, branch creation, and cleanup. Using any other tool when one exists creates phantom state the harness can't see or manage.
+   - **Tier 2 — worktrunk** (`command -v wt` + `wt list` succeeds): create with `wt switch --create <branch> --base <base>` (base = the change's base branch; worktrunk defaults `--base` to the default branch, which is wrong for a feature branch off `develop`). Verify the path template lands in the standard root — user config `worktree-path = "{{ repo_path }}/.worktree/{{ branch | sanitize }}"`; if `wt list` shows a different layout, state it in the ledger rather than silently working in a foreign path. Branch names stay on the per-agent allow-list (fan-out: `worktree-wf_<domain>`; single implementer: `agent-*`).
+   - **Tier 3 — git fallback.** Directory selection priority: (1) a worktree directory declared in your instructions, (2) the project-root `.worktree/`, (3) `conventions.worktree_dir` from config, default `.worktree`. **MUST verify the directory is ignored before creating** (`git check-ignore -q <dir>`) — if not ignored, add it to `.gitignore` and commit first, or the whole tree gets committed. Then:
 
    ```bash
    git worktree add "$LOCATION/$BRANCH_NAME" -b "$BRANCH_NAME"
    cd "$LOCATION/$BRANCH_NAME"
    ```
 
-   Sandbox fallback: if `git worktree add` fails with a permission error, tell the user the sandbox blocked worktree creation and work in the current directory instead.
+   Sandbox fallback: if creation fails with a permission error (any tier), tell the user the sandbox blocked worktree creation and work in the current directory instead.
 
-   **0d. Project setup + clean baseline.** Run `testing.setup` from config (or auto-detect: `npm install` / `cargo build` / `pip install -r requirements.txt` / `poetry install` / `go mod download`), then run the test suite to verify the workspace starts clean. Tests fail → report and ask whether to proceed or investigate. Tests pass → report ready:
+   **0d. Project setup + clean baseline.**
+
+   - **Cache reuse first (worktrunk only):** if any other worktree of this repo exists with a populated build cache (`node_modules/`, `target/`, …), prefer `wt step copy-ignored --from <donor>` over re-running the full setup — reflinked where the filesystem supports it (APFS/btrfs/XFS; full copy otherwise). Record which path was taken in the ledger.
+   - **Setup:** run `testing.setup` from config (or auto-detect: `npm install` / `cargo build` / `pip install -r requirements.txt` / `poetry install` / `go mod download`). With worktrunk active, keep the command in the **committed** `.config/wt.toml` (`[pre-start] setup = "..."`) so future worktrees and fan-out workers get it for free; the same file carries `[pre-merge] test = "<testing.runner>"` (ship Step 6's iron law, in the worktree).
+   - **Baseline:** run the test suite to verify the workspace starts clean. Tests fail → report and ask whether to proceed or investigate. Tests pass → report ready:
 
    ```
    Worktree ready at <full-path>
@@ -282,13 +298,15 @@ For each task (or ticket, if sliced), in wave order:
 When the plan decomposes into 2+ independent problem domains (different test files, different subsystems, different root causes, no shared state), investigate/fix them in parallel instead of sequentially:
 
 1. **Identify independent domains.** Group the work by what's broken — each domain must be understandable and fixable without context from the others.
-2. **One worktree per agent.** Fan-out agents MUST run in separate worktrees (Step 0b/0c per agent) — parallel agents in a shared checkout race on the index and produce unmergeable diffs.
+2. **One worktree per agent.** Fan-out agents MUST run in separate worktrees (Step 0b/0c per agent; branches `worktree-wf_<domain>`) — parallel agents in a shared checkout race on the index and produce unmergeable diffs. With worktrunk active, create each with `wt switch --create worktree-wf_<domain>` before dispatch; each worktree's scratch refs (`refs/skillgrid/`) and setup hooks (`.config/wt.toml` is committed, shared) work per-worktree with no extra wiring.
 3. **Create focused agent tasks.** Each agent gets: a specific scope (one test file or subsystem), a clear goal, constraints ("do NOT change production code" / "fix tests only"), and a specific expected output ("return summary of root cause and changes"). Prompts must be focused, self-contained (paste the error messages and test names), and specific about output.
-4. **Dispatch in parallel — all dispatch calls in one response.** Multiple dispatch calls in one response = parallel execution; one per response = sequential.
+4. **Bind each agent to its worktree, then dispatch in parallel — all dispatch calls in one response.** The dispatch names the worktree path as the agent's `cwd` (native tool), or the agent's first action is `cd <worktree>` (bash harness); an agent that cannot confirm its cwd at start reports `status: failed` — it never "falls back" to the parent checkout. Multiple dispatch calls in one response = parallel execution; one per response = sequential.
 
-   **Fan-out ledger:** summaries returned to your context rot with it — a compaction mid-integration loses which agents finished, what they changed, and whether the suite was re-run. Keep a fan-out ledger at `.skillgrid/work/<run-slug>/parallel-ledger.md` (git-ignored): one row per agent — `agent | task | status (dispatched|done|failed) | worktree | changed files | test result`. Write a row on dispatch, update it when the agent returns, append a wave-summary line when the suite is re-run. **Integrate from the ledger + git, not from in-context summaries.** If you suspect a compaction mid-run: re-read the ledger + `git status`/`git log`, then re-dispatch only the unfinished rows. If `mnemonic.enabled: true`, upsert `skillgrid/<topic>/execution-progress` when a wave completes (ledger path plus wave tail, per `_shared/rules/mnemonic-memory.md`).
+   **Fan-out ledger:** summaries returned to your context rot with it — a compaction mid-integration loses which agents finished, what they changed, and whether the suite was re-run. Keep a fan-out ledger at `.skillgrid/work/<run-slug>/parallel-ledger.md` (git-ignored): one row per agent — `agent | task | status (dispatched|done|failed) | worktree (path + branch) | changed files | test result` — the branch is part of the row because branch+worktree is the atomic pair scratch restore checks against. Write a row on dispatch, update it when the agent returns, append a wave-summary line when the suite is re-run. **Integrate from the ledger + git, not from in-context summaries.** If you suspect a compaction mid-run: re-read the ledger + `git status`/`git log`, then re-dispatch only the unfinished rows. If `mnemonic.enabled: true`, upsert `skillgrid/<topic>/execution-progress` when a wave completes (ledger path plus wave tail, per `_shared/rules/mnemonic-memory.md`).
 
-5. **Review and integrate.** Each agent returns the structured payload in [references/fan-out-return.schema.json](references/fan-out-return.schema.json) — not free prose. A worker that fails or times out is recorded `status: failed` with a placeholder row in the fan-out ledger; integration continues (a partial run is resumable, not a crash). When returns arrive: verify fixes don't conflict (two agents editing the same file = scope error), merge the worktrees into the parent branch in order, run the full test suite, and spot-check each `changed_files` list against `git status` — agents can make systematic errors. Integrate from the ledger + the structured returns, never from in-context summaries.
+   **Interrupted worker:** a worker whose turn ended in error, tool failure, or user stop may restore its own last scratch checkpoint of its worktree (`checkpoint-state.js scratch-restore <id>` — files-only, branch+worktree pair check) before continuing or re-dispatch; the ledger notes it as `(scratch restore <label>)`. Scratch is worker-local recovery — the ledger's integration state stays commit-based.
+
+5. **Review and integrate.** Each agent returns the structured payload in [references/fan-out-return.schema.json](references/fan-out-return.schema.json) — not free prose. A worker that fails or times out is recorded `status: failed` with a placeholder row in the fan-out ledger; integration continues (a partial run is resumable, not a crash). When returns arrive: verify fixes don't conflict (two agents editing the same file = scope error), merge the worktrees into the parent branch in order (with worktrunk active: `wt merge <parent-branch> --no-squash --no-commit` per worktree — see `ship` Step 6 for the pipeline and why squash is off), run the full test suite, and spot-check each `changed_files` list against `git status` — agents can make systematic errors. Integrate from the ledger + the structured returns, never from in-context summaries.
 
 **Concurrent coupled build:** if the parallel work is 2+ *implementation* tasks that touch overlapping files or a shared interface, read [references/concurrent-leaves.md](references/concurrent-leaves.md) before dispatching — it adds the disjoint-`Owns:` contract, a branch integration gate, and parent re-verify on top of this pattern, and tells you when to fall back to sequential.
 
@@ -344,122 +362,7 @@ Announce: "I'm using the skillgrid:ship skill to integrate and close this change
 
 ## When to Stop and Ask for Help
 
-**STOP executing immediately when:**
-- Hit a blocker (missing dependency, test fails, instruction unclear)
-- Plan has critical gaps preventing starting
-- You don't understand an instruction
-- Verification fails repeatedly
-
-**Ask for clarification rather than guessing.** Decision gates follow `_shared/craft/review-discipline.md` (artifact-first: large reports/plans go to a file, not chat; zero-tool turn-yield: end the turn with no tool calls and go idle while the user decides).
-
-**Return to Step 1 when:** the partner updates the plan based on your feedback, or the fundamental approach needs rethinking. Don't force through blockers — stop and ask.
-
-**Out-of-order or invalid transition** (e.g. `exec` before the checklist exists, a review with no diff, a QA gate on an uncommitted tree): do not halt silently and do not execute out of order. Open with a single-line advisory, then halt for the next command:
-
-> **State Advisory:** Cannot `<action>` in `<state>`. Recommended: `<valid command>`.
-
-List the valid next actions, then stop. Never skip ahead to "catch up" to the expected state.
-
-
-## Remember
-
-- Review the plan critically first
-- Climb the lazy ladder before every coding task (The Lazy Discipline) — never simplify away what the ladder protects
-- Follow plan steps exactly
-- Don't skip verifications
-- Commit after every task per `skillgrid:work-unit-commits` — commits are your checkpoints
-- Reference skills when the plan says to
-- Stop when blocked, don't guess
-- Never start implementation on main/master without explicit user consent
-- If `tasks.md` exists, execute tickets in wave order, not file order
-
-## How to measure it
-
-Per `_shared/craft/measurement.md`.
-
-| | Indicator | Data source | Direction |
-|---|-----------|-------------|-----------|
-| Leading | % of executed waves whose tickets reached `done` without a re-run (no wave re-dispatched after a failed review) | `state.yaml` + ticket status history (Backlog / tracker) | should rise |
-| Lagging | Post-merge rework: commits touching the change's files after the first merge that revert or re-scope an executed ticket | Git history | should fall |
-
-## Common Rationalizations
-
-| Excuse | Reality |
-|--------|---------|
-| "The plan is clear enough, skip the critical review" | Step 1 says review critically and raise concerns before starting. A gap caught in review is one line; caught in execution it is a rework of tasks that depended on it. |
-| "I'll run the tests at the end" | Basic TDD means a failing test exists before code. Verifications are per-task, so a red gate at the end can't tell you which task broke. |
-| "This task is small, no need for a gate" | Gates are per requirement before code. Small tasks are where a missing gate silently skips the acceptance scenario. |
-| "I'll fix the commit zone guard later" | The zone rule is one commit each for `.skillgrid/change-specs/` and code; the `pre-commit` hook blocks a commit that stages both. "Later" means a commit that was already wrong. |
-| "Close enough on spec compliance" | Reviewer found spec gaps = not done. Fix or hit the cap and adjudicate — those are the only exits. |
-| "I'll fix it myself, dispatching is overhead" | Controller fixes pollute your context and skip review. Resume the implementer (subagent mode). |
-| "One more round will converge" | Past the cap, rounds don't converge — the failure is structural. Adjudicate and route. |
-| "I'll adjudicate this finding in round 2, no need to run the loop" | Adjudicate only at the cap — ruling early to end a loop is pre-judging. The loop runs its rounds; the breaker is the only exit without a fix. |
-| "The reviewer will just find something new anyway" | Scoped re-reviews verify fixes; they cannot wander. New findings on untouched code go to the ledger, not the loop. |
-| "This finding is obviously wrong, I'll drop it" | You adjudicate only at the cap, and every ruling is a ledger entry. Silent discards are forbidden. |
-| "The fix was small, skip the re-review" | Unreviewed fixes are how regressions land. Every round ends with a scoped re-review. |
-| "Reviews slow the loop down" | The loop without reviews is just unverified churn. Reviews are the loop's brakes and steering. |
-| "Ledger bookkeeping is overhead" | The ledger is what survives compaction. Controllers without one have re-dispatched entire completed task sequences. |
-| "The implementer spawned its own reviewer — free extra assurance" | It's a duplicate seat reviewing the same diff; the task review is the gate. A worker-spawned reviewer is a defect to flag, not rigor. |
-| "The review found minor issues, ship anyway" | The review loop caps per `_shared/planning/rigor-tiers.md`, but a review only closes clean or escalated. Shipping with open findings skips the gate that exists to catch them. |
-| "I'm obviously not in a worktree — no need to check" | Run the Step 0 detection. Harness-created isolation and submodules both fool eyeballing; the detection commands settle it. |
-| "`git worktree add` is quicker than hunting for a native tool" | A native tool (e.g. `EnterWorktree`) owns placement, branching, and cleanup. Bypassing it is the #1 mistake — it creates phantom state the harness can't see or manage. |
-| "The worktree directory is surely ignored already" | Run `git check-ignore`. An unignored worktree directory commits the whole tree into the repo. |
-| "The workspace is fresh — baseline tests can wait" | A dirty baseline makes every later failure ambiguous. Run the tests now; proceeding past failures is your human partner's call. |
-| "The tasks are independent enough, just run them back to back" | One dispatch per response = sequential execution. Multiple dispatches in the same response are what make them run in parallel — back-to-back just wastes the concurrency. |
-| "Parallelizing is risky, I'll do it sequentially" | If the domains are genuinely independent, sequential costs you the whole wall-clock time for zero safety gain. The risk is bad scoping, not concurrency — fix the scope, not the order. |
-| "I'll merge the fan-out results without checking each agent's output" | Agents can make systematic errors. Integrate from the ledger + git and review each summary and diff — never a blind merge. |
-| "It's only two tasks, parallel is overkill" | Two independent investigations still save a full round-trip of wall-clock time. Dispatch cost is near zero; the benefit scales with independence, not count. |
-| "One worktree for all the agents, they'll coordinate" | Shared checkouts race on the index and produce unmergeable diffs. One worktree per agent, always. |
-| "I'll add the robust version to be safe" | Speculative robustness is a new dependency with a bug surface. Ship the lazy version, question it in the same response, let the user ask for the full version. |
-| "Lazy means untested" | The check rule: a non-trivial change MUST leave its happy-path gate green, freshly run. Lazy shortens the code, not the check. |
-| "I'll skip understanding the problem to ship a smaller diff" | The ladder runs after you understand, never instead of. A small diff in the wrong place isn't lazy, it's a second bug. |
-
-## Red Flags
-
-- Implementation started before the acceptance scenario was confirmed RED
-- A commit stages both `.skillgrid/change-specs/` and code (zone guard violation)
-- Task marked completed with no captured test output or exit code
-- A task marked complete on the implementer's return message alone — the claimed artifact or commit was not spot-checked on disk / in git
-- QA gate hit FAIL and the fix was applied without a failing test first
-- Ticket status jumped past `review` to `done` without a clean review
-- Work started on main/master without explicit user consent
-- Edits landed in the main checkout instead of the isolated workspace
-- Baseline tests not verified clean before starting work (a dirty baseline makes every later failure ambiguous)
-- Existing isolation not detected and a duplicate worktree was created
-- `git worktree add` used even though a native worktree tool was available
-- Worktree directory not checked with `git check-ignore` before creation
-- Fan-out agents shared a single checkout instead of one worktree each
-- Two fan-out agents edited the same file or shared resource (no disjoint scope was set)
-- Fan-out dispatches spread across multiple responses instead of one (running sequentially)
-- The fan-out ledger is missing or stale — integration relies on in-context summaries that may have compacted
-- Full test suite not re-run after all fan-out agents returned
-- A fan-out dispatched with \> 5 concurrent worktrees without a recorded user approval
-- An implementer was dispatched without a complete task brief (no `task-brief` path, or the brief path is missing from the prompt)
-- A subagent's output was trusted without parent re-verification — the `#### Gates` oracles were not re-run before marking the task complete
-- The task loop re-dispatched the same task after round 5 without the breaker adjudicating — the cap was exceeded silently
-- A task reviewer was dispatched without a diff file, or without all three inputs (brief, report, review package)
-- The QA gate was skipped or its findings were not triaged before the final review ran
-- A ticket without a complete Work Unit Evidence row was marked complete
-- A `use case` / interface / factory / config block for one implementation or a value that never changes
-- A new dependency added for what a few lines of stdlib or a native platform feature can do
-- A `ponytail:`-marked corner with no named ceiling and upgrade path
-- A non-trivial change declared done while its happy-path gate is unmet or unrun
-
-## Verification
-
-- [ ] The plan (or `tasks.md`) was read and critically reviewed; concerns raised and resolved before execution started
-- [ ] Every task's gate is green: `CHECK:`+`EXPECT:` ran (or `manual` executed, `ABANDON` surfaced as a handoff) with captured output
-- [ ] Test runner from `testing.runner` exits 0; build from `commands.build` and lint from `commands.lint` are clean
-- [ ] Every ticket has a complete Work Unit Evidence row (focused test, runtime harness, rollback boundary)
-- [ ] The lazy ladder was climbed before every coding task: the chosen rung is the minimum that satisfies the constraints, real corners carry a `ponytail:` ceiling comment, and nothing protected by "When NOT to be lazy" was simplified away
-- [ ] The QA gate returned PASS or WAIVED with the waiver recorded; FAIL findings were fixed with a failing test first
-- [ ] Subagent mode: every dispatched implementer received a complete task brief (the `task-brief` output path was in the dispatch prompt), and every subagent's `#### Gates` oracles were re-run by the parent before the task was marked complete
-- [ ] The final review is clean or capped (per `_shared/planning/rigor-tiers.md`, fix loop cap); open findings logged with rulings
-- [ ] Subagent mode: the task loop reached a terminal state — no task stuck cycling past round 5 without a recorded breaker adjudication
-- [ ] If `ticketing.enabled: true`, every ticket's status reflects its real state (`ready` → `in-progress` → `review` → `done`)
-- [ ] Step 0 workspace checks: existing isolation detected (submodule guard included), worktree directory confirmed ignored, clean baseline verified (test runner exit 0, `git status` clean)
-- [ ] Fan-out (when used): each agent ran in its own worktree, all dispatches issued in a single response, the fan-out ledger has a row per agent, every agent summary and diff was reviewed for conflicts, and the full suite was re-run with the result in the ledger
-- [ ] `state.yaml` carries `changes.<topic>.phase: execution`, the workspace is deleted after a clean review, and `skillgrid:ship` was invoked
+See `references/stop-and-ask.md` for the full procedure.
 
 ## References
 
@@ -474,10 +377,10 @@ On-demand detail for this skill, in `references/`:
 - [task-reviewer-prompt.md](references/task-reviewer-prompt.md) — dispatch template for the per-task spec+quality reviewer.
 - [re-review-prompt.md](references/re-review-prompt.md) — dispatch template for the scoped fix re-review.
 - [concurrent-leaves.md](references/concurrent-leaves.md) — the concurrent coupled build: disjoint `Owns:` contract, branch integration gate, parent re-verify (fan-out mode).
-- [style-guide.md](references/style-guide.md) — how this skill and its `references/` / `scripts/` are written and kept current (authoring + drift sweep).
 - [code-structuring.md](references/code-structuring.md) — the code-structuring part: measure a brownfield repo before planning (pygount), a scoped health pass (jscpd duplication → dead code → complexity), and the deep-module vocabulary for the interfaces a task creates or reshapes.
 - [ponytail.md](references/ponytail.md) — the lazy discipline part: the ladder (YAGNI → reuse → stdlib → native → installed dep → one line → minimum), the check rule re-bound to `#### Gates`, intensity levels, and the "when NOT to be lazy" protections.
 - [api-design.md](references/api-design.md) — the API-design part: REST resource naming, semantic status codes, the response envelope, pagination, filtering, auth, rate limiting, and versioning for the endpoints a task adds or reshapes.
+- [../skill-creator/references/rationalizations.md](../skill-creator/references/rationalizations.md) — the authoring rationalizations (script extraction, size, spine sections); load when you or the user push back on this skill's shape
 
 Code style guides in `style-guides/` — Google's official per-language style conventions, one file per language (`typescript.md`, `javascript.md`, `python.md`, `go.md`, `cpp.md`, `java.md`, `csharp.md`, `swift.md`, `shell.md`, and 7 more). Load the matching guide before writing or reviewing code in that language; overview of all guides and cross-language golden rules: [google-styleguides.md](style-guides/google-styleguides.md).
 

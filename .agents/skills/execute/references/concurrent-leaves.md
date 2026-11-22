@@ -31,8 +31,10 @@ implementer, plus two coordination lines:
 - **`Owns:`** — the exact repository-relative globs this leaf may **write**.
   `Owns:` is coordination metadata, not a filesystem sandbox: the leaf may read
   outside its `Owns`, but it may not write to another in-flight leaf's `Owns`.
-  If two leaves' `Owns:` overlap and cannot be split into disjoint sets, the
-  build is not concurrent-safe — go sequential.
+  Globs are relative to **the leaf's own worktree root** — the same coordinate
+  system as the ledger's `changed_files`, so disjointness checks compare
+  apples to apples across worktrees. If two leaves' `Owns:` overlap and cannot
+  be split into disjoint sets, the build is not concurrent-safe — go sequential.
 - **`Needs:`** — the tasks or interfaces this leaf builds on. A leaf with an
   in-flight `Needs:` is not dispatchable; it must wait for that dependency to be
   verified complete.

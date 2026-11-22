@@ -59,6 +59,7 @@ every sibling caller still broken. Fix it once, where all callers route through.
 
 - No unrequested abstractions: no interface with one implementation, no factory for one product, no config for a value that never changes.
 - No boilerplate, no scaffolding "for later", later can scaffold for itself.
+- **The mistake is timing, not the pattern.** A valid pattern (strategy, config, caching, middleware) applied *before* the second concrete need exists is a timing bug, not a design choice. The pattern is right; the moment is wrong. Complexity earns its place when the second case lands, not before — and the simple version refactors cleanly into it when it does.
 - Deletion over addition. Boring over clever, clever is what someone decodes at 3am.
 - Fewest files possible. Shortest working diff wins — but only once you understand the problem. The smallest change in the wrong place isn't lazy, it's a second bug.
 - Complex request? Ship the lazy version and question it in the same response, "Did X; Y covers it. Need full X? Say so." Never stall on an answer you can default.
@@ -149,6 +150,7 @@ The shortest path to done is the right path.
 ## Red Flags
 
 - A `use case` / interface / factory / config block for one implementation or a value that never changes.
+- A valid pattern applied before the second concrete need — complexity added on speculation; the timing is the bug, not the pattern.
 - A new dependency added for what a few lines of stdlib or native platform feature can do.
 - A `ponytail:`-marked corner with no named ceiling and upgrade path.
 - A small diff shipped without tracing the files the change touches first — confident wrong fix, the dangerous kind of lazy.
