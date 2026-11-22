@@ -278,6 +278,21 @@ gate's input-coverage mechanics (the value-source enumeration above) are
 unchanged — this is the tone shift from "here's my recommendation, please
 confirm" to "here are the options and their failure conditions, you decide."
 
+**Option table (per `_shared/rules/user-gates.md`):** the options are written
+to a file **before** the gate (append to the briefing or a decision note in
+the blueprint) and linked in chat — never presented only as chat prose. Up to
+three options; two variants of the same idea are one option. Each row:
+
+| Option | Mechanism | Advantages | Disadvantages | Fails-when |
+|---|---|---|---|---|
+| A: <name> | how it works, 1-3 sentences | what it buys | what it costs to build and to operate | the condition under which this option is wrong |
+
+**Fails-when is mandatory** — an option without a failure condition is a
+preference, not an option. After the owner chooses, record the rejected
+options with the rejection reason in the blueprint (`Alternatives Considered`
+section: `Rejected: <option> — <reason>`) so a later session does not
+re-propose them.
+
 ### The Assumed block
 
 On **Build on the assumption**, write this block into `blueprint.md` directly

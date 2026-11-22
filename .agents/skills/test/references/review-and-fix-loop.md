@@ -14,6 +14,24 @@ git diff --stat $BASE_SHA..$HEAD_SHA
 
 Capture the changed-line count **and the file types touched**. If the diff is empty, stop.
 
+## Bar guards (the diff must not weaken the bar)
+
+An agent that writes the code and the checks takes the cheapest road to green. This pass watches the diff for the five moves that lower the quality bar instead of fixing the code. It runs on the pinned diff, before the lenses are dispatched, and its findings are **required** findings (they do not go through the triage buckets — a weakened bar is fixed in this pass or the change does not merge):
+
+| # | Move | What to look for in `$BASE_SHA..$HEAD_SHA` |
+|---|------|---------------------------------------------|
+| 1 | **Threshold moved** | `config.yaml` (or the project's constraints file) edited: a quality threshold lowered, a severity dropped, a gate removed or zeroed. Compare against the branch point. |
+| 2 | **Test got easier** | `.skip`/`.only` added, a test file deleted, assertions pulled out of a test that stayed, a fixture changed to match the defect. |
+| 3 | **Checker silenced** | New suppression comments (`@ts-ignore`, `eslint-disable`, `# noqa`, `# type: ignore`) — and especially the four that switch off a check rather than a line: `istanbul ignore` (drops code from coverage), mutation-testing disables, `nosemgrep`/`gitleaks:allow` (silence security findings). |
+| 4 | **Work unfinished** | A stub that throws `Not implemented`, an empty `catch {}` turning a failure into silence, a `TODO` standing where the implementation should be. |
+| 5 | **Exception appeared** | A new waiver/exception row (in the change's `briefing.md` waiver block, a `CONSTRAINTS`-style exceptions table, or a config override) that nobody discussed. |
+
+**Placement:** tightening the bar is silent; loosening it is a finding. A threshold change in the *same* diff as the code that needed it is the tell — the fix and the loosening arrive together. Each finding names the file:line, the before/after value, and the move number.
+
+**Ratchet, not aspiration:** when a threshold has no defensible target number (the project measures "today's value"), the bar is a ratchet — record the current value, refuse to let it fall. A diff that moves a ratchet down is move #1 even without an explicit threshold edit, because the recorded baseline changed.
+
+**The circularity check (once per change, at T2+):** the bar must include at least one check the agent cannot satisfy by writing code — an external scanner (trivy, jscpd, the test runner against a held-out test, a lint config the change does not touch). A bar made entirely of checks the change itself edits is self-referential; flag it as a WARNING in the review signal when no external check is present.
+
 ## The Topology Step
 
 Select the fan-out from diff size / risk / rigor tier, never from a choice between skills. Per `skillgrid:code-review`:
@@ -65,7 +83,8 @@ Do this yourself — the lenses file findings, you render the verdict. They lack
 2. **Deduplicate by fingerprint** (`path:line:category`). Findings from two or more lenses pointing at the same defect collapse into one entry, tagged `MULTI-REVIEWER CONFIRMED (a + b)`. Multi-confirmation raises confidence it's real; it does not double the severity.
 3. **Group by root cause.** Two findings belong in one entry only when the same defect produced both. The entry's severity is the highest of its members; `source` is the contributing lenses joined with `+`.
 4. **Verify each entry at its location.** Read the cited `file:line` and read beyond it — follow callers, upstream guards, the surrounding code — until you can answer: does the bad outcome actually occur? Judge whether the problem is real, not whether the proposed fix is plausible.
-5. **Render exactly one verdict per entry** from the six-value table below.
+5. **Re-grade severity yourself.** A lens's self-assigned severity is dropped — reviewers operate under information asymmetry (they lack the spec context, the project constraints, and the consumer's risk posture) and cannot set the final grade. Assign severity by consequence for the artifact's main consumer (the end user of the program, not the developer): `high` = intolerable, `medium` = tolerable but should be fixed before merge, `low` = cosmetic. Multi-reviewer confirmation raises confidence the finding is real; it never raises the grade.
+6. **Render exactly one verdict per entry** from the six-value table below.
 
 ### The Verdict Table (six values)
 
@@ -86,7 +105,13 @@ Route every surviving entry into the fix loop per `skillgrid:receiving-code-revi
 
 ### 1. Triage (the human's call)
 
-Sort findings before touching code. If direction is unclear, surface them grouped and ASK rather than fixing everything by default:
+**Route by root cause first, then by bucket.** For each surviving entry, ask where the root cause lives (per `_shared/craft/review-ledger.md` § Root-cause routing):
+
+- **Root cause in the code** → triage into the buckets below.
+- **Root cause in the spec** (the briefing / acceptance scenario / blueprint said the wrong thing, or was ambiguous enough to produce the defect) → **spec amendment, not a code patch**: amend the spec artifact, record the amendment in the change's change log (blueprint `## Change Log` or `findings.md`) with the triggering finding + the known-bad state it avoids, and re-derive the affected code (fix-now path). When in doubt between a code fix and a spec amendment, prefer the spec amendment — a patch that works around an underspecified requirement is a defect with a coat of paint.
+- **Root cause in human intent** (scope, approach, or acceptance must be renegotiated) → HALT: one question, yield (per `_shared/craft/review-discipline.md`), record the ruling in `briefing.md`. A fix that renegotiates a recorded briefing decision without the human's ruling is scope creep.
+
+Then, for code-root-cause entries, sort findings before touching code. If direction is unclear, surface them grouped and ASK rather than fixing everything by default:
 
 | Bucket | Meaning | Action |
 |--------|---------|--------|
@@ -96,6 +121,8 @@ Sort findings before touching code. If direction is unclear, surface them groupe
 | **Noise** | Won't-fix or misread | Say why, drop it |
 
 The mapping from the verdict table: `high`/`medium` in-scope → fix now; `high`/`medium` pre-existing or out of scope → defer; anything you can't confirm → human look; `low`/`maybe-false` you chose to drop → noise. Don't let the reviewer dictate scope — "real, but later" is a valid and common call.
+
+**Per-finding disposition (per `_shared/rules/user-gates.md`):** the coordinator takes a citable stance on **every** entry before the user adjudicates — the disposition column of the report table carries it: **PROPOSE FIX** (the fix to apply, with the exact change), **CONTEST** (the finding is a misread — cite the file:line or spec line that disproves it; "looks intentional" is not evidence), **ESCALATE** (settling it needs knowledge outside the diff — a team convention, a product intent — state what fact is missing; this needs the user's knowledge, not their approval), **DECLINE** (a `low` not worth fixing — record why). When the user answers **interactive breakdown** (item-by-item walkthrough), the per-item options follow the gate: PROPOSE FIX → Accept / Skip / Discuss; CONTEST → Agree / Overrule (apply fix) / Discuss; ESCALATE → Confirm (no change) / Add the fact to the spec / Discuss. A batch "auto accept" applies all PROPOSE FIX entries and skips the rest. The user's per-item rulings are recorded in the review ledger's disposition column.
 
 ### 2. Fix the "fix now" set — one at a time
 
@@ -107,7 +134,7 @@ Run the full verification suite (test runner + lint + build per config). If a fi
 
 ### 4. Log the rest
 
-- **Deferred:** create a tracker ticket or note in the change's `tasks.md` / spec so it surfaces next cycle.
+- **Deferred:** append a `DW-<n>` entry to `.skillgrid/deferred-work.md` (per `_shared/craft/deferred-work.md` — the `parked` row in the change's `review-ledger.md` and the `DW-` entry are written in the same edit), and, if `ticketing.enabled: true`, also publish a tracker ticket. The `DW-` entry is the cross-change sink: a deferral that lives only in this change's ledger is invisible to the next change.
 - **Human look:** flag in the final report with what to inspect.
 - **Noise:** state the reason so the reviewer (or a future reviewer) sees the ruling.
 
@@ -121,14 +148,14 @@ When acting on a finding: read it without reacting, restate the requirement, ver
 
 ## Resilience Rule
 
-A failed lens is logged by name: if a lens fails, times out, or returns empty, record its name and continue with the survivors. If **all** lenses fail or return empty, the review is **"possibly incomplete", never "clean"** — report that it may be incomplete and list which lenses didn't run.
+A failed lens is `not run` (per `_shared/rules/user-gates.md` honesty tags), logged by name: if a lens fails, times out, or returns empty, record its name and continue with the survivors — a `not run` lens is never "zero findings". If **all** lenses fail or return empty, the review is **"possibly incomplete", never "clean"** — report that it may be incomplete and list which lenses didn't run. A reviewer that finds nothing must say why (an early-exit phrase, e.g. "No spec drift: all scenarios re-traced against the diff") — an empty findings list with no reason is a failed review.
 
 ## Output Contract
 
 1. **Report the round.** Present the lens reports side by side under per-lens headings (verbatim or lightly cleaned), each ending with the finding count + worst issue *within* that lens. Never pick a single cross-lens winner. Then the deduplicated/grouped entries with their verdicts and source tags, and what was fixed vs deferred vs needs a human look. If any lens failed to run, say so before the verdict.
 2. **Write the audit record.** Fill the review template and write it to `.skillgrid/change-specs/<topic>/review.md`, next to `report.md`. It records the lenses side by side, the "What Important means" threshold, the capped Minor findings, each lens's independence grade, and the floor verdict. **Commit it in the spec zone** before continuing code-zone work — a review that lives only in the transcript is not an audit record.
 3. **Record the review signal.** In the change's `tasks.md` `## Review`, record exactly one verdict: **`REVIEW-PASS`** (no unresolved `high`/`medium` entries) or **`BACK-TO-APPLY`** (unresolved entries itemized with `file:line` + evidence), plus the finding counts — `Critical N · Warning N · Suggestion N`. This is the contract `skillgrid:ship` consumes.
-4. **Record a ledger round.** Per `_shared/craft/review-ledger.md`: freeze the candidate, then append a round entry to the change's `review-ledger.md` with the findings table (severities normalized to `CRITICAL` / `WARNING` / `SUGGESTION`), dispositions (fixed / parked / waived), and lineage. Commit the ledger with the review round.
+4. **Record a ledger round.** Per `_shared/craft/review-ledger.md`: freeze the candidate, then append a round entry to the change's `review-ledger.md` with the findings table (severities normalized to `CRITICAL` / `WARNING` / `SUGGESTION`), dispositions (fixed / parked / waived), and lineage. Every `parked` row writes its matching `DW-<n>` entry to `.skillgrid/deferred-work.md` in the same edit (per `_shared/craft/deferred-work.md`). Commit the ledger and the ledger entry together with the review round.
 5. **Update ticket status (if `ticketing.enabled: true`):** set the reviewed ticket → `done`; if all tickets in the epic are `done`, set the epic → `done`.
 6. **Update `state.yaml`:** set `changes.<topic>.phase: review`.
 
@@ -139,10 +166,11 @@ A failed lens is logged by name: if a lens fails, times out, or returns empty, r
 Topology: <3-axis / core five / core five + specialists> — <selection rationale>
 Lenses: <ran list> | <failed/empty list, by name>
 Independence grade: <A / B / C per lens; C = diagnostic only>
+Bar guards: <clean | <N> findings: move #<n> <file:line> <before>→<after>, …>
 
-| # | Verdict | Location | Finding | Source (lens) | Disposition |
-|---|---|---|---|---|---|
-| 1 | high | <file:line> | <finding> | security | fix now / defer / human look / noise |
+| # | Verdict | Location | Finding | Source (lens) | Disposition | Ruling |
+|---|---|---|---|---|---|---|
+| 1 | high | <file:line> | <finding> | security | PROPOSE FIX / CONTEST / ESCALATE / DECLINE | <evidence or reason; user ruling when interactive: accepted / overruled / confirmed> |
 
 Review signal: REVIEW-PASS / BACK-TO-APPLY — Critical N · Warning N · Suggestion N
 Fix loop: <rounds>, cap per _shared/planning/rigor-tiers.md

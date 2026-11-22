@@ -39,7 +39,7 @@ Turns a raw idea into an approved design and spec before any implementation begi
 
 Help turn ideas into fully formed designs and specs through natural collaborative dialogue.
 
-**Questioning mandate:** Brainstorming ALWAYS uses questioning for mutual understanding. Use the agent's answer-select tool (`question` in opencode, `AskUserQuestion` in Claude Code, equivalent in other agents) to present options with tradeoffs. Never assume the user's preference — ask. One question at a time; stop and wait for the response before continuing. The full interview loop (design tree, frontier rounds, clarity gate) is in `references/questioning.md`.
+**Questioning mandate:** Brainstorming ALWAYS uses questioning for mutual understanding. The initial problem-drilling phase is **open-ended** (plain-text questions in chat, no structured tool, no pre-canned multiple-choice options); the structured answer-select tool (`question` in opencode, `AskUserQuestion` in Claude Code, equivalent in other agents) starts at the first frontier round, presenting options with tradeoffs. Never assume the user's preference — ask. One question at a time; stop and wait for the response before continuing. The full interview loop (design tree, frontier rounds, clarity gate, and the open-ended vs single-select phase split) is in `references/questioning.md`.
 
 Start by classifying how much process the request needs, then work
 through your path: understand the context, refine the idea, present a
@@ -295,6 +295,8 @@ the approval gate passed with the quoted yes.
 
 Path checklists (prototype, bounded, new project, new function) and the process-flow diagram: [paths.md](references/paths.md).
 
+**Author resolution (full paths only):** the briefing's `Author` field is resolved from `git config user.name`, then `GIT_AUTHOR_NAME`; if neither is set, ask in chat. Never default to the OS login, "maintainers", or a placeholder name. Rejections recorded in the briefing's Approaches section are attributed as `Rejected by author: <reason>` — never to a maintainer, without their linked issue or PR.
+
 Classify first, announce the path, then complete that file's checklist for the path you named.
 
 
@@ -336,9 +338,11 @@ design is the whole process.
 
 **Exploring approaches:**
 
-- Propose 2-3 different approaches with trade-offs
-- Present options conversationally with your recommendation and reasoning
-- Lead with your recommended option and explain why
+- Propose 2-3 different approaches with trade-offs; two variants of the same idea are one approach
+- Present the approaches as the comparison table from `_shared/rules/user-gates.md` (Option / Mechanism / Advantages / Disadvantages / Fails-when) — the table is the decision surface the user picks from. **Fails-when is mandatory**: an approach without a failure condition is a preference, not an option
+- When a load-bearing architecture choice is open (data model, boundaries, storage, protocol), apply the architecture-option gate from `_shared/rules/user-gates.md`: no ranking, no default, no pick; "just pick one" → restate the trade-offs and present the same gate again
+- Present options conversationally with your recommendation and reasoning — the recommendation is a fact inside the trade-offs, never a label on the option
+- After the user chooses, record the rejected approaches with the rejection reason (carried into the briefing's `Alternatives Weighed` section) so the blueprint does not re-propose them
 - YAGNI ruthlessly - remove unnecessary features from every approach and design
 
 **Presenting the design:**
