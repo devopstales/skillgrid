@@ -366,14 +366,23 @@ func installAgentConfig(c *Config, agent string) error {
 		if err := ensureConfigFile(tuiPath, dry); err != nil {
 			return err
 		}
-		if err := copyAsset(repoRoot, kiloLogoRel, logoDst, dry); err != nil {
-			return err
+		if _, err := os.Stat(filepath.Join(repoRoot, kiloLogoRel)); err == nil {
+			if err := copyAsset(repoRoot, kiloLogoRel, logoDst, dry); err != nil {
+				return err
+			}
+		} else {
+			// Logo source absent (removed pending the ADR-0067 plugin-set
+			// rework): skip the copy and its plugin registration.
+			logoDst = ""
 		}
 		if err := setJSON(tuiPath, "theme", "tokyonight", dry); err != nil {
 			return err
 		}
 		if err := appendJSONArrayUnique(tuiPath, "plugin", "opencode-subagent-statusline", dry); err != nil {
 			return err
+		}
+		if logoDst == "" {
+			return nil
 		}
 		return appendJSONArrayUnique(tuiPath, "plugin", logoDst, dry)
 	default:

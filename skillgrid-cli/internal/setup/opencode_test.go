@@ -8,6 +8,21 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+// presentNativeBases returns the native plugin bases whose source exists in
+// repoRoot. The V1 files are removed pending the ADR-0067 rework, and the
+// installer skips what is absent, so real-repo tests must only expect the
+// present set.
+func presentNativeBases(t *testing.T, repoRoot string) []string {
+	t.Helper()
+	var present []string
+	for _, base := range nativePluginBases {
+		if _, err := os.Stat(filepath.Join(repoRoot, "plugins", "opencode", base+".ts")); err == nil {
+			present = append(present, base)
+		}
+	}
+	return present
+}
+
 func TestSetupOpenCode_InstallsPlugins(t *testing.T) {
 	repoRoot := FindRepoRoot("")
 	if repoRoot == "" {
@@ -19,10 +34,19 @@ func TestSetupOpenCode_InstallsPlugins(t *testing.T) {
 	}
 	// The native TS plugins are copied into OpenCode v2's discovery dir,
 	// ~/.config/opencode/plugins/ (ADR-0045), not the legacy v1 plugin/ dir.
-	for _, base := range nativePluginBases {
+	// A base whose source is absent from the checkout is skipped (ADR-0067
+	// mid-migration) and asserted absent.
+	for _, base := range presentNativeBases(t, repoRoot) {
 		dst := filepath.Join(home, ".config", "opencode", "plugins", base+".ts")
 		if _, err := os.Stat(dst); err != nil {
 			t.Fatalf("missing plugin %s: %v", base, err)
+		}
+	}
+	for _, base := range nativePluginBases {
+		if _, err := os.Stat(filepath.Join(repoRoot, "plugins", "opencode", base+".ts")); err != nil {
+			if _, err := os.Stat(filepath.Join(home, ".config", "opencode", "plugins", base+".ts")); err == nil {
+				t.Fatalf("installed skipped plugin %s with missing source", base)
+			}
 		}
 	}
 	cfgData, err := os.ReadFile(AgentConfigPath(home, "opencode"))
@@ -30,7 +54,7 @@ func TestSetupOpenCode_InstallsPlugins(t *testing.T) {
 		t.Fatalf("read opencode config: %v", err)
 	}
 	plugins := pluginEntries(cfgData)
-	for _, base := range nativePluginBases {
+	for _, base := range presentNativeBases(t, repoRoot) {
 		if !plugins["./plugins/"+base+".ts"] {
 			t.Fatalf("opencode config missing plugin entry %s: %s", base, cfgData)
 		}
@@ -63,7 +87,7 @@ func TestSetupOpenCode_InstallsPlugins(t *testing.T) {
 	if err := SetupOpenCode(homeDry, repoRoot, nil, nil, true); err != nil {
 		t.Fatalf("SetupOpenCode dry-run: %v", err)
 	}
-	for _, base := range nativePluginBases {
+	for _, base := range presentNativeBases(t, repoRoot) {
 		if _, err := os.Stat(filepath.Join(homeDry, ".config", "opencode", "plugins", base+".ts")); err == nil {
 			t.Fatalf("dry-run must not write plugin %s", base)
 		}
@@ -98,7 +122,7 @@ func TestSetupOpenCode_DropsRetiredPlugins(t *testing.T) {
 		}
 	}
 	want := map[string]bool{"keep-me": true}
-	for _, base := range nativePluginBases {
+	for _, base := range presentNativeBases(t, repoRoot) {
 		want["./plugins/"+base+".ts"] = true
 	}
 	for entry := range want {

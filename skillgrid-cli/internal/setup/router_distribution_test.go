@@ -157,7 +157,8 @@ func TestInstallNativePluginsCopiesKiloRouter(t *testing.T) {
 // TestInstallOpenCodeNativePluginsRouterSurvivesMissingNatives: the router is
 // distributed BEFORE the native copy set (T6 follow-up), so a checkout whose
 // native sources are missing (the release/2 state after d5148778) still gets
-// the router plugin + registration even though the native loop fails.
+// the router plugin + registration; the missing native sources are skipped,
+// not fatal (ADR-0067 reworks that set).
 func TestInstallOpenCodeNativePluginsRouterSurvivesMissingNatives(t *testing.T) {
 	home := t.TempDir()
 	repo := t.TempDir()
@@ -179,19 +180,18 @@ func TestInstallOpenCodeNativePluginsRouterSurvivesMissingNatives(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	err := installOpenCodeNativePlugins(home, repo, cfgPath, false)
-	if err == nil {
-		t.Fatal("expected the native loop to fail on missing native sources")
+	if err := installOpenCodeNativePlugins(home, repo, cfgPath, false); err != nil {
+		t.Fatalf("missing native sources are skipped, not fatal: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(cfgDir, "plugins", routerPluginRel+".ts")); err != nil {
-		t.Errorf("router .ts must land before the native loop fails: %v", err)
+		t.Errorf("router .ts must land before the native loop: %v", err)
 	}
 	cfgData, err := os.ReadFile(cfgPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(cfgData), "./plugins/"+routerPluginRel+".ts") {
-		t.Errorf("config must register the router even when the native loop fails: %s", cfgData)
+		t.Errorf("config must register the router when native sources are skipped: %s", cfgData)
 	}
 }
 
@@ -217,18 +217,17 @@ func TestInstallNativePluginsKiloRouterSurvivesMissingNatives(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := installNativePlugins(home, repo, cfgPath, "kilo", false)
-	if err == nil {
-		t.Fatal("expected the native loop to fail on missing native sources")
+	if err := installNativePlugins(home, repo, cfgPath, "kilo", false); err != nil {
+		t.Fatalf("missing native sources are skipped, not fatal: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(cfgDir, "plugin", routerPluginRel+".ts")); err != nil {
-		t.Errorf("kilo router .ts must land before the native loop fails: %v", err)
+		t.Errorf("kilo router .ts must land before the native loop: %v", err)
 	}
 	cfgData, err := os.ReadFile(cfgPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(cfgData), "./plugin/"+routerPluginRel+".ts") {
-		t.Errorf("kilo config must register the router even when the native loop fails: %s", cfgData)
+		t.Errorf("kilo config must register the router when native sources are skipped: %s", cfgData)
 	}
 }

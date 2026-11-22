@@ -18,10 +18,19 @@ func TestSetupKilo_InstallsPlugins(t *testing.T) {
 		t.Fatalf("SetupKiloCode: %v", err)
 	}
 	// The 5 native TS plugins are copied from plugins/opencode/ into kilo.
-	for _, base := range nativePluginBases {
+	// A base whose source is absent from the checkout is skipped (ADR-0067
+	// mid-migration) and asserted absent.
+	for _, base := range presentNativeBases(t, repoRoot) {
 		dst := filepath.Join(home, ".config", "kilo", "plugin", base+".ts")
 		if _, err := os.Stat(dst); err != nil {
 			t.Fatalf("missing kilo plugin %s: %v", base, err)
+		}
+	}
+	for _, base := range nativePluginBases {
+		if _, err := os.Stat(filepath.Join(repoRoot, "plugins", "opencode", base+".ts")); err != nil {
+			if _, err := os.Stat(filepath.Join(home, ".config", "kilo", "plugin", base+".ts")); err == nil {
+				t.Fatalf("installed skipped kilo plugin %s with missing source", base)
+			}
 		}
 	}
 	cfgData, err := os.ReadFile(AgentConfigPath(home, "kilo"))
@@ -34,7 +43,7 @@ func TestSetupKilo_InstallsPlugins(t *testing.T) {
 	if agent := gjson.Parse(string(cfgData)).Get("env.SKILLGRID_AGENT").String(); agent != "kilo" {
 		t.Fatalf("kilo config env.SKILLGRID_AGENT = %q, want kilo: %s", agent, cfgData)
 	}
-	for _, base := range nativePluginBases {
+	for _, base := range presentNativeBases(t, repoRoot) {
 		if !got["./plugin/"+base+".ts"] {
 			t.Fatalf("kilo config missing plugin entry %s: %s", base, cfgData)
 		}
@@ -97,7 +106,7 @@ func TestSetupKilo_DropsRetiredPlugins(t *testing.T) {
 		}
 	}
 	want := map[string]bool{"keep-me": true}
-	for _, base := range nativePluginBases {
+	for _, base := range presentNativeBases(t, repoRoot) {
 		want["./plugin/"+base+".ts"] = true
 	}
 	for entry := range want {

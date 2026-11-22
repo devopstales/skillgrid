@@ -75,6 +75,12 @@ func installOpenCodeNativePlugins(home, repoRoot, cfgPath string, dryRun bool) e
 	}
 	for _, base := range nativePluginBases {
 		srcRel := "plugins/opencode/" + base + ".ts"
+		if _, err := os.Stat(filepath.Join(repoRoot, srcRel)); err != nil {
+			// Source missing (ADR-0067 reworks this set; the V1 files are
+			// removed mid-migration): skip this plugin, matching the
+			// router-step precedent above.
+			continue
+		}
 		dst := filepath.Join(pluginDir, base+".ts")
 		if err := copyFromRepo(repoRoot, srcRel, dst, dryRun); err != nil {
 			return err
@@ -112,6 +118,12 @@ func installNativePlugins(home, repoRoot, cfgPath, harness string, dryRun bool) 
 	}
 	for _, base := range nativePluginBases {
 		srcRel := "plugins/opencode/" + base + ".ts"
+		if _, err := os.Stat(filepath.Join(repoRoot, srcRel)); err != nil {
+			// Source missing (ADR-0067 reworks this set; the V1 files are
+			// removed mid-migration): skip this plugin, matching the
+			// router-step precedent above.
+			continue
+		}
 		dst := filepath.Join(pluginDir, base+".ts")
 		if err := copyFromRepo(repoRoot, srcRel, dst, dryRun); err != nil {
 			return err

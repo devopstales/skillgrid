@@ -273,7 +273,7 @@ func TestHermesPrerequisiteMissingNonFatal(t *testing.T) {
 		}
 	}
 	mcpYAML := `servers:
-  mnemonic:
+  mnemonic-memory:
     type: local
     command:
       - mnemonic
@@ -347,7 +347,7 @@ func TestHermesSelectionFlow(t *testing.T) {
 		}
 	}
 	mcpYAML := `servers:
-  mnemonic:
+  mnemonic-memory:
     type: local
     command:
       - mnemonic
@@ -441,7 +441,7 @@ func TestHermesSetupDryRunNoWrites(t *testing.T) {
 		}
 	}
 	mcpYAML := `servers:
-  mnemonic:
+  mnemonic-memory:
     type: local
     command:
       - mnemonic
@@ -754,7 +754,7 @@ func installRepoRoot(t *testing.T) string {
 		t.Fatal(err)
 	}
 	for i := 0; i < 8; i++ {
-		if _, err := os.Stat(filepath.Join(dir, "plugins", "opencode", "skillgrid-events.ts")); err == nil {
+		if _, err := os.Stat(filepath.Join(dir, "plugins", "opencode", "skillgrid-router.ts")); err == nil {
 			return dir
 		}
 		parent := filepath.Dir(dir)
@@ -812,9 +812,9 @@ func TestInstallCreatesOpenCodeHookLayout(t *testing.T) {
 		}
 	}
 
-	// The 6 native TS plugins are byte-identical to the single opencode source.
-	// OpenCode v2 discovers them from ~/.config/opencode/plugins/ (ADR-0045);
-	// Kilo keeps the v1 plugin/ dir + config registration.
+	// The 6 native TS plugins are byte-identical to the single opencode source
+	// when present; a missing source is skipped (ADR-0067 reworks this set —
+	// the V1 files are removed mid-migration).
 	pluginBases := []string{
 		"skillgrid-compaction",
 		"skillgrid-events",
@@ -824,12 +824,19 @@ func TestInstallCreatesOpenCodeHookLayout(t *testing.T) {
 	}
 	// OpenCode: v2 discovery dir (plugins/), no config registration required.
 	for _, base := range pluginBases {
+		src := filepath.Join(repo, "plugins", "opencode", base+".ts")
 		dst := filepath.Join(home, ".config", "opencode", "plugins", base+".ts")
+		if _, err := os.Stat(src); err != nil {
+			if _, err := os.Stat(dst); err == nil {
+				t.Fatalf("opencode installed plugin %s with missing source", base)
+			}
+			continue
+		}
 		got, err := os.ReadFile(dst)
 		if err != nil {
 			t.Fatalf("opencode missing plugin %s: %v", base, err)
 		}
-		want, err := os.ReadFile(filepath.Join(repo, "plugins", "opencode", base+".ts"))
+		want, err := os.ReadFile(src)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -839,12 +846,19 @@ func TestInstallCreatesOpenCodeHookLayout(t *testing.T) {
 	}
 	// Kilo: v1 plugin/ dir + config registration (reads its own config file).
 	for _, base := range pluginBases {
+		src := filepath.Join(repo, "plugins", "opencode", base+".ts")
 		dst := filepath.Join(home, ".config", "kilo", "plugin", base+".ts")
+		if _, err := os.Stat(src); err != nil {
+			if _, err := os.Stat(dst); err == nil {
+				t.Fatalf("kilo installed plugin %s with missing source", base)
+			}
+			continue
+		}
 		got, err := os.ReadFile(dst)
 		if err != nil {
 			t.Fatalf("kilo missing plugin %s: %v", base, err)
 		}
-		want, err := os.ReadFile(filepath.Join(repo, "plugins", "opencode", base+".ts"))
+		want, err := os.ReadFile(src)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -870,6 +884,9 @@ func TestInstallCreatesOpenCodeHookLayout(t *testing.T) {
 			prefix = "./plugin/"
 		}
 		for _, base := range pluginBases {
+			if _, err := os.Stat(filepath.Join(repo, "plugins", "opencode", base+".ts")); err != nil {
+				continue // skipped source: no registration either.
+			}
 			if !strings.Contains(text, prefix+base+".ts") {
 				t.Fatalf("%s missing plugin %s%s.ts:\n%s", rel, prefix, base, text)
 			}
