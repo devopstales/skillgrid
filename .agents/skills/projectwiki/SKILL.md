@@ -96,6 +96,7 @@ Manage the project's durable knowledge: an OKF vault at `.skillgrid/projectwiki/
 | `projectwiki validate` reports stale | Re-attest sparsely: re-verify only the checks that moved, carry ok claims forward untouched (Pin contract) |
 | Three pages on one theme exist | Write the hub (`architecture/` or `syntheses/`) that links them — the shape rule (Maintain → Shape) |
 | The human edited a page in the Obsidian vault (synced back) | Treat it as a new page write: same-edit rule (index + log) on the next agent touch; the gate surfaces what the edit broke (Obsidian → headless) |
+| The user asks to map/re-map a subtree, or a run changed code | Scoped refresh per `_shared/rules/repo-mapping.md` — `map-scope.mjs --mode refresh` → re-scout changed dirs → `projectwiki index` + `log.md` |
 
 ## Workflow
 
@@ -131,7 +132,7 @@ Do not enumerate or preload the vault at task start. Retrieve, then stop once gr
 
 ## Maintain the project wiki
 
-1. **Locate the home first.** Decision → `decisions/`; must-hold token → `invariants/`; flow → `workflows/`; module map → `architecture/`; gotcha → `gotchas/`; term → `glossary/` (one page per term or term cluster — never append to a growing dictionary; split past ~200 lines); research result → the `sources/` + `syntheses/` hub + `concepts/` tree (the `DATA-LOADING.md` in this skill, operation A); user preference → `preferences/<area>.md` (one page per preference area). New writes of the authored page types outside their folders are rejected at review.
+1. **Locate the home first.** Decision → `decisions/`; must-hold token → `invariants/`; flow → `workflows/`; module map → `architecture/`; whole-tree or subtree map → `architecture/` (recipe: `_shared/rules/repo-mapping.md`, scoped via `_shared/scripts/map-scope.mjs`); gotcha → `gotchas/`; term → `glossary/` (one page per term or term cluster — never append to a growing dictionary; split past ~200 lines); research result → the `sources/` + `syntheses/` hub + `concepts/` tree (the `DATA-LOADING.md` in this skill, operation A); user preference → `preferences/<area>.md` (one page per preference area). New writes of the authored page types outside their folders are rejected at review.
 2. **Check what exists** (`projectwiki query` + `status --json` `by_type`) before writing — a growing base beats a pile of duplicates.
 3. **Write or revise** per the Page contract below. On revise: state only what changed (confirm / revise-same-id / retract); carry unaffected content forward untouched.
 4. **Same-edit rule:** every page write is followed by `projectwiki index` — the engine refreshes the derived rows (`projectwiki_pages`, the FTS table, `in_degree`), rewrites `index/last-update.json`, and **reprojects the root `index.md` catalog** (sectioned by type, one `[[type/slug]]` line per page). The catalog is a projection — never hand-edit it; edit the pages, reindex, and it follows. Page + reindex ship together or the change is incomplete.
@@ -175,6 +176,8 @@ claims: [{ subject, literal, path? }]                # REQUIRED for InvariantCon
 `description` is **not** a parsed field — the parser reads `title`/`type`/`project`/`aliases`/`anchors`/`claims`/`sources`/`status`/`stale_after`/`generated`/`verified` only. Put the retrieval-oriented one-liner in the H1 and first paragraph. `status` is not validated against a vocabulary, so pick the family for the folder and keep it consistent across pages of that type.
 
 Body is the why in structural Markdown (headings, lists, tables). Prefer stable anchor tokens (literals, error strings, enum values, thresholds); never marker-only anchors. Unanchored pages are valid knowledge (reports, retrospectives) — they load, they just don't arm the pin check. `index/**` is reserved (derived — the engine rewrites it), never concepts. Soft-delete via `projectwiki_pages.deleted_at`; deprecate via `status: deprecated`.
+
+Code-sourced pages (`architecture/`, `gotchas/`) ground every code claim in `[file:symbol]` citations per `_shared/rules/scout-contract.md`; a claim with no citation is a hypothesis, not a page. `None` is a valid value: a component with no explicit invariants gets none, not an inferred one.
 
 ## Pin contract
 

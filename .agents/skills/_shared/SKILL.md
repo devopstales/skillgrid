@@ -34,9 +34,17 @@ reference bundles that skills load on demand. A new standard that belongs in
    - **Verification**
      - [rules/verification-ladder.md](rules/verification-ladder.md) — L1–L4 verification levels per change class.
      - [rules/evidence-claims.md](rules/evidence-claims.md) — when a claim counts as evidence: repro-before-closure, named-test closure, baseline discipline, deletion-first fix ranking, executable exits.
+   - **Repo mapping**
+     - [rules/repo-mapping.md](rules/repo-mapping.md) — the `architecture/` map: page shapes (component vs blueprint), scoped refresh (the execute hook), full-map recipe, correction policy.
+     - [rules/scout-contract.md](rules/scout-contract.md) — zero-inference code reading: `[file:symbol]` citations, `None` for absence, ~1,500-line scout chunks, read order, JSON return, link hygiene.
+   - **Evals**
+     - [rules/eval-assertions.md](rules/eval-assertions.md) — `required_pattern` / `forbidden_pattern` eval assertions.
+   - **User gates**
+     - [rules/user-gates.md](rules/user-gates.md) — decisions the user makes with information: gate format invariants (one question, no recommendation labels, artifact first), the per-finding disposition contract (CONTEST / ESCALATE / PROPOSE FIX / DECLINE), the architecture-option table (Option / Mechanism / Advantages / Disadvantages / Fails-when), honesty tags (`not run`, `[⚠️ UNVERIFIED]`, `[⏳ ACK]`).
 - `planning/` — the Skillgrid workflow standards:
    - [planning/rigor-tiers.md](planning/rigor-tiers.md) — the per-change rigor dial (T0–T3) that sets each gate's floor.
    - [planning/fast-track.md](planning/fast-track.md) — the trivial/small waiver policy (when the pipeline shrinks).
+   - [planning/fan-out-gate.md](planning/fan-out-gate.md) — cost-aware approval before parallel fan-out: >15 units, ≤5 concurrent, ~1,500 lines per scout, cost stated in the gate message.
 - `verification/` — the gate's judgment rules:
    - [verification/floor.md](verification/floor.md) — multi-part judgments gate on the weakest part, never the average.
 - `craft/` — skill-authoring rules:
@@ -47,9 +55,12 @@ reference bundles that skills load on demand. A new standard that belongs in
    - [craft/cite-dont-restate.md](craft/cite-dont-restate.md) — cite decisions and ADRs by identifier; never restate their wording.
    - [craft/effort-budgets.md](craft/effort-budgets.md) — the `effort:` frontmatter budget signal (low / standard / max) and the honest-overhead "when NOT to use the pipeline" rule.
    - [craft/review-discipline.md](craft/review-discipline.md) — the review loop: blindness, verdicts, the fix loop, and the ❌/✅ paired-example format for steering by contrast.
-   - [craft/review-ledger.md](craft/review-ledger.md) — the per-change review ledger: findings, dispositions, lineage.
+   - [craft/review-ledger.md](craft/review-ledger.md) — the per-change review ledger: findings, dispositions, lineage, the frozen-intent contract.
+   - [craft/deferred-work.md](craft/deferred-work.md) — the cross-change deferred-work ledger: the `DW-<n>` entries the review triage "defer" sink writes, the sweep (verify against code → resolved / bundle / blocked / skip / decision), staleness.
 - `references/` — canonical single-source references:
    - [references/threat-matrix.md](references/threat-matrix.md) — the applicability-driven threat matrix.
+- `scripts/` — shared deterministic helpers (JSON stdout, exit 0/1/2, tests beside):
+   - [scripts/map-scope.mjs](scripts/map-scope.mjs) — repo-mapping scope: BFS discovery, prune, manifest diff, partitioning, gate verdict. `node map-scope.mjs --base <sha> --mode refresh|full` / `--merge <returns.json>`.
 - `adr-records/` — ADR template family (load the matching format when authoring a decision record):
    - [adr-records/README.md](adr-records/README.md) — which template to pick, and the shared conventions (numbering, supersession).
    - [adr-records/nygard.md](adr-records/nygard.md) — the default Context / Decision / Consequences form.

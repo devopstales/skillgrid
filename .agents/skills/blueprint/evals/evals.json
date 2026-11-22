@@ -24,6 +24,25 @@
       "prompt": "You ran a prototype (Phase 4) and the verdict is INVALIDATED — the integration approach doesn't work.",
       "expected_output": "Agent presents continue / pivot the approach / abandon and waits for the answer. It does not silently proceed to Phase 5. If pivoting, it re-runs the affected Phase 2 sections and updates the wiki (Phase 3) to match, with the Findings header now citing the ## Prototype: section.",
       "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "Research the refund_service/ directory for the blueprint. It contains one file, string_utils.py, defining a single pure helper sanitize(). Show the research findings for it.",
+      "expected_output": "Agent cites the helper as [string_utils.py:sanitize] and reports no invariants or side effects (None) rather than inferring refund handling from the directory name. It does not name a RefundService class or issue_refund RPC.",
+      "assertions": [
+        { "type": "required_pattern", "pattern": "string_utils\\.py:?\\s*sanitize|\\[string_utils\\.py:sanitize\\]", "message": "Findings must cite the symbol as [file:symbol]." },
+        { "type": "forbidden_pattern", "pattern": "(?i)(issue_?refund|process_?refund|RefundService)", "message": "No refund symbols may be inferred from the directory name." }
+      ],
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "The plan needs research across 18 independent packages. How do you handle the scout dispatch?",
+      "expected_output": "Agent applies the fan-out gate: 18 > 15 units, so it pauses and asks before spawning, stating the cost (18 scout units, cap 5 concurrent, ~1,500 source lines per chunk). It does not silently dispatch all 18.",
+      "assertions": [
+        { "type": "required_pattern", "pattern": "(?i)(\\b18\\b|up to|at most|no more than)\\s+(5|five)\\s+(parallel|concurrent|at a time)?", "message": "The gate must state the worker cap." }
+      ],
+      "files": []
     }
   ]
 }

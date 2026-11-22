@@ -244,7 +244,7 @@ Before dispatching Task 1, decompose the plan and gate each task on its own owne
 - **Give each task exact file ownership and its dependencies.** Record two ledger lines per task before dispatch: `Task <N>: Owns: <repo-relative globs>` and `Task <N>: Needs: <task ids or interfaces it builds on>`. These are coordination metadata, not a filesystem sandbox — a task may still read outside its `Owns`, but it may not write to another in-flight task's `Owns`.
 - **Dependency-gated dispatch.** Dispatch a task only when every task named in its `Needs:` has a `Task <M>: complete` ledger line. For a plan of independent tasks this is a no-op; for a coupled plan it is the missing safety. Never dispatch a task whose declared dependency is still in flight.
 - **Branch integration gate.** If two or more tasks share an interface or file, name the task that *integrates* them and give it an extra `G<n>` gate: the child tasks' outputs compose and the shared interface holds end-to-end. This gate is independent of the child leaves — it verifies the branch, not just the parts. If it cannot be made runnable, it is a `manual` gate you review at the final review, not a silent skip.
-- **Parent re-verify.** A leaf's self-pass does not count as verification. Before marking a task complete, re-run its `#### Gates` oracles yourself (the runnable `CHECK:`+`EXPECT:` lines) — see `skillgrid:test-driven-verification`. The implementer's report is a claim; your re-run is the evidence. **Filesystem as truth:** a return message is never the completion signal. Spot-check the worker's claimed artifacts on disk and `git log --grep=<task-id>` for its commit before marking the task done — a worker whose claims do not match disk or git is not done, whatever the message says (a lost return message with the artifact on disk is still done; a green message with nothing on disk is not).
+- **Parent re-verify.** A leaf's self-pass does not count as verification. Before marking a task complete, re-run its `#### Gates` oracles yourself (the runnable `CHECK:`+`EXPECT:` lines) — see `skillgrid:test-driven-verification`. The implementer's report is a claim; your re-run is the evidence. **Filesystem as truth:** a return message is never the completion signal. Spot-check the worker's claimed artifacts on disk with `fd '<artifact-name>' <worktree>` and `rg -n '<key symbol>'` for its commit before marking the task done — a worker whose claims do not match disk or git is not done, whatever the message says (a lost return message with the artifact on disk is still done; a green message with nothing on disk is not).
 
 Inline mode: the same discipline applies to the session itself — gates run before code, and a task's verification is the evidence, not a self-report.
 
@@ -358,6 +358,14 @@ When the final review is clean and its fixes are merged, delete this plan's work
 
 **Update tickets:** every clean ticket → `done` in the tracker (if `ticketing.enabled`); closing commits use `Closes <ID>`.
 
+**Refresh the repo map (automatic):** if this run changed any code (`git diff <merge-base>..HEAD --name-only` is non-empty), refresh the projectwiki `architecture/` map for the affected directories:
+
+1. `node .agents/skills/_shared/scripts/map-scope.mjs --base <merge-base> --mode refresh`
+2. `gate: "ask"` → fan-out gate (`_shared/planning/fan-out-gate.md`): state the cost ("N scout units, cap 5 concurrent, ~1,500 source lines per scout"), wait for proceed / defer. Defer → record `map: deferred (N units)` in the execution ledger and continue.
+3. Re-scout changed component pages (post-order, ≤5 concurrent), re-render their blueprint parents, `map-scope.mjs --merge scout-returns.json`, `projectwiki index` + `log.md` line.
+
+Recipe and page shapes: `_shared/rules/repo-mapping.md`. If the run was docs/config-only, skip silently — no ledger line, no announcement.
+
 Announce: "I'm using the skillgrid:ship skill to integrate and close this change." **REQUIRED SUB-SKILL:** use `skillgrid:ship` — follow it to verify tests, present options, and execute the choice.
 
 ## When to Stop and Ask for Help
@@ -380,6 +388,7 @@ On-demand detail for this skill, in `references/`:
 - [code-structuring.md](references/code-structuring.md) — the code-structuring part: measure a brownfield repo before planning (pygount), a scoped health pass (jscpd duplication → dead code → complexity), and the deep-module vocabulary for the interfaces a task creates or reshapes.
 - [ponytail.md](references/ponytail.md) — the lazy discipline part: the ladder (YAGNI → reuse → stdlib → native → installed dep → one line → minimum), the check rule re-bound to `#### Gates`, intensity levels, and the "when NOT to be lazy" protections.
 - [api-design.md](references/api-design.md) — the API-design part: REST resource naming, semantic status codes, the response envelope, pagination, filtering, auth, rate limiting, and versioning for the endpoints a task adds or reshapes.
+- [../_shared/rules/repo-mapping.md](../_shared/rules/repo-mapping.md) — the `architecture/` map: page shapes (component vs blueprint), the scoped refresh Step 5 runs, and the full-map recipe.
 - [../skill-creator/references/rationalizations.md](../skill-creator/references/rationalizations.md) — the authoring rationalizations (script extraction, size, spine sections); load when you or the user push back on this skill's shape
 
 Code style guides in `style-guides/` — Google's official per-language style conventions, one file per language (`typescript.md`, `javascript.md`, `python.md`, `go.md`, `cpp.md`, `java.md`, `csharp.md`, `swift.md`, `shell.md`, and 7 more). Load the matching guide before writing or reviewing code in that language; overview of all guides and cross-language golden rules: [google-styleguides.md](style-guides/google-styleguides.md).
