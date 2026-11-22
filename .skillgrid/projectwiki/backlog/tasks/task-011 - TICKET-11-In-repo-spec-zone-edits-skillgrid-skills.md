@@ -1,10 +1,10 @@
 ---
 id: TASK-011
 title: 'TICKET-11: In-repo spec-zone edits (skillgrid-skills)'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-11-22 15:43'
-updated_date: '2026-11-22 15:43'
+updated_date: '2026-11-22 18:30'
 labels: []
 milestone: m-0
 dependencies:

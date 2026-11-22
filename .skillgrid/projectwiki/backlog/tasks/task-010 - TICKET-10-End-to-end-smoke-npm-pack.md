@@ -1,10 +1,10 @@
 ---
 id: TASK-010
 title: 'TICKET-10: End-to-end smoke + npm pack'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-11-22 15:43'
-updated_date: '2026-11-22 15:43'
+updated_date: '2026-11-22 18:30'
 labels: []
 milestone: m-0
 dependencies:

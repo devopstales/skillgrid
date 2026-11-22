@@ -1,10 +1,10 @@
 ---
 id: TASK-009
 title: 'TICKET-09: evals + changelog + README + reference docs + contract-drift guard'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-11-22 15:43'
-updated_date: '2026-11-22 15:43'
+updated_date: '2026-11-22 18:30'
 labels: []
 milestone: m-0
 dependencies:

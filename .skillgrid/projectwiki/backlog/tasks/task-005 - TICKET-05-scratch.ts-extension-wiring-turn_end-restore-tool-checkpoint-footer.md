@@ -3,10 +3,10 @@ id: TASK-005
 title: >-
   TICKET-05: scratch.ts extension wiring - turn_end, restore tool, checkpoint,
   footer
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-11-22 15:43'
-updated_date: '2026-11-22 17:13'
+updated_date: '2026-11-22 18:30'
 labels: []
 milestone: m-0
 dependencies:

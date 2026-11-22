@@ -1,10 +1,10 @@
 ---
 id: TASK-008
 title: 'TICKET-08: markers + ui - lifecycle, stale report, dual-plugin note'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-11-22 15:43'
-updated_date: '2026-11-22 15:43'
+updated_date: '2026-11-22 18:30'
 labels: []
 milestone: m-0
 dependencies:
