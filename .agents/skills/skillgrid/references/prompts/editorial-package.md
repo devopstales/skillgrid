@@ -6,7 +6,7 @@ When to load: Phase 7. Role: orchestrator, with the release specialist and the p
 
 ## Steps
 
-1. **Document.** Use `skillgrid:document` to write from the real diff and commits, never from memory:
+1. **Document.** Use `skillgrid:writing` (record mode) to write from the real diff and commits, never from memory:
    - `README.md` — what the program does, how to install and run it, one worked example, the supported versions, and where the docs live. A reader must reach a working command without reading source.
    - `CHANGELOG.md` — one entry for this change under the current version, in the repo's existing style.
    - The PR body — the problem, the change, the evidence (tests run, gates), the risks, the rollback.

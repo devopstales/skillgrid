@@ -5,9 +5,12 @@ description: "Use when a change has passed QA and review and needs to be closed 
 license: MIT
 metadata:
   author: devopstales
-  version: "2.1"
+  version: "2.2"
   part-of: skillgrid
   based_on: skillgrid:reflect 1.0 + skillgrid:environment-retro 1.0 + skillgrid:document 1.0 + skillgrid:ship 1.1
+  created_by: human
+  related_skills: [drift, writing]
+  version: "2.4"
 ---
 
 # Ship
@@ -55,9 +58,11 @@ flowchart TD
     H -->|1, merge locally| I[re-run suite on merged tree]
     H -->|2, push + PR| J[PR against base]
     H -->|3, keep as-is| K[report branch + worktree]
+    H -->|4, fork worktree| O[sibling worktree, both paths reported]
     I --> L[Step 7: Archive - git mv + diff -r readback]
     J --> L
     K --> L
+    O --> L
     L --> M[Step 8: Return Envelope]
 ```
 
@@ -173,29 +178,32 @@ Rules: read the repo's existing guardrails (`config.yaml` `testing.*`, lint/chec
 
 ### Step 4: Document (human-facing record)
 
-You are the technical writer who writes **from the record, not from imagination**. The AI's memory of what it changed is not a source — `git log` + `git diff` + the change folder are.
+**Write per `skillgrid:writing` (record mode).** The record-mode contract —
+the four types, the gather-from-the-record process (git + change folder, never
+memory), the per-type audience pitch, the templates, and the rules (every
+claim traces to a source, no marketing, the gate is named, `## Merge Danger`
+for the PR body) — lives in `skillgrid:writing`, not here. This step
+determines which types the change warrants and passes them:
 
-**Gather the source material** (in this order, never from memory):
+**Write, where the change warrants it** (a trivial fast-track change skips
+changelog / release-note; the PR body is always written when the PR option is
+chosen):
 
-```bash
-git rev-parse --abbrev-ref HEAD
-git log --oneline "BASE..HEAD"
-git diff --name-status "BASE...HEAD"
-```
-
-plus the change folder: `briefing.md` (goal), `blueprint.md` (approach), `tasks.md` (what shipped), `report.md` → `## Gate Decision` (verdict + evidence).
-
-**Write, where the change warrants it** (a trivial fast-track change skips 2–3; the PR body is always written when the PR option is chosen):
-
-| Record | Output |
+| Type | When |
 |---|---|
-| **PR body** | title + body for the forge (`gh`/`glab`) or chat — lead with what changed and why, name the gate verdict, point at the evidence; include a `## Merge Danger` section (one-way vs two-way door + one-word blast radius). When the tracker is `hermes-kanban`, also list the change's Kanban task IDs (from `tasks.md` → `Tracker ID`) so the board and the PR cross-reference each other |
-| **Changelog** | entry appended to `CHANGELOG.md` (root; created with a `# Changelog` header on first use; Keep a Changelog format) — bullet the user-visible changes, group by Added/Changed/Fixed/Breaking |
-| **Release note** | `.skillgrid/releases/<version>.md` (created on first use) — plain language, no internal names, lead with what the user can now do |
+| `pr` | the PR option is chosen (Step 6, option 2) — always |
+| `changelog` | the change has user-visible behavior (skipped on a trivial fast-track change) |
+| `release-note` | a version is being cut for this change |
 
-Rules: **every claim traces to a source** — a timeline entry names its commit, a "fixed" bullet names the file, a cause names its evidence; if you cannot name the source, do not write the claim. **No marketing** — no "seamless", no "robust". **The gate is named, not implied** — the `report.md` verdict is part of the record.
+**Ship-specific additions (on top of the record-mode contract):**
 
-**Projectwiki is updated in the same pass.** Per the task-bookend rule of [../_shared/projectwiki/SKILL.md](../_shared/projectwiki/SKILL.md): file every non-obvious artifact in its home before the commit — a code fact ("how it works" changed) → `architecture/`; a discovered quirk or failure lesson → `gotchas/`; a reusable pattern → `concepts/`; a must-hold constraint → `invariants/` (with `claims:`); a domain term → `glossary/`; a locked decision → `decisions/` (via the ADR records, `_shared/adr-records/` — ship never mints ADR numbers). Check `projectwiki query` + `status --json` before writing; every page gets 2+ outgoing wikilinks; **the same-edit rule**: `projectwiki index` immediately after the page writes, then `projectwiki validate` + `projectwiki lint` before the commit. A finding true only for this one change stays in `report.md` alone.
+- **Kanban cross-reference.** When the tracker is `hermes-kanban`, the PR
+  body also lists the change's Kanban task IDs (from `tasks.md` → `Tracker
+  ID`) so the board and the PR cross-reference each other.
+- **Comments left for humans** (PR feedback, issue replies) follow
+  `skillgrid:writing`'s comment voice.
+
+**Projectwiki is updated in the same pass.** Per the task-bookend rule of [../projectwiki/SKILL.md](../projectwiki/SKILL.md): file every non-obvious artifact in its home before the commit — a code fact ("how it works" changed) → `architecture/`; a discovered quirk or failure lesson → `gotchas/`; a reusable pattern → `concepts/`; a must-hold constraint → `invariants/` (with `claims:`); a domain term → `glossary/`; a locked decision → `decisions/` (via the ADR records, `_shared/adr-records/` — ship never mints ADR numbers). Check `projectwiki query` + `status --json` before writing; every page gets 2+ outgoing wikilinks; **the same-edit rule**: `projectwiki index` immediately after the page writes, then `projectwiki validate` + `projectwiki lint` before the commit. A finding true only for this one change stays in `report.md` alone.
 
 ### Step 5: Commit
 
@@ -210,7 +218,7 @@ If the user chose **merge locally** (Step 6, option 1), the work-unit commits we
 
 ### Step 6: Integrate (PR / merge / keep)
 
-**Detect environment** (worktree-detection snippet per `_shared/work-unit-commits/README.md` § Worktree detection):
+**Detect environment** (worktree-detection snippet per `_shared/work-unit-commits/README.md` § Worktree root + detection):
 
 ```bash
 GIT_DIR=$(cd "$(git rev-parse --git-dir)" 2>/dev/null && pwd -P)
@@ -219,7 +227,9 @@ GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P)
 
 `GIT_DIR != GIT_COMMON` (and not a submodule — `git rev-parse --show-superproject-working-tree` printing a path means normal repo) → linked worktree.
 
-**Determine the base branch** from `chain.strategy` in `.skillgrid/config.yaml` (set at onboarding — the project-level delivery decision, not a per-change one): `stacked-to-main` → `main`; `feature-branch-chain` → the work-unit table's base boundary for the final unit (per-unit boundaries live in `tasks.md` → `## Delivery Strategy`); `size:exception` → the single PR's target (usually `main`). If `chain.strategy` is missing or the change's `tasks.md` says `Chain strategy: pending` (the slicer deferred the decision), **ask** the user. Confirm before merging — merging into the wrong base is expensive to undo.
+**Review budget check (before pushing):** the PR must fit the 400-changed-line review budget, or carry its documented exception — the decision table and count method are in [../_shared/work-unit-commits/README.md](../_shared/work-unit-commits/README.md) § PR review budget.
+
+**Determine the base branch** from `chain.strategy` in `.skillgrid/config.yaml` (set at onboarding — the project-level delivery decision, not a per-change one; the chain-strategy decision table and the cross-fork limitation are in [../_shared/work-unit-commits/README.md](../_shared/work-unit-commits/README.md) § Chain strategy decision): `stacked-to-main` → `main`; `feature-branch-chain` → the work-unit table's base boundary for the final unit (per-unit boundaries live in `tasks.md` → `## Delivery Strategy`); `size:exception` → the single PR's target (usually `main`). If `chain.strategy` is missing or the change's `tasks.md` says `Chain strategy: pending` (the slicer deferred the decision), **ask** the user. Confirm before merging — merging into the wrong base is expensive to undo.
 
 **Present the menu and wait** (the integration decision is the user's; discarding happens only on the typed word `discard`).
 
@@ -232,15 +242,23 @@ Close-out complete. What would you like to do?
 1. Merge back to <base-branch> locally
 2. Push and create a Pull Request
 3. Keep the branch as-is (I'll handle it later)
+4. Fork the worktree (try option B while A iterates)
 
 Which option?
 ```
 
-**Option 1 — Merge locally:** merge the feature branch into the base, then **re-run the test suite on the merged result** (the iron law). Green → clean up the worktree (only under the project-root `.worktree/`) and delete the branch. Red → stop, leave everything in place, and investigate — nothing has been pushed, so the merge is local and recoverable.
+**Option 1 — Merge locally:** merge the feature branch into the base, then **re-run the test suite on the merged result** (the iron law).
 
-**Option 2 — Push and create PR:** `git push -u origin <branch>`, create the PR/MR against the base with the forge's CLI, using the PR body from Step 4. Report the URL. **Keep the worktree** — the user iterates on PR feedback there.
+- **With worktrunk active:** `wt merge <base> --no-squash --no-commit` — the pipeline (rebase onto base → `[pre-merge] test` hook, which *is* the iron law running in the worktree → fast-forward merge; non-FF rejected) does the merge, and cleanup removes the worktree + branch. `--no-squash --no-commit` because work-unit commits are atomic and already exist — squashing them into one commit would destroy the independently-revertable history the commit contract builds.
+- **Git fallback:** `git merge` (rebase first if the branch is behind), then run the suite.
+- Green → clean up per `_shared/work-unit-commits/README.md` § Worktree removal + branch deletion: **only remove worktrees the session created** under the project-root `.worktree/` (or the declared `conventions.worktree_dir`); native-tool and tracker-claimed workspaces (e.g. hermes-kanban claims) are managed by their tool, so leave them to it. Branch deletion requires the no-added-changes check (same commit → ancestor → empty `base...branch` diff). With worktrunk: `wt remove --reap` (reaps detached processes by working directory, spares TTY-attached ones); without, check for processes with cwd under the worktree and report them. Force removal only after a backup ref (`git stash create` → `update-ref refs/skillgrid/pre-remove-<branch>`) with the recovery path in the report.
+- Red → stop, leave everything in place, and investigate — nothing has been pushed, so the merge is local and recoverable.
+
+**Option 2 — Push and create PR:** `git push -u origin <branch>`, create the PR/MR against the base with the forge's CLI, using the PR body from Step 4. Report the URL. **Keep the worktree** (and its scratch refs) — the user iterates on PR feedback there.
 
 **Option 3 — Keep as-is:** report the branch and worktree location. Work stays; the change folder still archives (Step 7).
+
+**Option 4 — Fork the worktree** (per `_shared/work-unit-commits/README.md` § Worktree lifecycle): create the sibling — `wt switch --create <branch>-alt --base <branch>` or `git worktree add .worktree/<branch>-alt -b <branch>-alt <branch>` — report both paths, and state which change the fork belongs to: a continuation of *this* change (same spec folder, new branch) or a *new* change (new spec folder). The original worktree keeps Option 3 semantics. Integration stays single-sink: a fork that also merges is a second change, not this one done twice.
 
 **Rollback plan (mandatory before any GO):** name the trigger and the procedure — merged → `git revert <merge-commit> -m 1`; PR open → close the PR (the branch stays); branch kept → the branch is the rollback. A trivial fast-track change may use one line: "revert the single commit."
 
@@ -288,149 +306,19 @@ mem_save(
 ```markdown
 ## Change Closed
 
-**Change**: YYYY-MM-DD-<topic>
-**Acceptance verdict**: accepted | accepted-with-open-items | rejected
-**Base branch**: {base-branch} · **Chain strategy**: {strategy}
-**Integration**: {merged to {base} @ {commit} | PR {url} | kept branch {name}}
-**Archived**: `.skillgrid/change-archive/YYYY-MM-DD-<topic>/`
-**Status**: success | blocked
-
-### Gates
-| Gate | Result |
-|------|--------|
-| QA gate | ✅ {PASS \| WAIVED \| CONCERNS — human override recorded} |
-| Review gate (advisory) | ✅ {met \| met-with-fixes \| not met notes} |
-| Acceptance verdict (advisory) | {accepted \| …} — recorded, not enforced |
-
-### Integration Test Evidence
-- {test command} on integrated tree: {N passed, M failed} → {green}
-
-### Sourced Learnings
-- **Decision**: {choice + tradeoff} — {source}
-- **Lesson**: {do differently + root cause} — {source}
-- **Pattern**: {reusable approach} — {source}
-- **Surprise**: {gotcha/edge case} — {source}
-
-### Environment Retro
-{the table rows, or "Clean — no findings"}
-
-### Records
-- PR body: {url | written to {path}}
-- Changelog: {CHANGELOG.md | skipped — not user-facing / fast-track}
-- Release note: {path | skipped}
-- Projectwiki: {N pages written/updated + index run | nothing durable to file}
-
-### Mechanical Move
-- Pre-move snapshot → `git mv`/`mv` → `change-archive/`
-- `diff -r` readback: {empty → ✅ | verbatim output → FAIL}
-
-### Overrides / Waivers
-{QA waiver, human CONCERNS override, fast-track class — or "None"}
-
-**Rollback plan**: {trigger → procedure}
-**Mnemonic**: observation `{id or 'none'}` · session `{sid}`
-**Open items (→ next change)**: {list, or "None"}
-**Next**: none — cycle complete
-```
-
-Close the final message with a `## Key Learnings` section — 1–5 standalone factual sentences (≥ 20 chars each). Mnemonic passive capture picks these up.
-
-## Rules
-
-- You close **verified** work. A `FAIL` in `report.md` → `## Gate Decision` or an unresolved CRITICAL blocks ship — no prompt override; require a fresh passing test run.
-- **The iron law** (above) — no merge, push, or folder move before a fresh green run on the integrated tree.
-- **Every learning is sourced.** A finding with no file:line / commit / ticket / scenario is a guess — cite it or mark it undiagnosed.
-- **The acceptance verdict is advisory.** `rejected` is recorded and surfaced, never a hard block. The human decides follow-up.
-- **The environment retro proposes, never implements.** Real builds become tickets + `mem_save`, not edits made in this phase.
-- **Documentation writes from the record.** `git log` + `git diff` + the change folder are the sources; the AI's memory of its own work is not.
-- **The move is mechanical** — one call to `ship-archive.mjs`, never model Read/Write and never hand-rolled `git mv` + `diff -r`, with an empty `diff -r` readback (empty = only passing evidence, verbatim in the JSON) after it.
-- **The move is the LAST step** — everything that must be archived (retro half, environment retro, docs, wiki pages) is committed before the folder leaves `change-specs/`.
-- **The archive is an audit trail** — never deleted or modified after the move. A post-archive defect is a new change.
-- **The integration decision (merge / PR / keep / discard) is the user's** — present the menu and wait. Discard happens only on the typed word `discard`.
-- **No release mechanics** (no VERSION bump) — the human-facing record is the changelog / release note from Step 4, and only where the change warrants it.
-- **Decision debt ships, it doesn't clear.** An assumed blueprint flag is carried into the Return Envelope and the archive — never removed by shipping.
-- If shell access is unavailable, STOP and return `blocked` — do not fall back to Read/Write moving.
-- Return envelope per Step 8 — final action is text, not a tool call.
-
-## Fast-Track Variant
-
-For a `trivial` / `small` change (waiver recorded in `briefing.md`): the full steps still run, lightly —
-
-- **Reflect:** one acceptance verdict line + a single high-value learning if there is one; no full retro half.
-- **Environment retro:** the sweep runs but is expected to be quiet; no forced findings.
-- **Document:** the PR body (if the PR option is chosen) is the only record — no changelog / release note offers.
-- **Commit / archive:** unchanged — the mechanical move and the `diff -r` readback are **never** waived.
-
-Note the class in the Return Envelope: `Fast-track: {trivial|small} (waiver in briefing.md)`.
-
-## Gotchas
-
-- **"Tests passed earlier this session."** Run the suite on the tree you are about to integrate. A green run only proves the tree it ran on.
-- **"The base branch is obviously main."** Resolve it from `chain.strategy` in `config.yaml` + the work-unit table, or confirm/ask. Merging into the wrong base is expensive to undo. For `feature-branch-chain`, ship integrates the *tracker* (last) unit to *its* base boundary — not necessarily `main`.
-- **"I remember what I changed, I'll write the docs from memory."** Memory is not a source. The AI's account of its own work is exactly the thing that drifts. `git log` + `git diff` + the change folder are the record.
-- **Moving before the source is gone-check** gives a meaningless empty diff. The `diff -r` compares the *pre-move snapshot* to the archived folder, after confirming the source path no longer exists.
-- **`--force` on a refused worktree removal** destroys files that exist only in that worktree. Show the user `git -C "$WORKTREE_PATH" status --porcelain -uall` and ask; never `--force` on your own initiative.
-- **`CONCERNS` is not a block.** It is advisory — surface open items, the human decides. But `FAIL` / unresolved CRITICAL is a hard block.
-- **A learning with no source is a guess.** "It was confusing" is not a learning. "The `feature-branch-chain` base boundary for PR #3 pointed at PR #1, not PR #2 — `tasks.md:47`" is.
-- **A page without its index entry is drift the moment it lands.** The projectwiki same-edit rule: page write + `projectwiki index` ship together.
-
-## How to measure it
-
-Per `_shared/craft/measurement.md`.
-
-| | Indicator | Data source | Direction |
-|---|-----------|-------------|-----------|
-| Leading | % of shipped changes whose `state.yaml` update, archive move, and `mem_save` all landed in the same commit (no manual follow-up) | Git history (commit scope) + `state.yaml` diff | should rise |
-| Lagging | Rollbacks and "re-open" commits on an already-archived change (the integration was wrong and had to be undone) | Git history (commits touching a `.skillgrid/change-archive/` path or reverting the integration) | should fall |
-
-## Common Rationalizations
-
-| Rationalization | Reality |
-|---|---|
-| "The gates are probably fine, ship it." | A `FAIL` or unresolved CRITICAL in `report.md` → `## Gate Decision` is a hard block — a launch-prompt claim "it's fixed in a later commit" does not clear it. A fresh passing test run is required. |
-| "I'll skip the workspace guard, it's fast." | In a read-only workspace or with the change folder outside the allowed edit roots, STOP and report — do not commit, merge, or move across an unsafe boundary. |
-| "Tests passed earlier this session, that's enough." | A green run only proves the tree it ran on. QA ran against the feature tree — run the suite again on the tree you are about to integrate. |
-| "The discoveries are obvious, no need to source them." | Unsourced is a guess, not a learning. Every entry needs a file:line, commit, ticket, or scenario — otherwise mark it undiagnosed. |
-| "The changelog can be generic — 'bug fixes and improvements'." | A changelog that names nothing helps no one integrating the version. Every bullet names what changed and where. |
-| "I'll just add a line to the standards file." | If it's mechanical, a linter rule or hook catches it every time; the standards file is for judgement calls only. |
-| "We don't need a linter, it's a small repo." | A repo with no guardrail is itself a finding. The first lint rule is the cheapest insurance you can buy. |
-| "A `rejected` verdict should block the cycle." | The verdict is advisory — recorded and surfaced, never a hard block. The human decides follow-up. Don't conflate it with the (hard) QA Gate. |
-| "I'll update the projectwiki index later in bulk." | The same-edit rule exists because a stale index silently drops the page from recall. Page + reindex ship together. |
-
-## Red Flags
-
-- A merge, push, or folder move happens before a fresh green test run on the integrated tree.
-- A learning in the report with no source — no file:line, commit, ticket, or scenario cited.
-- The QA gate shows `FAIL` or an unresolved CRITICAL but the phase proceeds instead of returning `blocked`.
-- The workspace guard was skipped in a read-only workspace or across an unsafe boundary.
-- The archive move was done by hand (model Read/Write, or ad-hoc `git mv` + manual `diff -r`) instead of `ship-archive.mjs` — or the script's `readback` field is non-empty or missing from the JSON.
-- A claim in the docs that names no commit, file, or change-folder source — an invented line.
-- A reusable Lesson/Surprise recorded only as a one-off, never routed to the governing skill or `_shared` rule — the next change repeats it.
-- A projectwiki page written without its `projectwiki index` run (`status --json` shows `stale > 0`).
-- The PR body omitting the `report.md` verdict — the gate result is part of the record.
-- The Return Envelope missing ship context (base branch, integration evidence, gate results).
-
-## Verification
-
-- [ ] All gates passed before any mutation: QA gate (no `FAIL`, no unresolved CRITICAL) + review gate (advisory) — or `blocked` returned with no mutation.
-- [ ] The test suite is green on the tree being integrated (fresh run, not the QA run); for a local merge, green on the merged result.
-- [ ] `report.md` completed in place with every learning sourced and an acceptance verdict recorded; the `## Environment Retro` section present (or an explicit clean note).
-- [ ] Every Lesson/Surprise triaged process-bug vs one-off: process bugs named the governing skill/`_shared` rule and were recorded as follow-up items.
-- [ ] Human-facing records written from the real diff (spot-check at least three claims against their source); the `report.md` verdict is named in the PR body / release note.
-- [ ] Projectwiki pages (if any) have valid frontmatter + 2+ outgoing wikilinks; `projectwiki index` ran in the same edit; `validate` + `lint` show no new findings.
-- [ ] Close-out committed per the work-unit commit contract (conventional subject, no AI-attribution trailer, `[skillgrid-context]` block; spec zone before code zone).
-- [ ] The archive move ran via `ship-archive.mjs` with exit 0 and JSON `moved: true`, `readback: ""`, `source_gone: true`; the change folder is at `.skillgrid/change-archive/YYYY-MM-DD-<topic>/`.
-- [ ] The script's JSON reports the `state.yaml` close-out (entry removed, `completed_changes` incremented); session lock released (JSON `lock` field); `mem_save` done (or explicitly degraded).
-- [ ] The Return Envelope is rendered with the acceptance verdict, gate results, integration evidence, move evidence, and rollback plan.
+See `references/ship-closeout.md` for the full procedure.
 
 ## References
 
 - [scripts/ship-gates.mjs](scripts/ship-gates.mjs) — the pre-mutation gate read as one call (report.md verdict + unresolved-CRITICAL scan, review.md verdict + Grade-C axes → `blocked` / override flags); [scripts/test-ship-gates.mjs](scripts/test-ship-gates.mjs) proves it
 - [scripts/ship-archive.mjs](scripts/ship-archive.mjs) — the Step 7 archive move as one call (snapshot → `git mv` → source-gone check → `diff -r` readback → `state.yaml` close-out → lock release); [scripts/test-ship-archive.mjs](scripts/test-ship-archive.mjs) proves it
 - [../test/SKILL.md](../test/SKILL.md) — upstream; wrote the QA half of `report.md`, whose `## Gate Decision` verdict drives the QA Gate (read pre-move), plus `review.md`.
-- [../_shared/projectwiki/SKILL.md](../_shared/projectwiki/SKILL.md) — the task bookends, the page contract, the pin contract, and the same-edit rule the Step 4 wiki writes follow.
+- [../projectwiki/SKILL.md](../projectwiki/SKILL.md) — the task bookends, the page contract, the pin contract, and the same-edit rule the Step 4 wiki writes follow.
 - [../_shared/adr-records/README.md](../_shared/adr-records/README.md) — ADR authoring + numbering; the `decisions/` pages ship routes through, never mints numbers itself.
 - [../_shared/work-unit-commits/README.md](../_shared/work-unit-commits/README.md) — the Step 5 commit contract: format, sizing, the `[skillgrid-context]` block, the git-hook guards.
 - [../_shared/rules/sdd-structure.md](../_shared/rules/sdd-structure.md) — the `change-specs/` → `change-archive/` layout, the phase chain, the `state.yaml` schema, the user-gate contract, and the Mnemonic slots.
 - [../_shared/rules/mnemonic-memory.md](../_shared/rules/mnemonic-memory.md) — the `mem_save` shape (`title == topic_key`, `scope: "project"`, active `session_id`).
 - [../_shared/planning/fast-track.md](../_shared/planning/fast-track.md) — the light-variant waiver this phase honors.
+- [../_shared/rules/evidence-claims.md](../_shared/rules/evidence-claims.md) — the evidence rules behind Step 2's sourced learnings and the iron law: every "fixed" claim traces to a named test, a baseline failure needs a clean-base proof, and every block names an executable exit.
+- [../writing/SKILL.md](../writing/SKILL.md) — Step 4's record-mode contract: the four record types, the gather-from-the-record process, the per-type audience pitch, the templates, and the claim-tracing / no-marketing / gate-named rules.
+- [../skill-creator/references/rationalizations.md](../skill-creator/references/rationalizations.md) — the authoring rationalizations (script extraction, size, spine sections); load when you or the user push back on this skill's shape
