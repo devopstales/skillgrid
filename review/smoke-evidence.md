@@ -858,3 +858,227 @@ injection was a silent no-op (live-confirmed: instrumented plugin logged
 - Positive (cwd = skillgrid worktree): asked "what does the skillgrid router bootstrap say the first action is?" -> `Yes: at the start of any skillgrid task, first read \`using-skillgrid\` — it classifies the request, runs the start gates, and names exactly one first skill.` (verbatim bootstrap content)
 - Negative (cwd = /tmp/skillgrid-neg-test, no .skillgrid): same prompt -> `NO BOOTSTRAP`
 - Residual env note: the standalone model provider is flaky on this machine (`Transport: The socket connection was closed unexpectedly` killed 2 of ~10 runs at 160-200s); retries succeeded.
+
+## TICKET-07 — 5-host live smoke (backstop) (2026-11-22)
+
+- **Ticket:** TICKET-07 — 5-host live smoke (backstop) — Tracker `t_7754f121`
+- **Change:** `2026-11-17-skillgrid-host-plugins`
+- **Worktree:** `/Users/paladm/git/ai-test/skillgrid-v2/.worktrees/t_7754f121` (branch `wt/t_7754f121`, base `9595cf42`, smoke at `8fcb3039`)
+
+### Install (fresh, per runbook)
+
+Installer checkout rebuilt as a local clone of the main repo at `wt/t_7754f121` tip
+(`~/.skillgrid/repos/skillgrid`; the prior stale worktree there had a broken
+`git pull --ff-only` path — removed).
+
+```
+NPM_CONFIG_PREFIX=$HOME/.npm-global /tmp/skillgrid-t7 install --agents opencode,kilo,cursor
+→ done in 19.305s
+```
+
+- router plugins copied: `~/.config/opencode/plugins/skillgrid-router.ts`
+  (+ config registration), `~/.config/kilo/plugin/skillgrid-router.ts`
+  (+ config registration: `plugin: ["./plugin/skillgrid-router.ts"]`)
+- hooks mirrored (fixed `session-start.js` with the pi-hooks v0.0.2 contract),
+  bootstrap asset synced (`~/.skillgrid/router-bootstrap.md` unchanged)
+- stale kilo `hook/hooks.yaml` plugin registration dropped (ADR-0032
+  `dropRetiredPlugins`) — the missing `opencode-session-start.sh` reference is
+  now dead config
+
+Install ruling: `skillgrid install --agents skill-pi` fails at the npm batch on
+this machine — `@devopstales/skill-pi` returns 404 from the npm registry
+(unpublished; this machine had it only via `npm link` from the now-deleted
+`git/ai-test/skill-pi` source). This is the pre-rename state; the
+skill-pi→omp rename (user WIP) switches the key to `omp` with
+`@oh-my-pi/pi-coding-agent` (installed). The omp host needs no installer wiring
+for the router (native project extension, below), so the smoke proceeded with
+`--agents opencode,kilo,cursor`. Environment note: non-interactive shells
+resolve a Nix-managed npm whose global prefix is read-only —
+`NPM_CONFIG_PREFIX=$HOME/.npm-global` (the de-facto global prefix) is required.
+
+### opencode (2.0.28, vllm/qwen3.8-uncensored) — PASS
+
+Fixes landed during this smoke (committed `f8309b89`):
+
+1. **Marker**: dedup marker was `using-skillgrid`, which AGENTS.md itself
+   contains — the bootstrap was suppressed in exactly the repo it must work
+   in. Marker → case-insensitive `router bootstrap`.
+2. **Daemon cwd**: `opencode run` connects to the persistent
+   `opencode serve --service` daemon whose cwd is unrelated to the session's
+   project (`/Users/paladm`), and `ctx.directory` is undefined in that mode —
+   the project guard resolved from the daemon cwd and in-repo injection
+   silently failed. New `resolveStartDir`: `ctx.directory` →
+   `event.location.directory` → `session.get({sessionID}).location.directory`
+   (probed live on 2.0.28) → `process.cwd()`.
+
+- **In-repo positive (clause a)**: proxy-captured real LLM request — both
+  requests of the run carry the bootstrap in the system prompt
+  (system len 118391, "Skillgrid Router Bootstrap" present). Command:
+  `opencode run --model vllm/qwen3.8-uncensored` from the worktree.
+- **In-repo positive (clause b)**: fresh session, status prompt — transcript:
+
+  ```
+  > build · qwen3.8-uncensored
+  I'll use skillgrid:using-skillgrid for this status query.
+  → Read .agents/skills/using-skillgrid/SKILL.md
+  ```
+
+  (announce-style line + router-read as first action)
+- **/tmp negative**: 2 captured requests, 0 with the bootstrap.
+- **Subagent skip**: documented residual on the 2.0.28 fallback —
+  agent-filter only (no parent lookup from the hook event); unit-pinned.
+
+### omp (18.16, vllm/qwen3.8-uncensored) — PASS
+
+Mechanism fix landed during this smoke (committed `8fcb3039`): omp keeps the
+shipped full-content hook (blueprint), and the pi-hooks SessionStart listener
+never fires on omp (npm plugins register after the session_start dispatch;
+`systemPromptOptions.appendSystemPrompt` not honored — both probe-verified) →
+native project extension `.omp/extensions/skillgrid-router-omp.ts`
+(before_agent_start pushes the full router as a system-prompt section;
+main-agent + project guards; fail-open). Repo-tracked like the pi extension
+(T3); unit tests 4/4.
+
+- **In-repo positive (clause a)**: `omp -p "Quote exactly the first two lines
+  of the skillgrid bootstrap/router notice..."` from the worktree:
+
+  ```
+  Yes, I have one. The first two lines, verbatim:
+  skillgrid loaded. Route through the using-skillgrid flow before ANY response (including clarifying questions).
+  (Line 2 is a blank line; the block then continues with `---` and the
+  `using-skillgrid` skill definition.)
+  ```
+
+  Full router content in first-turn context (the INTRO line is only present
+  in the injected section).
+- **/tmp negative**: same prompt from `/tmp` → `NO-ROUTER`.
+- **Subagent skip (R3 re-confirm, live)**: `omp -p` prompting the main agent
+  to spawn a subagent and ask it about the router:
+
+  ```
+  SUBAGENT-ANSWER: No. A literal inspection of my current context finds no
+  skillgrid router bootstrap notice — the string "skillgrid" appears only as a
+  filesystem path (`.skillgrid/projectwiki/`) in the projectwiki and
+  architectural-decision-records skill descriptions, with no routing or
+  bootstrap instruction attached.
+  ```
+
+  Main session has the router (above); the child session does not.
+
+### kilo (7.5.16, vllm/qwen3.8-uncensored) — ENV-LIMITED (ruling)
+
+- Plugin installed + registered by the fresh install (router step).
+- `kilo run` (in-repo): `Error: System message must be at the beginning.`
+- **Isolation**: the identical error occurs with the plugin array emptied
+  (core, not plugin) and in `/tmp` (cwd-independent). Pre-existing kilo-core
+  headless bug — T5's finding re-confirmed after the fresh install.
+- Second pre-existing defect found + fixed on this machine: `kilo.jsonc`
+  carried an `env` key (`{"SKILLGRID_AGENT":"kilo"}` — shell-era hook
+  variable, ADR-0032-retrieved) which kilo 7.5.16 rejects
+  ("Unrecognized key: env"). Removed (backup `/tmp/kilo.jsonc.pre-envfix`);
+  headless then reaches the core error above.
+- Verdict: live clauses untestable via `kilo run` on this machine
+  (env-limited with ruling, per runbook); plugin unit level green (T5),
+  registration + distribution verified live.
+
+### cursor (cursor-agent CLI) — PASS (stream quirk noted)
+
+- **Hook-level oracle (in-repo)**:
+  `printf '{"cwd":"<worktree>"}' | ~/.cursor/plugins/local/skillgrid/hooks/cursor-session-start.sh`
+  → `additional_context` (809 chars) begins:
+
+  ```
+  Skillgrid Router Bootstrap
+
+  This project is configured with Skillgrid.
+
+  First action: read `.agents/skills/using-skillgr…
+  ```
+
+- **In-repo positive (clause a + b)**: `cursor-agent -f -p` (router question)
+  from the worktree. The CLI stream reports
+  `Connection lost, reconnecting to agentn.global.api5.cursor.sh …
+  RetriableError: WritableIterable is closed`, but the agent transcript
+  (`~/.cursor/projects/…t-7754f121/agent-transcripts/11fbea0d-….jsonl`) shows
+  the model received the bootstrap and answered verbatim (repeated across
+  stream retries):
+
+  ```
+  # Skillgrid Router Bootstrap
+
+  This project is configured with Skillgrid.
+  ```
+
+  The model's replies ("The quote above was complete…") confirm first-turn
+  context. Verdict: PASS with the backend stream quirk recorded (model-level
+  success; CLI exit non-zero).
+- **/tmp negative**: live PASS — same router question from `/tmp` →
+  transcript (`~/.cursor/projects/private-tmp/agent-transcripts/6846b412-….jsonl`):
+
+  ```
+  NO-ROUTER
+
+  I'm checking the context for a "skillgrid router bootstrap" to quote its
+  first two lines, but I only see the Mnemonic hooks and the superpowers
+  using-superpowers content, so there's no such bootstrap.
+  ```
+
+  (hook oracle for /tmp = T1 oracle 1: no bootstrap content, INFO path)
+- Plugin layout note: `~/.cursor/plugins/local/skillgrid/` (real dir, T1
+  door-check layout) with symlinked hooks/.agents/rules/agents/plugins into
+  `.worktrees/t_06bb0c13` (still present; hook edits there propagate live).
+
+### pi — ENV-LIMITED (ruling)
+
+No pi/skill-pi runtime on this machine: `~/.npm-global/lib/node_modules/@devopstales/skill-pi`
+is a dangling link to the deleted source repo `git/ai-test/skill-pi`, and the
+package is 404 on the registry (see install ruling). The T3 pi extension +
+tests are green at unit level (4/4 node); live clauses untestable without the
+runtime. Consistent with the runbook ruling (2026-11-19).
+
+### L3 gates (worktree `8fcb3039` + gofmt commit)
+
+| Gate | Command | Result |
+|---|---|---|
+| Go build | `go build ./...` (skillgrid-cli module) | exit 0 |
+| Go test (full) | `go test ./... -count=1` (skillgrid-cli) | exit 0 (299s) |
+| Coverage (touched) | `go test -cover ./internal/install/ ./internal/setup/` | install 66.9% / setup 73.4% (ok) |
+| gofmt | `gofmt -l skillgrid-cli/` | clean after formatting `cmd/skillgrid/main.go` (pre-existing misalignment from bb252ae2, outside T7 footprint — fixed to satisfy the gate) |
+| opencode plugin tests | `node --experimental-strip-types plugins/opencode/test/skillgrid-router.test.ts` | 14/14 |
+| omp extension tests | `node --experimental-strip-types .omp/extensions/skillgrid-router-omp.test.ts` | 4/4 |
+| hook contract tests | `node --test hooks/session-start.test.mjs` | 4/4 |
+
+### Commits (this ticket)
+
+- `09350a03` fix(hooks): pi-hooks v0.0.2 output contract for session-start hook
+- `f8309b89` fix(opencode): session-aware start dir + bootstrap marker
+- `0c542a07` fix(install): skip missing native plugin and kilo logo sources
+- `8fcb3039` feat(omp): full-router project extension
+- (gofmt commit for `cmd/skillgrid/main.go` — see gates)
+
+### SATISFIES (TICKET-07 acceptance mapping)
+
+- clause (a) positive in-repo: opencode PASS (captured request), omp PASS
+  (verbatim quote), cursor PASS (transcript), kilo ENV-LIMITED (ruling),
+  pi ENV-LIMITED (ruling)
+- clause (b) announce/router-read turn 1: opencode PASS (transcript above);
+  omp + cursor positive carries the router in first-turn context (quote
+  behavior); kilo/pi env-limited
+- clause (a) negative in /tmp: opencode PASS (0/2), omp PASS (NO-ROUTER),
+  cursor PASS (NO-ROUTER), kilo env-limited (same core error in /tmp),
+  pi env-limited
+- subagent-skip observable recorded: omp live (SUBAGENT-ANSWER above);
+  opencode unit-pinned residual; omp extension unit 4/4
+- L3 gates: green (table above)
+- evidence committed: this section + gate re-run
+
+### Concerns
+
+1. kilo headless core bug ("System message must be at the beginning") blocks
+   all `kilo run` sessions on this machine — pre-existing, plugin-independent;
+   candidate for a separate kilo-core issue (ADR-0067 plugin-set rework scope).
+2. cursor backend stream quirk: model answers are delivered but the CLI
+   stream closes with RetriableError — exit code non-zero despite success;
+   transcript is the ground truth.
+3. The omp extension is project-tracked (per-checkout); non-repo skillgrid
+   projects get no omp router (same property as the T3 pi extension).
