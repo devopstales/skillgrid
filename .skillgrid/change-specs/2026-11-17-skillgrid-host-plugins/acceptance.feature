@@ -46,6 +46,13 @@ And session start is not blocked
 # EXPECT: fallback line present, session started, no error surfaced
 ```
 
+#### Gates
+
+G1: pointer hosts read the one live asset; missing asset -> static fallback, session unblocked
+  CHECK: node --experimental-strip-types plugins/opencode/test/skillgrid-router.test.ts && node --experimental-strip-types .pi/extensions/skillgrid-router.test.ts && node --experimental-strip-types plugins/kilo/skillgrid-router.test.ts && node --test hooks/session-start.test.mjs
+  EXPECT: all suites exit 0
+  EVIDENCE: review/smoke-evidence.md (TICKET-07 live runs)
+
 ### Requirement: R2 — Per-host session-start injection for all five hosts
 
 MUST: every supported host (omp, pi, opencode, Kilo Code, Cursor) receives the
@@ -134,6 +141,13 @@ And the session starts normally
 # EXPECT: no bootstrap, session functional, no error surfaced
 ```
 
+#### Gates
+
+G2: every host's native mechanism injects at session start (unit suites + live 5-host smoke)
+  CHECK: node --experimental-strip-types plugins/opencode/test/skillgrid-router.test.ts && node --experimental-strip-types .pi/extensions/skillgrid-router.test.ts && node --experimental-strip-types plugins/kilo/skillgrid-router.test.ts && node --experimental-strip-types .omp/extensions/skillgrid-router-omp.test.ts && node --test hooks/session-start.test.mjs
+  EXPECT: all suites exit 0
+  EVIDENCE: review/smoke-evidence.md TICKET-07 (opencode/omp/cursor live PASS; kilo/pi env-limited rulings)
+
 ### Requirement: R3 — Project-conditional, main agent only
 
 MUST: injection is active only where a skillgrid project is detected; the
@@ -183,6 +197,13 @@ And session start is not blocked
 # EXPECT: no bootstrap, session started, no error surfaced
 ```
 
+#### Gates
+
+G3: project-conditional guard + main-agent-only skip (unit suites + live subagent probe)
+  CHECK: node --experimental-strip-types plugins/kilo/skillgrid-router.test.ts && node --experimental-strip-types .pi/extensions/skillgrid-router.test.ts && node --experimental-strip-types .omp/extensions/skillgrid-router-omp.test.ts && node --test hooks/session-start.test.mjs
+  EXPECT: all suites exit 0
+  EVIDENCE: review/smoke-evidence.md TICKET-07 (live omp subagent: "no skillgrid router bootstrap notice")
+
 ### Requirement: R4 — Fail-open with a static fallback
 
 MUST: an injector failure never blocks session start and never surfaces an
@@ -223,6 +244,13 @@ Then the first-turn context carries the installed copy's marker line
 # CHECK: marker both files differently, fresh cursor session, inspect first-turn context
 # EXPECT: installed-copy marker present, checkout marker absent
 ```
+
+#### Gates
+
+G4: fail-open + static fallback when both asset sources are absent (unit suites)
+  CHECK: node --experimental-strip-types plugins/kilo/skillgrid-router.test.ts && node --experimental-strip-types .pi/extensions/skillgrid-router.test.ts && node --experimental-strip-types .omp/extensions/skillgrid-router-omp.test.ts && node --test hooks/session-start.test.mjs
+  EXPECT: all suites exit 0 (kilo case5 hermetic: both sources absent -> static fallback; installed copy takes precedence over the checkout asset by candidate order)
+  EVIDENCE: review/smoke-evidence.md TICKET-07 (hook fail-open probe)
 
 ### Requirement: R5 — Distribution through the existing installer
 
@@ -275,6 +303,13 @@ And no host files are modified
 # EXPECT: non-zero exit, key named in the message, install locations untouched
 ```
 
+#### Gates
+
+G5: installer distributes per-host injector + bootstrap; unknown key errors; sync-repo refreshes; unchanged re-sync is a no-op
+  CHECK: cd skillgrid-cli && go test ./internal/install/ -count=1 -run 'TestRunDistributesRouterPerHostKey|TestSetupAgentsUnknownKeyNamesKeyNoWrites|TestSyncRepoRefreshesRouterBootstrap|TestSyncRepoRouterBootstrapDryRun'
+  EXPECT: PASS
+  EVIDENCE: review/smoke-evidence.md TICKET-07 (fresh install, 3 agents green)
+
 ### Requirement: R6 — Per-host tool-mapping hint in the bootstrap
 
 MUST: the bootstrap's load-hint variants carry a tool-mapping hint for every
@@ -313,3 +348,10 @@ And the first action still loads the router
 # CHECK: delete the mapping file, fresh pi session, inspect transcript
 # EXPECT: bootstrap present, router loaded on first action, no error
 ```
+
+#### Gates
+
+G6: bootstrap load-hint table carries the tool-mapping hint for pi + opencode only
+  CHECK: B=.agents/skills/_shared/agent-config/router-bootstrap.md && test "$(grep -c 'using-skillgrid/references/pi-tools.md' "$B")" = 1 && test "$(grep -c 'using-skillgrid/references/opencode-tools.md' "$B")" = 1 && ! grep -E '^[-*] *(kilo|cursor|omp):' "$B" | grep -q 'references'
+  EXPECT: exit 0
+  EVIDENCE: review/smoke-evidence.md TICKET-07 (pi fail-open runtime: mapping file absent -> bootstrap still injected)
