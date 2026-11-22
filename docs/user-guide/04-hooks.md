@@ -33,7 +33,7 @@ hooks/                # logic, JavaScript (staged to ~/.skillgrid/hooks/)
 ├── gate-state.js              # gate state engine (--status / --reverify)
 ├── gate-stop.js               # agent Stop: gate-level
 ├── stop-tests.js              # agent Stop: suite-level
-└── session-start.js           # harness SessionStart: inject the router
+└── session-start.js           # harness SessionStart: project-conditional router injection
 git-hooks/            # thin shims (staged to ~/.skillgrid/git-hooks/)
 ├── pre-commit.js   ──> ../hooks/checkpoint-state.js guard
 ├── commit-msg.js   ──> ../hooks/checkpoint-state.js guard-msg "$1"
@@ -44,12 +44,8 @@ git-hooks/            # thin shims (staged to ~/.skillgrid/git-hooks/)
 └── gate-stop.js    ──> ../hooks/gate-stop.js         (reads harness JSON for session_id)
 plugins/              # harness adapters (installed from ~/.skillgrid/plugins/)
 ├── _shared/memory-protocol.md
-└── opencode/         # the 5 native TS plugins (single source; Kilo copies at install)
-    ├── skillgrid-compaction.ts
-    ├── skillgrid-events.ts
-    ├── skillgrid-squad.ts
-    ├── mnemonic-memory.ts
-    └── mnemonic-codeindex.ts
+├── opencode/         # router plugin (skillgrid-router.ts); the mnemonic family's tree is reworked by ADR-0067
+└── kilo/             # kilo router plugin (skillgrid-router.ts)
 .cursor-plugin/       # Cursor plugin surface (add-from-folder = repo root)
 ├── plugin.json
 └── marketplace.json
@@ -198,6 +194,31 @@ Parses a change's `#### Gates` blocks and reports each `G<n>`'s state. A gate is
 | `SKILLGRID_TICKETING_ENABLED` | `0`/`false` disables all tracker guards (overrides `ticketing.enabled`) |
 | `SKILLGRID_TICKETING_TYPE` | Overrides `ticketing.type` (`backlogmd` \| `gh` \| `glab` \| `jira`) |
 | `SKILLGRID_TRACKER_REF` | Active Tracker ID consumed by the `prepare-commit-msg` injector |
+
+## Session-start router injection
+
+`session-start.js` injects the `using-skillgrid` router (full content) into new
+sessions of skillgrid projects. It is wired as a harness SessionStart hook —
+Claude Code through `.claude/settings.json`; any harness that reads a
+SessionStart stdout payload can reuse the script in its own settings file.
+
+- **Project-conditional (R3):** walks up from the session cwd for
+  `.skillgrid/config.yaml`; no project detected → no injection (INFO note on
+  stderr, stdout stays empty).
+- **Main-agent only (R3):** the hook also fires for child/subagent sessions
+  (TICKET-02 probe), so the guard is explicit — a non-main session gets an
+  INFO note and no injection.
+- **Fail-open (R4):** any failure path (unreadable router, missing config,
+  malformed input) degrades to an INFO note on stderr and exits 0. The JSON
+  `hookSpecificOutput.additionalContext` payload is written to stdout only on
+  success — session start never breaks and never shows a user-visible error.
+
+On **omp** this hook is superseded by the committed project extension
+`.omp/extensions/skillgrid-router-omp.ts` (full-content, `before_agent_start`):
+`@hsingjui/pi-hooks`' SessionStart listener never fires on omp — the npm
+plugin registers after the `session_start` dispatch (probe-verified in
+TICKET-07). See [Plugins](11-plugins.md#skillgrid-router) for the per-host
+mechanism table.
 
 ## Agent tool hooks (beyond git + Stop)
 

@@ -6,7 +6,7 @@ AISkillGrid ships **plugins** as per-harness adapters: one shared behavior, one 
 
 | Plugin | Hosts | What it does | Status |
 |--------|-------|--------------|--------|
-| [Skillgrid router](#skillgrid-router) | omp, pi, opencode, Kilo, Cursor | auto-loads the `using-skillgrid` router at session start | proposed (change `2026-11-17-skillgrid-host-plugins`) |
+| [Skillgrid router](#skillgrid-router) | omp, pi, opencode, Kilo, Cursor | auto-loads the `using-skillgrid` router at session start | shipped (release/2, change `2026-11-17-skillgrid-host-plugins`) |
 | [Mnemonic memory](#mnemonic-memory) | omp, pi, opencode, Kilo, Cursor | `mem_*` / `code_*` / `kb_*` tools, prompt and session capture, compaction context | shipped |
 | [Observation layer](#observation-layer) | omp, pi, opencode, Kilo, Cursor | records agent tool activity (tool calls, commands, files, sessions, prompts) in the per-project store, gryph-style | proposed (change `2026-11-17-mnemonic-v2-observation-layer`) |
 | [Obsidian backlogmd](#obsidian-backlogmd) | Obsidian | Backlog.md kanban as an Obsidian vault view | shipped |
@@ -41,7 +41,7 @@ How each host loads and updates plugins:
 
 The router plugin makes each host **deterministically load the `using-skillgrid` skill at session start**, the way [obra/superpowers](https://github.com/obra/superpowers) auto-loads `using-superpowers`. It matters because the router is `disable-model-invocation: true`: every host hides it from the automatic skill list, so it only runs if the agent notices the `AGENTS.md` entry line. The plugin replaces that soft trigger with a hard injection.
 
-Mechanism: at session start, if the project has a `.skillgrid/config.yaml`, the adapter injects a compact bootstrap (~15 lines) read live from `~/.skillgrid/router-bootstrap.md`. The bootstrap says one thing: **first action, read `.agents/skills/using-skillgrid/SKILL.md`** (or the host's skill-load command for `using-skillgrid`), then announce `Using [skill] to [purpose]`. The full 14KB router body stays on disk; each host's native skill system already auto-discovers `.agents/skills/` and loads it on demand. Injections are main-agent only (subagents skip, mirroring the skill's `<SUBAGENT-STOP>`), fail-open, and carry a static fallback string if the asset file is missing.
+Mechanism: at session start, if the project has a `.skillgrid/config.yaml`, the adapter injects a compact bootstrap (~15 lines) read live from `~/.skillgrid/router-bootstrap.md`. The bootstrap says one thing: **first action, read `.agents/skills/using-skillgrid/SKILL.md`** (or the host's skill-load command for `using-skillgrid`), then announce `Using [skill] to [purpose]`. The full 14KB router body stays on disk; each host's native skill system already auto-discovers `.agents/skills/` and loads it on demand. Injections are main-agent only (subagents skip, mirroring the skill's `<SUBAGENT-STOP>`), fail-open, and carry a static fallback string if the asset file is missing. omp is the exception — it receives the full router body, not the pointer bootstrap (see the table below).
 
 Per-host mechanism (native strongest for each):
 
@@ -50,10 +50,12 @@ Per-host mechanism (native strongest for each):
 | Cursor | plugin `sessionStart` hook (`hooks/cursor-session-start.sh`) emits the bootstrap as `additional_context`, before the Mnemonic-server block so it injects with the server down |
 | Kilo | auto-registered TS plugin in `~/.config/kilo/plugin/`: `config` hook adds the skills dir, `messages.transform` injects the bootstrap into the first user message (mirrors the proven superpowers Kilo adapter) |
 | opencode | V2 `Plugin.define` plugin: `session.created` event → durable `instructions.entry` for the session; V1 named export for opencode 1.x |
-| pi | extension `session_start` arms the bootstrap; the existing system-prompt injection seam (shared with the Mnemonic memory protocol) appends it |
-| omp | extension under `~/.omp/agent/extensions/` overriding the system prompt at `before_agent_start`; the `AGENTS.md` entry line remains the no-code fallback |
+| pi | committed project extension `.pi/extensions/skillgrid-router.ts` (auto-discovered on project trust): `before_agent_start` appends the bootstrap section to the system prompt; project-conditional, main-agent only, fail-open |
+| omp | committed project extension `.omp/extensions/skillgrid-router-omp.ts`: `before_agent_start` pushes the **full router** as a system-prompt section (omp does not honor `systemPromptOptions.appendSystemPrompt`, and the `@hsingjui/pi-hooks` SessionStart listener never fires on omp — probe-verified in the TICKET-07 live smoke); project-conditional, main-agent only, fail-open; the `AGENTS.md` entry line remains the no-code fallback |
 
-Status: blueprint proposed at the `blueprint-validation` gate (change `2026-11-17-skillgrid-host-plugins`, spec zone under `.skillgrid/change-specs/`). Research evidence for every host mechanism: `/tmp/skillgrid-plugin-research/`.
+Live smoke (TICKET-07, 2026-11-22): **opencode, omp, and cursor verified live** (in-repo injection in the first-turn context + transcript; `/tmp` negative). Two env-limited rulings: **kilo** — headless runs fail in kilo core with `System message must be at the beginning` even with the plugin array emptied (plugin-independent, re-confirmed in TICKET-05); **pi** — no runtime on this machine (the pre-rename `@devopstales/skill-pi` package 404s on the registry). **Cursor quirk:** the CLI stream occasionally closes after the model has answered (`RetriableError: WritableIterable is closed`) — a backend quirk, not a plugin failure; injection is verified from the session transcript.
+
+Status: shipped on `release/2` (2026-11-22, merge `645d0612`; change `2026-11-17-skillgrid-host-plugins`). Smoke evidence: `review/smoke-evidence.md` (TICKET-07 section). Research evidence for every host mechanism: `/tmp/skillgrid-plugin-research/`.
 
 ## Mnemonic memory
 

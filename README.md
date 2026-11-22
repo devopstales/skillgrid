@@ -39,7 +39,7 @@ skillgrid --dry-run                 print planned changes, don't write
 skillgrid --verbose                 print detailed changes
 skillgrid --yes                     use defaults (opencode + kilo)
 skillgrid --skip-clone              skip the git clone step
-skillgrid --agents opencode,kilo    preset agents (skip prompt)
+skillgrid --agents opencode,kilo,cursor,omp   preset agents (skip prompt)
 skillgrid --skip-tools              skip global npm tool install
 skillgrid --skip-agents             skip the ~/.agents override step
 skillgrid --lsp                     install LSP servers + configure them for the selected agents
@@ -60,6 +60,11 @@ skillgrid install
 clone-or-sync the hub repo, check Node, install the selected agents
 (`@opencode/cli`, `@kilocode/cli`, etc.) and the shared tools, then
 copy `.agents/` into `~/.agents/`.
+
+**npm global installs in non-interactive shells** (agent-driven installs)
+need `NPM_CONFIG_PREFIX=$HOME/.npm-global` when the system npm prefix is
+read-only (nix-managed npm) — without it the `npm install -g` step fails on
+the read-only prefix.
 
 ### Layout
 
