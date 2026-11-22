@@ -4,13 +4,31 @@ description: Extract transcripts from YouTube videos. Use when the user asks for
 license: MIT
 metadata:
   author: devopstales
-  version: "2.0"
+ version: "2.1"
   part-of: skillgrid
+  created_by: human
+  version: "2.3"
 ---
 
 # YouTube Transcript
 
 Extract transcripts from YouTube videos using the youtube-transcript-api.
+
+**When NOT to use:** the source is not a YouTube video (a podcast feed, a
+local media file, a page of text) — this fetches YouTube captions only. And
+when the video has no captions, there is no transcript to fetch: report it
+rather than retrying.
+
+## Decision Gates
+
+| Condition | Action |
+|---|---|
+| `agent-reach` is in the project's `research.sources` budget | Delegate to `agent-reach youtube transcript` — it is the budgeted transport. |
+| `agent-reach` is not in the budget | This script is the fallback. |
+| The URL/ID matches none of the supported formats | Ask for a valid YouTube URL or 11-character video ID. |
+| The video has no captions | Report it — no transcript exists to fetch. |
+| The user asked for a specific output file | Save to the requested file. |
+| No output file specified | Use `<video-id>-transcript.txt`. |
 
 ## Usage
 

@@ -8,6 +8,9 @@ metadata:
   version: "2.0"
   part-of: skillgrid
   based_on: superpowers:brainstorming + egm:egm-brainstorm (Goldfish Brainstorming — 7-lens shootdown, synthesizer, readiness gate)
+  created_by: human
+  related_skills: [blueprint]
+  version: "2.2"
 ---
 
 # Brainstorming Ideas Into Designs
@@ -129,6 +132,19 @@ override it:
      `.skillgrid/projectwiki/ARCHITECTURE.md` (new component, data store, integration), update
      those too — only when they exist AND the feature actually changes them. Then the
      skillgrid:blueprint skill.
+
+**Decision gates:**
+
+| Condition | Path |
+|---|---|
+| Feasibility question, output is an answer not kept code, one library/command/fact | **Prototype (tiny)** — inline answer, no file. |
+| Feasibility question that needs code executed, a comparison, or edge cases | **Prototype (real probe)** — delegate to `skillgrid:prototype`; the verdict is the recommendation, artifacts stay throwaway. |
+| Well-scoped change to an existing flow in this repo | **Bounded** — short design in chat, stop; implementation only after an explicit yes. |
+| No existing flow to change | Not bounded — the task is new architecture; step up. |
+| Greenfield, new subsystem, or restructured component fit/interfaces | **New Project** — full process, Goldfish shootdown, PRD + ASSUMPTIONS + ARCHITECTURE + briefing. |
+| New feature/capability on an existing architecture | **New Function** — full process, Goldfish shootdown, briefing (+ global updates only when they actually change). |
+| Doubt between two paths | Take the heavier one. |
+| Hidden complexity discovered mid-task | Upgrade the path — stop, say so, run the shootdown at the new path. Nothing downgrades mid-task. |
 
 When in doubt between two paths, take the heavier one. The ratchet is
 one-way: hidden complexity discovered mid-task upgrades the path —
@@ -252,6 +268,28 @@ Per `_shared/craft/measurement.md`.
 - [ ] The approval gate was passed, not skipped — the task was not waved through as "too simple" without a presented design and an explicit yes
 - [ ] For new project / new function: the chosen approach is committed in the spec-zone (and mirrored to mnemonic if `mnemonic.enabled: true`)
 - [ ] If a visual companion or sketch was offered and accepted, the resulting mockup/frame artifact is saved (e.g. the sketch winner + constraints in the topic's `findings.md`)
+
+## Output Contract
+
+The deliverable depends on the classified path:
+
+- **Prototype (tiny):** the finding, reported in chat — the answer to the
+  feasibility question, no file.
+- **Prototype (real probe):** the `skillgrid:prototype` findings file —
+  hypothesis, falsifiable verdict, investigation trail; artifacts labeled
+  throwaway.
+- **Bounded:** the short design in chat (a few sentences to a few short
+  paragraphs) and the user's explicit yes — approval is quoted in the record,
+  not implied. No spec file.
+- **New Project:** `00-prd.md`, `ASSUMPTIONS.md`, `ARCHITECTURE.md`
+  (merged, not overwritten, when they pre-exist) + `briefing.md` in the
+  change folder, plus the 2-line codebase-fit verdict in the spec's Context.
+- **New Function:** `briefing.md` in the change folder, plus the 2-line
+  codebase-fit verdict; global files updated only when the feature actually
+  changes them.
+
+Every path: the classification stated out loud before the first question, and
+the approval gate passed with the quoted yes.
 
 ## Checklist and process flow
 

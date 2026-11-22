@@ -1,13 +1,15 @@
 ---
 name: skillgrid
-description: Guides an agent through taking a software idea to a complete, shipped program, and through continuing, auditing, revising or packaging a program already in progress. Use when the programmer wants to build a program end to end from an idea, or to resume, audit, revise or ship one whose .skillgrid folder already exists.
+description: "Take a software idea to a complete, shipped program, or continue, audit, revise, or package one already in progress. Use when building a program end to end from an idea, or resuming a program whose .skillgrid folder already exists."
 license: MIT
 effort: max
 metadata:
   author: devopstales
-  version: "2.0"
+ version: "2.2"
   part-of: skillgrid
   based_on: book-genesis
+  created_by: human
+  version: "2.4"
 ---
 
 # SkillGrid
@@ -41,6 +43,54 @@ The goal is a program built with the measured patterns of production codebases, 
 4. Open the programmer's `.skillgrid` folder. If `.skillgrid/state.yaml` has a change entry, resume from it; otherwise start at Phase 0 with whatever idea the programmer gave. If the folder does not exist, run onboarding yourself (`references/pipeline/onboarding.md`) — it is now part of this skill, not a separate skill.
 
 Resolve every `references/...` path from this skill's folder. The programmer's files live in `.skillgrid/`; `references/patterns/skillgrid-folder.md` shows the layout. This skill writes `.skillgrid/` only in the programmer's project root — never inside its own skill folder.
+
+## Smart Entry (state-aware routing)
+
+This skill is the **smart-entry router** for the skillgrid pipeline — the
+state-aware front door that detects where a project is and routes to the
+right next skill, so the programmer never has to decide which skill to run.
+Pattern: `skillgrid:skill-creator` §10a.
+
+**The pattern:** when the programmer says "what's next", "continue",
+"where am I", or "resume", this skill does NOT do the work — it detects
+state and dispatches exactly one skill, then stops.
+
+1. **Detect state.** Read `.skillgrid/state.yaml` (the `changes.<topic>`
+   entry and its `phase` field) and the change folder's artifacts to
+   determine where the project is. This is a deterministic step — the state
+   file is the source of truth:
+
+   | State signal | Verdict | Route to |
+   |---|---|---|
+   | No `.skillgrid/` folder | `no-project` | Phase 0: onboarding (this skill) |
+   | `state.yaml` exists, no `changes` entry | `empty-project` | Phase 0: brainstorm |
+   | `changes.<topic>.phase` = `intake` | `in-intake` | `skillgrid:brainstorm` |
+   | `phase` = `blueprint` | `in-architecture` | `skillgrid:blueprint` |
+   | `phase` = `slicing` | `in-slicing` | `skillgrid:slicing` |
+   | `phase` = `execution` | `in-execution` | `skillgrid:execute` |
+   | `phase` = `qa` | `in-verification` | `skillgrid:test` |
+   | `phase` = `ship` | `in-ship` | `skillgrid:ship` |
+   | `phase` = `archived` | `complete` | report done; next change |
+
+2. **Route.** The table above IS the Decision Gates — one row per state
+   verdict, the action is "invoke `skillgrid:<name>`". No prose re-derivation.
+3. **Dispatch.** Invoke exactly one skill and stop. The router never does the
+   target skill's work itself.
+
+**What stays out of the router:** the actual work. If this section grows
+past ~100 lines, it has absorbed procedure that belongs in the target
+skills. The router's job is *which skill to invoke*, not *what the skill
+should do*.
+
+**Surface profiles (token-budget curation).** When the skillgrid library
+grows past ~15 model-invoked skills and the description index exceeds ~1% of
+the context window, enable surface profiles — cluster-based toggles that
+control which skill descriptions are active in the agent's context. The
+pattern and the profile tiers (`core` / `standard` / `full`) are defined in
+`skillgrid:skill-creator` §12b. The profile file (`.agents/skills/.surface.json`)
+is read by the harness at install time; disabled skills remain on disk but
+are not surfaced. Check the budget at the curation interval; drop clusters
+with low `use_count` from the usage sidecar.
 
 ## The eight phases
 
@@ -157,3 +207,4 @@ Per `_shared/craft/measurement.md`.
 - [references/scoring/](references/scoring/) — evaluator protocol and program score.
 - [references/specialists/](references/specialists/) — seven on-demand specialists.
 - [references/patterns/](references/patterns/) — glossary, folder layout, config/agent templates, measured patterns.
+- [../skill-creator/references/rationalizations.md](../skill-creator/references/rationalizations.md) — the authoring rationalizations (script extraction, size, spine sections); load when you or the user push back on this skill's shape
