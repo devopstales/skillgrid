@@ -5,7 +5,7 @@
 // multi-commit tasks intact.
 //
 // Usage: node review-package.mjs PLAN_FILE BASE HEAD [OUTFILE]
-// Default OUTFILE: <repo-root>/.skillgrid/meta/.sdd/<plan-basename>/review-<base7>..<head7>.diff
+// Default OUTFILE: <repo-root>/.skillgrid/work/<plan-basename>/review-<base7>..<head7>.diff
 // (named per range, so a re-review after fixes gets a distinct fresh file).
 //
 // Exit codes: 0 = package written (path on stdout), 2 = usage / no such plan /

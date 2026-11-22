@@ -123,15 +123,15 @@ function caseWorkspace() {
 
   // resolve via git so symlinked TMPDIRs (macOS /var -> /private/var) compare equal
   const top = sh("git", ["rev-parse", "--show-toplevel"], ws).trimEnd();
-  const want = join(top, ".skillgrid", "meta", ".sdd", "2026-09-21-alpha");
-  if (da === want) { PASS++; RESULTS.push("PASS  workspace: dir is <root>/.skillgrid/meta/.sdd/<spec-folder>"); }
-  else { FAIL++; RESULTS.push(`FAIL  workspace: dir is <root>/.skillgrid/meta/.sdd/<spec-folder> (got ${da})`); }
+  const want = join(top, ".skillgrid", "work", "2026-09-21-alpha");
+  if (da === want) { PASS++; RESULTS.push("PASS  workspace: dir is <root>/.skillgrid/work/<spec-folder>"); }
+  else { FAIL++; RESULTS.push(`FAIL  workspace: dir is <root>/.skillgrid/work/<spec-folder> (got ${da})`); }
 
   if (existsSync(da) && existsSync(db)) { PASS++; RESULTS.push("PASS  workspace: both dirs created"); }
   else { FAIL++; RESULTS.push("FAIL  workspace: both dirs created"); }
 
   // parent .gitignore keeps git status clean
-  const gi = readFileSync(join(ws, ".skillgrid", "meta", ".sdd", ".gitignore"), "utf8");
+  const gi = readFileSync(join(ws, ".skillgrid", "work", ".gitignore"), "utf8");
   if (gi.trim() === "*") { PASS++; RESULTS.push("PASS  workspace: parent .gitignore contains '*'"); }
   else { FAIL++; RESULTS.push(`FAIL  workspace: parent .gitignore contains '*' (got '${gi}')`); }
   writeFileSync(join(da, "progress.md"), "# SDD ledger — plan: plan-a\n");
@@ -161,7 +161,7 @@ function caseMissing() {
   expectRC("review-package: missing plan file exits 2", 2, r.rc);
 
   // no directory may be created on the failure path
-  if (!existsSync(join(miss, ".skillgrid", "meta", ".sdd"))) { PASS++; RESULTS.push("PASS  workspace: no dir created for missing plan"); }
+  if (!existsSync(join(miss, ".skillgrid", "work"))) { PASS++; RESULTS.push("PASS  workspace: no dir created for missing plan"); }
   else { FAIL++; RESULTS.push("FAIL  workspace: no dir created for missing plan"); }
 }
 
@@ -179,9 +179,9 @@ function caseBrief() {
   let r = runScript(BRIEF, [".skillgrid/change-specs/2026-09-21-alpha/plan-a.md", "1"], brief);
   expectRC("task-brief: existing task exits 0", 0, r.rc);
   expectFile("task-brief: default outfile lands in plan A's dir",
-    join(brief, ".skillgrid", "meta", ".sdd", "2026-09-21-alpha", "task-1-brief.md"));
+    join(brief, ".skillgrid", "work", "2026-09-21-alpha", "task-1-brief.md"));
 
-  const content = readFileSync(join(brief, ".skillgrid", "meta", ".sdd", "2026-09-21-alpha", "task-1-brief.md"), "utf8");
+  const content = readFileSync(join(brief, ".skillgrid", "work", "2026-09-21-alpha", "task-1-brief.md"), "utf8");
   if (content.includes("Do the first thing") && content.includes("fake heading inside a fence") && !content.includes("Do the second thing")) {
     PASS++; RESULTS.push("PASS  task-brief: extracts only Task 1, fence-aware");
   } else {
@@ -191,8 +191,8 @@ function caseBrief() {
   // plan B's brief must not leak into plan A's dir
   r = runScript(BRIEF, [".skillgrid/change-specs/2026-09-21-beta/plan-b.md", "2"], brief);
   expectRC("task-brief: plan B task exits 0", 0, r.rc);
-  if (existsSync(join(brief, ".skillgrid", "meta", ".sdd", "2026-09-21-beta", "task-2-brief.md"))
-    && !existsSync(join(brief, ".skillgrid", "meta", ".sdd", "2026-09-21-alpha", "task-2-brief.md"))) {
+  if (existsSync(join(brief, ".skillgrid", "work", "2026-09-21-beta", "task-2-brief.md"))
+    && !existsSync(join(brief, ".skillgrid", "work", "2026-09-21-alpha", "task-2-brief.md"))) {
     PASS++; RESULTS.push("PASS  task-brief: plan B brief stays in plan B dir");
   } else {
     FAIL++; RESULTS.push("FAIL  task-brief: plan B brief stays in plan B dir");
@@ -222,7 +222,7 @@ function caseReview() {
 
   const shortBase = sh("git", ["rev-parse", "--short", base], review).trimEnd();
   const shortHead = sh("git", ["rev-parse", "--short", head], review).trimEnd();
-  const want = join(review, ".skillgrid", "meta", ".sdd", "2026-09-21-alpha", `review-${shortBase}..${shortHead}.diff`);
+  const want = join(review, ".skillgrid", "work", "2026-09-21-alpha", `review-${shortBase}..${shortHead}.diff`);
   expectFile("review-package: default outfile lands in plan's dir", want);
 
   const body = existsSync(want) ? readFileSync(want, "utf8") : "";

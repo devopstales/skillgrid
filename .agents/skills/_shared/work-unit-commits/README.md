@@ -11,7 +11,7 @@ cite it.
 
 **Config:** Read `.skillgrid/config.yaml`. Use `conventions.commit_style`
 (`conventional` by default) and `conventions.scratch_dir`
-(`.skillgrid/meta/.sdd`).
+(`.skillgrid/work`).
 
 ## Worktree root + detection (shared snippet)
 

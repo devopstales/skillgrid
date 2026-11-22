@@ -4,7 +4,7 @@
 // to be pasted through the controller's context.
 //
 // Usage: node task-brief.mjs PLAN_FILE TASK_NUMBER [OUTFILE]
-// Default OUTFILE: <repo-root>/.skillgrid/meta/.sdd/<plan-basename>/task-<N>-brief.md
+// Default OUTFILE: <repo-root>/.skillgrid/work/<plan-basename>/task-<N>-brief.md
 // (per plan and per worktree; concurrent runs of the SAME plan in the same
 // working tree share it).
 //

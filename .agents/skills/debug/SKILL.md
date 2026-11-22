@@ -87,7 +87,7 @@ A debug session crosses compactions; the trail must survive them. A compaction
 between Phase 1 and Phase 4 that loses the trail makes the agent re-investigate
 what it already ruled out.
 
-- **Write the trail to a state file:** `.skillgrid/meta/.sdd/debug/<date>-<slug>/state.md`
+- **Write the trail to a state file:** `.skillgrid/work/debug/<date>-<slug>/state.md`
   (gitignored scratch). One entry per iteration:
   `hypothesis | source (goldfish | session) | evidence | verdict (confirmed | ruled out | open)`.
   The `source` field marks who found the hypothesis: `goldfish` hypotheses
@@ -229,7 +229,7 @@ it is `ESCALATED` at best — never `RESOLVED` by vibes.
 
 ## Report
 
-Write the close-out to `.skillgrid/meta/.sdd/debug/<date>-<slug>/report.md`:
+Write the close-out to `.skillgrid/work/debug/<date>-<slug>/report.md`:
 
 | Section | Content |
 |---------|---------|

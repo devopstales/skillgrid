@@ -5,7 +5,7 @@
 // absolute path (one line on stdout — this script's caller is a shell
 // assignment, so stdout stays plain; everything else goes to stderr).
 //
-// One directory per plan (.skillgrid/meta/.sdd/<spec-change-folder>/) so a follow-up
+// One directory per plan (.skillgrid/work/<spec-change-folder>/) so a follow-up
 // plan in the same working tree can never read or overwrite another plan's
 // artifacts. A stale ledger misread as current progress makes controllers
 // skip whole task sequences — plan-scoping removes that failure structurally.
@@ -16,7 +16,7 @@
 // The workspace lives in the working tree (not under .git/) because Claude Code
 // treats .git/ as a protected path and denies agent writes there — which blocks
 // an implementer subagent from writing its report file. A self-ignoring
-// .gitignore at .skillgrid/meta/.sdd/ keeps every plan's workspace out of
+// .gitignore at .skillgrid/work/ keeps every plan's workspace out of
 // `git status` and out of accidental commits without modifying any tracked file.
 //
 // Single source of truth for the workspace location, so task-brief and
@@ -61,7 +61,7 @@ try {
 } catch {
   usage("not inside a git working tree (git rev-parse --show-toplevel failed)");
 }
-const base = join(root, ".skillgrid", "meta", ".sdd");
+const base = join(root, ".skillgrid", "work");
 const dir = join(base, slug);
 mkdirSync(dir, { recursive: true });
 writeFileSync(join(base, ".gitignore"), "*\n");

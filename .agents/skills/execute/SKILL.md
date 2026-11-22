@@ -60,7 +60,7 @@ Read `.skillgrid/config.yaml` before starting. Use:
 
 | Config key | Used for |
 |------------|----------|
-| `conventions.scratch_dir` | Ledger directory (default `.skillgrid/meta/.sdd/`) |
+| `conventions.scratch_dir` | Ledger directory (default `.skillgrid/work/`) |
 | `testing.runner` | Test command in implementer briefs and verifications |
 | `testing.tdd` | Strict-TDD branch machinery switch (basic TDD — a failing test before code — is always on regardless) |
 | `commands.build` / `commands.lint` | Build and lint commands (inline mode) |
@@ -179,7 +179,7 @@ Before reading implementation files or dispatching any task, confirm readiness:
 - If state is **`blocked`** (missing artifacts, unsafe context), STOP and return `blocked` with the missing items named.
 - If state is **`all_done`**, do not dispatch. Return `success` with `Next: qa`. You own only up to the `qa` handoff. The rest of the chain is in `_shared/rules/sdd-structure.md`. Determine `all_done` from the live done-signal, in this priority order:
   1. **Tracker** (if `ticketing.enabled: true`): every ticket for this change is `done` in the tracker.
-  2. **Per-plan ledger**: every `Task N:` line in `.skillgrid/meta/.sdd/<plan>/progress.md` reads `Task N: complete`.
+  2. **Per-plan ledger**: every `Task N:` line in `.skillgrid/work/<plan>/progress.md` reads `Task N: complete`.
   3. **Legacy fallback** (v1-format `tasks.md` only): every ticket is `[x]`.
 - If state is **`ready`**, proceed only on the assigned pending tickets.
 
@@ -275,7 +275,7 @@ For each task (or ticket, if sliced), in wave order:
 7. Run verifications as specified (the plan's verifications, or the ticket's acceptance criteria).
 8. **Zone rule (BDD is always on):** edit `.skillgrid/change-specs/` *or* code in a single commit — never both uncommitted. Commit spec changes before code changes; the spec is the contract, the code satisfies it. The `pre-commit` zone guard (`skillgrid:work-unit-commits`) blocks a commit that stages both.
 9. **Commit the task's changes** per `skillgrid:work-unit-commits` — conventional subject (no AI-attribution trailer), atomic + independently-revertable, a `[skillgrid-context]` block in the body. Commit *after* the task's gate is green, *before* any long install/build. The git hooks (`pre-commit`, `commit-msg`) enforce the guards; each commit is a checkpoint you can roll back to.
-10. Mark as completed. The run's record is the Execution Ledger under `.skillgrid/meta/.sdd/` (ADR-0020). When `mnemonic.enabled: true`, upsert `execution-progress` with the body in `_shared/rules/mnemonic-memory.md`.
+10. Mark as completed. The run's record is the Execution Ledger under `.skillgrid/work/` (ADR-0020). When `mnemonic.enabled: true`, upsert `execution-progress` with the body in `_shared/rules/mnemonic-memory.md`.
 
 ### Fan-out mode
 
@@ -286,7 +286,7 @@ When the plan decomposes into 2+ independent problem domains (different test fil
 3. **Create focused agent tasks.** Each agent gets: a specific scope (one test file or subsystem), a clear goal, constraints ("do NOT change production code" / "fix tests only"), and a specific expected output ("return summary of root cause and changes"). Prompts must be focused, self-contained (paste the error messages and test names), and specific about output.
 4. **Dispatch in parallel — all dispatch calls in one response.** Multiple dispatch calls in one response = parallel execution; one per response = sequential.
 
-   **Fan-out ledger:** summaries returned to your context rot with it — a compaction mid-integration loses which agents finished, what they changed, and whether the suite was re-run. Keep a fan-out ledger at `.skillgrid/meta/.sdd/<run-slug>/parallel-ledger.md` (git-ignored): one row per agent — `agent | task | status (dispatched|done|failed) | worktree | changed files | test result`. Write a row on dispatch, update it when the agent returns, append a wave-summary line when the suite is re-run. **Integrate from the ledger + git, not from in-context summaries.** If you suspect a compaction mid-run: re-read the ledger + `git status`/`git log`, then re-dispatch only the unfinished rows. If `mnemonic.enabled: true`, upsert `skillgrid/<topic>/execution-progress` when a wave completes (ledger path plus wave tail, per `_shared/rules/mnemonic-memory.md`).
+   **Fan-out ledger:** summaries returned to your context rot with it — a compaction mid-integration loses which agents finished, what they changed, and whether the suite was re-run. Keep a fan-out ledger at `.skillgrid/work/<run-slug>/parallel-ledger.md` (git-ignored): one row per agent — `agent | task | status (dispatched|done|failed) | worktree | changed files | test result`. Write a row on dispatch, update it when the agent returns, append a wave-summary line when the suite is re-run. **Integrate from the ledger + git, not from in-context summaries.** If you suspect a compaction mid-run: re-read the ledger + `git status`/`git log`, then re-dispatch only the unfinished rows. If `mnemonic.enabled: true`, upsert `skillgrid/<topic>/execution-progress` when a wave completes (ledger path plus wave tail, per `_shared/rules/mnemonic-memory.md`).
 
 5. **Review and integrate.** Each agent returns the structured payload in [references/fan-out-return.schema.json](references/fan-out-return.schema.json) — not free prose. A worker that fails or times out is recorded `status: failed` with a placeholder row in the fan-out ledger; integration continues (a partial run is resumable, not a crash). When returns arrive: verify fixes don't conflict (two agents editing the same file = scope error), merge the worktrees into the parent branch in order, run the full test suite, and spot-check each `changed_files` list against `git status` — agents can make systematic errors. Integrate from the ledger + the structured returns, never from in-context summaries.
 

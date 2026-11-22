@@ -9,8 +9,9 @@ When to load: Phase 0, and whenever a path is in doubt. Role: orchestrator.
 .skillgrid/
   config.yaml                   # project settings (ticketing, testing, gates, tiers)
   state.yaml                    # dynamic state: phase, current change, genesis block
-  work/<YYYY-MM-DD-topic>/      # in-flight execution scratch, gitignored
-    progress.md
+  work/<YYYY-MM-DD-topic>/      # in-flight execution scratch + ledger, gitignored
+    progress.md                   # SDD ledger (the recovery map)
+    parallel-ledger.md            # fan-out ledger (one row per agent)
     briefs/<unit>.md
     attempts/<unit>/attempt-1.md
     attempts/<unit>/revision-rK.md
@@ -77,7 +78,7 @@ When to load: Phase 0, and whenever a path is in doubt. Role: orchestrator.
 | Use | Not |
 |---|---|
 | `.skillgrid/state.yaml` | `.skillgrid/meta/state.yaml` |
-| `.skillgrid/work/<YYYY-MM-DD-topic>/` | `.skillgrid/meta/.sdd/<plan>/` |
+| `.skillgrid/work/<YYYY-MM-DD-topic>/` | `.skillgrid/meta/.sdd/<plan>/` (legacy — merged into `work/`) |
 | `.skillgrid/prototype/<YYYY-MM-DD-topic>/` | `.skillgrid/meta/.prototype/` |
 | `.skillgrid/change-specs/<topic>/` | `.skillgrid/specs/<topic>/` |
 | `.skillgrid/change-archive/<topic>/` | `.skillgrid/archive/<topic>/` |
