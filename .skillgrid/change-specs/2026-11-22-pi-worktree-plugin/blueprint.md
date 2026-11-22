@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use skillgrid:execute (subagent mode recommended, or inline mode) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** PROPOSED
+**Status:** APPROVED (2026-11-22, User Review Gate — OD-1 + OD-3 approved; OD-2 retired by Goldfish Stage 5 R1-F001)
 
 **Tier:** T2
 
@@ -29,14 +29,14 @@ Pointers only (canonical terms live in the glossary files; none exist yet in thi
 ## Must-Haves (goal-backward verification)
 
 **Truths** (observable behaviors that must hold):
-- MH-1: A turn that mutated the worktree produces exactly one new ref under `refs/skillgrid/` for the session, with the full metadata block (branch, head, index-tree, worktree-tree, session, turn, label, created, untracked, largeFiles, largeDirs); the real git index is byte-identical before/after capture.
+- MH-1: A turn that mutated the worktree produces exactly one new ref under `refs/skillgrid/` for the session, with the full metadata block (branch, head, index-tree, worktree-tree, session, turn, label, created, preexisting-untracked, largeFiles, largeDirs — field names match the contract's § Scratch checkpoints metadata block verbatim); the real git index is byte-identical before/after capture.
 - MH-2: A turn with no worktree change produces no new ref (worktree-tree SHA dedup; `createCheckpoint` returns `skipped`).
 - MH-3: `restoreCheckpoint` on a matching branch restores a dirty tree (deleted tracked files return, post-checkpoint untracked files are removed, pre-existing untracked files survive, ignored/large skipped items are never deleted) and always takes a before-restore checkpoint first.
 - MH-4: `restoreCheckpoint` is refused — with the mismatch named — when the current branch differs from the branch recorded at capture (the check is branch-only: a branch name exists in exactly one live worktree; Goldfish Stage 5 R1-F001 retired the worktree-root half).
 - MH-5: Refs are bounded: the 51st capture in a session prunes the oldest (50 max); at session start, other sessions' refs older than 1h are pruned in the background (liveness-aware — a concurrently-running sibling session's fresh refs survive; Goldfish Stage 7 M-1).
 - MH-6: `createCheckpoint` completes in ≤150ms on a 5,000-file repo (bench output, per pi-rewind's flat-latency result in `findings.md` R3).
 - MH-7: A `wt` invocation whose directive names a directory inside the original repository moves the Pi session to a linked session in that directory; the source session stays `/resume`-able; in print/json mode the result is `stopped` + restart directory, no move.
-- MH-8: When the session's cwd is gone, the next wt call recovers to a surviving worktree (repository identity re-verified, main preferred) and does NOT run a command requested after the directory died.
+- MH-8: When the session's cwd is gone, the next wt call recovers to a surviving worktree (repository identity re-verified, the repo's default branch (`git symbolic-ref --short refs/remotes/origin/HEAD`, falling back to `main` then `master`)) and does NOT run a command requested after the directory died.
 - MH-9: First `wt` use observes the actual worktree root (the template is an owner-set worktrunk config value, outside the plugin's trust boundary — Goldfish Stage 5 R1-F002a); when worktrees land outside `<projectroot>/.worktree/` the report carries a one-line "observed root differs — noted", never a silent follow.
 - MH-10: In a worktree context, `switch --create` with a branch outside `^(agent-|worktree-agent-|worktree-wf_)[A-Za-z0-9._/-]+$` is rejected with the nearest allowed form suggested; the primary checkout is unconstrained.
 - MH-11: `merge` calls execute with `--no-squash --no-commit` prepended unless the caller explicitly passed either flag; the executed argv is observable in the result.
@@ -80,7 +80,7 @@ Pointers only (canonical terms live in the glossary files; none exist yet in thi
 | R3 | restore on matching branch: deletes return, new untracked removed, pre-existing survive | before-restore snapshot itself is a ref | branch mismatch (incl. detached HEAD) → refused with named reason | `bun test` (restore group) | a restored file deleted, or a cross-branch restore completing |
 | R4 | 51st capture prunes oldest; startup prunes other sessions' refs older than 1h | exactly 50 refs (no prune); sibling session's fresh ref survives startup prune | prune during active restore | `bun test` (prune group) | 51+ session refs surviving, or a current-session ref pruned, or a fresh sibling ref pruned |
 | R5 | directive move → linked session, source resumable | print mode → `stopped` + path, no move | directive outside original repo → rejected, stay put | `bun test tests/wt-core.test.ts` + `pi -e` smoke | session not moved in TUI, or moved in print mode |
-| R6 | cwd gone → recover to survivor (main preferred), pending command NOT run | removed by another process (no directive) | no surviving worktree → report restart location | `bun test` (recovery group) | the pending command executing in the new worktree |
+| R6 | cwd gone → recover to survivor (the repo's default branch (`git symbolic-ref --short refs/remotes/origin/HEAD`, falling back to `main` then `master`)), pending command NOT run | removed by another process (no directive) | no surviving worktree → report restart location | `bun test` (recovery group) | the pending command executing in the new worktree |
 | R7 | standard template → no note in report | foreign template → one-line "observed root differs" in the report | template set to a relative path | `bun test` (root-observation group) | foreign layout silently followed without the note |
 | R8 | `switch --create agent-x` allowed in worktree context | `worktree-wf_auth` allowed; `feature-x` rejected with suggestion | primary checkout `feature-x` → allowed | `bun test` (allow-list group) | a rejected branch created anyway |
 | R9 | `merge` → argv has both flags | explicit `--squash` → not rewritten for that flag | `--no-commit` present, `--no-squash` absent → only the missing one prepended | `bun test` (merge-defaults group) | a squash commit where work-unit commits were expected |
@@ -98,7 +98,7 @@ skillgrid-skills repo): one row per applicable class, each with a test.
 | Threat class | Applicable | Execution boundary | Test |
 |---|---|---|---|
 | Untrusted input | **Applicable** — worktrunk stdout/stderr and the directive file content are external (a malicious or buggy `wt` write could name any path); checkpoint ref metadata is read back from git on restore | Directive path must resolve inside the original repository's worktree set (R1 safety rule); ref ids validated against `^[\w-]+$` before use in `update-ref`/`for-each-ref`; ref metadata fields parsed, never interpolated into a shell (spawn with arg arrays, no shell) | `tests/wt-core.test.ts`: directive naming a path outside the repo → rejected, stay put; ref id with `/` or `..` → rejected at `loadCheckpoint` (Task 3) |
-| Git repository selection | **Applicable** — the plugin runs in worktrees, the primary checkout, and across moves; `git -C` vs relative cwd errors are the classic failure | every git call in the cores is `spawn("git", [...], {cwd: root})` with `root` = the caller-resolved toplevel (`repoRoot(ctx.cwd)`); the branch-keyed restore check (Task 3) refuses any restore whose current branch ≠ the checkpoint's branch — a checkpoint from a different worktree is refused by branch name | `tests/scratch.test.ts`: `repoRoot` from a worktree subdirectory resolves to the worktree toplevel (pass); a checkpoint ref from another worktree's session is refused by branch name (the primary-checkout case) |
+| Git repository selection | **Applicable** — the plugin runs in worktrees, the primary checkout, and across moves; `git -C` vs relative cwd errors are the classic failure | every git call in the cores is `spawn("git", [...], {cwd: root})` with `root` = the caller-resolved toplevel (`repoRoot(ctx.cwd)` = `git -C <cwd> rev-parse --show-toplevel`); the branch-keyed restore check (Task 3) refuses any restore whose current branch ≠ the checkpoint's branch — a checkpoint from a different worktree is refused by branch name | `tests/scratch.test.ts`: `repoRoot` from a worktree subdirectory resolves to the worktree toplevel (pass); a checkpoint ref from another worktree's session is refused by branch name (the primary-checkout case) |
 | Commit state | **Applicable** — capture runs against unborn HEAD, detached HEAD, dirty index, partial staging | unborn HEAD → zero-SHA head, `read-tree` seed skipped (`ZEROS`); detached HEAD → captured, restore refused by the branch check with the Task 3 string (`checkpoint on '<branch>', current 'DETACHED'`) | `tests/scratch.test.ts`: capture on a fresh `git init` repo succeeds with zero-SHA; detached-HEAD restore refused with the Task 3 string naming `DETACHED` |
 | Push state | N/A — the plugin never pushes; `wt merge` is local-only (R4: "never fetches"), pushes stay with `ship` Step 6 | — | — |
 | PR commands | N/A — no forge interaction in the plugin | — | — |
@@ -109,7 +109,7 @@ skillgrid-skills repo): one row per applicable class, each with a test.
 ## Global Constraints
 
 - **Pi floor: 0.99.1+** (linked-session API; matches pi-worktrunk). `package.json` `engines` / README state it.
-- **`wt` requirement:** current release line on PATH (the `WORKTRUNK_DIRECTIVE_CD_FILE` protocol is worktrunk-internal — `findings.md` R1). Startup check prints protocol support; absence → wt extension inert + "git fallback applies (skill Step 0c)" report. Min version pinned in the README at Task 7 (the one open fact from the briefing).
+- **`wt` requirement:** current release line on PATH (the `WORKTRUNK_DIRECTIVE_CD_FILE` protocol is worktrunk-internal — `findings.md` R1). Startup check prints protocol support; absence → wt extension inert + "git fallback applies (skill Step 0b, tier 3)" report. Min version pinned in the README at Task 7 (the one open fact from the briefing).
 - **Zero runtime dependencies** beyond the Pi ecosystem: `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`, and `typebox` are provided by the host Pi install — they are NOT listed in `package.json` (peer-only at most; see Task 1's snippet, which carries only `bun-types` as a devDependency). No shell in any git/wt invocation — `spawn(cmd, args[], {cwd, env, stdio})` only (threat matrix: untrusted input).
 - **Core purity:** nothing in `src/core/` imports `@earendil-works/*` (enforced by `tests/import-scan.test.ts`, MH-14).
 - **Ref namespace:** `refs/skillgrid/` (OD-1). Ref ids: `^[\w-]+$`.
@@ -133,7 +133,7 @@ New repo `devopstales/pi-worktree` (sibling of `skillgrid-skills`):
 - `src/scratch.ts` — extension file 1. `turn_end` → capture + footer; `session_start` → cache rebuild + resume checkpoint + background prune; registers `scratch-restore` tool (`{id?}`) and `/checkpoint` command; restore dialog via `ui.ts`.
 - `src/wt.ts` — extension file 2. `worktrunk` tool (`{command, args?}`, sequential, compact description + on-demand `--help` catalog per R1) and `/wt` command; directive follow → linked-session move (print/json → `stopped`); recovery hook; approval dialog passthrough.
 - `src/markers.ts` — marker lifecycle (R11); sole marker writer.
-- `src/ui.ts` — footer `◆ N checkpoints`; restore dialog (files-only / cancel).
+- `src/ui.ts` — footer + dialog. Pinned shapes (Stage 9 F1): `updateFooter(ctx, created: boolean): void` (renders `◆ N checkpoints` where N = the in-memory cache count for the current session; `created` triggers a brief "✓ checkpoint" flash); `rebuildCache(ctx): Promise<void>` (walks `refs/skillgrid/` via `listCheckpoints`, populates the in-memory `Map<sessionId, Checkpoint[]>`, and seeds `lastTree` for the current session from its newest ref's `worktreeTreeSha`); `restoreDialog(ctx, cp: Checkpoint): Promise<"files-only" | "cancel">` (wraps `ctx.ui.select` with a one-line diff preview: file count + the first 5 changed paths from `git diff --name-only <cp.worktreeTreeSha> HEAD`, then the ["files-only", "cancel"] choice).
 - `tests/scratch.test.ts` — capture/dedup/restore/prune/branch-check/unborn-HEAD/detached groups (R1–R4).
 - `tests/wt-core.test.ts` — directive follow, no-replay recovery, root-observation, allow-list, merge-defaults, approval, mutex groups (R5–R10, R12); runs against a real `wt` binary in a temp repo (skipped with a named reason when `wt` is absent — the pure-parse groups like `applyMergeDefaults` still run).
 - `tests/import-scan.test.ts` — fails if any `src/core/**` imports `@earendil-works/*` (R12/MH-14).
@@ -245,6 +245,7 @@ Expected: FAIL — `Cannot find module '../src/core/constants.ts'`
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
+  "files": ["src/", "references/"],
   "pi": { "extensions": ["./src/scratch.ts", "./src/wt.ts"] },
   "engines": { "pi": ">=0.99.1" },
   "scripts": { "test": "bun test", "bench": "bun run tests/bench.ts" },
@@ -288,7 +289,7 @@ git commit -m "feat: scaffold pi-worktree repo + contract constants"
 
 **Interfaces:**
 - Consumes: `REF_BASE`, `IGNORED_DIRS`, `MAX_UNTRACKED_FILE_SIZE`, `MAX_UNTRACKED_DIR_FILES`, `isSafeRefId` (Task 1)
-- Produces: `createCheckpoint(opts: {root: string; sessionId: string; turn: number; label: string}): Promise<CheckpointResult>` where `CheckpointResult = {status: "created"; id: string; worktreeTreeSha: string} | {status: "skipped"; reason: "unchanged"}`; `Checkpoint` type (`id, sessionId, branch, headSha, indexTreeSha, worktreeTreeSha, turn, label, created, preexistingUntracked: string[], skippedLargeFiles: string[], skippedLargeDirs: string[]`); `git(args: string[], opts?: {cwd?: string; env?: NodeJS.ProcessEnv; input?: string}): Promise<string>` (the shared spawn helper — no shell, per threat matrix); `repoRoot(cwd: string): Promise<string>` (the contract's existing `--show-toplevel` snippet — resolves a cwd to its repo toplevel; used by every extension call site and the threat matrix's "Git repository selection" row; Goldfish Stage 8 N-2)
+- Produces: `createCheckpoint(opts: {root: string; sessionId: string; turn: number; label: string}): Promise<CheckpointResult>` where `CheckpointResult = {status: "created"; id: string; worktreeTreeSha: string} | {status: "skipped"; reason: "unchanged"}`; `Checkpoint` type (`id, sessionId, branch, headSha, indexTreeSha, worktreeTreeSha, turn, label, created, preexistingUntracked: string[], skippedLargeFiles: string[], skippedLargeDirs: string[]`); `git(args: string[], opts?: {cwd?: string; env?: NodeJS.ProcessEnv; input?: string}): Promise<string>` (the shared spawn helper — no shell, per threat matrix); `repoRoot(cwd: string): Promise<string>` (resolves a cwd to its worktree toplevel via `git -C <cwd> rev-parse --show-toplevel` — the `-C` makes cwd authoritative, so from a worktree's subdirectory it returns the WORKTREE root, not the primary checkout's; used by every extension call site and the threat matrix's "Git repository selection" row; Goldfish Stage 8 N-2 + Stage 9 codebase-details Blocker); `resetSessionState(): void` (clears the module-level `lastTree` dedup map — consumed by Task 2's own tests, Task 3's restore tests, and Task 4's prune tests; Goldfish Stage 9 F11 — declared here, not in Task 4, so the TDD order holds)
 - Seam: `git()` is the single process boundary for all git access
 - Deletion test: capture logic reappears in restore and bench as inline spawn calls; the dedup state (last tree SHA) has no home
 - Adapters: prod (real git) + tests (temp repos) = 2
@@ -318,13 +319,15 @@ beforeEach(async () => {
 afterEach(() => rm(repo, { recursive: true, force: true }));
 
 test("mutating turn creates exactly one ref with full metadata", async () => {
+  resetSessionState(); // module-level lastTree persists across tests
   await writeFile(join(repo, "b.txt"), "two\n");
   const r1 = await createCheckpoint({ root: repo, sessionId: "s1", turn: 1, label: "edit b" });
   expect(r1.status).toBe("created");
   const refs = (await git(["for-each-ref", "refs/skillgrid/"], { cwd: repo })).split("\n").filter(Boolean);
   expect(refs).toHaveLength(1);
   const msg = await git(["log", "-1", "--format=%B", r1.id]);
-  for (const field of ["branch main", "head ", "index-tree ", "worktree-tree ", "session s1", "turn 1", "label edit b", "untracked ["]) {
+  // field names match the contract's § Scratch checkpoints metadata block verbatim
+  for (const field of ["branch main", "head ", "index-tree ", "worktree-tree ", "session s1", "turn 1", "label edit b", "preexisting-untracked ["]) {
     expect(msg).toContain(field);
   }
 });
@@ -337,6 +340,7 @@ test("capture leaves the real index byte-identical", async () => {
 });
 
 test("read-only turn is skipped (dedup on worktree tree SHA)", async () => {
+  resetSessionState();
   const first = await createCheckpoint({ root: repo, sessionId: "s1", turn: 1, label: "a" });
   expect(first.status).toBe("created");
   const second = await createCheckpoint({ root: repo, sessionId: "s1", turn: 2, label: "b" });
@@ -344,6 +348,7 @@ test("read-only turn is skipped (dedup on worktree tree SHA)", async () => {
 });
 
 test("unborn HEAD captures with zero-SHA head", async () => {
+  resetSessionState();
   const bare = await mkdtemp(join(tmpdir(), "pi-wt-bare-"));
   await git(["init", "-b", "main"], { cwd: bare });
   await writeFile(join(bare, "x.txt"), "x");
@@ -351,6 +356,19 @@ test("unborn HEAD captures with zero-SHA head", async () => {
   expect(r.status).toBe("created");
   expect(await git(["log", "-1", "--format=%B", r.id])).toContain("head 0000000000000000000000000000000000000000");
   await rm(bare, { recursive: true, force: true });
+});
+
+test("an ignored-but-present file is absent from the captured tree", async () => {
+  resetSessionState();
+  // .gitignore'd paths are excluded from the snapshot by construction (porcelain
+  // excludes them); IGNORED_DIRS is the belt-and-suspenders filter (Stage 9 M-15)
+  await writeFile(join(repo, ".gitignore"), "node_modules/\n");
+  await mkdir(join(repo, "node_modules"), { recursive: true });
+  await writeFile(join(repo, "node_modules/x.js"), "x");
+  const r = await createCheckpoint({ root: repo, sessionId: "s1", turn: 1, label: "ig" });
+  expect(r.status).toBe("created");
+  const tree = await git(["ls-tree", "-r", "--name-only", r.worktreeTreeSha], { cwd: repo });
+  expect(tree).not.toContain("node_modules");
 });
 ```
 
@@ -380,19 +398,25 @@ const lastTree = new Map<string, string>();
 
 export async function createCheckpoint(o: {root: string; sessionId: string; turn: number; label: string}): Promise<CheckpointResult> {
   // 1. head (ZEROS if unborn), branch, indexTree = write-tree
-  // 2. temp index: read-tree head (if ≠ ZEROS); filtered untracked+modified via
-  //    `git status --porcelain=v1 -uall` → apply IGNORED_DIRS (any path component),
-  //    MAX_UNTRACKED_FILE_SIZE, MAX_UNTRACKED_DIR_FILES → add --all in batches of 100
+  // 2. temp index: read-tree head (if ≠ ZEROS); candidates via `git status --porcelain=v1 -uall`
+  //    (porcelain excludes .gitignore'd paths by construction); filter:
+  //    - IGNORED_DIRS: any path component in the Set → skip the dir entirely (count as skippedLargeDirs)
+  //    - untracked files: > MAX_UNTRACKED_FILE_SIZE → skip (count as skippedLargeFiles)
+  //    - per-directory: > MAX_UNTRACKED_DIR_FILES untracked files → skip the dir (count as skippedLargeDirs)
+  //    - pre-existing untracked (untracked at capture, not modified) → record in preexistingUntracked, still add
+  //    → `add --all <filtered-paths>` in batches of 100 (no shell; paths are args)
   // 3. worktreeTree = write-tree (temp index); if lastTree.get(o.sessionId) === worktreeTree → {status:"skipped",reason:"unchanged"}
   // 4. id = `${o.sessionId}-t${o.turn}-${Date.now()}` (isSafeRefId-checked);
-  //    commit-tree with metadata message; update-ref `${REF_BASE}/${id}`; lastTree.set
+  //    commit-tree with metadata message (field names per contract: branch, head,
+  //    index-tree, worktree-tree, session, turn, label, created, preexisting-untracked,
+  //    largeFiles, largeDirs); update-ref `${REF_BASE}/${id}`; lastTree.set
 }
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `bun test tests/scratch.test.ts`
-Expected: PASS (4 tests)
+Expected: PASS (5 tests: mutating-turn, index-identical, read-only-skip, unborn-HEAD, ignored-paths)
 
 - [ ] **Step 5: Commit**
 
@@ -499,9 +523,11 @@ export async function restoreCheckpoint(root: string, id: string) {
   await createCheckpoint({ root, sessionId: cp.sessionId, turn: cp.turn + 1, label: `before-restore ${id}` });
   if (cp.headSha !== ZEROS) await git(["reset", "--hard", cp.headSha], { cwd: root });
   await git(["read-tree", "--reset", "-u", cp.worktreeTreeSha], { cwd: root });
-  await safeClean(root, cp); // delete files in the snapshot that are neither
-                             // preexistingUntracked nor skippedLarge* (never the
-                             // ignored-dir set, never large skips)
+  await safeClean(root, cp); // safeClean: `git diff --name-only --diff-filter=AD HEAD <worktreeTreeSha>`
+                             // → files added in the snapshot since HEAD (i.e. present in the
+                             // snapshot, absent in the restored HEAD) → delete those that are
+                             // neither preexistingUntracked nor skippedLarge* (never the
+                             // ignored-dir set, never large skips; Stage 9 F6)
   await git(["read-tree", "--reset", cp.indexTreeSha], { cwd: root }); // real index
   return { status: "restored" };
 }
@@ -530,7 +556,7 @@ git commit -m "feat(scratch): safe restore with branch-keyed check"
 
 **Interfaces:**
 - Consumes: `listCheckpoints`, `loadCheckpoint`, `MAX_PER_SESSION` (Task 1)
-- Produces: `prune(root: string, sessionId: string): Promise<number>`; `pruneOtherSessions(root: string, current: string, now?: Date): Promise<number>` — **liveness-aware** (Goldfish Stage 7 design-critic M-1: in the fan-out scenario, "other sessions" are concurrently-running sessions in sibling worktrees sharing the same `refs/skillgrid/` namespace, so blind deletion can destroy a live session's last-interruption checkpoint; the prune deletes only refs whose `created` timestamp is older than `PRUNE_MIN_AGE_MS` = 1h — a restart gap no live session crosses in practice; `now` is injectable for the two-session test); `lastTree` state reset helper `resetSessionState()` (for `session_start` rebuild)
+- Produces: `prune(root: string, sessionId: string): Promise<number>`; `pruneOtherSessions(root: string, current: string, now?: Date): Promise<number>` — **liveness-aware** (Goldfish Stage 7 design-critic M-1: in the fan-out scenario, "other sessions" are concurrently-running sessions in sibling worktrees sharing the same `refs/skillgrid/` namespace, so blind deletion can destroy a live session's last-interruption checkpoint; the prune deletes only refs whose `created` timestamp is older than `PRUNE_MIN_AGE_MS` = 1h — a restart gap no live session crosses in practice; `now` is injectable for the two-session test); `resetSessionState()` is declared in Task 2's Produces (consumed here — Stage 9 F11: the TDD order holds because Task 2 declares it)
 - Seam: the `created` timestamp in the ref metadata message is the liveness signal
 - Deletion test: refs grow unbounded per session and across sessions — the 525-stale-refs failure mode from `findings.md` R3
 - Adapters: prod + tests = 2
@@ -557,7 +583,9 @@ test("pruneOtherSessions removes other sessions' refs, keeps the current one", a
   await createCheckpoint({ root: repo, sessionId: "old", turn: 1, label: "o" });
   await writeFile(join(repo, "n.txt"), "n");
   await createCheckpoint({ root: repo, sessionId: "cur", turn: 1, label: "c" });
-  const n = await pruneOtherSessions(repo, "cur");
+  // advance the clock past the 1h liveness threshold (the "old" ref is fresh
+  // by wall-clock; the injectable `now` makes the test deterministic — Stage 9 M-13)
+  const n = await pruneOtherSessions(repo, "cur", new Date(Date.now() + 2 * 3600 * 1000));
   expect(n).toBe(1);
   const refs = (await git(["for-each-ref", "refs/skillgrid/"], { cwd: repo })).split("\n").filter(Boolean);
   expect(refs).toHaveLength(1);
@@ -602,7 +630,7 @@ export async function prune(root: string, sessionId: string): Promise<number> {
   return Math.max(0, excess);
 }
 const PRUNE_MIN_AGE_MS = 3600 * 1000; // 1h — a live session's restart gap never crosses this.
-// Defensive constant (Goldfish Stage 8 M-1): the contract's primary boundary is
+// Defensive constant (Goldfish Stage 7 R3-F003 decision; Stage 8 R4-F001 documentation): the contract's primary boundary is
 // "per-worktree by construction: prune touches only the current worktree's refs";
 // git refs are repo-shared in practice, so this threshold is a second line of
 // defense for the fan-out case, not the primary safety mechanism.
@@ -619,7 +647,7 @@ export async function pruneOtherSessions(root: string, current: string, now: Dat
 - [ ] **Step 4: Run tests + bench to verify they pass**
 
 Run: `bun test tests/scratch.test.ts && bun run bench`
-Expected: PASS (13 tests total: capture 4 + restore 5 + prune 4) + bench table printed, 5k-file median ≤ 150ms
+Expected: PASS (14 tests total: capture 5 + restore 5 + prune 4) + bench table printed, 5k-file median ≤ 150ms
 
 - [ ] **Step 5: Commit**
 
@@ -656,7 +684,7 @@ export default function (pi: ExtensionAPI) {
   let turnIndex = 0; // incremented per turn_end, reset in session_start (the `turn` field of the checkpoint metadata + ref id)
   pi.on("before_agent_start", async (e) => { lastLabel = String(e.prompt ?? "").slice(0, 60); });
   pi.on("turn_end", async (_e, ctx) => {
-    const r = await createCheckpoint({ root: repoRoot(ctx.cwd), sessionId: ctx.sessionManager.getSessionId(), turn: ++turnIndex, label: lastLabel });
+    const r = await createCheckpoint({ root: await repoRoot(ctx.cwd), sessionId: ctx.sessionManager.getSessionId(), turn: ++turnIndex, label: lastLabel });
     updateFooter(ctx, r.status === "created");
   });
   pi.on("session_start", async (_e, ctx) => {
@@ -666,14 +694,14 @@ export default function (pi: ExtensionAPI) {
                        // if this session has existing refs, set lastTree for its
                        // newest ref's worktreeTreeSha (a resumed session's first
                        // unchanged turn must not emit a duplicate ref — Stage 7 N-1)
-    void pruneOtherSessions(repoRoot(ctx.cwd), ctx.sessionManager.getSessionId()); // background, liveness-aware
+    void pruneOtherSessions(await repoRoot(ctx.cwd), ctx.sessionManager.getSessionId()); // background, liveness-aware
   });
   pi.registerTool({ name: "scratch-restore", parameters: Type.Object({ id: Type.Optional(Type.String()) }),
     async execute(_id, p, _s, _u, ctx) {
-      if (!p.id) return { diffPreview: await listCheckpoints(repoRoot(ctx.cwd)) };
+      if (!p.id) return { diffPreview: await listCheckpoints(await repoRoot(ctx.cwd)) };
       const ok = await ctx.ui.select("Restore?", ["files-only", "cancel"]);
       if (ok !== "files-only") return { restored: false };
-      return await restoreCheckpoint(repoRoot(ctx.cwd), p.id);
+      return await restoreCheckpoint(await repoRoot(ctx.cwd), p.id);
     }});
   pi.registerCommand("checkpoint", { description: "List/restore scratch checkpoints", handler: /* same flow */ });
 }
@@ -750,7 +778,7 @@ git commit -m "feat(wt): directive runner + root-observation/allow-list/merge-de
 
 **Interfaces:**
 - Consumes: `runDirectedWt`, `supportsDirectiveProtocol` (Task 6); `ctx.sessionManager`, `ctx.mode`, `ctx.ui` (Pi surface per `findings.md` R1)
-- Produces: `recordWorktrees(cwd)` / `recover(cwd, pendingArgs: string[] | null): Promise<{movedTo?: string; replayed: boolean}>` (recorded-worktree list is the recovery eligibility set — R1 safety); the `worktrunk` tool (`{command, args?}`, `executionMode: "sequential"`, compact description + on-demand `--help`, `promptGuidelines` incl. never-`-y` and never-parallel); the `/wt` command; the approval dialog passthrough
+- Produces: `recordWorktrees(cwd)` / `recover(cwd, pendingArgs: string[] | null): Promise<{movedTo?: string; replayed: boolean}>` (recorded-worktree list is the recovery eligibility set — R1 safety); the `worktrunk` tool (`{command, args?}`, `executionMode: "sequential"`, compact description + on-demand `--help`, `promptGuidelines` incl. never-`-y` and never-parallel); the `/wt` command; the approval dialog passthrough; `recordWorktrees(cwd: string): void` — in-memory `Map<worktreePath, {gitCommonDir, recordedAt}>` populated at `session_start` (from `git worktree list --porcelain`) and on every directive move; cleared on `session_shutdown`; the mutex (Task 6) guards the directive file, not this map (Stage 9 F4+F5)
 - Seam: the tool's `execute` + `pi.on("session_start")` recording
 - Deletion test: a removed cwd crashes the next `wt` call instead of recovering; queued-mutation semantics disappear from codemode
 - Adapters: prod + smoke = 2
@@ -763,7 +791,7 @@ git commit -m "feat(wt): directive runner + root-observation/allow-list/merge-de
 // recovery group — fixture (module scope, real wt): a temp main checkout with
 // wt initialized and ONE worktree `agent-demo` created via `wt switch --create agent-demo`
 // (fixture paths: `mainWorktree` = the main checkout, `agentDemoWorktree` = that worktree)
-test("cwd removed → recover to surviving worktree (main preferred), pending command NOT run", async () => {
+test("cwd removed → recover to surviving worktree (the repo's default branch (`git symbolic-ref --short refs/remotes/origin/HEAD`, falling back to `main` then `master`)), pending command NOT run", async () => {
   recordWorktrees(agentDemoWorktree);
   rm(agentDemoWorktree);                          // removed by "another process"
   const res = await recover(agentDemoWorktree, ["remove"]);   // requested after the directory died
@@ -779,7 +807,7 @@ test("no surviving worktree → report restart location, no move", async () => {
 Smoke (`tests/wt-ext.smoke.md`): `pi -e ./src/wt.ts` in a temp repo with `wt` → `wt switch --create agent-smoke` via the tool → session cwd is the new worktree, source session in `/resume`; print mode → `stopped` + path; unapproved `[pre-start]` hook → dialog, approve → runs once, `wt config show` shows the saved approval.
 
 - [ ] **Step 2: Run tests to verify they fail** — recovery + `wt.ts` missing
-- [ ] **Step 3: Write minimal implementation** (recovery per R1: on next wt call, if `ctx.cwd` is gone → filter the recorded list by repository identity (`git -C <path> rev-parse --git-common-dir` matches the original), prefer the default branch's worktree, create the linked "Session recovered" session, never run `pendingArgs`; `wt.ts` per R1's tool surface — the `promptGuidelines` list is copied from pi-worktrunk's with the skillgrid additions: "In a worktree context, branches follow the per-agent allow-list (agent-*, worktree-agent-*, worktree-wf_*). Merge calls default to --no-squash --no-commit." The approval dialog: parse worktrunk's approval-needed output, `ctx.ui.select` over the command list, on approve run `wt config approvals add` for exactly those, retry once, re-show the dialog on decline, fail + list what to approve in non-interactive mode — the full behavior is MH-12 and `findings.md` R1)
+- [ ] **Step 3: Write minimal implementation** (recovery per R1: on next wt call, if `ctx.cwd` is gone → filter the recorded list by repository identity (`git -C <path> rev-parse --git-common-dir` matches the original), prefer the worktree whose branch is the repo's default (`git symbolic-ref --short refs/remotes/origin/HEAD`, falling back to `main` then `master`), create the linked "Session recovered" session via the same `ctx.sessionManager` linked-session API the directive move uses (pi-worktrunk's mechanism, `findings.md` R1 — the session is created with cwd = the surviving worktree, the source session stays `/resume`-able), never run `pendingArgs`; for the stub-`wt` test mechanism: the runner groups prepend a temp dir to PATH containing a `wt` shell script that writes a fixture directive file / exits with a fixture code — no real `wt` needed for the directive-follow + approval groups (the real-`wt` groups skip with a named reason when `wt` is absent); `wt.ts` per R1's tool surface — the `promptGuidelines` list is copied from pi-worktrunk's with the skillgrid additions: "In a worktree context, branches follow the per-agent allow-list (agent-*, worktree-agent-*, worktree-wf_*). Merge calls default to --no-squash --no-commit." The approval dialog: detect approval-needed via `wt` exit code 3 + stdout line matching `^\[approval\]` (the marker worktrunk prints for unapproved project commands — `findings.md` R1), extract the command list from the `[approval]` line's remainder, `ctx.ui.select` over the commands, on approve run `wt config approvals add` for exactly those, retry once, re-show the dialog on decline, fail + list what to approve in non-interactive mode — the full behavior is MH-12 and `findings.md` R1. Tool-result shapes (Stage 9 F2): success → `{code: 0, stdout, directive?}`; directive move in TUI → `{moved: true, to: <path>}` (the linked-session move happens inside the extension, not the result); print/json mode with a directive → `{stopped: true, restart: <path>}`; wt non-zero exit (not approval) → `{code, stderr}` passthrough; codemode queue → the sequential executionMode handles it (no special payload)
 - [ ] **Step 4: Run tests + smoke to verify they pass**
 - [ ] **Step 5: Commit** — pin the verified `wt` version in the README in the same commit
 
@@ -800,7 +828,7 @@ git commit -m "feat(wt): no-replay recovery + worktrunk tool with session moves 
 
 **Interfaces:**
 - Consumes: `wt` (marker state commands), Pi events `session_start` / `agent_start` / `agent_end` / `session_shutdown`
-- Produces: `markWaiting(cwd)`, `markWorking(cwd)`, `clearMarker(cwd)` — no `detectForeignMarkerPlugin` (Goldfish Stage 5 R1-F003: the dual-plugin conflict is covered by the README note + install warning, not a runtime filesystem probe)
+- Produces: `markWaiting(cwd): Promise<void>` = `wt config state marker set waiting --cwd <cwd>`; `markWorking(cwd): Promise<void>` = `wt config state marker set working --cwd <cwd>`; `clearMarker(cwd): Promise<void>` = `wt config state marker clear --cwd <cwd>` (the exact argv from `findings.md` R1's marker table — Stage 9 F9). No `detectForeignMarkerPlugin` (Goldfish Stage 5 R1-F003: the dual-plugin conflict is covered by the README note + install warning, not a runtime filesystem probe)
 - Seam: Pi event surface; `markers.ts` is the sole marker writer (Global Constraint)
 - Deletion test: marker state is never set or cleared by Pi events (the fan-out reconciliation rule loses its tool); stale markers go unreported
 - Adapters: prod + tests = 2
@@ -854,7 +882,7 @@ test("plugin constants equal the contract file's values", async () => {
 ```
 
 - [ ] **Step 2: Run to verify it fails** — then mutate one constant temporarily to verify the failure names the mismatch, then restore
-- [ ] **Step 3: Write the artifacts** (evals in the repo's `evals/evals.json` format; changelog entry structure copied from pi-worktrunk's v0.1.0 layout; README: install, Pi ≥ 0.99.1, wt min version (Task 7's pin), the two-extension-file manifest note with the git-only-machine instruction (comment out the `./src/wt.ts` line), marker-writer warning + dual-plugin note, git-fallback behavior, the OD decisions recorded (OD-1, OD-3; OD-2 retired); `references/wt-commands.md`: one-page pointer — "the compact catalog is `wt --help`; this doc lists the commands the skillgrid invariants touch (switch, remove, merge, list) and their default rewrites")
+- [ ] **Step 3: Write the artifacts** (evals in the pinned format: `evals/evals.json` is an array of `{name: string, description: string, input: string, expect: string}` objects (the plugin repo has no pre-existing evals file — this IS the format, Stage 9 F8); the two ported scenarios carry the exact `input`/`expect` strings from skillgrid-skills `execute/evals/scenarios.yaml` (`scratch_dedup_readonly_turn`: input = a read-only agent turn, expect = no new ref; `scratch_branch_safety_refused`: input = restore on a mismatched branch, expect = `refused` with reason `branch`); the marker + approval scenarios follow the same shape; changelog entry structure copied from pi-worktrunk's v0.1.0 layout; README: install, Pi ≥ 0.99.1, wt min version (Task 7's pin), the two-extension-file manifest note with the git-only-machine instruction (comment out the `./src/wt.ts` line), marker-writer warning + dual-plugin note, git-fallback behavior, the OD decisions recorded (OD-1, OD-3; OD-2 retired); `references/wt-commands.md`: one-page pointer — "the compact catalog is `wt --help`; this doc lists the commands the skillgrid invariants touch (switch, remove, merge, list) and their default rewrites")
 - [ ] **Step 4: Run the full suite** — `bun test && bun run bench`
 - [ ] **Step 5: Commit**
 
@@ -880,7 +908,7 @@ git commit -m "chore: evals, changelog skeleton, README, reference docs, contrac
 
 **SATISFIES:** all R-happy scenarios end-to-end (the brief)
 
-- [ ] **Step 1: Write `tests/e2e.sh`** — setup: temp repo with `wt` initialized (worktrees land under `.worktree/` via the standard template; marker state enabled in the temp repo's wt config), `bun pack`, fresh Pi home with the tarball installed. Then a scripted agent session, in this order: edit file (checkpoint) → read-only turn (no ref) → `wt switch --create agent-e2e` (session move) → allow-list rejection on `feature-e2e` (this fires only in the worktree context — i.e. AFTER the move) → `wt merge main --no-squash --no-commit` after a work-unit commit (history preserved) → `wt remove --reap` → marker sequence (🤖 working during the agent turn, 💬 waiting at rest, visible in `wt list`) → restore after a dirty turn
+- [ ] **Step 1: Write `tests/e2e.sh`** — setup: temp repo with `wt` initialized (worktrees land under `.worktree/` via the standard template; marker state enabled in the temp repo's wt config), `bun pack`, fresh Pi home with the tarball installed. Then a scripted agent session (driver: `pi --print -p "<prompt>"` per turn, capturing stdout; the session file lives in the fresh Pi home's default dir — linked sessions appear as new files there; the restore dialog is exercised non-interactively via the tool's `execute` path with `id` set, bypassing `ctx.ui.select` — Stage 9 F12), in this order: edit file (checkpoint) → read-only turn (no ref) → `wt switch --create agent-e2e` (session move) → allow-list rejection on `feature-e2e` (this fires only in the worktree context — i.e. AFTER the move) → `wt merge main --no-squash --no-commit` after a work-unit commit (history preserved) → `wt remove --reap` → marker sequence (🤖 working during the agent turn, 💬 waiting at rest, visible in `wt list`) → restore after a dirty turn
 - [ ] **Step 2: Run it** — `bash tests/e2e.sh`
 - [ ] **Step 3: Fix or stop** (a failure here is a plan defect — report, do not silently patch two layers)
 - [ ] **Step 4: Re-run until green**
@@ -927,7 +955,7 @@ git commit -m "test(e2e): full install-and-run smoke"
 > MAX_PER_SESSION: 50
 > ~~~
 
-(fence values = Task 1 `constants.ts` exports, verbatim — the drift guard parses this block, not the prose above it; Goldfish Stage 5 R1-F005)
+(fence values = Task 1 `constants.ts` exports, verbatim — the drift guard parses this block, not the prose above it; Goldfish Stage 5 R1-F005. Exact fence shape: opener line `~~~skillgrid-constants` at column 0, one `KEY: value` line per constant, closer line `~~~` at column 0, one blank line after the closer — the drift guard matches `^~~~skillgrid-constants$` … `^~~~$` (Stage 9 F13))
 
 - [ ] **Step 3: Run the drift guard against the edited contract** — `SKILLGRID_CONTRACT_PATH=… bun test tests/contract-drift.test.ts` (in the plugin repo)
 - [ ] **Step 4: Commit** (spec zone — commits before any further code-zone work in this repo, per the zone rule)
@@ -939,18 +967,23 @@ git commit -m "docs: name pi-worktree as the scratch-checkpoint reference implem
 
 ## Review Summary
 
-**Verdict:** PENDING GOLDFISH REVIEW
+**Verdict:** READY FOR EXECUTION — pending User Review Gate (OD-1/OD-3 approval + spot-check of the Stage 9 pinned shapes). The 5-round Goldfish pipeline ran to its cap; every finding across all rounds is dispositioned (fixed or waived). Stage 9's Zero-Decision Rule FAIL is resolved by pinning (22 findings, all fixed); re-verification folds into the User Review Gate per the 5-round cap rule.
 
-**Rounds run:** 0 — the Goldfish review (User Review Gate) has not run yet.
+**Rounds run:** 5 (the cap) — Stage 5 (zoom-out), Stage 6 (comprehension), Stage 7 (critic ×3: design-critic + structural + style), Stage 8 (intermediate zoom-out), Stage 9 (implementation-readiness ×3: implementation-readiness + codebase-details + style-2nd-pass). Reports in `review/`; ledger in `review-ledger.md`.
 
-**Findings by severity:**
-- CRITICAL: none (pending)
-- WARNING: none (pending)
-- SUGGESTION: none (pending)
+**Findings by severity (all 59, all dispositioned):**
+- CRITICAL: 2 (both fixed — R3-F001 Self-Review R7 revision unrecorded; R5-F001 `repoRoot` mis-attributed)
+- WARNING: 23 (all fixed — incl. the 12 Zero-Decision Rule failures, the cross-session prune liveness hazard, the threat-matrix drift, the metadata field name, the .gitignore filter)
+- SUGGESTION: 34 (all fixed — mechanical: test counts, phrasing, attributions, declarations, pins)
 
-**Parked findings:** none
+**Parked findings:** none (0 parked, 1 waived — R1-F002b "main preferred" recovery wording, user-accepted at the Stage 5 gate; the pinned rule supersedes it at implementation time)
 
-**Reviewed:** — (to be filled by the Goldfish pipeline; do not hand-edit after it runs)
+**One-way-door decisions (approved at the User Review Gate, 2026-11-22):**
+- **OD-1: ref namespace `refs/skillgrid/`** — APPROVED (the namespace once in use is not renamable without orphaning refs)
+- **OD-3: merge-default argv rewrite** (`--no-squash --no-commit` prepended) — APPROVED (the one place the plugin mutates the user's command)
+- (OD-2, the worktree-root half of the restore pair, was RETIRED by Goldfish Stage 5 R1-F001 — no approval needed.)
+
+**Reviewed:** 2026-11-22 (5 rounds; User Review Gate passed — OD-1/OD-3 approved, Status flipped to APPROVED)
 
 ## Self-Review
 
@@ -1002,7 +1035,8 @@ Spec Reconciliation R21).
    - **Additions (load-bearing):** the `SKILLGRID_CONTRACT_PATH` env override
      (Task 9) — an implementation detail the briefing raised as a
      cross-repo coupling question but did not decide; the mutex in
-     `runDirectedWt` (Task 6) — defense-in-depth for codemode queued calls,
+     `runDirectedWt` (Task 6, defense-in-depth for the Task 7 tool's
+     codemode queued calls),
      consistent with the briefing's "sequential" constraint; the
      `skillgrid-constants` fence in the contract (Task 11) — the drift guard's
      parse target (Goldfish Stage 5 R1-F005). None changes architecture,
@@ -1011,5 +1045,15 @@ Spec Reconciliation R21).
      the restore pair — R1-F001); `verifyStandardRoot` → `observeWorktreeRoot`
      one-line observation (R1-F002a); `detectForeignMarkerPlugin` (R1-F003);
      the generated `wt-commands.md` catalog + `make-catalog.ts` (R1-F004).
+
+**Final Self-Review (2026-11-22, post-Goldfish, pre-commit):**
+1. **Placeholders:** none (as above).
+2. **Internal consistency (re-verified post-fix):** constants once (Task 1); `git()` defined in scratch-core (Task 2), imported by wt-core (Task 6); Validation table commands match task steps; `repoRoot` = `git -C <cwd> rev-parse --show-toplevel` in three places (Task 2, File Structure, threat matrix); metadata field = `preexisting-untracked` in three places (MH-1, Task 2 test, Task 3 test); "default branch" rule in four places (Task 6, Task 6 test, Task 7 recovery, Self-Review F4 note); `npm test` = `bun test` (Task 10 + Validation).
+3. **Scope:** unchanged (as above).
+4. **Ambiguity (re-verified):** the 12 Stage 9 Zero-Decision Rule failures are all pinned in the named tasks — an implementer makes no design choices.
+5. **Task right-sizing:** unchanged (as above).
+6. **Spec reconciliation:** re-run against briefing.md — **zero unrecorded contradictions** (all 13 requirements map; the one revision is recorded in check 6 above; the acceptance spec's scenario names match the blueprint's SATISFIES lines).
+7. **Goldfish disposition (new):** 5 rounds, 59 findings, all dispositioned (58 fixed, 1 waived — R1-F002b). The Stage 9 FAIL against the Zero-Decision Rule is resolved by pinning; re-verification was folded into the User Review Gate (OD-1/OD-3 approved, 2026-11-22).
+8. **Acceptance spec (new):** 13 Requirements (R1–R13), 33 scenarios, all scenario names unique, all happy paths carry runnable Gates entries. Extraction + lint + parser validation all clean (2026-11-22).
 
 

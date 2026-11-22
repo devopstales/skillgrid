@@ -139,4 +139,40 @@ findings-dispositioned (18 findings: 18 fixed, 2 CRITICAL + 4 WARNING + 12 SUGGE
 
 ### Round Verdict
 
-findings-dispositioned (4 findings: 4 fixed, 1 WARNING + 3 SUGGESTION; **no scope creep** — the reviewer's explicit finding: "every device added by the fixes traces to the briefing's R1–R13 and changes no architecture/interface/dependency set; the Stage 5 fixes net out as complexity *removed*"; the Stage 8 review is a clean round at WARNING+ for altitude/scope — convergence (2 consecutive clean rounds) is tracked at the stage level: Stage 7 was findings-dispositioned, Stage 8 is clean → Stage 9 must also be clean to converge)
+findings-dispositioned (4 findings: 4 fixed, 1 WARNING + 3 SUGGESTION; **no scope creep** — the reviewer's explicit finding: "every device added by the fixes traces to the briefing's R1–R13 and changes no architecture/interface/dependency set; the Stage 5 fixes net out as complexity *removed*"; the Stage 8 review is clean at WARNING+ for altitude/scope)
+
+## Round 5 — 2026-11-22
+
+**Frozen candidate:** base n/a → head n/a, 1 file (`blueprint.md`), hash `f8c7886c3966fe3450d98f807eaf479767ffaaf31df078fbca2572d20b75a566` (post-Round-4 hash; all three reviewers dispatched against this hash)
+**Reviewer:** Goldfish Stage 9 — implementation readiness, THREE fresh `reviewer` subagents in parallel (implementation-readiness `ProgressiveEarthworm`, codebase-details `MarineCatfish`, style/consistency `TerribleKingfisher` — second pass), findings merged per the stage protocol; **pass bar: the Zero-Decision Rule**
+**Independence grade:** A
+**Budget:** round 5/5 (tier T2) — the cap; the Stage 9 FAIL is resolved by pinning, and the re-verification is the User Review Gate's job (not a 6th round)
+
+### Findings
+
+| ID | Severity | File:Line | Finding | Disposition | Fix Commit | Lineage |
+|---|---|---|---|---|---|---|
+| R5-F001 | CRITICAL | Task 2 Produces / threat matrix | `repoRoot` mis-attributed to "the contract's existing `--show-toplevel` snippet" — no such snippet; a plain `--show-toplevel` from the primary checkout resolves the primary root, not the worktree root | fixed (pinned the exact command `git -C <cwd> rev-parse --show-toplevel` — the `-C` makes cwd authoritative; corrected in Task 2, File Structure, threat matrix) | — (pre-commit working tree) | R5-F001 |
+| R5-F002 | WARNING | Task 4 prune test | second prune test expects `n===1` for a FRESH (<1h) other-session ref that the liveness-aware code keeps | fixed (the test now uses the injectable `now` — advances the clock past the threshold, deterministic) | — (pre-commit working tree) | R5-F002 |
+| R5-F003 | WARNING | MH-1 / Task 2 test / contract | metadata test asserts `untracked [` but the contract says `preexisting-untracked` (three variants) | fixed (one field name — `preexisting-untracked` — in MH-1, the test, and the metadata message format) | — (pre-commit working tree) | R5-F003 |
+| R5-F004 | WARNING | Task 2 capture comment | the .gitignore'd-paths half of the snapshot filter is missing from the capture comment and all test groups | fixed (the filter is `--porcelain` (excludes ignored) + `IGNORED_DIRS` + size/count caps; pinned in Task 2 Step 3 + a test case: an ignored-but-present file is absent from the captured tree) | — (pre-commit working tree) | R5-F004 |
+| R5-F005..F016 | WARNING | Tasks 5/7/8/9/10 | 12 Zero-Decision Rule failures: `ui.ts` shape; `wt.ts` tool-result/error strategy; approval detection; "default branch" rule; `recordWorktrees` storage; `safeClean` file-listing command; linked-session creation + stub-`wt` test; fence grammar + `evals.json` format + scenario content; marker SET argv; capture add-filter mechanics; `lastTree` cross-test lifecycle; `e2e.sh` driver + `npm test` vs `bun test` | fixed (each closed with a pinned sentence, signature block, or snippet in the named task — the open choices are now pre-made) | — (pre-commit working tree) | R5-F005..F016 |
+| R5-F017 | SUGGESTION | Global Constraints | "git fallback applies (skill Step 0c)" cites the wrong sub-step (it's Tier 3 of Step 0b) | fixed (citation corrected) | — (pre-commit working tree) | R5-F017 |
+| R5-F018 | SUGGESTION | Task 5 shape code | async `repoRoot()` called without `await` at all four call sites | fixed (`await` added) | — (pre-commit working tree) | R5-F018 |
+| R5-F019 | SUGGESTION | Task 4 comment | `PRUNE_MIN_AGE_MS` comment attributes "Stage 8 M-1"; the decision was Stage 7's (R3-F003) | fixed ("Stage 7 R3-F003 decision; Stage 8 R4-F001 documentation") | — (pre-commit working tree) | R5-F019 |
+| R5-F020 | SUGGESTION | Self-Review | "mutex for codemode queued calls" — the queued-call scenario is Task 7's tool wiring | fixed ("the mutex in `runDirectedWt` (Task 6, defense-in-depth for the Task 7 tool's codemode queued calls)") | — (pre-commit working tree) | R5-F020 |
+| R5-F021 | SUGGESTION | Task 11 | fence closing line unpinned | fixed (exact shape: opener `~~~skillgrid-constants` at column 0, one `KEY: value` per line, closer `~~~` at column 0, one blank line after; the drift guard matches `^~~~skillgrid-constants$` … `^~~~$`) | — (pre-commit working tree) | R5-F021 |
+| R5-F022 | SUGGESTION | Task 1 package.json | missing `"files"` field | fixed (`"files": ["src/", "references/"]`) | — (pre-commit working tree) | R5-F022 |
+
+### Dispositions
+
+- **R5-F001** — fixed (CRITICAL). The `repoRoot` command is now pinned: `git -C <cwd> rev-parse --show-toplevel`. The `-C` makes cwd authoritative, so from a worktree's subdirectory it returns the WORKTREE root. Corrected in three places (Task 2 Produces, File Structure, threat matrix).
+- **R5-F002** — fixed. The prune test uses the injectable `now` (deterministic; the liveness test already does this).
+- **R5-F003** — fixed. One field name: `preexisting-untracked` (the contract's).
+- **R5-F004** — fixed. The filter mechanics are pinned (porcelain excludes ignored; `IGNORED_DIRS` is belt-and-suspenders; a test case proves an ignored file is absent).
+- **R5-F005..F016** — fixed. All 12 Zero-Decision Rule failures closed with pinned shapes: `ui.ts` (F1), `wt.ts` tool-result shapes (F2), approval detection via exit code 3 + `[approval]` marker (F3), default-branch rule via `git symbolic-ref` (F4, 4 places), `recordWorktrees` storage (F5), `safeClean` via `git diff --name-only --diff-filter=AD` (F6), linked-session mechanism + stub-`wt` PATH shim (F7), fence grammar + `evals.json` format + scenario content (F8), marker SET argv (F9), capture add-filter mechanics (F10), `resetSessionState` moved to Task 2's Produces (F11), `e2e.sh` driver + `npm test` = `bun test` (F12).
+- **R5-F017..F022** — fixed. All mechanical (citation, awaits, attribution, fence shape, files field).
+
+### Round Verdict
+
+findings-dispositioned (22 findings: 22 fixed, 1 CRITICAL + 12 WARNING + 9 SUGGESTION; **Stage 9 verdict: FAIL against the Zero-Decision Rule** — 12 Major open choices named per the rule, all now pinned. The scratch core (Tasks 1–4) was "close to first-attempt executable"; the wt side + wiring layer are now pinned. **Re-verification is the User Review Gate's job** (the 5-round cap is reached; a fresh Stage 9 pass would be a 6th round — the gate's explicit OD-1/OD-3 approval + a spot-check of the pinned shapes substitutes). The style reviewer (second pass) confirmed: "clean at Blocker/Major — no new inconsistencies introduced by the Stage 7/8 fixes; all 15 first-pass fixes verified landed.")
