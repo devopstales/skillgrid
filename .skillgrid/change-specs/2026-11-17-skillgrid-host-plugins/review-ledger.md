@@ -112,19 +112,19 @@ Full audit record: `review.md` (same directory). Findings below are the normaliz
 
 | ID | SEVERITY | LOCATION | FINDING | DISPOSITION | FIX COMMIT | SOURCE |
 |---|---|---|---|---|---|---|
-| CR2-1 | CRITICAL | `.omp/extensions/skillgrid-router-omp.ts:62-71` | no idempotency guard; per-turn re-push of full router on live systemPrompt array | FIXED (INTRO marker guard + case) | pending (code-zone, this round) | edge-case + standards (2-lens) |
-| CR2-2 | CRITICAL | `plugins/kilo/skillgrid-router.ts:70-72` | `__dirname/../..` dead in installed layout; dead checkout leg + bogus skills push | FIXED (project-root derivation + mirror fallback + 2 cases) | pending (code-zone, this round) | spec + security + standards + verification-gap (4-lens) |
-| CR2-3 | CRITICAL | `hooks/cursor-session-start.sh:81` | R3 unreadable-config: `-f` only → injected (empirically verified pre-fix) | FIXED (`-f && -r`; isFile+R_OK on all 5 walks) | pending (code-zone, this round) | spec (coordinator empirical) |
-| CR2-4 | CRITICAL | `plugins/opencode/skillgrid-router.ts:186-203` | ≥2.2 path (a): `setup()` never settles (unbounded for-await); untested default path | FIXED (background IIFE listener) | pending (code-zone, this round) | red-team |
-| CR2-5 | WARNING | pi/omp/kilo resolvers | whitespace-only installed asset shadows checkout leg | FIXED (trim-guard) | pending (code-zone, this round) | edge-case |
-| CR2-6 | WARNING | `hooks/session-start.js:110` | `process.cwd()` instead of harness payload cwd | FIXED (payload preferred + case) | pending (code-zone, this round) | edge-case + security |
-| CR2-7 | WARNING | `plugins/opencode/skillgrid-router.ts` | plan agent filtered as subagent; Plugin-import fail-closed; messages-branch dedup; stream-iteration throw | FIXED (4 sub-fixes) | pending (code-zone, this round) | edge-case |
-| CR2-8 | WARNING | `report.md:64,72` | R1/data-flow claim vs evidence mismatch (T7 recorded no edit) | FIXED (lines corrected) | this round (spec-zone) | red-team + verification-gap |
-| CR2-9 | WARNING | `docs/user-guide/04-hooks.md` | absent `.claude/settings.json` claim; omp "superseded" overstated | FIXED (wiring + wording) | pending (code-zone, this round) | standards + red-team |
-| CR2-10 | WARNING | `hooks/session-start.js:61-74` | config.yaml as directory passes detection | FIXED (isFile, all 5 walks) | pending (code-zone, this round) | edge-case |
-| CR2-11 | SUGGESTION | `plugins/kilo/skillgrid-router.ts` | dead code (frontmatter/normalizePath/envConfigDir/configDir) | FIXED (deleted) | pending (code-zone, this round) | standards + edge-case |
-| CR2-12 | SUGGESTION | `plugins/kilo/skillgrid-router.ts:115` | module-level bootstrap cache stale across cases | FIXED (cwd-keyed + seam reset) | pending (code-zone, this round) | verification-gap |
-| CR2-13 | SUGGESTION | `plugins/opencode/test/skillgrid-router.test.ts:71` | `REPO_ROOT = process.cwd()` cwd-dependent | FIXED (file-derived) | pending (code-zone, this round) | standards + edge-case |
+| CR2-1 | CRITICAL | `.omp/extensions/skillgrid-router-omp.ts:62-71` | no idempotency guard; per-turn re-push of full router on live systemPrompt array | FIXED (INTRO marker guard + case) | 3a12b7d1 | edge-case + standards (2-lens) |
+| CR2-2 | CRITICAL | `plugins/kilo/skillgrid-router.ts:70-72` | `__dirname/../..` dead in installed layout; dead checkout leg + bogus skills push | FIXED (project-root derivation + mirror fallback + 2 cases) | 3a12b7d1 | spec + security + standards + verification-gap (4-lens) |
+| CR2-3 | CRITICAL | `hooks/cursor-session-start.sh:81` | R3 unreadable-config: `-f` only → injected (empirically verified pre-fix) | FIXED (`-f && -r`; isFile+R_OK on all 5 walks) | 3a12b7d1 | spec (coordinator empirical) |
+| CR2-4 | CRITICAL | `plugins/opencode/skillgrid-router.ts:186-203` | ≥2.2 path (a): `setup()` never settles (unbounded for-await); untested default path | FIXED (background IIFE listener) | 3a12b7d1 | red-team |
+| CR2-5 | WARNING | pi/omp/kilo resolvers | whitespace-only installed asset shadows checkout leg | FIXED (trim-guard) | 3a12b7d1 | edge-case |
+| CR2-6 | WARNING | `hooks/session-start.js:110` | `process.cwd()` instead of harness payload cwd | FIXED (payload preferred + case) | 3a12b7d1 | edge-case + security |
+| CR2-7 | WARNING | `plugins/opencode/skillgrid-router.ts` | plan agent filtered as subagent; Plugin-import fail-closed; messages-branch dedup; stream-iteration throw | FIXED (4 sub-fixes) | 3a12b7d1 | edge-case |
+| CR2-8 | WARNING | `report.md:64,72` | R1/data-flow claim vs evidence mismatch (T7 recorded no edit) | FIXED (lines corrected) | 9b8c3409 | red-team + verification-gap |
+| CR2-9 | WARNING | `docs/user-guide/04-hooks.md` | absent `.claude/settings.json` claim; omp "superseded" overstated | FIXED (wiring + wording) | 3a12b7d1 | standards + red-team |
+| CR2-10 | WARNING | `hooks/session-start.js:61-74` | config.yaml as directory passes detection | FIXED (isFile, all 5 walks) | 3a12b7d1 | edge-case |
+| CR2-11 | SUGGESTION | `plugins/kilo/skillgrid-router.ts` | dead code (frontmatter/normalizePath/envConfigDir/configDir) | FIXED (deleted) | 3a12b7d1 | standards + edge-case |
+| CR2-12 | SUGGESTION | `plugins/kilo/skillgrid-router.ts:115` | module-level bootstrap cache stale across cases | FIXED (cwd-keyed + seam reset) | 3a12b7d1 | verification-gap |
+| CR2-13 | SUGGESTION | `plugins/opencode/test/skillgrid-router.test.ts:71` | `REPO_ROOT = process.cwd()` cwd-dependent | FIXED (file-derived) | 3a12b7d1 | standards + edge-case |
 | CR2-P1 | SUGGESTION | `README.md:42` | `--agents …,omp` is post-rename key set; head key is `skill-pi` | PARKED — rename commit reconciles | n/a | red-team |
 | CR2-P2 | SUGGESTION | opencode ≥2.2 path (a) | live-unverified on target version (env-limited) | PARKED — held-out live run ≥2.2 | n/a | verification-gap |
 | CR2-P3 | SUGGESTION | `hooks/session-start.js` output contract | no live host-consumption observation (env-limited) | PARKED — held-out live session | n/a | verification-gap |
