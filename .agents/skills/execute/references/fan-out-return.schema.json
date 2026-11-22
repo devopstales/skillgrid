@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Fan-out worker return",
+  "description": "The structured payload each fan-out agent returns on completion. Integration reads this, not free prose. A worker that fails or times out is recorded with status=failed and a placeholder row; integration continues (a partial run is resumable, not a crash).",
+  "type": "object",
+  "required": ["agent", "task", "status", "changed_files", "test_result"],
+  "properties": {
+    "agent": {
+      "type": "string",
+      "description": "The worker's name (matches the fan-out ledger row)."
+    },
+    "task": {
+      "type": "string",
+      "description": "The task/ticket id or one-line scope the worker was dispatched for."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["done", "failed", "blocked"],
+      "description": "done: work committed and self-tested; failed: could not complete (record why in summary); blocked: a precondition is missing (name it in blocker)."
+    },
+    "worktree": {
+      "type": "string",
+      "description": "The worktree path this agent ran in."
+    },
+    "changed_files": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Every file the agent changed, relative to the worktree root. The parent spot-checks this against git."
+    },
+    "test_result": {
+      "type": "string",
+      "description": "The command run and its outcome (e.g. \"pytest tests/cache: 14 passed\"). Never empty — a claim without a run is not done."
+    },
+    "summary": {
+      "type": "string",
+      "description": "Short summary of root cause and changes. Bounded prose; the machine-readable fields above are the integration source of truth."
+    },
+    "blocker": {
+      "type": "string",
+      "description": "Present when status=blocked: the missing precondition and what unblocks it."
+    }
+  }
+}

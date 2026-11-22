@@ -4,7 +4,7 @@ description: "Turns a spec into a buildable implementation plan in six gated pha
 license: MIT
 metadata:
   author: devopstales
-  version: "2.0"
+  version: "2.1"
   part-of: skillgrid
   based_on: superpowers:writing-plans + egm:egm-draft (Section Approval Gate)
 ---
@@ -171,7 +171,7 @@ not in one pass and reviewed at the end. Protocol:
   note `No alternatives recorded in briefing` rather than inventing them.
 - **Artifact-first (R25):** **Do not dump the blueprint in chat.** Write to
   `blueprint.md` with the file tool and give the user the path; highlight 2–3
-  key decisions in chat (one line each) and ask for review.
+  key decisions in chat (one line each) and ask for review. All section/task approval gates follow `_shared/craft/review-discipline.md` (artifact-first, zero-tool turn-yield).
 
 **Findings citation:** every design decision that rests on a research fact
 (Phase 1), a feasibility result (Phase 4), or a chosen layout (a sketch) must

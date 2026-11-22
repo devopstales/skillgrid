@@ -48,7 +48,7 @@ Append a round entry to `.skillgrid/change-specs/<topic>/review-ledger.md`. Crea
 
 ### Round Verdict
 
-<clean | findings-dispositioned | invalidated>
+<clean | findings-dispositioned | invalidated | converged>
 ```
 
 **Finding ID format:** `R<round>-F<NNN>` (e.g. `R1-F001`, `R2-F003`). Sequential within a round.
@@ -125,6 +125,39 @@ If the new change's scope overlaps a parked finding's file, the QA report adds a
 
 A parked finding that is `open` for more than 3 archived changes is flagged as **stale** in the QA report: "Finding R<N>-F<NNN> has been open for 3+ changes. Address or expire."
 
+## Loop Termination
+
+A review loop over a frozen candidate runs rounds until it is **decided**
+converged — not until a round returns zero findings. Fresh reviewers sample
+differently each round, so a zero-finding round is not proof the text is
+stable.
+
+- **Clean round:** no CRITICAL or WARNING finding is raised that is not already
+  **settled**. SUGGESTIONs (nits) do not block a clean round. A reviewer
+  recorded as *not run* (timeout, no report, or no status in the synthesizer
+  summary) makes the round NOT clean — a missing reviewer is not a
+  zero-finding reviewer.
+- **Settled finding:** contested, or recorded as an accepted risk (waived /
+  parked with a ruling). The settled list persists across rounds. A settled
+  finding raised again at the same scope by a new reviewer is NOT re-opened.
+- **Fixed finding:** an applied fix does NOT settle a finding. If a later
+  reviewer re-raises the same issue at the same scope, the fix failed or a
+  later edit reintroduced it — re-open it.
+- **Converged:** two consecutive clean rounds. One clean round is not enough —
+  a fresh reviewer can find a different gap in the same text.
+- **Churn:** a new finding at the scope of an applied fix, where reverting that
+  fix would resolve it. On churn, stop and ask the user.
+- **Cap:** 5 rounds. At the cap, or on churn, list the open findings by
+  severity and ask the user one question: accept and proceed, continue past
+  the cap, or return to drafting.
+
+Record the round's clean/converged status in the `### Round Verdict` line
+(`clean | findings-dispositioned | invalidated | converged`).
+
+**Turn boundary:** after a round's resolve phase, the loop driver yields —
+zero tool calls, go idle — and re-enters only when the user confirms the next
+round. A loop that auto-loops across human turns has not respected the gate.
+Per `_shared/craft/review-discipline.md` (zero-tool turn-yield).
 ## Validation
 
 After appending the round entry, check:
@@ -150,6 +183,7 @@ Per `_shared/craft/measurement.md`.
 | | Indicator | Data source | Direction |
 |---|-----------|-------------|-----------|
 | Leading | % of review findings dispositioned in the same round (not parked) | `review-ledger.md` | should rise |
+| Leading | % of review loops that converge within the 5-round cap (no overrun) | `review-ledger.md` | should rise |
 | Lagging | Review debt: count of open parked findings across all archived changes | `.skillgrid/change-archive/*/review-ledger.md` | should fall |
 
 ## Common Rationalizations
@@ -182,6 +216,7 @@ Per `_shared/craft/measurement.md`.
 - [ ] The frozen candidate hash matches the files the reviewer actually inspected
 - [ ] The ledger is committed with the review round
 - [ ] At QA time, prior-change review debt was surfaced (or "no open findings" recorded)
+- [ ] The loop stopped on two consecutive clean rounds, the 5-round cap, or a user decision — not on a single zero-finding round (see `## Loop Termination`)
 
 ## Final Rule
 

@@ -19,6 +19,14 @@ severity it earned. Softening is a defect:
   evidence; a citation to a line, a test, or an ADR is.
 - **No sycophancy in either direction.** Do not praise to please, do not attack
   to seem rigorous. The finding is the finding; the relationship is irrelevant.
+- **Artifact-first at a gate.** Never present a large report, plan, or proposal
+  in the chat pane at a decision gate. Write it to a file, give the user the
+  path, then ask for review. Chat carries the path + the question, not the
+  artifact.
+- **Zero-tool turn-yield.** At a human decision gate, the turn ends with zero
+  tool calls — go idle and wait for the human. During an item-by-item decision
+  walk, no file-editing tool runs until every item is decided: collect the
+  decisions, then apply them in one batch.
 
 ## Banned vocabulary (the glazing list)
 
@@ -39,6 +47,6 @@ the ban when a sentence reads better for the word — but the default is cut.
 
 ## Cited, not restated
 
-The banned list and the four rules above live only in this file. A skill that
+The banned list and the rules above live only in this file. A skill that
 names a banned adjective or re-explains "a Blocker stays a Blocker" is
 restating — replace the restatement with `per _shared/craft/review-discipline.md`.

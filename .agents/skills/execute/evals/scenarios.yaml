@@ -1,0 +1,86 @@
+# Copyright 2026
+# Behavioral evaluation scenario suite for the execute skill.
+# Machine-checkable assertions over crafted replies, per
+# _shared/craft/scenario-evals.md. One invariant per scenario.
+#
+# The harness loads skills/execute/SKILL.md into the agent's context, runs the
+# turn, and checks the reply against the patterns below.
+
+skill: "execute"
+description: "Behavioral evaluation scenario suite for the execute skill."
+
+scenarios:
+  - scenario_id: "scope_gate_large_fanout"
+    description: "A 7-domain fan-out must ask for explicit approval before dispatching, not dispatch silently."
+    eval_type: "deterministic"
+    system_prompt:
+      skill_file: "skills/execute/SKILL.md"
+    turns:
+      - user_input: "Seven independent subsystems are each broken with a different root cause, no shared state between them. Run them."
+        assertions:
+          - type: "required_pattern"
+            pattern: "(?i)(proceed|approval|approve|go ahead|ok to)"
+            message: "A >5-unit fan-out must ask the user for approval before dispatching."
+          - type: "forbidden_pattern"
+            pattern: "(?i)\\b(seven|7)\\b[^\\n]{0,50}\\bworktrees?\\b[^\\n]{0,50}\\b(dispatch|spawn|launch)\\b"
+            message: "Must not dispatch 7 worktrees in a single wave without approval; must name the >5 count and the cap."
+
+  - scenario_id: "fanout_cap_not_exceeded"
+    description: "Even when approved, a single fan-out wave never exceeds 5 concurrent worktrees."
+    eval_type: "deterministic"
+    system_prompt:
+      skill_file: "skills/execute/SKILL.md"
+    turns:
+      - user_input: "I approve the 7-subsystem fan-out. How many worktrees do you open at once?"
+        assertions:
+          - type: "required_pattern"
+            pattern: "(?i)(5|five|waves?|partition)"
+            message: "Must cap concurrent worktrees at 5 and partition the rest into waves."
+          - type: "forbidden_pattern"
+            pattern: "(?i)\\b(6|seven|8|eight|9|nine|10|ten)\\b[^\\n]{0,30}\\bworktrees?\\b\\s+(at\\s+once|in\\s+parallel|simultaneous|concurrent)"
+            message: "Must not name >5 concurrent worktrees in one wave even when approved."
+
+  - scenario_id: "convergence_two_clean_rounds"
+    description: "A review loop converges on two consecutive clean rounds, not on a single zero-finding round; a re-raised settled finding does not block."
+    eval_type: "deterministic"
+    system_prompt:
+      skill_file: "skills/execute/SKILL.md"
+    turns:
+      - user_input: "The review loop is on round 3. Round 2 was clean (no new CRITICAL or WARNING). Round 3 raised one WARNING that was already contested and waived in round 1, plus two SUGGESTION nits. Is the loop converged?"
+        assertions:
+          - type: "required_pattern"
+            pattern: "(?i)(converg|two consecutive clean|settled)"
+            message: "Must treat the re-raised settled WARNING and the nits as non-blocking and report convergence."
+          - type: "forbidden_pattern"
+            pattern: "(?i)zero findings|no findings"
+            message: "Must not claim convergence on a zero-finding basis; this round had findings, they are settled."
+
+  - scenario_id: "state_advisory_invalid_transition"
+    description: "An out-of-order command (exec before the checklist) triggers a State Advisory naming the valid command, not a silent halt or an out-of-order run."
+    eval_type: "deterministic"
+    system_prompt:
+      skill_file: "skills/execute/SKILL.md"
+    turns:
+      - user_input: "exec"
+        assertions:
+          - type: "required_pattern"
+            pattern: "(?i)(state advisory|cannot|checklist)"
+            message: "Must open with a State Advisory naming the current state and the valid next command."
+          - type: "forbidden_pattern"
+            pattern: "(?i)beginning (execution|to execute)|starting (execution|work) on"
+            message: "Must not start executing out of order; the checklist does not exist yet."
+
+  - scenario_id: "zero_tool_turn_yield_at_gate"
+    description: "At a human decision gate the agent ends the turn with no tool calls — it asks, then goes idle; it does not edit the file mid-decision."
+    eval_type: "deterministic"
+    system_prompt:
+      skill_file: "skills/execute/SKILL.md"
+    turns:
+      - user_input: "The fan-out integration is done and the full suite is green. The final whole-branch review is ready. What do I decide?"
+        assertions:
+          - type: "required_pattern"
+            pattern: "(?i)(review|approve|proceed|ruling|decision)"
+            message: "Must present the decision the user must make at the gate."
+          - type: "forbidden_pattern"
+            pattern: "(?i)\\b(edited|wrote|wrote to|applied|merged)\\b[^\\n]{0,40}\\b\\b"
+            message: "Must not have already applied the fix/merge before the user decided (zero-tool turn-yield)."

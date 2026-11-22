@@ -4,8 +4,7 @@ description: "Create new skills, modify and improve existing skills, and measure
 license: MIT
 metadata:
   author: devopstales
-  version: "2.0"
-  part-of: skillgrid
+  version: "2.1"
 ---
 
 ## Contents
@@ -496,6 +495,9 @@ not know teaches the right thing. (For pure reference skills with no
 behavior-shaping, the eval is a retrieval test: can the agent find and apply
 the right section? The RED step is still "try to answer the question without
 the file.")
+
+**Scenario evals for decision logic.** When the skill has a state machine or named negative invariants (a banned transition, a round cap, a scope gate, a mode-selection branch), add `evals/scenarios.yaml` beside `evals/evals.json` — machine-checkable regex assertions over crafted replies, per `_shared/craft/scenario-evals.md`. The RED-GREEN gate applies to each scenario: it must fail without the rule in the body and pass with it. `evals.json` covers the prose/trigger cases; `scenarios.yaml` covers the decision branches.
+
 
 ### 1. Capture Intent and Interview
 

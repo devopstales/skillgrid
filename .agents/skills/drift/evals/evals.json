@@ -1,0 +1,29 @@
+{
+  "skill_name": "drift",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "The blueprint for the cache layer says the TTL is computed from the SLA config key `ttl_seconds`, but I'm not sure the code still does that. Check for drift on the cache blueprint.",
+      "expected_output": "Agent announces the drift skill, reads the blueprint in full, locates the cache source by the named symbol/claim, reads the live file, and reports ONLY the divergence: if the code has a hardcoded TTL instead of reading `ttl_seconds`, that is a LOGIC SHORTCUT finding with file:line. If the code still reads the config key, the report says 'No drift detected.' No matching items listed. No prose paragraphs.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "The design doc for the order export mentions a `batch_size` parameter and a `User` model with an `mfa_enabled` field. The code is in src/export/ and src/models/. Check for drift.",
+      "expected_output": "Agent locates src/export/ and src/models/, reads both live. If `batch_size` is absent from the export code, that is a MISSING FEATURE. If `mfa_enabled` is absent from the `User` model, that is an INCOMPLETE MODEL. Both are reported with the category tag, file:line, and a one-line description. If both are present, 'No drift detected.' The agent does NOT list items that match.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "After the dependency upgrade, is the wiki page [[system/queue]] still accurate? The doc says the queue is at-least-once with a max retry of 3.",
+      "expected_output": "Agent reads the wiki page, locates the queue implementation by search, reads the live code. If the max retry is now 5, that is a LOGIC SHORTCUT (hardcoded value mismatch). If the queue semantics changed to at-most-once, that is an ARCH DIVERGENCE. If both match, 'No drift detected.' The agent reads the file before claiming anything — no drift from memory.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "Run the drift check on the auth blueprint before we ship. The Must-Haves say the token refresh is single-flight (only one refresh in flight at a time).",
+      "expected_output": "Agent runs drift as a pre-ship gate. If the single-flight refresh is implemented, no BLOCKER. If it is absent, that is a BLOCKER-level MISSING FEATURE (a Must-Have the spec claims that the code lacks) — the gate is WAIVE or FIX. The agent names the waiver path (named human, recorded risk) or the fix, and does not silently archive. The report says 'No drift detected.' only if every Must-Have claim is verified present.",
+      "files": []
+    }
+  ]
+}

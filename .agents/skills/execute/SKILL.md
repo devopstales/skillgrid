@@ -5,7 +5,7 @@ description: Use when executing an implementation plan or sliced tasks.md — se
 license: MIT
 metadata:
   author: devopstales
-  version: "2.0"
+  version: "2.1"
   part-of: skillgrid
   based_on: skillgrid:subagent-execution 1.0 + skillgrid:simple-execution 1.0 + skillgrid:isolated-workspace 1.0 + skillgrid:parallel-execution 1.0 + skillgrid:ponytail 1.0
 ---
@@ -113,6 +113,11 @@ The ladder runs *after* you understand the problem, never instead of it — trac
 | 4+ coupled leaves in flight at once needing lease/wave machinery | full orchestrator (out of scope here) |
 
 **Fan-out triggers and exclusions:** use fan-out when 3+ test files fail with different root causes, multiple subsystems are broken independently, and each problem can be understood without the others' context. Don't fan out when the failures are related (fixing one might fix others), understanding requires full system state, agents would interfere (same files, shared resources), or you don't know what's broken yet.
+
+**Scope gate (numeric).** Count the fan-out units (one per independent domain / worktree) before dispatching:
+- **≤ 3 units** → dispatch, no prompt.
+- **4–5 units** → dispatch, note the unit count in the dispatch message.
+- **> 5 units** → STOP and ask for explicit approval before dispatching, naming the unit count and the max worker cap. Never fan out past 5 concurrent worktrees — if the scope needs more, partition into waves of ≤ 5 (one wave at a time, integrate between waves).
 
 ## The Process
 
@@ -283,7 +288,7 @@ When the plan decomposes into 2+ independent problem domains (different test fil
 
    **Fan-out ledger:** summaries returned to your context rot with it — a compaction mid-integration loses which agents finished, what they changed, and whether the suite was re-run. Keep a fan-out ledger at `.skillgrid/meta/.sdd/<run-slug>/parallel-ledger.md` (git-ignored): one row per agent — `agent | task | status (dispatched|done|failed) | worktree | changed files | test result`. Write a row on dispatch, update it when the agent returns, append a wave-summary line when the suite is re-run. **Integrate from the ledger + git, not from in-context summaries.** If you suspect a compaction mid-run: re-read the ledger + `git status`/`git log`, then re-dispatch only the unfinished rows. If `mnemonic.enabled: true`, upsert `skillgrid/<topic>/execution-progress` when a wave completes (ledger path plus wave tail, per `_shared/rules/mnemonic-memory.md`).
 
-5. **Review and integrate.** When agents return: read each summary, verify fixes don't conflict (two agents editing the same file = scope error), merge the worktrees into the parent branch in order, run the full test suite, and spot-check — agents can make systematic errors.
+5. **Review and integrate.** Each agent returns the structured payload in [references/fan-out-return.schema.json](references/fan-out-return.schema.json) — not free prose. A worker that fails or times out is recorded `status: failed` with a placeholder row in the fan-out ledger; integration continues (a partial run is resumable, not a crash). When returns arrive: verify fixes don't conflict (two agents editing the same file = scope error), merge the worktrees into the parent branch in order, run the full test suite, and spot-check each `changed_files` list against `git status` — agents can make systematic errors. Integrate from the ledger + the structured returns, never from in-context summaries.
 
 **Concurrent coupled build:** if the parallel work is 2+ *implementation* tasks that touch overlapping files or a shared interface, read [references/concurrent-leaves.md](references/concurrent-leaves.md) before dispatching — it adds the disjoint-`Owns:` contract, a branch integration gate, and parent re-verify on top of this pattern, and tells you when to fall back to sequential.
 
@@ -345,9 +350,16 @@ Announce: "I'm using the skillgrid:ship skill to integrate and close this change
 - You don't understand an instruction
 - Verification fails repeatedly
 
-**Ask for clarification rather than guessing.**
+**Ask for clarification rather than guessing.** Decision gates follow `_shared/craft/review-discipline.md` (artifact-first: large reports/plans go to a file, not chat; zero-tool turn-yield: end the turn with no tool calls and go idle while the user decides).
 
 **Return to Step 1 when:** the partner updates the plan based on your feedback, or the fundamental approach needs rethinking. Don't force through blockers — stop and ask.
+
+**Out-of-order or invalid transition** (e.g. `exec` before the checklist exists, a review with no diff, a QA gate on an uncommitted tree): do not halt silently and do not execute out of order. Open with a single-line advisory, then halt for the next command:
+
+> **State Advisory:** Cannot `<action>` in `<state>`. Recommended: `<valid command>`.
+
+List the valid next actions, then stop. Never skip ahead to "catch up" to the expected state.
+
 
 ## Remember
 
@@ -381,6 +393,7 @@ Per `_shared/craft/measurement.md`.
 | "Close enough on spec compliance" | Reviewer found spec gaps = not done. Fix or hit the cap and adjudicate — those are the only exits. |
 | "I'll fix it myself, dispatching is overhead" | Controller fixes pollute your context and skip review. Resume the implementer (subagent mode). |
 | "One more round will converge" | Past the cap, rounds don't converge — the failure is structural. Adjudicate and route. |
+| "I'll adjudicate this finding in round 2, no need to run the loop" | Adjudicate only at the cap — ruling early to end a loop is pre-judging. The loop runs its rounds; the breaker is the only exit without a fix. |
 | "The reviewer will just find something new anyway" | Scoped re-reviews verify fixes; they cannot wander. New findings on untouched code go to the ledger, not the loop. |
 | "This finding is obviously wrong, I'll drop it" | You adjudicate only at the cap, and every ruling is a ledger entry. Silent discards are forbidden. |
 | "The fix was small, skip the re-review" | Unreviewed fixes are how regressions land. Every round ends with a scoped re-review. |
@@ -420,6 +433,7 @@ Per `_shared/craft/measurement.md`.
 - Fan-out dispatches spread across multiple responses instead of one (running sequentially)
 - The fan-out ledger is missing or stale — integration relies on in-context summaries that may have compacted
 - Full test suite not re-run after all fan-out agents returned
+- A fan-out dispatched with \> 5 concurrent worktrees without a recorded user approval
 - An implementer was dispatched without a complete task brief (no `task-brief` path, or the brief path is missing from the prompt)
 - A subagent's output was trusted without parent re-verification — the `#### Gates` oracles were not re-run before marking the task complete
 - The task loop re-dispatched the same task after round 5 without the breaker adjudicating — the cap was exceeded silently

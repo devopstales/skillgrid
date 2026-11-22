@@ -5,7 +5,7 @@ description: "Use when a change has passed QA and review and needs to be closed 
 license: MIT
 metadata:
   author: devopstales
-  version: "2.0"
+  version: "2.1"
   part-of: skillgrid
   based_on: skillgrid:reflect 1.0 + skillgrid:environment-retro 1.0 + skillgrid:document 1.0 + skillgrid:ship 1.1
 ---
@@ -221,7 +221,10 @@ GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P)
 
 **Determine the base branch** from `chain.strategy` in `.skillgrid/config.yaml` (set at onboarding — the project-level delivery decision, not a per-change one): `stacked-to-main` → `main`; `feature-branch-chain` → the work-unit table's base boundary for the final unit (per-unit boundaries live in `tasks.md` → `## Delivery Strategy`); `size:exception` → the single PR's target (usually `main`). If `chain.strategy` is missing or the change's `tasks.md` says `Chain strategy: pending` (the slicer deferred the decision), **ask** the user. Confirm before merging — merging into the wrong base is expensive to undo.
 
-**Present the menu and wait** (the integration decision is the user's; discarding happens only on the typed word `discard`):
+**Present the menu and wait** (the integration decision is the user's; discarding happens only on the typed word `discard`).
+
+Decision gates follow `_shared/craft/review-discipline.md` (artifact-first: large reports/plans go to a file, not chat; zero-tool turn-yield: end the turn with no tool calls and go idle while the user decides).
+
 
 ```
 Close-out complete. What would you like to do?
@@ -240,6 +243,9 @@ Which option?
 **Option 3 — Keep as-is:** report the branch and worktree location. Work stays; the change folder still archives (Step 7).
 
 **Rollback plan (mandatory before any GO):** name the trigger and the procedure — merged → `git revert <merge-commit> -m 1`; PR open → close the PR (the branch stays); branch kept → the branch is the rollback. A trivial fast-track change may use one line: "revert the single commit."
+
+**Drift gate (pre-archive):** before the mechanical archive move, run `skillgrid:drift` on the change's `blueprint.md` (and any project-wiki pages the change touched). A BLOCKER-level divergence (a Must-Have the spec claims that the code lacks, or an architectural divergence that breaks a stated invariant) is **WAIVE or FIX** — the user names the waiver (human + recorded risk) or the fix lands before the folder moves. MAJOR divergences surface in the ship report. No drift → the report says "No drift detected." and the gate passes. See the drift skill's gate section.
+
 
 ### Step 7: Archive (mechanical move — LAST step)
 
