@@ -39,9 +39,30 @@ const STATIC_BOOTSTRAP =
 
 const MAX_WALK_UP = 12
 
-function startDir(ctx) {
+// Session-aware start dir. The persistent `opencode serve --service` daemon
+// (what `opencode run` connects to) has a cwd unrelated to the session's
+// project, and ctx.directory is undefined in that mode — so resolve the
+// session's own location.directory (ctx.directory first for --stdio servers,
+// then the session record, then process.cwd()). T7 live smoke, 2026-11-22:
+// without this, in-repo bootstrap injection silently failed for `opencode
+// run` sessions.
+async function resolveStartDir(ctx, session, ev) {
   const d = ctx ? ctx.directory : null
-  return typeof d === "string" && d.trim() ? d : process.cwd()
+  if (typeof d === "string" && d.trim()) return d
+  const loc = ev ? ev.location || (ev.properties && ev.properties.location) : null
+  if (loc && typeof loc.directory === "string" && loc.directory.trim()) return loc.directory
+  const sessionID = ev ? ev.sessionID || (ev.properties && ev.properties.sessionID) : null
+  if (sessionID && session && typeof session.get === "function") {
+    try {
+      const rec = await session.get({ sessionID })
+      if (rec && rec.location && typeof rec.location.directory === "string" && rec.location.directory.trim()) {
+        return rec.location.directory
+      }
+    } catch {
+      // fail-open: fall through to process.cwd()
+    }
+  }
+  return process.cwd()
 }
 
 // Project-conditional: `.skillgrid/config.yaml` at or above the start dir
@@ -120,7 +141,7 @@ export async function injectRouter(ctx, event) {
     const properties = (event && event.properties) || {}
     const sessionID = properties.sessionID || (event ? event.sessionID : "") || ""
     if (!isMainAgent(properties)) return
-    const directory = startDir(ctx)
+    const directory = await resolveStartDir(ctx, ctx && ctx.session, event)
     if (!isSkillgridProject(directory)) return
     const bootstrap = resolveBootstrap(directory)
     const entry = ctx ? ctx.session : null
@@ -155,14 +176,6 @@ async function importPlugin() {
 }
 
 const { Plugin } = await importPlugin()
-
-// Project-conditional bootstrap resolution shared by both V2 mechanisms:
-// null when the start dir is not a skillgrid project.
-function bootstrapFor(ctx) {
-  const directory = startDir(ctx)
-  if (!isSkillgridProject(directory)) return null
-  return resolveBootstrap(directory)
-}
 
 // V2 entry (opencode >= 2.0). Mechanism (a) when the durable instruction-entry
 // API is present (opencode >= 2.2), else the (b) "context" session-hook
@@ -207,11 +220,19 @@ export default Plugin.define({
             // semantics as session.created properties ("build"/"main"/"" =
             // primary; "general"/"explore"/custom = subagent)
             if (!isMainAgent({ agent: ev.agent })) return
-            const bootstrap = bootstrapFor(ctx)
-            if (!bootstrap) return
+            // Session-aware start dir: the persistent --service daemon has a
+            // cwd unrelated to the session's project (T7 live smoke,
+            // 2026-11-22), so resolve it from the session record.
+            const directory = await resolveStartDir(ctx, session, ev)
+            if (!isSkillgridProject(directory)) return
+            const bootstrap = resolveBootstrap(directory)
             if (Array.isArray(ev.system)) {
-              // idempotent within one request assembly
-              if (ev.system.some((t) => t && typeof t.text === "string" && t.text.includes("using-skillgrid"))) return
+              // idempotent within one request assembly. Marker is "router
+              // bootstrap" (present in every bootstrap variant, absent from
+              // project content like AGENTS.md) — NOT "using-skillgrid", which
+              // AGENTS.md itself contains and false-positives on (T7 live
+              // smoke, 2026-11-22: bootstrap silently skipped in-repo).
+              if (ev.system.some((t) => t && typeof t.text === "string" && t.text.toLowerCase().includes("router bootstrap"))) return
               ev.system.push({ type: "text", text: bootstrap })
               return
             }

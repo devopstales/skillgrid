@@ -202,9 +202,41 @@ check("v2 fallback: non-project context event appends nothing", async () => {
 check("v2 fallback: already-injected system is not duplicated", async () => {
   const { ctx, hooks } = makeFallbackCtx(REPO_ROOT)
   await mod.default.setup(ctx)
-  const system = [{ type: "text", text: "existing bootstrap: read .agents/skills/using-skillgrid/SKILL.md" }]
+  const system = [{ type: "text", text: "# Skillgrid Router Bootstrap\n\nThis project is configured with Skillgrid." }]
   await hooks.context({ system, messages: [] })
   assert.equal(system.length, 1, "no second copy appended")
+})
+
+check("v2 fallback: AGENTS.md-style 'using-skillgrid' text is not a false positive", async () => {
+  const { ctx, hooks } = makeFallbackCtx(REPO_ROOT)
+  await mod.default.setup(ctx)
+  // AGENTS.md contains "using-skillgrid" but is not the router bootstrap;
+  // the old marker skipped injection in-repo (T7 live smoke, 2026-11-22).
+  const system = [{ type: "text", text: "Entry: at the start of any skillgrid task, first read using-skillgrid." }]
+  await hooks.context({ system, messages: [] })
+  assert.equal(system.length, 2, "bootstrap appended despite 'using-skillgrid' in project content")
+})
+
+check("v2 fallback: daemon cwd resolves the session's own directory", async () => {
+  // `opencode run` connects to the persistent --service daemon whose cwd is
+  // unrelated to the session's project and whose ctx.directory is undefined;
+  // the start dir must come from session.get(...).location.directory
+  // (T7 live smoke, 2026-11-22: in-repo bootstrap silently skipped).
+  const hooks = {}
+  let lookedUp = null
+  const ctx = {
+    directory: undefined,
+    session: {
+      hook: (name, handler) => { hooks[name] = handler },
+      get: async (args) => { lookedUp = args; return { location: { directory: REPO_ROOT } } },
+    },
+    event: { subscribe: () => makeStream([]) },
+  }
+  await mod.default.setup(ctx)
+  const system = [{ type: "text", text: "base system prompt" }]
+  await hooks.context({ sessionID: "ses_test", agent: "build", system, messages: [] })
+  assert.ok(lookedUp && lookedUp.sessionID === "ses_test", "session record consulted for the start dir")
+  assert.equal(system.length, 2, "bootstrap appended via the session directory")
 })
 
 // await all checks so the pass count reflects completed (not just started) assertions
