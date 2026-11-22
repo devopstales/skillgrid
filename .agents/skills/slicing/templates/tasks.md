@@ -27,11 +27,11 @@ Chain strategy: {stacked-to-main | feature-branch-chain | size-exception | pendi
 
 ### Suggested Work Units
 
-| Unit | Goal | Likely PR | Focused test command | Runtime harness | Rollback boundary |
-|------|------|-----------|----------------------|-----------------|-------------------|
-| 1 | <standalone deliverable> | PR 1 | <smallest proving command> | <real scenario or N/A + reason> | <files/behavior removable without unrelated rollback> |
+| Unit | Goal | Likely PR | Review budget (lines) | Focused test command | Runtime harness | Rollback boundary |
+|------|------|-----------|-----------------------|----------------------|-----------------|-------------------|
+| 1 | <standalone deliverable> | PR 1 | <N / 400> | <smallest proving command> | <real scenario or N/A + reason> | <files/behavior removable without unrelated rollback> |
 
-> The four plain-text guard lines above are the **contract** — `skillgrid:subagent-execution` matches them literally. If risk is High, `Chained PRs recommended` MUST be `Yes` and every work unit MUST name a focused test, a runtime harness (or `N/A` + reason), and a rollback boundary.
+> The four plain-text guard lines above are the **contract** — `skillgrid:execute` matches them literally. If risk is High, `Chained PRs recommended` MUST be `Yes` and every work unit MUST name a focused test, a runtime harness (or `N/A` + reason), and a rollback boundary.
 
 ## Tickets
 

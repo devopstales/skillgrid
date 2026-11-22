@@ -59,7 +59,7 @@ hermes kanban --board <project-slug> create "TICKET-02: <title>" \
   --assignee <profile> \
   --workspace worktree \
   --parent <parent-task-id> \
-  --skill subagent-execution \
+  --skill skillgrid:execute \
   --body "<ticket body with Blocked by: <parent task ids>>"
 ```
 
