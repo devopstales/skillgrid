@@ -39,7 +39,7 @@ bdd:
 Resolve it in this order:
 
 1. Use `bdd.stack:` in `.skillgrid/config.yaml`.
-2. If absent and `acceptance-tests/` already exists, infer it from contents:
+2. If absent and `.skillgrid/acceptance-tests/` already exists, infer it from contents:
    `cucumber.cjs` means `javascript`; offer to record it.
 3. Otherwise ask. Never guess silently, and never scaffold a runner without a
    recorded value.
@@ -53,7 +53,7 @@ Shared files at this reference's root:
 | File | Role |
 | --- | --- |
 | [EXTRACTION.md](EXTRACTION.md) | Normative contract for `acceptance.feature` to `.feature` extraction |
-| [gherkin-lintrc.json](gherkin-lintrc.json) | Shared lint configuration copied to `acceptance-tests/.gherkin-lintrc` |
+| [gherkin-lintrc.json](gherkin-lintrc.json) | Shared lint configuration copied to `.skillgrid/acceptance-tests/.gherkin-lintrc` |
 
 The Markdown contract is the definition; the JavaScript files are bindings.
 Change the contract first, then the implementation.
@@ -75,7 +75,7 @@ comes from Markdown headings; fences hold steps only.
   structure keywords inside a fence are a hard error.
 
 Extraction writes each `acceptance.feature` to
-`acceptance-tests/.extracted/<same-relative-path>/acceptance.feature`,
+`.skillgrid/acceptance-tests/.extracted/<same-relative-path>/acceptance.feature`,
 preserving exactly one output line per input line. `.extracted/` is
 gitignored, wiped and rebuilt on every run, and never edited by hand.
 
@@ -123,10 +123,35 @@ Rules:
 ## Syntax validation (mandatory)
 
 After writing `acceptance.feature`, validate the Gherkin syntax before
-proceeding to Phase 6. Run the BDD runner in dry-run/parse mode (e.g.
+presenting it for review. Run the BDD runner in dry-run/parse mode (e.g.
 `cucumber-js --dry-run` for the javascript stack) to confirm the file parses.
 Fix any syntax errors before the file is considered complete. Invalid syntax
-blocks the next phase.
+blocks the User Review Gate.
+
+## User Review Gate (STATUS banner)
+
+The acceptance spec is the contract the code satisfies — it deserves the same
+approval ceremony as `briefing.md` and `blueprint.md`. When
+`acceptance.feature` is first written, its line-3 STATUS banner is `draft` —
+the agent writes it; the user's hand-edit at the User Review Gate sets
+`approved`, and the agent never writes `approved` itself (same contract as
+`briefing.md` and `blueprint.md`, per `_shared/rules/sdd-structure.md` §
+STATUS Banner). The template
+([templates/acceptance.feature](../templates/acceptance.feature)) carries the
+banner.
+
+After syntax validation passes, present the spec for review:
+
+> "Acceptance spec written to `<path>` (Gherkin, lint-clean, N requirements
+> × M scenarios). Please read it — the scenarios are the contract the code
+> must satisfy, and they are committed before any code. When you approve,
+> edit the STATUS line yourself: change `draft` to `approved (YYYY-MM-DD)`
+> on line 3."
+
+Wait for the flip. Confirm by re-reading line 3 from disk and quote the
+banner in the reply. If the user requests changes, make them, re-run syntax
+validation, and set the banner to `revised` (the user re-reads and re-flips).
+**Never proceed to Phase 6 without the banner showing `approved`.**
 
 ## Linting specs
 
@@ -137,23 +162,23 @@ Spec linting is shared: gherkin-lint over the extracted output with the pinned
 - gherkin-lint has no default rules; it requires `.gherkin-lintrc`.
 - Reported line numbers are valid in source `acceptance.feature` files.
 
-Before an `acceptance-tests/` project exists, run the extractor from this
+Before a `.skillgrid/acceptance-tests/` project exists, run the extractor from this
 reference:
 
 ```sh
-node .agents/skills/blueprint/references/javascript/extract-gherkin.cjs .skillgrid/change-specs acceptance-tests/.extracted \
-  && npx gherkin-lint --config .agents/skills/blueprint/references/gherkin-lintrc.json acceptance-tests/.extracted
+node .agents/skills/blueprint/references/javascript/extract-gherkin.cjs .skillgrid/change-specs .skillgrid/acceptance-tests/.extracted \
+  && npx gherkin-lint --config .agents/skills/blueprint/references/gherkin-lintrc.json .skillgrid/acceptance-tests/.extracted
 ```
 
 ## Runner invariants
 
-1. `acceptance-tests/` is an independent test project at the repo root. Its
-   hooks boot the application before the suite and shut it down after, so the
-   suite must run with a single command.
+1. `.skillgrid/acceptance-tests/` is an independent test project under
+   `.skillgrid/`. Its hooks boot the application before the suite and shut it
+   down after, so the suite must run with a single command.
 2. The default run executes every `acceptance.feature` under `{specs_root}`.
 3. A green suite is the gate for archive, and archive must never change suite
    results.
-4. Every test run generates an HTML report under `acceptance-tests/reports/`.
+4. Every test run generates an HTML report under `.skillgrid/acceptance-tests/reports/`.
 5. Verify extraction whenever the runner config, extractor, or `{specs_root}`
    tree changes.
 
@@ -161,7 +186,7 @@ node .agents/skills/blueprint/references/javascript/extract-gherkin.cjs .skillgr
 
 Step definitions must read as intent; all UI knowledge lives in page objects.
 
-- Page objects live under `acceptance-tests/support/pages/`, one per screen
+- Page objects live under `.skillgrid/acceptance-tests/support/pages/`, one per screen
   or flow.
 - Page objects encapsulate routes, form field names, selectors, and ids.
 - Parse responses with the stack's HTML parser, never with regexes over raw
@@ -195,13 +220,15 @@ of the codebase is the **code zone** (full commit contract:
 ## Verification
 
 - [ ] Spec passes the linter with 0 errors:
-      `gherkin-lint --config .gherkin-lintrc.json acceptance-tests/.extracted`
+      `gherkin-lint --config .gherkin-lintrc.json .skillgrid/acceptance-tests/.extracted`
       exits 0.
 - [ ] The runner's dry-run/parse mode confirms the file parses.
+- [ ] Line-3 STATUS banner is `approved` (the user's hand-edit — re-read from
+      disk, banner quoted). The agent never writes `approved`.
 - [ ] Every requirement has ≥1 `happy path` + `edge` + `failure` scenario.
 - [ ] Each scenario maps to a spec requirement and is referenceable from
       blueprint tasks (`SATISFIES:`) and `tasks.md`.
 - [ ] Runner invariants satisfied: suite boots the app with one command, the
-      HTML report is generated under `acceptance-tests/reports/`.
+      HTML report is generated under `.skillgrid/acceptance-tests/reports/`.
 - [ ] Zone rule honored: specs committed before code, and no commit stages
       both spec and code files.

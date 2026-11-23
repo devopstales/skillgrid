@@ -4,7 +4,7 @@ For `bdd.stack: javascript` in `.skillgrid/config.yaml`. Read the skill's `SKILL
 
 ## Files To Copy
 
-Copy into `acceptance-tests/` at the repo root. Destination filenames are load-bearing.
+Copy into `.skillgrid/acceptance-tests/`. Destination filenames are load-bearing.
 
 | Source | Destination | Why the name is fixed |
 | --- | --- | --- |
@@ -58,7 +58,7 @@ Known limitation: gherkin-lint's AST rules do not descend into `Rule:` children,
 
 ## Page Object Model
 
-Page objects live in `acceptance-tests/support/pages/`, one per screen or flow. Parse responses with `cheerio`; never with regexes over raw HTML. The World stays a thin HTTP client holding page-object instances.
+Page objects live in `.skillgrid/acceptance-tests/support/pages/`, one per screen or flow. Parse responses with `cheerio`; never with regexes over raw HTML. The World stays a thin HTTP client holding page-object instances.
 
 ```js
 When('they submit a valid email and password', async function () {

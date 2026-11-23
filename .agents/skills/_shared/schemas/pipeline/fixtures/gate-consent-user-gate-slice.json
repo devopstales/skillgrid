@@ -1,0 +1,27 @@
+{
+  "schema": "skillgrid.gate-consent/v1",
+  "contract": "skillgrid.pipeline/v1",
+  "gate": "user-gate-slice",
+  "blocking": true,
+  "change": "2026-11-23-pipeline-envelope",
+  "headline": "Slice plan ready: 3 tickets in 2 waves",
+  "reason": "slicing wrote tasks.md; the slice must be confirmed before execution starts",
+  "choices": [
+    {
+      "answer": "granted",
+      "label": "ok to continue",
+      "effect": "execution may start",
+      "next_step": "flip line 3 of tasks.md to `approved` (STATUS banner, hand-edit), then resume"
+    },
+    {
+      "answer": "declined",
+      "label": "tell me what to change",
+      "effect": "slicing revises the slice plan",
+      "next_step": "record `blocked(slicing): user declined the slice plan` in .skillgrid/state.yaml, then re-run skillgrid:slicing"
+    }
+  ],
+  "off_path": {
+    "note": "go to the end: no more check-ins on this change",
+    "step": "set the change's autonomy to autonomous in .skillgrid/state.yaml, then resume"
+  }
+}

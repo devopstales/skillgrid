@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "skillgrid.pipeline/gate-consent/v1",
+  "title": "Skillgrid gate consent envelope v1",
+  "description": "The skillgrid.gate-consent/v1 envelope a pipeline skill emits when it reaches a named user gate (_shared/rules/sdd-structure.md § User gate contract). Port of gentle-ai consent/v2: exactly two choices, each with an exact next step, plus the off_path (the 'go to the end' path). Rendered by _shared/scripts/gate-consent.mjs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "contract", "gate", "blocking", "change", "headline", "reason", "choices", "off_path"],
+  "properties": {
+    "schema": { "const": "skillgrid.gate-consent/v1" },
+    "contract": { "const": "skillgrid.pipeline/v1" },
+    "gate": {
+      "enum": ["blueprint-validation", "owed-decision", "user-gate-slice", "qa-verdict", "ship-decision"]
+    },
+    "blocking": { "const": true },
+    "change": { "type": "string", "minLength": 1 },
+    "headline": { "type": "string", "minLength": 1 },
+    "reason": { "type": "string", "minLength": 1 },
+    "choices": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        { "$ref": "#/$defs/choice_granted" },
+        { "$ref": "#/$defs/choice_declined" }
+      ],
+      "items": false
+    },
+    "off_path": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["note", "step"],
+      "properties": {
+        "note": { "type": "string", "minLength": 1 },
+        "step": { "type": "string", "minLength": 1 }
+      }
+    }
+  },
+  "$defs": {
+    "choice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["answer", "label", "effect", "next_step"],
+      "properties": {
+        "answer": { "enum": ["granted", "declined"] },
+        "label": { "type": "string", "minLength": 1 },
+        "effect": { "type": "string", "minLength": 1 },
+        "next_step": { "type": "string", "minLength": 1 }
+      }
+    },
+    "choice_granted": {
+      "allOf": [{ "$ref": "#/$defs/choice" }],
+      "properties": { "answer": { "const": "granted" } }
+    },
+    "choice_declined": {
+      "allOf": [{ "$ref": "#/$defs/choice" }],
+      "properties": { "answer": { "const": "declined" } }
+    }
+  }
+}

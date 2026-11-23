@@ -7,7 +7,7 @@ the dispatch protocol — where the shootdown sits, how the lenses spawn, how th
 synthesizer aggregates, and how the findings are dispositioned. The tone rules
 it enforces live in `_shared/craft/review-discipline.md` (cited, not
 restated). The lens + synthesizer persona briefs live in
-`.agents/skills/_shared/elephant-goldfish/`.
+`.agents/agents/goldfish.md` (one section per brief).
 
 ## Dispatch point (R2)
 
@@ -26,9 +26,8 @@ New Function mid-task, the shootdown becomes mandatory at the new path.
 The lenses are expensive (seven fresh-context subagents). They are not spawned
 until the user confirms the anchored hypothesis is stable:
 
-1. **Drill the problem first** — work the interview (the design tree in
-   `references/questioning.md`) until the problem statement, constraints, and
-   target behavior are thorough. Open-ended questioning; no structured
+1. **Drill the problem first** — work the interview (`skillgrid:questioning`)
+   until the problem statement, constraints, and target behavior are thorough. Open-ended questioning; no structured
    multiple-choice candidate answers during problem exploration.
 2. **Anchor the hypothesis** — summarize the anchored working hypothesis in
    2–3 sentences.
@@ -48,7 +47,7 @@ before the swarm runs against it.
 ## Freshness check (R36)
 
 Before the seven lenses spawn, apply the R36 STOP from
-`_shared/elephant-goldfish/protocol.md` § Freshness rule: a harness without
+`_shared/craft/goldfish-protocol.md` § Freshness rule: a harness without
 fresh-context subagents does not degrade — it stops, and a same-context run
 MUST NOT count toward R1. No partial run, no "we'll count this one as a review
 anyway."
@@ -56,27 +55,27 @@ anyway."
 ## The seven lenses (R1)
 
 All seven are dispatched **in parallel** (not sequentially): one freshly
-spawned `reviewer` subagent (fallback `general`) per lens brief, all under
-`.agents/skills/_shared/elephant-goldfish/`:
+spawned `reviewer` subagent (fallback `general`) per lens brief, all sections
+of `.agents/agents/goldfish.md`:
 
-- `zoom-out.md` — Skeptical Architect (YAGNI, reuse, anti-weeds, altitude)
-- `design-critic.md` — Hostile Design Critic (architecture, scalability, cost
+- `## zoom-out` — Skeptical Architect (YAGNI, reuse, anti-weeds, altitude)
+- `## design-critic` — Hostile Design Critic (architecture, scalability, cost
   & quota economics, unmitigated risk)
-- `comprehension.md` — Naive Reader (UX & developer ergonomics, cognitive
+- `## comprehension` — Naive Reader (UX & developer ergonomics, cognitive
   overhead, self-containment)
-- `implementation-readiness.md` — Pragmatic Tech Lead (migration, backward
+- `## implementation-readiness` — Pragmatic Tech Lead (migration, backward
   compatibility, rollout safety)
-- `codebase-details.md` — Pedantic Technical Auditor (observability,
+- `## codebase-details` — Pedantic Technical Auditor (observability,
   telemetry, operational debuggability)
-- `structural.md` — Document Architect (long-term tech debt, coupling,
+- `## structural` — Document Architect (long-term tech debt, coupling,
   maintainability)
-- `inventive-catalyst.md` — Inventive Catalyst (TRIZ: false-compromise
+- `## inventive-catalyst` — Inventive Catalyst (TRIZ: false-compromise
   detection, inventive transforms, Ideal Final Result)
 
-Dispatch prompt = lens brief path + the anchored hypothesis + the explicit
+Dispatch prompt = lens brief section + the anchored hypothesis + the explicit
 reading list (the relevant existing code/files) + the R37 four-part isolation
 contract re-asserted verbatim (from
-`_shared/elephant-goldfish/protocol.md` § Four-part isolation contract) +
+`_shared/craft/goldfish-protocol.md` § Four-part isolation contract) +
 `Mode: BRAINSTORM`. Each subagent is given ONLY the anchored hypothesis +
 relevant code — no conversation history, no author narrative. A review run in
 the author's own context MUST NOT count toward R1.
@@ -84,7 +83,7 @@ the author's own context MUST NOT count toward R1.
 ## Synthesis (the synthesizer)
 
 After the seven lenses report, the **synthesizer** aggregates. Per
-`.agents/skills/_shared/elephant-goldfish/synthesizer.md`, `Mode: BRAINSTORM`:
+`.agents/agents/goldfish.md` § synthesizer, `Mode: BRAINSTORM`:
 
 - If the harness nests subagents, the main agent spawns the synthesizer, which
   spawns the seven lenses, collects their reports, deduplicates, groups by

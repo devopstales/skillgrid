@@ -24,6 +24,11 @@ Load the plan (or sliced `tasks.md`), review it critically, execute every task o
 
 **Announce at start:** "I'm using the skillgrid:execute skill to execute this plan."
 
+**Position in the chain:** … → `slicing` → **`execute`** → `test` → …
+(per `_shared/rules/sdd-structure.md` § Phase Order). `slicing` (including the
+mandatory user gate) must have completed before this skill starts. No
+divergence: `test` does not start until this skill is complete.
+
 This skill merges five former skills into one: workspace setup, three execution modes, the parallel fan-out pattern, and the lazy-minimal solution discipline.
 
 - **Workspace setup** (from `isolated-workspace`) — before anything else: detect existing isolation, create an isolated workspace via native tools or git worktree fallback, run project setup, verify a clean baseline.
@@ -107,7 +112,7 @@ The ladder runs *after* you understand the problem, never instead of it — trac
 
 **When NOT to use:** there is no written plan yet (use `skillgrid:brainstorm` / `skillgrid:blueprint` first, then `skillgrid:slicing`). A single 1-2 ticket change that fits one context window can run inline without this skill's machinery.
 
-**Structure note (thin-router):** this skill is 385 lines with a dominant
+**Structure note (thin-router):** this skill is 413 lines with a dominant
 procedure (Steps 0–5). If it grows past 500 lines, split the step walk into
 `workflow.md` and keep SKILL.md as the router (config, mode table, gates,
 contracts) — per `skillgrid:skill-creator` §3g.
@@ -116,7 +121,7 @@ contracts) — per `skillgrid:skill-creator` §3g.
 
 | Condition | Mode |
 |---|---|
-| Subagents available (Claude Code, Codex CLI, Codex App, Copilot CLI, Gemini CLI, or this harness's subagent tool) | **Subagent** (default) |
+| Subagents available (Claude Code, Codex CLI, Codex App, Copilot CLI, Gemini CLI, or this harness's subagent tool) | **Subagent** (default) — when `HERDR_ENV=1` and the implementer kind is supported, the dispatch runs through Herdr agents (`agent start` / `agent prompt --wait`): [references/herdr-transport.md](references/herdr-transport.md) |
 | No subagent access, or the user prefers inline | **Inline** |
 | 2+ independent problem domains (different test files, subsystems, root causes; no shared state) | **Fan-out** — one agent per domain, each in its own worktree |
 | 2+ coupled implementation tasks with overlapping files that can be made disjoint-write | **Fan-out (concurrent coupled build)** — see [references/concurrent-leaves.md](references/concurrent-leaves.md) |
@@ -155,13 +160,15 @@ Before dispatching Task 1 (subagent mode) or starting the first task (inline mod
    **0b. Create via the tooling tier** (order per `_shared/work-unit-commits/README.md` § Worktree root + detection → Tooling tiers; `conventions.worktree_tool` overrides auto-detection):
 
    - **Tier 1 — harness-native tool** (`EnterWorktree`, `WorktreeCreate`, a `/worktree` command, a `--worktree` flag): use it — it owns directory placement, branch creation, and cleanup. Using any other tool when one exists creates phantom state the harness can't see or manage.
-   - **Tier 2 — worktrunk** (`command -v wt` + `wt list` succeeds): create with `wt switch --create <branch> --base <base>` (base = the change's base branch; worktrunk defaults `--base` to the default branch, which is wrong for a feature branch off `develop`). Verify the path template lands in the standard root — user config `worktree-path = "{{ repo_path }}/.worktree/{{ branch | sanitize }}"`; if `wt list` shows a different layout, state it in the ledger rather than silently working in a foreign path. Branch names stay on the per-agent allow-list (fan-out: `worktree-wf_<domain>`; single implementer: `agent-*`).
-   - **Tier 3 — git fallback.** Directory selection priority: (1) a worktree directory declared in your instructions, (2) the project-root `.worktree/`, (3) `conventions.worktree_dir` from config, default `.worktree`. **MUST verify the directory is ignored before creating** (`git check-ignore -q <dir>`) — if not ignored, add it to `.gitignore` and commit first, or the whole tree gets committed. Then:
+   - **Tier 2 — worktrunk** (`command -v wt` + `wt list` succeeds): create with `wt switch --create <branch> --base <base>` (base = the change's base branch; worktrunk defaults `--base` to the default branch, which is wrong for a feature branch off `develop`). **Pin the path template first** — the repo-root `.config/wt.toml` (or user config) MUST set `worktree-path = "{{ repo_path }}/.worktree/{{ branch | sanitize }}"`, or `wt` places worktrees in its own default layout *outside* `<project-root>/.worktree/` — a placement error `git worktree list` does not flag. If the template is absent from `.config/wt.toml`, add it (committed), then create; after creation, **MUST verify the returned path starts with `<project-root>/.worktree/`** (the standard root from `_shared/work-unit-commits/README.md` § Worktree root) — a worktree landing anywhere else is a placement error: record it in the ledger, report it, and do not silently work there. Branch names stay on the per-agent allow-list (fan-out: `worktree-wf_<domain>`; single implementer: `agent-*`).
+   - **Tier 3 — git fallback.** Directory selection priority: (1) a worktree directory declared in your instructions, (2) `conventions.worktree_dir` from config, (3) the project-root `.worktree/` — the default when config is absent or unset. `$LOCATION` MUST resolve to a directory **inside `<project-root>`** (never a sibling of the checkout, never a path outside the repo root) — a path with no `/` is a sibling of the root, not a child of it. **MUST verify the directory is ignored before creating** (`git check-ignore -q <dir>`) — if not ignored, add it to `.gitignore` and commit first, or the whole tree gets committed. Then:
 
    ```bash
    git worktree add "$LOCATION/$BRANCH_NAME" -b "$BRANCH_NAME"
    cd "$LOCATION/$BRANCH_NAME"
    ```
+
+   **Post-creation placement gate (all tiers):** after any worktree creation — native tool, worktrunk, or git — resolve the worktree's real path (`git worktree list --porcelain` | the tool's output) and assert it starts with `<project-root>/.worktree/`. A worktree created outside the standard root is a placement error: STOP, report the actual path, and fix it (recreate under the standard root) before any work happens in it.
 
    Sandbox fallback: if creation fails with a permission error (any tier), tell the user the sandbox blocked worktree creation and work in the current directory instead.
 
@@ -270,9 +277,11 @@ Full per-role rules and complexity signals: [model-selection.md](references/mode
 
 The task loop — dispatch, review, fix rounds, the round-5 breaker, and the per-task cycle: [task-loop.md](references/task-loop.md).
 
-- Dispatch an implementer per the template in [implementer-prompt.md](references/implementer-prompt.md) with a complete task brief (the `node scripts/task-brief.mjs PLAN_FILE N` output path in the prompt).
-- After each implementer: generate the review package (`node scripts/review-package.mjs PLAN_FILE BASE HEAD`) and dispatch the task reviewer per [task-reviewer-prompt.md](references/task-reviewer-prompt.md) — spec compliance + code quality.
+- Dispatch an implementer per the template in [implementer-prompt.md](references/implementer-prompt.md) (persona: `.agents/agents/implementer.md`) with a complete task brief (the `node scripts/task-brief.mjs PLAN_FILE N` output path in the prompt).
+- After each implementer: generate the review package (`node scripts/review-package.mjs PLAN_FILE BASE HEAD`) and dispatch the task reviewer per [task-reviewer-prompt.md](references/task-reviewer-prompt.md) (persona: `.agents/agents/task-reviewer.md`) — spec compliance + code quality.
 - Findings: fix rounds up to 5 (rounds ≤3 resume the implementer; rounds ≥4 a fresh implementer on a more capable model), each ending with a scoped re-review per [re-review-prompt.md](references/re-review-prompt.md). At the cap, adjudicate each open finding and ledger the ruling.
+
+**Dispatch transport:** the default is the harness's native subagent tool. When the controller runs inside a Herdr-managed pane (`HERDR_ENV=1`) and the implementer kind is supported by the installed binary, dispatch through Herdr agents instead — the same brief, the same report contract, with lifecycle states (`idle` / `working` / `blocked` / `done`) and a visible worker pane: [references/herdr-transport.md](references/herdr-transport.md). The task loop below is unchanged; only the dispatch/wait/resume mechanics move.
 
 **Why subagents:** you delegate tasks to specialized agents with isolated context. By precisely crafting their instructions and context, you ensure they stay focused and succeed. They never inherit your session's context or history — you construct exactly what they need. This also preserves your own context for coordination.
 
@@ -309,6 +318,8 @@ When the plan decomposes into 2+ independent problem domains (different test fil
 5. **Review and integrate.** Each agent returns the structured payload in [references/fan-out-return.schema.json](references/fan-out-return.schema.json) — not free prose. A worker that fails or times out is recorded `status: failed` with a placeholder row in the fan-out ledger; integration continues (a partial run is resumable, not a crash). When returns arrive: verify fixes don't conflict (two agents editing the same file = scope error), merge the worktrees into the parent branch in order (with worktrunk active: `wt merge <parent-branch> --no-squash --no-commit` per worktree — see `ship` Step 6 for the pipeline and why squash is off), run the full test suite, and spot-check each `changed_files` list against `git status` — agents can make systematic errors. Integrate from the ledger + the structured returns, never from in-context summaries.
 
 **Concurrent coupled build:** if the parallel work is 2+ *implementation* tasks that touch overlapping files or a shared interface, read [references/concurrent-leaves.md](references/concurrent-leaves.md) before dispatching — it adds the disjoint-`Owns:` contract, a branch integration gate, and parent re-verify on top of this pattern, and tells you when to fall back to sequential.
+
+**Herdr transport:** when the fan-out runs inside a Herdr session (`HERDR_ENV=1`), one worker per sibling pane is the natural dispatch (pane + `agent start` + `agent prompt --wait` per domain) — the scope gate and fan-out ledger are unchanged: [references/herdr-transport.md](references/herdr-transport.md) § Fan-out.
 
 **Work Unit Evidence (required before marking complete, all modes):** every ticket, regardless of size, MUST produce a **Work Unit Evidence** row in the ledger before its tasks are marked complete:
 
@@ -378,12 +389,13 @@ On-demand detail for this skill, in `references/`:
 
 - [setup.md](references/setup.md) — workspace, progress ledger, commit position, and pre-flight conflict scan.
 - [task-loop.md](references/task-loop.md) — dispatch, review, and the per-task cycle (subagent mode).
+- [herdr-transport.md](references/herdr-transport.md) — the Herdr agent dispatch transport (`agent start` / `agent prompt --wait`, settle/block/stall handling, fan-out panes) — active when `HERDR_ENV=1` (subagent + fan-out modes).
 - [model-selection.md](references/model-selection.md) — per-role model-tier rules and complexity signals (subagent mode).
 - [final-review.md](references/final-review.md) — whole-branch review protocol, escalation threshold, fix-wave rules (subagent mode).
 - [example-workflow.md](references/example-workflow.md) — a worked end-to-end run of Setup → Task Loop → QA Gate → Final Review → Finish.
-- [implementer-prompt.md](references/implementer-prompt.md) — dispatch template for the implementer subagent.
-- [task-reviewer-prompt.md](references/task-reviewer-prompt.md) — dispatch template for the per-task spec+quality reviewer.
-- [re-review-prompt.md](references/re-review-prompt.md) — dispatch template for the scoped fix re-review.
+- [implementer-prompt.md](references/implementer-prompt.md) — dispatch template for the implementer subagent (persona: `.agents/agents/implementer.md`).
+- [task-reviewer-prompt.md](references/task-reviewer-prompt.md) — dispatch template for the per-task spec+quality reviewer (persona: `.agents/agents/task-reviewer.md`).
+- [re-review-prompt.md](references/re-review-prompt.md) — dispatch template for the scoped fix re-review (persona: `.agents/agents/re-reviewer.md`).
 - [concurrent-leaves.md](references/concurrent-leaves.md) — the concurrent coupled build: disjoint `Owns:` contract, branch integration gate, parent re-verify (fan-out mode).
 - [code-structuring.md](references/code-structuring.md) — the code-structuring part: measure a brownfield repo before planning (pygount), a scoped health pass (jscpd duplication → dead code → complexity), and the deep-module vocabulary for the interfaces a task creates or reshapes.
 - [ponytail.md](references/ponytail.md) — the lazy discipline part: the ladder (YAGNI → reuse → stdlib → native → installed dep → one line → minimum), the check rule re-bound to `#### Gates`, intensity levels, and the "when NOT to be lazy" protections.

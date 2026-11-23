@@ -22,6 +22,12 @@ specification; the code is the implementation; drift is the gap.
 **Announce at start:** "I'm using the skillgrid:drift skill to check
 code-vs-doc drift."
 
+**Position in the chain:** … → `adversarial-authoring` → **`drift`** → `ship`
+(per `_shared/rules/sdd-structure.md` § Phase Order). This is the **single
+exception** to the strict sequence: `drift` may also run on demand at any
+point after `execute` (e.g. mid-review, before ship). In the canonical chain
+it sits between `adversarial-authoring` and `ship`.
+
 ## Contents
 - When to Use / The Process (Input, Locate, Verify, Detect, Filter, Report) /
   The Gate / Red Flags / Verification

@@ -23,6 +23,11 @@ metadata:
 
 **Announce at start:** "I'm using the skillgrid:ship skill to close this change end to end."
 
+**Position in the chain:** … → `drift` → **`ship`** (terminal)
+(per `_shared/rules/sdd-structure.md` § Phase Order). Every preceding skill
+in the chain must have completed before this skill starts. This is the
+terminal phase — nothing follows it.
+
 You are the **TERMINAL** phase — the close of the SDD cycle. In one pass you do six things, in order:
 
 1. **Reflect** — complete the change's retrospective: what shipped, sourced learnings (Decisions / Lessons / Patterns / Surprises), acceptance verdict.

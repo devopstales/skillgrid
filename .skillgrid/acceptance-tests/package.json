@@ -1,0 +1,14 @@
+{
+  "name": "skillgrid-acceptance-tests",
+  "private": true,
+  "scripts": {
+    "test": "cucumber-js",
+    "lint:specs": "node extract-gherkin.cjs && gherkin-lint .extracted"
+  },
+  "devDependencies": {
+    "@cucumber/cucumber": "^12.0.0",
+    "cheerio": "^1.0.0",
+    "gherkin-lint": "^4.2.0",
+    "glob": "^11.0.0"
+  }
+}

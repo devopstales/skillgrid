@@ -54,7 +54,7 @@ The lens set (templates live in `skillgrid:code-review`'s `reviewers/` directory
 |------|-------|---------------|
 | Standards | glossary, in-force ADRs, smell baseline | always (3-axis + core five) |
 | Spec | per-scenario BDD, missing/partial, scope creep | always (3-axis + core five) |
-| Security | injection, authz, exposure, secrets, dep risk (OWASP 5-step) | always (3-axis + core five) |
+| Security (persona: `.agents/agents/security-sentinel.md`) | injection, authz, exposure, secrets, dep risk (OWASP 5-step) | always (3-axis + core five) |
 | Edge cases | unhandled branches, boundaries, deletion regressions | core five |
 | Verification gaps | does verification actually catch a break? | core five |
 | Accessibility | keyboard, semantics, forms, ARIA, contrast | diff touches UI |

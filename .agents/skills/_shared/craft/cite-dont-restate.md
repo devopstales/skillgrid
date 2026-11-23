@@ -30,7 +30,7 @@ every load.
 - The one-line *name* of what the pointer is ("the fix-loop cap", "the user-gate
   contract") — that is routing, not restating.
 - A value the reader cannot get elsewhere (a number unique to this file).
-- A citation line in an artifact (`Spec:`, `per 04-adr-NNNN-…`) — the artifact
+- A citation line in an artifact (`Spec:`, `per NNNN-…`) — the artifact
   cites its sources by design.
 
 ## The test

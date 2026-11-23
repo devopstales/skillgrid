@@ -329,8 +329,10 @@ The deliverable is the skill directory itself, verified:
 - `_shared/craft/deterministic-boundary.md` — script vs. prose classification
 - `_shared/craft/skill-anatomy.md` — format contract
 - `_shared/templates/skill-template.md` — fill-in skeleton
-- `_shared/elephant-goldfish/` — Goldfish persona briefs (synthesizer +
-  lenses) dispatched by the EGM-format skills in this repo
+- `.agents/agents/goldfish.md` — Goldfish persona briefs
+  (synthesizer + lenses, one section each) dispatched by the
+  EGM-format skills in this repo; the R36/R37/R38 protocol lives in
+  `_shared/craft/goldfish-protocol.md`
 - `brainstorm`, `blueprint` (this repo) — the EGM interaction format in
   practice: open-ended drilling, single-select gates, artifact-first delivery
 - Anthropic Skills Guide (updated for Claude 5.5) — source of the 10 rules

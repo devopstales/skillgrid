@@ -1,4 +1,6 @@
 # <capability — one H1, becomes Feature:>
+> **STATUS:** `draft` (YYYY-MM-DD)  <!-- the agent writes `draft`; the user's hand-edit at the User Review Gate sets `approved`; the agent never writes `approved` (per _shared/rules/sdd-structure.md § STATUS Banner). If the user requests changes, the agent sets `revised`; the user re-reads and re-flips. -->
+#
 #
 # Source: .skillgrid/change-specs/<YYYY-MM-DD-topic>/
 # Trace: change briefing ## Definition of Done; blueprint tasks SATISFIES lines.

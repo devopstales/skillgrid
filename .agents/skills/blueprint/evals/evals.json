@@ -4,19 +4,19 @@
     {
       "id": 1,
       "prompt": "We need to add a billing feature to the existing SaaS. The spec is in .skillgrid/change-specs/2026-11-20-billing/briefing.md. Write the implementation plan.",
-      "expected_output": "Agent announces the skill, runs Phase 1 research if the design rests on a fact not in the codebase (cites findings.md), then drafts the blueprint section by section with a Section Approval Gate per section and per task (not one pass reviewed at the end). The hypothesis block is present. It reconciles against the briefing and reports any contradiction.",
+      "expected_output": "Agent announces the skill, runs Phase 1 research if the design rests on a fact not in the codebase (cites findings.md), then drafts the blueprint section by section with a Section Approval Gate per section and per task (not one pass reviewed at the end). Each gate summary carries the section link, the section's concept in 1-2 sentences, and each key decision with mechanism / disadvantages / failure condition — not a bare list of decided facts. The hypothesis block is present. It reconciles against the briefing and reports any contradiction.",
       "files": []
     },
     {
       "id": 2,
       "prompt": "The blueprint you wrote names a value that comes from nowhere — which date the 'today' total is computed from. It's not in the briefing, not an ADR, not a data column.",
-      "expected_output": "Agent recognizes an owed decision (Owed-Decision Gate). It does NOT decide it silently. It presents the panel: resolve first / not a real decision / build on the assumption. If the user picks build-on-the-assumption, it writes the ASSUMED block with concrete values (no empty cells) and sets Status: ASSUMED. It never blocks execution.",
+      "expected_output": "Agent recognizes an owed decision (Owed-Decision Gate). It does NOT decide it silently. It presents the panel: resolve first / not a real decision / build on the assumption. If the user picks build-on-the-assumption, it writes the Assumed block with concrete values (no empty cells) and sets the line-3 STATUS banner to `assumed`. It never blocks execution.",
       "files": []
     },
     {
       "id": 3,
       "prompt": "This is a 300-line change to a single internal helper, no new dependency, no trust boundary. Just plan it.",
-      "expected_output": "Agent classifies the change (trivial/small), records it in the blueprint header, and right-sizes the plan — small tasks, no over-ceremony. It still runs the self-review and a placeholder scan, but does not force a 20-task decomposition. It notes the verification floor (L1) the class demands.",
+      "expected_output": "Agent classifies the change (trivial/small), records it in the blueprint header, and right-sizes the plan — small tasks, no over-ceremony. It still runs the self-review (Spec Reconciliation + Placeholder scan), but does not force a 20-task decomposition. It notes the verification floor (L1) the class demands.",
       "files": []
     },
     {
@@ -41,6 +41,16 @@
       "expected_output": "Agent applies the fan-out gate: 18 > 15 units, so it pauses and asks before spawning, stating the cost (18 scout units, cap 5 concurrent, ~1,500 source lines per chunk). It does not silently dispatch all 18.",
       "assertions": [
         { "type": "required_pattern", "pattern": "(?i)(\\b18\\b|up to|at most|no more than)\\s+(5|five)\\s+(parallel|concurrent|at a time)?", "message": "The gate must state the worker cap." }
+      ],
+      "files": []
+    },
+    {
+      "id": 7,
+      "prompt": "You just drafted the Storage section of the blueprint. It picks Postgres for the event log, 30-day retention, and a JSONB payload column. Present the Section Approval Gate.",
+      "expected_output": "Gate summary is presented for judgment, not as facts: the blueprint.md path is visible before the question; the section's concept (what the storage model is for and what hangs off it) in 1-2 sentences; each of the three decisions carries its mechanism, its disadvantage(s), and the conditions under which it fails. A bare list of the three decisions with no cost or failure condition is a rubber-stamp gate and is rejected.",
+      "assertions": [
+        { "type": "required_pattern", "pattern": "(?i)(disadvantage|costs?|trade-?off)", "message": "The gate must surface at least the disadvantages of the decisions." },
+        { "type": "required_pattern", "pattern": "(?i)(fails?\\b|failure condition|wrong when|condition under which)", "message": "The gate must name when a decision is wrong." }
       ],
       "files": []
     }

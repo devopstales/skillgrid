@@ -222,7 +222,7 @@ git diff --name-status "BASE...HEAD"
    (verdict + evidence). If already archived, read it from
    `.skillgrid/change-archive/YYYY-MM-DD-<topic>/`.
 3. **The decision record:** the ADR files under
-   `.skillgrid/projectwiki/decisions/04-adr-*.md` this change touched (the
+   `.skillgrid/projectwiki/decisions/*.md` this change touched (the
    in-force table in `ASSUMPTIONS.md` is the index). For the product why,
    read `.skillgrid/projectwiki/reference/00-prd.md` when the change touches
    scope.

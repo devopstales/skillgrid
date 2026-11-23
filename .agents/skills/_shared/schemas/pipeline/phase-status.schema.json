@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "skillgrid.pipeline/phase-status/v1",
+  "title": "Skillgrid phase status envelope v1",
+  "description": "The skillgrid.phase-status/v1 envelope a phase authority emits per change (status, single next transition). Shape frozen in the envelopes-only pass; the authority script that emits it lands in a later change. Per _shared/craft/envelope-contract.md: additionalProperties false, readers ignore unknown fields, a stop carries a runnable continuation (enforced by validate-envelope.mjs).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "contract", "authority", "projection", "next_transition"],
+  "properties": {
+    "schema": { "const": "skillgrid.phase-status/v1" },
+    "contract": { "const": "skillgrid.pipeline/v1" },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change", "phase", "revision"],
+      "properties": {
+        "change": { "type": "string", "minLength": 1 },
+        "phase": {
+          "enum": ["intake", "spec", "blueprint", "slicing", "execution", "qa", "review", "ship", "reflect", "score", "complete"]
+        },
+        "revision": { "$ref": "#/$defs/maybe_sha256" }
+      }
+    },
+    "projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deepest_artifact", "artifacts", "banners"],
+      "properties": {
+        "deepest_artifact": { "type": "string", "minLength": 1 },
+        "artifacts": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "banners": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        },
+        "edit_scope": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "next_transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "reason_code"],
+      "properties": {
+        "kind": { "enum": ["execute", "collect", "stop"] },
+        "reason_code": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+        "execute": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["operation", "next_step"],
+          "properties": {
+            "operation": { "type": "string", "pattern": "^skillgrid:[a-z][a-z0-9-]*$" },
+            "next_step": { "type": "string", "minLength": 1 }
+          }
+        },
+        "collect": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["inputs"],
+          "properties": {
+            "inputs": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "file", "line", "required_value"],
+                "properties": {
+                  "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+                  "file": { "type": "string", "minLength": 1 },
+                  "line": { "type": "integer", "minimum": 1 },
+                  "required_value": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          }
+        },
+        "continuation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["step"],
+          "properties": { "step": { "type": "string", "minLength": 1 } }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "execute" } }, "required": ["kind"] },
+          "then": { "required": ["execute"] }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "collect" } }, "required": ["kind"] },
+          "then": { "required": ["collect"] }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "stop" } }, "required": ["kind"] },
+          "then": { "required": ["continuation"] }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "maybe_sha256": { "type": "string", "pattern": "^$|^sha256:[0-9a-f]{64}$" }
+  }
+}

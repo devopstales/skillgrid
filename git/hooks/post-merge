@@ -1,0 +1,9 @@
+#!/bin/sh
+# post-merge — tracker consistency check after merges (advisory, fail-open).
+# A merge can introduce duplicate Backlog task IDs; the check reports via
+# `backlog doctor` (read-only). Never blocks: git ignores post-merge exit
+# codes, and the implementation always exits 0.
+HOOK_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+command -v node >/dev/null 2>&1 || exit 0
+node "$HOOK_DIR/../hooks/checkpoint-state.js" post-merge-check "$@" || true
+exit 0

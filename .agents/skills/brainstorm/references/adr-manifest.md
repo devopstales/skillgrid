@@ -17,14 +17,14 @@
      List each as the linked file path with a one-line gist. If none are in force,
      say so. -->
 
-- `.skillgrid/projectwiki/decisions/04-adr-NNNN-slug.md` — {one-line gist}
+- `.skillgrid/projectwiki/decisions/NNNN-slug.md` — {one-line gist}
 - (or) None in force.
 
 ## New Durable ADRs Created
 
 <!-- Every ADR file this change created. Pointers only — never copy the body. -->
 
-- `.skillgrid/projectwiki/decisions/04-adr-NNNN-slug.md` — {decision, one line}
+- `.skillgrid/projectwiki/decisions/NNNN-slug.md` — {decision, one line}
 - (or) None — no major durable architectural decision was introduced by this
   change.
 

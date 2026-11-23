@@ -34,11 +34,6 @@ All `.mjs` scripts follow the same contract:
 | `skill-creator` | `scripts/check-frontmatter.mjs` | Validate SKILL.md frontmatter: field set, order, name=dir, description ≤ 1024, quoted semver |
 | `skill-creator` | `scripts/skill-size-budget.mjs` | Check every skill's byte size against its tier ceiling (standard/large/xl/external) |
 | `youtube-transcript` | `scripts/get_transcript.py` | Extract a YouTube transcript via the `uv`-managed Python runtime |
-| `brainstorm` | `scripts/server.cjs` | Local preview server for the brainstorm frame template |
-| `brainstorm` | `scripts/start-server.sh` | Start the brainstorm preview server |
-| `brainstorm` | `scripts/stop-server.sh` | Stop the brainstorm preview server |
-| `brainstorm` | `scripts/helper.js` | Browser-side helper for the frame template |
-| `brainstorm` | `scripts/frame-template.html` | Fill-in HTML frame for the brainstorm design artifact |
 
 ### Script Design Rules
 
@@ -124,7 +119,6 @@ flowchart TD
     B1[context7 MCP]
     B2[docuwiki MCP]
     B3[exa MCP]
-    B4[server.cjs + frame-template.html]
   end
   subgraph Blueprint
     BP1[context7 MCP]

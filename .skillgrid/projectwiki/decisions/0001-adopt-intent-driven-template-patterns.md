@@ -75,6 +75,13 @@ plugin):
    this adoption creates the files; the dispatch-template sweep is a
    separate commit).
 
+   *Superseded (2026-11-23):* the one-file-per-role layout was
+   consolidated into two files — `.agents/agents/roles.md` (work roles:
+   `senior-dev`, `senior-qa`, `adversarial-author`, `adversarial-reviewer`)
+   and `.agents/agents/goldfish.md` (protocol + the Goldfish lens and
+   synthesizer briefs, formerly `.agents/agents/elephant-goldfish/`).
+   Dispatch prompts name the section, not the file.
+
 2. **The `adversarial-authoring` skill** at
    `.agents/skills/adversarial-authoring/SKILL.md`. New skill, v1.0,
    adapted to skillgrid conventions (the `part-of: skillgrid`

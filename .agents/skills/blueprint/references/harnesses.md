@@ -1,7 +1,7 @@
 # Harnesses (blueprint) — dispatch points for the shared Goldfish protocol
 
 The R36 freshness STOP, the R37 four-part isolation contract, and the R38
-harness table live in `_shared/elephant-goldfish/protocol.md` — the single
+harness table live in `_shared/craft/goldfish-protocol.md` — the single
 source. This file names only the **blueprint-specific dispatch points** where
 the protocol's freshness check fires; it does not restate the contract.
 
@@ -19,4 +19,4 @@ partial run, no same-context count.
 
 Everything else — the verbatim STOP wording, the four isolation parts, the
 per-harness mechanisms, and how to add a fifth harness — is in
-`_shared/elephant-goldfish/protocol.md`.
+`_shared/craft/goldfish-protocol.md`.

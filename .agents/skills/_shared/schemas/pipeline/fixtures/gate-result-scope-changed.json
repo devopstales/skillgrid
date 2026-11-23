@@ -1,0 +1,22 @@
+{
+  "schema": "skillgrid.gate-result/v1",
+  "contract": "skillgrid.pipeline/v1",
+  "gate": "qa-verdict",
+  "result": "scope-changed",
+  "allowed": false,
+  "action": "resume-pipeline",
+  "reason": "acceptance.feature digest changed after the verdict was issued",
+  "subject": {
+    "acceptance.feature": "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+  },
+  "next": {
+    "reason_code": "scope-changed",
+    "step": "re-run the test phase against the current acceptance.feature, then re-run .agents/skills/test/scripts/verdict-render.mjs"
+  },
+  "verdict": "PASS",
+  "floor_area": null,
+  "floor_reasons": [],
+  "non_answers": [],
+  "needs_human": false,
+  "notes": ["subject digest does not match the acceptance.feature on disk"]
+}

@@ -1,9 +1,10 @@
 # Scout Contract — Zero-Inference Code Reading
 
 The single source for how a read-only scout (fresh-context subagent or inline
-equivalent) reads source code and reports back. Dispatching skills
-(blueprint research, codebase-details REVIEW, repo-mapping scouts, execute
-fan-out scoping) name this contract; they do not restate it.
+equivalent) reads source code and reports back. The persona brief lives at
+`.agents/agents/scout.md`. Dispatching skills (blueprint research,
+codebase-details REVIEW, repo-mapping scouts, execute fan-out scoping) name
+this contract and the persona; they do not restate it.
 
 ## Citation rule (zero inference)
 

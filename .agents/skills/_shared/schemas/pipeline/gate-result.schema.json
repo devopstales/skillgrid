@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "skillgrid.pipeline/gate-result/v1",
+  "title": "Skillgrid gate result envelope v1",
+  "description": "The skillgrid.gate-result/v1 envelope every gate emitter emits: verdict-render.mjs (gate qa-verdict) and ship-gates.mjs (gate ship). Additive over the emitter's existing fields, which stay at top level and are enumerated here per gate. Per _shared/craft/envelope-contract.md: additionalProperties false, readers ignore unknown fields, every denial carries a runnable continuation (enforced by validate-envelope.mjs).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "contract", "gate", "result", "allowed", "action", "reason", "subject", "next"],
+  "properties": {
+    "schema": { "const": "skillgrid.gate-result/v1" },
+    "contract": { "const": "skillgrid.pipeline/v1" },
+    "gate": { "enum": ["qa-verdict", "ship"] },
+    "result": { "enum": ["allow", "blocked", "scope-changed", "invalidated"] },
+    "allowed": { "type": "boolean" },
+    "action": { "enum": ["continue", "user-decision", "fix-first", "resume-pipeline"] },
+    "reason": { "type": "string", "minLength": 1 },
+    "subject": {
+      "type": "object",
+      "propertyNames": { "pattern": "^.+\\..+$" },
+      "additionalProperties": { "$ref": "#/$defs/maybe_sha256" }
+    },
+    "next": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason_code", "step"],
+      "properties": {
+        "reason_code": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+        "step": { "type": "string", "minLength": 1 }
+      }
+    },
+    "verdict": { "enum": ["PASS", "CONCERNS", "FAIL", "WAIVED"] },
+    "floor_area": { "$ref": "#/$defs/maybe_string" },
+    "floor_reasons": { "type": "array", "items": { "type": "string" } },
+    "non_answers": { "type": "array", "items": { "type": "string" } },
+    "needs_human": { "type": "boolean" },
+    "notes": { "type": "array", "items": { "type": "string" } },
+    "qa": { "$ref": "#/$defs/maybe_string" },
+    "qa_blocks": { "type": "boolean" },
+    "qa_needs_override": { "type": "boolean" },
+    "review": { "type": "string" },
+    "review_needs_override": { "type": "boolean" },
+    "blocked": { "type": "boolean" },
+    "block_reason": { "$ref": "#/$defs/maybe_string" },
+    "findings": { "type": "array", "items": { "type": "string" } }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "result": { "const": "allow" } }, "required": ["result"] },
+      "then": { "properties": { "allowed": { "const": true } } },
+      "else": { "properties": { "allowed": { "const": false } } }
+    },
+    {
+      "if": { "properties": { "gate": { "const": "qa-verdict" } }, "required": ["gate"] },
+      "then": { "required": ["verdict", "floor_area", "floor_reasons", "non_answers", "needs_human", "notes"] }
+    },
+    {
+      "if": { "properties": { "gate": { "const": "ship" } }, "required": ["gate"] },
+      "then": { "required": ["qa", "qa_blocks", "qa_needs_override", "review", "review_needs_override", "blocked", "block_reason", "findings"] }
+    }
+  ],
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "maybe_sha256": { "type": "string", "pattern": "^$|^sha256:[0-9a-f]{64}$" },
+    "maybe_string": { "type": ["string", "null"] }
+  }
+}

@@ -1,5 +1,7 @@
 # [Feature Name] Implementation Blueprint (steps, files, verification)
 
+> **STATUS:** `proposed` (YYYY-MM-DD)
+
 > Copy this template to `.skillgrid/change-specs/YYYY-MM-DD-<feature-name>/blueprint.md`.
 > **Role:** this is the *how* — the implementation plan: concrete steps,
 > files to touch, code, tests, and verification. The companion `briefing.md`
@@ -10,12 +12,13 @@
 > file to touch, the code, the tests, and how to verify. DRY. YAGNI. TDD.
 > Frequent commits. No placeholders. (User preferences for plan location
 > override this default.)
+> Keep the line-3 STATUS banner at `proposed` — you never write `approved`;
+> at the User Review Gate, after reading the blueprint, the user hand-edits
+> it (approval gate per `_shared/rules/sdd-structure.md` § STATUS Banner).
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use skillgrid:execute (subagent mode recommended, or inline mode) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-<!-- Self-Review reminder: before the User Review Gate, the drafting agent runs the Self-Review checklist (blueprint SKILL.md → "Self-Review") — including check 6, Spec Reconciliation against briefing.md per references/section-by-section.md → "Spec Reconciliation (R21)" — while the blueprint is still PROPOSED. -->
-
-**Status:** PROPOSED
+<!-- Self-Review reminder: before the User Review Gate, the drafting agent runs the Self-Review checklist (blueprint-plan-spec.md → "Self-Review") — two mechanical checks: Spec Reconciliation against briefing.md per references/section-by-section.md → "Spec Reconciliation (R21)" + Placeholder scan per task-structure.md → "No Placeholders" — while the blueprint's STATUS is still `proposed`. Quality judgments are the Goldfish pipeline's job. -->
 
 **Tier:** T2
 
@@ -27,7 +30,7 @@
 
 **Tech Stack:** [Key technologies/libraries]
 
-**Spec:** [path to the spec this plan implements — the plan argues from the spec, so it travels with it; e.g., `../briefing.md` or `.skillgrid/change-specs/YYYY-MM-DD-<topic>/briefing.md`. The product *why* (user value, personas, success) lives in the spec + `.skillgrid/projectwiki/reference/00-prd.md`; decisions are `decisions/04-adr-NNNN-slug.md`. This blueprint is pure-technical and cites them rather than restating.]
+**Spec:** [path to the spec this plan implements — the plan argues from the spec, so it travels with it; e.g., `../briefing.md` or `.skillgrid/change-specs/YYYY-MM-DD-<topic>/briefing.md`. The product *why* (user value, personas, success) lives in the spec + `.skillgrid/projectwiki/reference/00-prd.md`; decisions are `decisions/NNNN-slug.md`. This blueprint is pure-technical and cites them rather than restating.]
 
 **Findings:** [path to the change's consolidated `.skillgrid/change-specs/YYYY-MM-DD-<topic>/findings.md` if a phase produced it — Phase 1 (Research sections), Phase 4 (Prototype sections), or a `skillgrid:sketch` run (Sketch sections). Cite it for every design decision that rests on a research fact, a feasibility result (e.g. "X is liftable", "approach A is cheaper than B"), or a chosen layout/interaction. Omit if no research/prototype/sketch ran.]
 
@@ -44,11 +47,27 @@ plus a one-line note if a term was sharpened during
 planning. Do not redefine terms here — the terms files are the single source of
 truth. If the plan uses no terms beyond the spec's, write "None".]
 
-<!-- ASSUMED BLOCK: replace **Status:** PROPOSED above with **Status: ASSUMED** and
+## Key Decisions
+
+[The load-bearing choices this plan rests on — the question, what was
+chosen, and the trade-off that decided it. Sourced from the briefing's
+decision record (`Approaches Considered` + `Decisions (ADR)`) — cite,
+don't re-derive (R23: alternatives come from the briefing). If the plan
+needs a decision the briefing never raised, it is an R21 "addition" —
+report it at Self-Review; do not add it silently here. This is the
+section a newcomer reads first to learn *why*; a task that contradicts a
+row is a plan defect. If every decision already lives in the briefing,
+write "None — see briefing's Approaches Considered / Decisions (ADR)."]
+
+| Decision | Chosen | Why (the trade-off that decided it) |
+|----------|--------|--------------------------------------|
+| [question] | [option] | [one line] |
+
+<!-- ASSUMED BLOCK: set the line-3 STATUS banner value to `assumed` and
 uncomment + fill this block ONLY when the Owed-Decision Gate's option 3
 ("Build on the assumption") was chosen. Delete this comment when done. -->
 <!--
-**Status: ASSUMED** — owes ratification (run `skillgrid:blueprint`
+**Assumed decision** — owes ratification (run `skillgrid:blueprint`
 with this blueprint as the topic to ratify)
 
 | | |
@@ -90,13 +109,29 @@ proven*, written before slicing. A green suite is not the verdict; this table
 names, per requirement, the check that would catch a regression and the result
 that falsifies the plan. Coverage is mechanical: a requirement with no row is a
 plan defect (the slicing coverage check and `skillgrid:test`'s intent area both
-consume it). Out-of-scope rows state what is NOT proven.]
+consume it). Out-of-scope rows state what is NOT proven. The **Target**
+column carries the numeric performance/capacity value when the
+requirement is quantitative (e.g. `p95 < 200 ms at 1k rps`); otherwise
+`—`. A quantitative requirement without a target is a plan defect.]
 
-| Req | Happy | Edge | Failure | Check | Falsifier |
-|-----|-------|------|---------|-------|-----------|
-| R1 | <happy-path behavior> | <boundary condition> | <failure mode> | `<command or gate>` | <the result that would falsify the plan> |
-| R2 | <happy-path behavior> | <boundary condition> | <failure mode> | `<command or gate>` | <the result that would falsify the plan> |
-| <out-of-scope> | — | — | — | — | <what is deliberately not proven> |
+| Req | Happy | Edge | Failure | Target | Check | Falsifier |
+|-----|-------|------|---------|--------|-------|-----------|
+| R1 | <happy-path behavior> | <boundary condition> | <failure mode> | — | `<command or gate>` | <the result that would falsify the plan> |
+| R2 | <happy-path behavior> | <boundary condition> | <failure mode> | — | `<command or gate>` | <the result that would falsify the plan> |
+| <out-of-scope> | — | — | — | — | — | <what is deliberately not proven> |
+
+## Failure Handling
+
+[How the built thing fails, and what each failure looks like to the
+caller — the per-requirement companion to the Validation matrix's
+Failure column and to the Threat Matrix (boundaries). Include the
+applicable rows and only the applicable rows, per the Threat Matrix
+convention; omit the section entirely if the change introduces no new
+failure path.]
+
+| Failure | Detection | Behavior | Recovery |
+|---------|-----------|----------|----------|
+| [e.g. dependency timeout] | [signal — timeout, error code, health check] | [what the caller sees — error, fallback, retry] | [retry budget and backoff / compensation / manual step + owner] |
 
 ## Global Constraints
 
@@ -104,6 +139,19 @@ consume it). Out-of-scope rows state what is NOT proven.]
 naming and copy rules, platform requirements — one line each, with exact
 values copied verbatim from the spec. Every task's requirements implicitly
 include this section.]
+
+## Rollout & Rollback
+
+[How this gets into production and how it comes back out. Mandatory when
+the change ships behavior or data to users; for changes that do not
+reach users, "None — <reason, e.g. dev-only, internal tool>" is
+acceptable. Every one-way-door decision in Must-Haves needs its
+rollback row — a one-way door without a documented way out is a plan
+defect.]
+
+- **Migration:** [schema/data migration — tested with representative data? recovery procedure? "None" if no migration]
+- **Rollout:** [staged rollout — flag, canary, percentage, monitoring window + owner; or "single deploy" with a reason]
+- **Rollback:** [trigger — the metric/error that fires it; procedure; data compatibility during mixed-version; owner]
 
 ## File Structure
 
@@ -190,6 +238,19 @@ git commit -m "feat: add specific feature"
 - [ ] **Step 3: Write minimal implementation**
 - [ ] **Step 4: Run test to verify it passes**
 - [ ] **Step 5: Commit**
+
+## Open Questions
+
+[The questions the *how* raised that the briefing did not answer — the
+R21 "addition" items that need a home in the file. Each gets an owner
+and a due point (a gate, not a date guess: "blueprint gate", "before
+Task N", "at qa"). If a question blocks a specific task, tag that
+task's checkpoint line with `? blocked by: [question]`. Write "None"
+when the plan is fully decided — an empty table is not.]
+
+| Question | Owner | Due |
+|----------|-------|-----|
+| [unresolved design choice] | [name / user] | [gate or date] |
 
 ## Review Summary
 

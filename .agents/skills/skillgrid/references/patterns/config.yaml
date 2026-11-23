@@ -143,7 +143,8 @@ adr_style: {adr_style}
 
 # --- BDD / Acceptance Testing ---
 # Always on — BDD is non-negotiable in Skillgrid (like TDD). The
-# skillgrid:blueprint Phase 5 (acceptance spec) and the acceptance-tests/ runner are
+# skillgrid:blueprint Phase 5 (acceptance spec) and the
+# .skillgrid/acceptance-tests/ runner are
 # always active: brainstorming writes .skillgrid/change-specs/<id>/acceptance.feature
 # and execution enforces the spec zone rule (commit specs before code).
 # stack: javascript (cucumber-js) — python/behave is a follow-up.
@@ -151,7 +152,7 @@ bdd:
   enabled: true
   stack: javascript
   specs_dir: .skillgrid/change-specs
-  runner_dir: acceptance-tests
+  runner_dir: .skillgrid/acceptance-tests
   lint: gherkin
 
 # --- Mnemonic (persistent memory + code index + web cache) ---

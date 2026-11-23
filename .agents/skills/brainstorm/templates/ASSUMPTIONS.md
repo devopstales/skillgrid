@@ -4,7 +4,7 @@
 > record a session reads first: what is true, what is a hypothesis, which
 > decisions are in force, and what is locked. The longer product requirements
 > live in `.skillgrid/projectwiki/reference/00-prd.md` (`templates/PRD.md`); decision bodies
-> live in `.skillgrid/projectwiki/decisions/04-adr-NNNN-slug.md`. This file stores the path
+> live in `.skillgrid/projectwiki/decisions/NNNN-slug.md`. This file stores the path
 > to each. For a multi-project repo, merge rather than overwrite.
 >
 > Maintenance: VERIFIED is written by brainstorm as facts are confirmed during
@@ -58,9 +58,9 @@ that names it and flipping its row here.**
 
 | # | Description | In force | File |
 |---|-------------|----------|------|
-| 0001 | [short description] | yes | `.skillgrid/projectwiki/decisions/04-adr-0001-slug.md` |
+| 0001 | [short description] | yes | `.skillgrid/projectwiki/decisions/0001-slug.md` |
 
-**Highest sequence in use:** 0001 (next ADR is `04-adr-0002-slug.md`).
+**Highest sequence in use:** 0001 (next ADR is `0002-slug.md`).
 
 Operational rules (the hard limits a change must respect) live in `AGENTS.md`'s
 `### Rules` section, not here. A rule that is actually a decision belongs in this

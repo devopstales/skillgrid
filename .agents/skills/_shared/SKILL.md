@@ -56,6 +56,7 @@ reference bundles that skills load on demand. A new standard that belongs in
    - [craft/effort-budgets.md](craft/effort-budgets.md) — the `effort:` frontmatter budget signal (low / standard / max) and the honest-overhead "when NOT to use the pipeline" rule.
    - [craft/review-discipline.md](craft/review-discipline.md) — the review loop: blindness, verdicts, the fix loop, and the ❌/✅ paired-example format for steering by contrast.
    - [craft/review-ledger.md](craft/review-ledger.md) — the per-change review ledger: findings, dispositions, lineage, the frozen-intent contract.
+   - [craft/goldfish-protocol.md](craft/goldfish-protocol.md) — the Goldfish dispatch protocol: the R36 freshness STOP, the R37 four-part isolation contract, the R38 harness table (the lens briefs themselves live in `.agents/agents/goldfish.md`).
    - [craft/deferred-work.md](craft/deferred-work.md) — the cross-change deferred-work ledger: the `DW-<n>` entries the review triage "defer" sink writes, the sweep (verify against code → resolved / bundle / blocked / skip / decision), staleness.
 - `references/` — canonical single-source references:
    - [references/threat-matrix.md](references/threat-matrix.md) — the applicability-driven threat matrix.

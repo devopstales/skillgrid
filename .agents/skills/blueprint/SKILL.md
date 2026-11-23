@@ -8,7 +8,7 @@ metadata:
   part-of: skillgrid
   based_on: superpowers:writing-plans + egm:egm-draft (Section Approval Gate)
   created_by: human
-  related_skills: [execute, slicing, test]
+  related_skills: [execute, slicing, test, research, prototype]
   version: "2.5"
 ---
 
@@ -24,12 +24,12 @@ metadata:
 
 ## Overview
 
-Turn a spec into a buildable implementation plan in six phases: research the
-facts the design rests on, draft the blueprint section by section with the user
-approving each section, persist the durable knowledge to the project wiki,
-(optionally) de-risk the load-bearing technical unknowns with a prototype,
-author the BDD acceptance spec from the validated blueprint, and write the
-final `blueprint.md`.
+Turn a spec into a buildable implementation plan in six phases: delegate
+external fact-finding to `skillgrid:research`, draft the blueprint section by
+section with the user approving each section, persist the durable knowledge to
+the project wiki, (optionally) de-risk the load-bearing technical unknowns with
+a prototype, author the BDD acceptance spec from the validated blueprint, and
+write the final `blueprint.md`.
 
 The blueprint assumes the engineer has zero context for our codebase and
 questionable taste. Document everything they need to know: which files to touch
@@ -40,6 +40,13 @@ or problem domain, and doesn't know good test design very well.
 
 **Announce at start:** "I'm using the skillgrid:blueprint skill to create the
 implementation plan."
+
+**Position in the chain:** … → `prototype` → **`blueprint`** → `slicing` → …
+(per `_shared/rules/sdd-structure.md` § Phase Order). `brainstorm` (including
+its delegated `questioning`, `research`, and `prototype` sub-steps) must have
+completed before this skill starts. This skill runs `research` inline as
+Phase 1 and `prototype` inline as Phase 4 (delegated to standalone skills). No
+divergence: `slicing` does not start until this skill is complete.
 
 **Config:** Read `.skillgrid/config.yaml` before starting. Use
 `conventions.specs_root` for blueprint location. If the file doesn't exist, use
@@ -58,7 +65,7 @@ tasks, tests, constraints. The product *why* — user value, personas, success
 metrics — lives in the spec (`briefing.md`) and in
 `.skillgrid/projectwiki/reference/00-prd.md`; the blueprint **cites** those (a
 `Spec:` line, a `per .skillgrid/projectwiki/reference/00-prd.md` or `per
-.skillgrid/projectwiki/decisions/04-adr-NNNN-slug.md` constraint) and does not
+.skillgrid/projectwiki/decisions/NNNN-slug.md` constraint) and does not
 restate them (per `_shared/craft/cite-dont-restate.md`). Operational rules are
 cited as `per AGENTS.md § Rules`.
 
@@ -66,6 +73,23 @@ cited as `per AGENTS.md § Rules`.
 `skillgrid:execute` Step 0 (isolated workspace) at execution time.
 
 **Save plans to:** `.skillgrid/change-specs/YYYY-MM-DD-<feature-name>/blueprint.md`
+
+<HARD-GATE>
+**Spec-zone only.** Every file this skill writes lands where
+`_shared/rules/sdd-structure.md` § Directory Structure says it lands —
+`blueprint.md` and `acceptance.feature` in
+`{specs_root}/YYYY-MM-DD-<topic>/`; research and prototype results in the
+change's `findings.md`; durable knowledge in `{projectwiki}/`; prototype
+artifacts in `{prototype.dir}/`. Nothing else: no `plan.md`, no `design.md`,
+no `architecture.md`, no new directories, and nothing outside `.skillgrid/`
+(the throwaway probe code is the one exception — it lives under
+`{prototype.dir}/` and is labeled throwaway). The canonical names are
+load-bearing — `skillgrid:resume` derives the phase from which of these files
+exist, so a renamed or relocated file silently breaks the pipeline. If you are
+about to write an artifact anywhere else, STOP: resolve the path from
+`.skillgrid/config.yaml` (`conventions.specs_root`, `conventions.artifacts`)
+and write it there.
+</HARD-GATE>
 
 ## The Phase Flow
 
@@ -81,11 +105,11 @@ handoff; phase 2 is the heart of the skill.
 
 | Phase | Name | Output | Gate |
 |-------|------|--------|------|
-| 1 | Research | `findings.md` `## Research:` section + projectwiki `sources/`/`syntheses/`/`concepts/` pages | research plan approval (fan-out); handoff report |
+| 1 | Research (delegated to `skillgrid:research`) | `findings.md` `## Research:` section + projectwiki `sources/`/`syntheses/`/`concepts/` pages | research plan approval (fan-out); handoff report |
 | 2 | Blueprint draft | `blueprint.md` (section by section) | **Section Approval Gate** per section + per task |
 | 3 | Project wiki | durable pages in `.skillgrid/projectwiki/` + `projectwiki index` | page-home confirmation; no-new-findings gate |
-| 4 | Prototype (optional) | `{prototype.dir}/NNN-name/` + `findings.md` `## Prototype:` section | user opt-in; hypothesis nod; verdict report |
-| 5 | Acceptance spec | `{specs_root}/YYYY-MM-DD-<topic>/acceptance.feature` (lint-clean) | Gherkin parse + lint 0 errors; Section Approval Gate on the spec |
+| 4 | Prototype (delegated to `skillgrid:prototype`, optional) | `{prototype.dir}/NNN-name/` + `findings.md` `## Prototype:` section | user opt-in; hypothesis nod; verdict report |
+| 5 | Acceptance spec | `{specs_root}/YYYY-MM-DD-<topic>/acceptance.feature` (lint-clean) | Gherkin parse + lint 0 errors; **User Review Gate** — STATUS banner `draft` → `approved` (user hand-edit) |
 | 6 | Write file | committed `blueprint.md` + `acceptance.feature` | commit (spec zone, before any code) |
 
 ```mermaid
@@ -98,7 +122,7 @@ flowchart TD
     E -->|no, skip| G[Phase 5: Acceptance spec]
     F -->|verdict feeds back| C
     F -->|Gherkin parse + lint 0 errors| G
-    G -->|Section Approval Gate on the spec| H[Phase 6: Write file + commit]
+    G -->|User Review Gate: STATUS draft -> approved| H[Phase 6: Write file + commit]
     G -.->|invalid spec, re-run| G
 ```
 
@@ -115,20 +139,31 @@ flowchart TD
 - **Phase 4 → 5 / Phase 3 → 5:** if no prototype (or after it), the wiki is
   finalized and the BDD acceptance spec is authored from the validated
   blueprint (BDD is always on — no opt-out).
-- **Phase 5 → 6:** the acceptance spec must parse (Gherkin dry-run) and lint
-  clean before the blueprint file is written and committed.
+- **Phase 5 → 6:** the acceptance spec must parse (Gherkin dry-run), lint
+  clean, and carry a line-3 STATUS banner of `approved` (the user's
+  hand-edit at the User Review Gate — the agent never writes `approved`)
+  before the blueprint file is written and committed.
 
 The phase order is not a wall: a prototype that invalidates an approach sends
 the draft back to Phase 2 for the affected sections, and the wiki (Phase 3) is
 updated to match. The gates are the hard stops; the phases are the working
 order.
 
-## Phase 1 — Research
+**Prerequisite (before Phase 1):** read the change's `briefing.md`. It must
+exist AND its line-3 STATUS banner must be `approved` (the user's hand-edit
+at brainstorm's User Review Gate). If it is `draft` or `revised`, HALT:
+tell the user to read the briefing and flip the banner themselves
+(`draft` → `approved (YYYY-MM-DD)` — the agent never writes `approved`),
+record `blocked(spec): briefing.md awaiting user approval` in `state.yaml`,
+and stop. Confirmation = re-read line 3 from disk and quote the banner
+(User approval gate per `_shared/rules/sdd-structure.md` § STATUS Banner).
 
-External fact-finding that grounds the blueprint. Full protocol, both modes
-(single-pass `research` and fan-out `code-research`), the epistemics, the
-sourcing rules, the subagent briefs, and the synthesis contract:
-[research-phase.md](references/research-phase.md).
+## Phase 1 — Research (delegated)
+
+External fact-finding that grounds the blueprint. Delegate to
+**`skillgrid:research`** — the full protocol, both modes (single-pass and
+fan-out), the epistemics, the sourcing rules, the subagent briefs, and the
+synthesis contract live in the research skill.
 
 **Run it when** the design or plan depends on a fact not in the codebase — a
 library's current API, a version's behavior, a domain constraint, an
@@ -139,8 +174,7 @@ answer is already known from the codebase or a simple local read.
   fan-out (wide or high-stakes, or heavy reading that should run in the
   background). The user's explicit request beats the mode choice.
 - **Output:** a `## Research: <question>` section in
-  `{specs_root}/YYYY-MM-DD-<topic>/findings.md` (scaffold in
-  [templates/research.md](templates/research.md)), committed, every load-bearing
+  `{specs_root}/YYYY-MM-DD-<topic>/findings.md`, committed, every load-bearing
   claim cited inline `[n]` with confidence flagged.
 - **Handoff:** report the decision, the 2–3 findings that drive it, the
   biggest caveat, and the path to `findings.md`. The draft (Phase 2) reads the
@@ -149,22 +183,52 @@ answer is already known from the codebase or a simple local read.
 ## Phase 2 — Blueprint Draft (Section Approval Gate)
 
 Draft the blueprint **section by section, gated per section and per task** —
-not in one pass and reviewed at the end. Protocol:
+not in one pass and reviewed at the end. When `blueprint.md` is first
+written, its line-3 STATUS banner is `proposed` — you write it; the user's
+hand-edit at the User Review Gate sets `approved`, and you never write
+`approved` yourself. Protocol:
 [section-by-section.md](references/section-by-section.md).
 
 - **Ingestion (R18):** before writing any section, read `briefing.md` in full,
   `findings.md` if present, `adr.md` if present; present a 2–3 sentence summary
   of the briefing's key decisions; the user confirms the drafting context.
+- **Hypothesis validation (R26):** before the first byte of `blueprint.md`
+  is written, put the plan-level hypothesis to the user — the claim you are
+  about to encode (from the briefing and findings: the approach, the key
+  technical assumptions, the first-wave build shape), the falsifiers (what
+  observable result would prove the plan wrong), and the thinning (the
+  smallest slice that would test it) — as decisions through the structured
+  answer tool (per `skillgrid:questioning` frontier rounds: options with
+  trade-offs, one at a time, each with your recommendation). The user
+  accepts, overrides, or amends each one; the answers are the input to the
+  Hypothesis section. A hypothesis the user has not seen is an unvalidated
+  assumption in the plan, not a decision. In the same step, every
+  validated decision that clears the ADR-sparingly test
+  (`_shared/adr-records/README.md`) is written to
+  `{projectwiki}/decisions/NNNN-slug.md` (monotonic number,
+  frontmatter, body per the config's `adr_style` template) plus its pointer
+  row in the `## LOCKED` ADR index in
+  `{projectwiki}/ASSUMPTIONS.md`; a decision that contradicts an in-force
+  ADR gets a new superseding ADR (`supersedes:` frontmatter, the prior
+  file untouched — IRON RULE) and the prior index row flips to
+  "In force: no". ADR capture is part of R26, not Phase 3 — the plan's
+  durable decisions are recorded before the plan file exists.
 - **Section order (R19):** the fixed drafting order — Header → Hypothesis →
-  Must-Haves → Validation → Threat Matrix (if applicable) → File Structure →
-  Global Constraints → Tasks 1..N → Self-Review → Commit. Each section carries its
+  Key Decisions → Must-Haves → Validation → Threat Matrix (if applicable) →
+  Failure Handling (if applicable) → File Structure → Global Constraints →
+  Rollout & Rollback → Tasks 1..N → Open Questions → Self-Review → Commit.
+  Each section carries its
   content contract (pointed at the SKILL.md section that defines it). The final
   document's layout follows `templates/blueprint.md`.
 - **Per-section gate (R19):** after each section is written to `blueprint.md`,
-  present the **Section Approval Gate** in the same turn — the chat summary
-  (which section, the 2–3 key decisions in it, the path to `blueprint.md`)
-  precedes the single-select gate (approve-and-proceed / request-revisions).
-  No empty chat bubbles. The user can revisit any earlier section at any point.
+  present the **Section Approval Gate** in the same turn — the visible chat
+  summary precedes the single-select gate (approve-and-proceed /
+  request-revisions): the section link, the section's concept in 1–2
+  sentences, and each of the 2–3 key decisions presented for judgment
+  (mechanism, advantages/disadvantages, when it fails) — never as bare facts.
+  No empty chat bubbles. The user can revisit any earlier section at any
+  point. Full protocol + paired example:
+  [section-by-section.md](references/section-by-section.md) § Per-section gate.
 - **Per-task gate (R20):** in the Tasks section, Task N+1 is not written until
   Task N is approved. The task template (Files / Interfaces / SATISFIES / Steps
   with code) is structurally unchanged — only the approval cadence changes.
@@ -173,8 +237,11 @@ not in one pass and reviewed at the end. Protocol:
   one line each (`Rejected: [approach] — [reason]`); if the section is absent,
   note `No alternatives recorded in briefing` rather than inventing them.
 - **Artifact-first (R25):** **Do not dump the blueprint in chat.** Write to
-  `blueprint.md` with the file tool and give the user the path; highlight 2–3
-  key decisions in chat (one line each) and ask for review. All section/task approval gates follow `_shared/craft/review-discipline.md` (artifact-first, zero-tool turn-yield).
+  `blueprint.md` with the file tool and give the user the path; the gate
+  summary (R19) carries the section link, the section's concept, and each of
+  the 2–3 key decisions with mechanism / disadvantages / failure condition,
+  and then asks for review. All section/task approval gates follow
+  `_shared/craft/review-discipline.md` (artifact-first, zero-tool turn-yield).
 
 **Findings citation:** every design decision that rests on a research fact
 (Phase 1), a feasibility result (Phase 4), or a chosen layout (a sketch) must
@@ -236,8 +303,11 @@ carries 2+ `[[type/slug]]` wikilinks):
 - **Decisions** the blueprint locks in that are ADR-shaped → `decisions/` per
   `_shared/adr-records/README.md` (numbering, IRON RULE, LOCKED row, `adr_style`
   template selection — this skill never mints ADR numbers itself; `brainstorm`
-  drives it during the interview). A blueprint that contradicts an in-force ADR
-  records a new superseding ADR here.
+  drives it during the interview). R26 already recorded the validated
+  plan-level decisions at validation time (including any superseding ADR);
+  Phase 3 records only decisions that surface later — during section
+  drafting or in a prototype — so nothing is written twice and the
+  sequence stays monotonic.
 - **Research sources** the blueprint cites → `sources/` (one SourceSummary page
   per external source; a **summary, never a copy**; frontmatter `sources:`
   carries the `external:<name> <version>` citation + `build_fingerprint`
@@ -285,11 +355,12 @@ deprecation reason on the deprecated page. Both pages link to each other.
 confirmation the gate passed. The blueprint (Phase 2/5) cites the vault pages
 by `[[type/slug]]`; it does not restate them.
 
-## Phase 4 — Prototype (optional, user-selectable)
+## Phase 4 — Prototype (delegated, optional)
 
 A throwaway feasibility experiment that de-risks the load-bearing technical
-unknowns the blueprint rests on. Full protocol:
-[prototype-phase.md](references/prototype-phase.md).
+unknowns the blueprint rests on. Delegate to **`skillgrid:prototype`** — the
+full protocol (verdict states, liftable pure module, investigation trail,
+forensic log layer) lives in the prototype skill.
 
 This phase **runs only when the user opts in** at the phase 2/3 boundary.
 After Phase 2 (and 3), present the opt-in:
@@ -324,17 +395,19 @@ Derive the BDD acceptance spec (`acceptance.feature`, Gherkin) from the
 the spec against the running application, and a green suite is the gate for
 archive. Full protocol: [acceptance-phase.md](references/acceptance-phase.md).
 
-**Prerequisite:** `blueprint.md` exists AND the Goldfish review passed with the
-user's approval (Phase 2's Section Approval Gate + the User Review Gate). Never
-write `acceptance.feature` without a validated blueprint — the spec is the
-contract the code satisfies, and it is committed before code (Zone Rule, per
-`_shared/work-unit-commits/README.md`).
+**Prerequisite:** `blueprint.md` exists, the Goldfish review passed with the
+user's approval (Phase 2's Section Approval Gate + the User Review Gate), AND
+its line-3 STATUS banner is `approved` (the user's hand-edit — or
+`assumed` / `accepted`, which are created only at a user decision point).
+Never write `acceptance.feature` against a blueprint still `proposed` — the
+spec is the contract the code satisfies, and it is committed before code
+(Zone Rule, per `_shared/work-unit-commits/README.md`).
 
 - **Source:** the spec's requirements (one `### Requirement:` per briefing
   requirement) plus the blueprint's Must-Haves truths; the Threat Matrix's
   Applicable rows each get a concrete RED-test scenario.
 - **Stack:** resolve `bdd.stack:` from `.skillgrid/config.yaml` (default
-  `javascript` = cucumber-js; if absent and `acceptance-tests/` exists, infer
+  `javascript` = cucumber-js; if absent and `.skillgrid/acceptance-tests/` exists, infer
   from its contents and offer to record it; otherwise ask — never guess
   silently). Runner setup + files-to-copy:
   [references/javascript/SETUP.md](references/javascript/SETUP.md).
@@ -348,9 +421,28 @@ contract the code satisfies, and it is committed before code (Zone Rule, per
 - **Syntax validation (mandatory):** after writing, run the runner in
   dry-run/parse mode (e.g. `cucumber-js --dry-run`) and gherkin-lint over the
   extracted output with `references/gherkin-lintrc.json`. Fix errors before the
-  file is considered complete — invalid syntax blocks Phase 6.
-- **Gate:** the Section Approval Gate on the spec (chat summary + single-select
-  approve / request revisions), same format as Phase 2.
+  file is considered complete — invalid syntax blocks the User Review Gate.
+- **STATUS banner:** when `acceptance.feature` is first written, its line-3
+  STATUS banner is `draft` — you write it; the user's hand-edit at the User
+  Review Gate sets `approved`, and you never write `approved` yourself (same
+  contract as `briefing.md` and `blueprint.md`, per
+  `_shared/rules/sdd-structure.md` § STATUS Banner). The template
+  ([templates/acceptance.feature](templates/acceptance.feature)) carries the
+  banner.
+- **Gate — User Review Gate (STATUS banner):** after syntax validation
+  passes, present the spec for review:
+
+  > "Acceptance spec written to `<path>` (Gherkin, lint-clean, N requirements
+  > × M scenarios). Please read it — the scenarios are the contract the code
+  > must satisfy, and they are committed before any code. When you approve,
+  > edit the STATUS line yourself: change `draft` to `approved (YYYY-MM-DD)`
+  > on line 3."
+
+  Wait for the flip. Confirm by re-reading line 3 from disk and quote the
+  banner in your reply. If the user requests changes, make them, re-run
+  syntax validation, and set the banner to `revised` (the user re-reads and
+  re-flips). **Never proceed to Phase 6 without the banner showing
+  `approved`.**
 
 The red scenarios at propose time are the change's work list — execution
 implements one pending step definition at a time (run the suite so the step
@@ -360,19 +452,28 @@ fails for the right reason, implement until it passes, then commit).
 
 Write and commit the final `blueprint.md` and `acceptance.feature`.
 
-- **Reconcile against the briefing** per Self-Review check 6 (contradictions
-  quoted and listed first, additions reported when load-bearing, no silent
-  rewrites — check 6 is the canonical statement).
-- **Re-run the final Self-Review** (below) on the complete file — the
-  section-by-section drafting may have drifted from the spec.
-- **Acceptance spec present:** `acceptance.feature` exists in the change
-  folder (Phase 5), lint-clean, with ≥1 `happy path` + `edge` + `failure`
-  scenario per requirement.
+- **Re-run the final Self-Review** on the complete file — the two mechanical
+  checks (Spec Reconciliation per Self-Review check 1: contradictions quoted
+  and listed first, additions reported when load-bearing, no silent rewrites;
+  and Placeholder scan per check 2) — section-by-section drafting may have
+  drifted from the spec. Quality judgments are the Goldfish pipeline's job.
+- **Acceptance spec present and approved:** `acceptance.feature` exists in the
+  change folder (Phase 5), lint-clean, with ≥1 `happy path` + `edge` +
+  `failure` scenario per requirement, AND its line-3 STATUS banner is
+  `approved` (the user's hand-edit — re-read from disk and quote the banner).
+  Never commit `acceptance.feature` while the banner is `draft` or `revised`.
 - **Commit** the change folder (`git add` + `git commit`) — the artifacts are a
   checkpoint alongside the code. `blueprint.md` and `acceptance.feature` are
   both spec-zone files and commit together (the `pre-commit` zone guard,
   `_shared/work-unit-commits/README.md`, blocks mixing spec-zone changes with
   code).
+
+- **Trigger `skillgrid:projectwiki` (Maintain mode)** — the run wrote ADRs
+  (R26 + Phase 3) and durable wiki pages; invoke the projectwiki skill to
+  complete the vault update (same-edit rule, `log.md` lines, ADR `## Related`
+  blocks, ship gate with no new findings) before the execution handoff
+  ([blueprint-plan-spec.md](references/blueprint-plan-spec.md) § Execution
+  Handoff).
 
 **Role (do not rename):** `blueprint.md` is the *how* (implementation plan —
 steps, files, code, verification); the companion `briefing.md` is the *what*
@@ -383,6 +484,51 @@ rename to `plan.md`/`design.md`, and never move the folder out of `specs/`.
 
 - Copy `templates/blueprint.md` from this skill's directory and fill it in.
 - (User preferences for plan location override this default)
+
+## How to measure it
+
+Per `_shared/craft/measurement.md`.
+
+| | Indicator | Data source | Direction |
+|---|-----------|-------------|-----------|
+| Leading | Time from `briefing.md` approval to a committed, lint-clean `blueprint.md` + `acceptance.feature` | Git history (two commit timestamps) | should fall |
+| Lagging | Revisions: `blueprint.md` commits dated after the first `tasks.md` commit for the same change | Git history | should fall |
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "I'll skip the Section Approval Gate — the user can review the whole file at the end" | The gate is per section and per task: a section approved in isolation is a decision the user owns; a bulk review at the end is a rubber stamp. Present each gate in the same turn as the section it covers. |
+| "The section summary lists the decisions — that's enough for the user to approve" | A list of decided facts is a recommendation, not a decision point. Each key decision in the gate summary carries its mechanism, its disadvantages, and the conditions under which it fails (R19). Test: could the user approve without knowing what any decision costs? If yes, the gate is a rubber stamp. |
+| "Research is overkill — I know this library" | The gate is the citation, not the confidence. If a section rests on a fact not in the codebase, Phase 1 ran or the doubt gate fires. |
+| "The acceptance spec can wait — execution will write the scenarios as it goes" | BDD is always on. `acceptance.feature` is committed before code (Zone Rule); the red scenarios at propose time ARE the change's work list. |
+| "I'll draft the blueprint in chat and paste it into the file later" | Artifact-first: write to `blueprint.md` with the file tool and give the user the path. Chat carries the 2–3 key decisions, never the document. |
+| "The folder is small enough that a plan.md or a separate architecture.md would be clearer" | Spec-zone only: the files are `blueprint.md` (+ `acceptance.feature`, `findings.md`) in the change folder. A renamed or extra file breaks `skillgrid:resume`'s phase detection. |
+
+## Red Flags
+
+| Thought | Reality |
+|---------|---------|
+| "The briefing is thin — I'll just assume the intent" | An `approved` briefing is the contract; a gap in it is an Owed-Decision (the panel fires) or an `intent_gap` back to brainstorm — not a silent assumption in the blueprint. |
+| "This section is obviously right — no need to present the gate" | The gate is the user's decision point, not my confidence. Present it anyway; "approve-and-proceed" takes one click. |
+| "The prototype is optional, so I'll skip it to save time" | Optional means the user decides. If a load-bearing unknown would invalidate a section if wrong, present the opt-in — the user says no, recorded, and that is the right outcome. |
+| "I'll save the plan as plan.md / architecture.md / a new file" | Spec-zone only: the file is `blueprint.md` in `{specs_root}/YYYY-MM-DD-<topic>/` (plus `acceptance.feature`, `findings.md`). A new filename or location breaks `skillgrid:resume`'s phase detection — the pipeline can no longer find the plan. |
+| "The draft has drifted from the briefing — I'll patch the briefing later" | No silent rewrites. Phase 6 reconciles against the briefing: contradictions quoted and listed, additions reported when load-bearing. A briefing change after freeze is an `intent_gap` (HALT + human decision). |
+| "Two blueprints can share one change folder if the topics are related" | One change folder per change; a multi-phase build gets sibling folders under `{specs_root}/` ([multi-phase.md](references/multi-phase.md)), never nested and never merged. |
+
+## Verification
+
+- [ ] The prerequisite held: `briefing.md` exists with line-3 STATUS `approved` (re-read from disk, banner quoted)
+- [ ] Hypothesis validation (R26) ran BEFORE the first byte of `blueprint.md` — the plan's claim, falsifiers, and thinning were each put to the user through the structured answer tool and accepted, overridden, or amended — and every validated decision that cleared the ADR-sparingly test was written to `{projectwiki}/decisions/NNNN-slug.md` (contradictions as superseding ADRs per the IRON RULE, with `## LOCKED` pointer rows) in that same step, before the plan file
+- [ ] Phase 2 ran section by section — every section and every task passed its Section Approval Gate in the same turn it was written
+- [ ] Phase 3 gate passed: `projectwiki index` → `validate` → `lint` → `status --json` with no new findings; every page write was followed by `projectwiki index`
+- [ ] If a prototype ran: verdict recorded in `findings.md`, feedback loop applied (Phase 2 sections re-run, wiki updated); if skipped: `Prototype: skipped (user opt-out)` in the blueprint header
+- [ ] `acceptance.feature` exists in the change folder, parses (dry-run) and lints with 0 errors, with ≥1 `happy path` + `edge` + `failure` scenario per requirement, AND its line-3 STATUS banner is `approved` (re-read from disk, banner quoted) — committed before any code
+- [ ] `blueprint.md` header reads `# <Topic> — Implementation Blueprint (steps, files, verification)`; STATUS banner handled per the contract (agent writes `proposed`, user flips `approved`)
+- [ ] Phase 6 self-review ran on the complete file — two mechanical checks: Spec Reconciliation (contradictions quoted and listed first, additions reported when load-bearing) + Placeholder scan (no TBD/TODO/vague patterns per task-structure.md)
+- [ ] Spec-zone only: no file written outside `{specs_root}/YYYY-MM-DD-<topic>/`, `{projectwiki}/`, or `{prototype.dir}/`; no renamed or extra artifacts
+- [ ] `skillgrid:projectwiki` was triggered (Maintain mode) at the end — `projectwiki index` after every page write, `log.md` lines for each action, ADR `## Related` blocks present, and the ship gate (`index` → `validate` → `lint` → `status --json`) passed with no new findings — before the execution handoff
+- [ ] Committed: `blueprint.md` + `acceptance.feature` in the spec zone, before any code (zone guard honored)
 
 ## Multi-Phase Change Folders
 

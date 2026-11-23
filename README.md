@@ -73,3 +73,8 @@ Tools the skills invoke that you need installed. "optional" = only when the corr
   - `uv run scripts/get_transcript.py` — YouTube transcript extraction (youtube-transcript; uses `youtube-transcript-api`)
 - **Test runners (per project, installed by the project itself):**
   - `pytest` — Python test runner (blueprint, test)
+
+## ToDos
+
+* herdr agent instad of subagents
+

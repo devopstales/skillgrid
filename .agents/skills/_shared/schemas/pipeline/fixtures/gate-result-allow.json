@@ -1,0 +1,22 @@
+{
+  "schema": "skillgrid.gate-result/v1",
+  "contract": "skillgrid.pipeline/v1",
+  "gate": "qa-verdict",
+  "result": "allow",
+  "allowed": true,
+  "action": "continue",
+  "reason": "QA verdict PASS",
+  "subject": {
+    "acceptance.feature": "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+  },
+  "next": {
+    "reason_code": "qa-passed",
+    "step": "proceed to the next phase per _shared/rules/sdd-structure.md § Phase derivation"
+  },
+  "verdict": "PASS",
+  "floor_area": null,
+  "floor_reasons": [],
+  "non_answers": [],
+  "needs_human": false,
+  "notes": []
+}

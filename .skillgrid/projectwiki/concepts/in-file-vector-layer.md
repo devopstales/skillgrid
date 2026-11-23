@@ -1,13 +1,14 @@
 ---
 type: Concept
-title: "In-file vector layer (BLOB + vec0 + brute force)"
+title: "In-file vector layer (BLOB + vec1 + brute force)"
 status: stable
 sources:
   - ".skillgrid/change-specs/2026-11-23-mnemonic-core/briefing.md R2 (2026-11-23)"
   - "local: ../skillgrid/mnemonic/internal/codeindex/vectorstore/store.go (predecessor decision)"
+  - ".skillgrid/change-specs/2026-11-23-mnemonic-core/findings.md § Spike Results (2026-11-23)"
 ---
 
-# In-file vector layer (BLOB + vec0 + brute force)
+# In-file vector layer (BLOB + vec1 + brute force)
 
 The "vector database" of [[entities/mnemonic]] is **not a separate system** —
 it is three layers inside the same SQLite file. No external vector DB
@@ -19,12 +20,13 @@ single-binary contract.
 
 1. **`embedding` BLOB + `embedding_model` + `embedding_dim`** on the row —
    the source of truth. Vectors are data, not a side store.
-2. **`vec0` virtual tables** (sqlite-vec, CGO-free Go path:
-   `asg017/sqlite-vec-go-bindings/ncruces` over `ncruces/go-sqlite3`, per
-   findings.md 2026-11-23 — the brainstorm's "asg017/sqlite-vec-go" name was
-   never a documented module) — the ANN index. Created lazily once the active
-   embedder dim is stable; dropped and rebuilt on dim change. Behind build tag
-   `sqlitevec`, spike-gated.
+2. **`vec1` virtual tables** (SQLite's own ANN extension, shipped in ncruces'
+   official `ext/vec1` on `ncruces/go-sqlite3` v0.38 — CGO-free; the
+   asg017 sqlite-vec ncruces binding for the older `vec0` was refuted by
+   spike 2, 2026-11-23: unpairable wasm/host drift) — the ANN index,
+   `{"index":"flat","distance":"cos"}` in v1 (exact distances). Created
+   lazily once the active embedder dim is stable; dropped and rebuilt on dim
+   change. Behind build tag `sqlitevec`; spike-gate passed 2026-11-23.
 3. **Go brute-force cosine** over decoded BLOBs — the guaranteed floor, always
    compiled in. Active whenever the vec table is absent, dim-locked, or the
    extension fails to load. 10⁵ × 384-dim cosine ≈ a few ms — exact, zero

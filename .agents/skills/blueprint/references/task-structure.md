@@ -15,10 +15,9 @@ includes it plus a sample task — use it as the starting scaffold):
 ```markdown
 # [Feature Name] Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use skillgrid:execute (subagent mode recommended, or inline mode) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **STATUS:** `proposed` (YYYY-MM-DD)  <!-- the agent writes `proposed`; `assumed` only via the Owed-Decision Gate option 3 (the Assumed block follows the header); `approved` is the user's hand-edit after reading; Ratify clears `assumed` -->
 
-**Status:** PROPOSED (default. Set to `ASSUMED` only via the Owed-Decision
-Gate option 3 — the Assumed block follows the header; cleared only by Ratify.)
+> **For agentic workers:** REQUIRED SUB-SKILL: Use skillgrid:execute (subagent mode recommended, or inline mode) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Tier:** T<n> (rigor tier — from `briefing.md`'s `Tier:` line, else
 `rules.tiers.default` in config, else inferred from the Change Classification
@@ -55,7 +54,7 @@ Omit if the change ran no research/prototype/sketch.]
   include this section. For a constraint or decision that is NOT earned by this
    change's spec but inherited from an operational rule or a prior ADR, CITE it
    rather than restate it (`per AGENTS.md § Rules <x>` /
-   `per .skillgrid/projectwiki/decisions/04-adr-NNNN-slug.md`) per
+   `per .skillgrid/projectwiki/decisions/NNNN-slug.md`) per
   `_shared/craft/cite-dont-restate.md` — the citation is the
   constraint; the cited artifact keeps authority singular.]
 

@@ -67,7 +67,9 @@ and fix-round diffs need it. Mark the task's todo `in_progress` now
 - If an earlier task parked a finding in the area this task touches, carry
   a pointer to that ledger entry in the dispatch.
 - Record the implementer's agent identity from the dispatch result —
-  fix-loop rounds 1-3 resume this agent.
+  fix-loop rounds 1-3 resume this agent. On the Herdr transport
+  ([herdr-transport.md](herdr-transport.md)), the identity is the agent
+  name + pane id, and the identity ledger line carries them.
 - Never dispatch multiple implementation subagents in parallel (conflicts).
 
 Template: [implementer-prompt.md](implementer-prompt.md)
@@ -172,7 +174,9 @@ scoped re-review. The task-level cap per `_shared/planning/rigor-tiers.md` (fix 
 verbatim. Its context is intact: it knows the task, the code, and its own
 choices. If your harness cannot send another message to a live subagent,
 dispatch a fresh implementer carrying the brief path, the report-file path,
-and the findings — the report file is the persistent memory either way.
+and the findings — the report file is the persistent memory either way. On
+the Herdr transport, resuming is the native path: `agent prompt <name>
+"<findings>" --wait` into the still-running pane ([herdr-transport.md](herdr-transport.md)).
 
 **Rounds 4-5 — dispatch a fresh implementer on a more capable model** (per
 Model Selection), with the brief path, the report-file path, the open

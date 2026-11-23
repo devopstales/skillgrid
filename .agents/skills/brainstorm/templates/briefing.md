@@ -2,7 +2,7 @@
 
 > **STATUS:** `draft` (YYYY-MM-DD)
 > **Author:** [resolved per SKILL.md § Author resolution: `git config user.name` → `GIT_AUTHOR_NAME` → ask in chat; never a placeholder]
-> **Intent frozen:** no (YYYY-MM-DD) ← set to "yes (YYYY-MM-DD)" when the user approves the briefing (the approval gate); after that, the frozen block below is read-only for agent steps
+> **Intent frozen:** no (YYYY-MM-DD) ← the agent sets this to "yes (YYYY-MM-DD)" once the STATUS banner above shows `approved` (the user's hand-edit IS the approval — the agent never writes `approved` itself); after that, the frozen block below is read-only for agent steps
 
 > Copy this template to `.skillgrid/change-specs/YYYY-MM-DD-<topic>/briefing.md`.
 > **Role:** this is the *what* — the validated design/spec: problem, intent,
@@ -14,6 +14,9 @@
 > (Current / Target / Acceptance). Then run the spec self-review
 > (placeholders, internal consistency, scope, ambiguity, and: does every
 > requirement have all three fields?) before handing it to the user.
+> Keep the line-3 STATUS banner at `draft` — you never write `approved`;
+> after reading the briefing, the user hand-edits it (approval gate per
+> `_shared/rules/sdd-structure.md` § STATUS Banner).
 > (User preferences for spec location override this default.)
 >
 > **Frozen intent:** the `## Problem / Intent` and `## Purpose & Success
@@ -29,7 +32,10 @@
 ## Problem / Intent
 
 [What problem does this feature solve, for whom, and why now. 1-3
-sentences. This is the "intent" the whole spec hangs from.]
+sentences. This is the "intent" the whole spec hangs from. Open with a
+Jobs-to-be-Done sentence — the user's goal, not the proposed solution:
+`When <situation>, <user> wants to <goal>, so <outcome>.` — then the
+why-now in one sentence.]
 
 ## Purpose & Success Criteria
 
@@ -43,6 +49,34 @@ sentences. This is the "intent" the whole spec hangs from.]
  feature must respect or integrate with. Reference `.skillgrid/projectwiki/ASSUMPTIONS.md`
 (VERIFIED facts + `§ LOCKED` ADR index) and `AGENTS.md` (§ Rules — the
 operational rules) and `.skillgrid/projectwiki/ARCHITECTURE.md` sections where applicable.]
+
+## User Context
+
+[The user side of the problem: who the affected users/personas are,
+direct user evidence (support threads, quotes, sessions, analytics), the
+current experience in their words, and why it fails today. Links and
+quotes, not transcripts. Write "None — internal/technical change" when
+there is no user-facing context.]
+
+## Pre-mortem
+
+[High-level premortem: assume this change has already failed, and name
+why — one line per axis, the three product risks:]
+
+- **Desirability:** [the strongest case that users do not actually want this / will not use it]
+- **Feasibility:** [what in the codebase, team, or timeline makes success unlikely]
+- **Viability:** [the strongest case that the cost outweighs the value]
+
+[This is a live section — the shootdown and user feedback may add lines.
+A line that turns out wrong at ship time is what the Retrospective
+records first.]
+
+## Timebox
+
+[Rough deadline as a forcing function: target completion (date, or
+"N sprints from YYYY-MM-DD"). The response to exceeding it is fixed in
+advance — "if exceeded: shrink to <phase-1 slice>; the rest is a
+follow-up change" — not a silent slip.]
 
 ## Approaches Considered
 
@@ -152,7 +186,7 @@ the exact edits here. If none, write "None".]
 
 ## Clarity Report
 
-[Populated from the exit check in `references/questioning.md`. The clarity gate must
+[Populated from the exit check in `skillgrid:questioning`. The clarity gate must
 pass before this spec is written: clarity ≤ 0.20 AND all dimensions ≥ their
 minimums. If a dimension is below its minimum, it is marked ⚠ and the planner
 treats it as an assumption.]
@@ -174,12 +208,18 @@ treats it as an assumption.]
 
 ## Open Questions & Assumptions
 
-- **Question:** [Any unresolved question]
-- **Assumption:** [Any assumption made — including any ⚠ dimension from the Clarity Report]
+[Every open item gets an owner and a due point — a gate ("blueprint
+gate", "at ship"), not a date guess. An assumption with no owner is an
+unowned question in disguise.]
+
+| Type | Item | Owner | Due |
+|------|------|-------|-----|
+| Question | [any unresolved question] | [user / name] | [gate or date] |
+| Assumption | [any assumption made — including any ⚠ dimension from the Clarity Report] | [name] | [gate or date, or "until disproved"] |
 
 ## Decisions (ADR)
 
-[Pointers to ADR files (`.skillgrid/projectwiki/decisions/04-adr-NNNN-slug.md`) that constrain THIS feature —
+[Pointers to ADR files (`.skillgrid/projectwiki/decisions/NNNN-slug.md`) that constrain THIS feature —
 the decisions made during the interview that clear the bar (hard to reverse +
 surprising + real trade-off). List each as the Record path plus a one-line gist.
 These are the source of truth; do not restate them here. If no decision for this
@@ -193,3 +233,18 @@ the terms THIS feature introduced or relied on, each with a link to the terms
 file, plus a one-line note if a term was sharpened or split
 during this interview. Do not redefine terms here — the terms files are the single
 source of truth. If the feature added no new terms, write "None".]
+
+## Retrospective
+
+[Filled post-ship — by `skillgrid:reflect` (the terminal SDD phase, which
+completes the retro half), not during planning. Until then this section
+stays `pending`. It is the check against the frozen intent: was the
+intent actually met, and did the plan anticipate what broke?]
+
+**Status:** pending
+
+- **Intent met?** [did the frozen `Problem / Intent` + success criteria hold — cite the evidence]
+- **Pre-mortem score:** [which Pre-mortem lines were right, which were wrong, what was not foreseen]
+- **Assumptions:** [which Open-Question assumptions held, which broke]
+- **Timebox:** [met / missed — what the "if exceeded" plan actually did]
+- **Next time:** [max 3 lines, concrete]

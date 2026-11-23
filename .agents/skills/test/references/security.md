@@ -8,6 +8,11 @@ Five tools, each with a different shape. Run the ones the target warrants, not a
 - **wapiti** — lightweight DAST: crawls + fuzzes a *running* web app, no browser, no template library. Fast first report.
 - **akca** — deep DAST: fingerprints the stack, discovers the real attack surface, and *verifies* each signal with baselines/controls. Evidence-backed, fewer false positives, browser-backed.
 
+Dispatching a security reviewer subagent for the code/diff pass (or the Security
+area's red-team)? Name the persona: `.agents/agents/security-sentinel.md` — a
+match is a lead, not a verdict; reachability and blast radius are reported
+before severity.
+
 ## Selecting the tools
 
 | Target shape | trivy | owasp | nuclei | wapiti | akca |

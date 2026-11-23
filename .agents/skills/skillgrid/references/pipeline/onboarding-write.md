@@ -44,8 +44,11 @@ Step 3 and Step 4 of `references/pipeline/onboarding.md`. Detect and confirm hap
 
 **5. Update `.gitignore`:**
 - Ensure `.skillgrid/work/` is gitignored (scratch, ephemeral)
-- Ensure `.skillgrid/brainstorm/` is gitignored (visual companion state)
+- Ensure `.worktree/` is gitignored (worktree root, per `conventions.worktree_dir` — isolated workspaces live there; an unignored root commits whole worktrees into the repo)
 - Do NOT gitignore `.skillgrid/config.yaml`, `.skillgrid/state.yaml`, `.skillgrid/change-specs/`, or the `.skillgrid/` knowledge bundle (committed artifacts)
+
+**5b. Create the worktree root:**
+- Create `.worktree/` (the gitignored worktree root, per `conventions.worktree_dir`) with a `.gitkeep` so the standard root exists on disk — worktree creation in `execute` Step 0 must land inside it, and an existing empty root is visible to `git worktree list` and the placement self-check from the start. If `conventions.worktree_dir` is a custom value, create that directory instead.
 
 **6. Tracker bootstrap (if `ticketing.enabled: true`):**
 - If `ticketing.type: backlogmd`: run `backlog init "<project>" --integration-mode cli --backlog-dir .skillgrid/projectwiki/backlog --config-location root --zero-padded-ids 3`, verify with `backlog overview`. (The backlog directory lives under the project wiki vault per the skillgrid convention; override with `backlog config set backlog_directory <path>` if needed.) Copy each existing `.skillgrid/projectwiki/decisions/NNNN-slug.md` into `<backlog_directory>/decisions/` (shape in `_shared/adr-records/README.md` → Backlog.md copy).
@@ -109,6 +112,7 @@ Show the programmer:
 - **Recall evidence (re-runs only)** and **Step 1.5b bootstrap outcome (brownfield only)** — per the SKILL.md verification items (what was recalled; each draft's anchor, confirm/drop outcome, no unconfirmed draft survives)
 - The written config (summarized, not full file)
 - The `state.yaml` + knowledge bundle zone created
+- The gitignored `.worktree/` root created (or the custom `conventions.worktree_dir`) — `git check-ignore -q .worktree` passes
 - The generated `.skillgrid/projectwiki/glossary/01-business-terms.md` — confirm it came from `references/patterns/glossary.md` and keeps **programmer** (builds) distinct from **user** (runs the program)
 - The AGENTS.md block (with the `### Rules` section as the real source of the operational rules; decisions live in `ASSUMPTIONS.md` § LOCKED)
 - The rendered AGENTS.md preamble (`# Standards` region) — confirm it contains the rich sections with no leftover `<detect>` placeholder when the `agents:` config was filled

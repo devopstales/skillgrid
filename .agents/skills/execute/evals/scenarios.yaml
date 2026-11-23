@@ -114,3 +114,27 @@ scenarios:
           - type: "forbidden_pattern"
             pattern: "(?i)restored (it|the checkpoint|the worktree)"
             message: "Must not report a cross-branch scratch restore as completed."
+
+  - scenario_id: "worktree_placement_sibling_detected"
+    description: "A worktree created as a sibling of the project
+      root is a placement error; the standard root is
+      <project-root>/.worktree/, which onboarding creates
+      gitignored."
+    eval_type: "deterministic"
+    system_prompt:
+      skill_file: "skills/execute/SKILL.md"
+    turns:
+      - user_input: "git worktree add put my worktree at /repo/work,
+          a sibling of the /repo checkout. Is that placement correct?"
+        assertions:
+          - type: "required_pattern"
+            pattern: "(?i)(placement error|incorrect|sibling|recreate|outside)"
+            message: "Must flag the sibling placement as a
+              placement error against the standard root."
+          - type: "required_pattern"
+            pattern: "(?i)\\.worktree"
+            message: "Must name the standard worktree root."
+          - type: "forbidden_pattern"
+            pattern: "(?i)(is (fine|correct|ok)|no (problem|issue)|as expected)"
+            message: "Must not accept a sibling-of-checkout path
+              as correct placement."

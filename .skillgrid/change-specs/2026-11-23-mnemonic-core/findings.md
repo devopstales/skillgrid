@@ -131,3 +131,78 @@ layer, and the model download. Everything below was fetched 2026-11-23
 - [8] https://zenn.dev/kazuhito/articles/f8ddd74e37b850 — "ピュアGo実装でのONNX推論ライブラリ", 2026-03-26 (primary: library author)
 - [9] web search "pure Go ONNX runtime inference library no cgo" (2026-11-23): amikos-tech/pure-onnx, benedoc-inc/onnxer, shota3506/onnxruntime-purego, mackross/gonnx, lib-x/go-insightface
 - [10] https://pkg.go.dev/github.com/unum-cloud/onnx — HTTP 404 (accessed 2026-11-23)
+
+## Spike Results (2026-11-23, phase-4 opt-in, run before acceptance.feature)
+
+### Spike 1 — MiniLM end-to-end on hugot GoMLX: **PASS**
+
+`all-MiniLM-L6-v2` (`onnx/model.onnx`, 90,405,214 B + `tokenizer.json`
+466,247 B + `config.json`) run through `hugot v0.8.6`
+(`FeatureExtractionConfig` → `RunRaw` → mean-pool + L2-normalize):
+
+| Metric | Result | Target |
+|---|---|---|
+| dim | 384 ✓ | 384 |
+| cross-backend cosine(GoMLX, ORT) | **1.000000** | ≥ 0.99 |
+| semantic sanity: cosine(paraphrase) / cosine(unrelated) | 0.5842 / 0.0511 (11× separation) | paraphrase ≫ unrelated |
+| GoMLX latency (non-simd build) | **p50 81 ms**, min 65 ms, max 133 ms / sentence | ≤ 3 s |
+| ORT latency (`-tags ORT`, lib 1.22.0) | p50 13.4 ms | — (escape) |
+
+- Opset: GoMLX accepted the graph (no opset gap observed); ORT 1.22.0
+  warns "API version [23] not available, only [1, 22]" and falls back
+  cleanly — **manifest should pin ORT ≥ 1.23** for the escape tag.
+- `hugot v0.8.6` requires **go ≥ 1.27.0** (toolchain auto-switch observed) —
+  the module's `go` line must be ≥ 1.27, not 1.26.
+- Local model dir: `ModelPath` = dir with `model.onnx`, `tokenizer.json`,
+  `config.json`; the text pipeline hard-fails validation without
+  `tokenizer.json` (no silent skip).
+- Falsifier (a) **not triggered**: the `onnx` tag ships.
+
+### Spike 2 — vec + FTS5 in one CGO-free build: **PASS, mechanism changed**
+
+**The asg017 `sqlite-vec-go-bindings/ncruces` (vec0) is unpairable** with any
+released ncruces (tried live, 2026-11-23):
+
+| Binding | ncruces | Result |
+|---|---|---|
+| v0.1.6 | v0.38.0 (latest) | compile fail: `undefined: sqlite3.Binary` (removed in v0.3x) |
+| v0.1.6 | v0.17.1 (binding's go.mod pin) | runtime fail: wasm atomics need wazero threads; then `go_busy_timeout` host signature mismatch (wasm 2-arg vs host 3-arg) |
+| v0.1.6 | v0.15.0 (forced via `replace`) | runtime fail: `go_busy_timeout not exported` |
+| v0.1.7-alpha.2 | v0.17.1 | same busy_timeout mismatch |
+
+The binding's embedded wasm was built against an untagged ncruces host table;
+its `go.mod` pin does not match its own wasm.
+
+**Working path (spike passed):** current ncruces
+(`github.com/ncruces/go-sqlite3` **v0.38.0**, wasm in the companion module
+`github.com/ncruces/go-sqlite3-wasm/v6`) ships **`ext/vec1`** — SQLite's own
+ANN extension (IVFADC+OPQ, L2/cosine, portable C, v0.8) — plus `ext/fts5`,
+registered per-connection:
+
+```go
+conn, _ := sqlite3.Open("file:…")
+fts5.Register(conn)
+vec1.Register(conn)
+// CREATE VIRTUAL TABLE v USING vec1(embedding)
+// INSERT INTO v(cmd,arg) VALUES('rebuild', '{"index":"flat","distance":"cos"}')
+// SELECT rowid FROM v(?, '{"K":2}') ORDER BY distance   -- table-valued KNN
+```
+
+Verified in one connection: FTS5 MATCH + vec1 KNN + interleaved writes,
+correct nearest-2 ids, 4/4 KNN rows. No wazero feature flags needed (the
+v0.38 wasm build has no atomics).
+
+**Blueprint impact (applied):** the vector mechanism is **`ext/vec1`**
+(SQLite vec1), not the asg017 vec0 binding; the tag `sqlitevec` now gates
+vec1 registration; ADR-0015 amended (was uncommitted); dependency allowlist
+drops `asg017/sqlite-vec-go-bindings`; Task 1 registers extensions
+per-connection; Task 9's DDL/KNN uses the vec1 API above. vec1 caveat:
+IVFADC is approximate (KNN may miss exact top-k on small tables) — the
+brute-force floor remains the equivalence oracle in the bench.
+
+### Sources (spikes)
+
+- [11] ncruces v0.38.0 module source (`ext/vec1`, `ext/fts5`, `driver`, `stmt.go`) — read from the Go module cache (2026-11-23)
+- [12] https://sqlite.org/vec1.html + /vec1ref.html — vec1 overview + reference (page updated 2026-10-01)
+- [13] hugot v0.8.6 module source (`pipelines/featureExtraction.go`, `backends/model.go`, `options`) + README (2026-11-23)
+- [14] onnxruntime 1.22.0 manylinux wheel (PyPI) as the ORT reference library

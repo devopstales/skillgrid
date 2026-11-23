@@ -8,7 +8,9 @@ Issues and specs for this repo live as markdown files managed by the `backlog` C
 
 ## Backlog.md Workflow
 
-This project uses Backlog.md for task and project management.
+This project uses Backlog.md for task and project management. The persona for
+this work lives at `.agents/agents/project-manager-backlog.md` — the dispatch
+names it; this adapter owns the skillgrid-specific rules below.
 
 **At the beginning of each conversation in this project, run `backlog instructions overview` before answering or taking action. Re-read it only if you have not read it yet in the current conversation.**
 

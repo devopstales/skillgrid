@@ -1,8 +1,10 @@
 # Task Reviewer Prompt Template
 
-Use this template when dispatching a task reviewer subagent. The reviewer
-reads the task's diff once and returns two verdicts: spec compliance and
-code quality.
+Use this template when dispatching a task reviewer subagent. The persona brief
+lives at `.agents/agents/task-reviewer.md` — the dispatch names it; the
+template below carries the process (diff reading discipline, test policy,
+output format). The reviewer reads the task's diff once and returns two
+verdicts: spec compliance and code quality.
 
 **Purpose:** Verify one task's implementation matches its requirements (nothing
 more, nothing less) and is well-built (clean, tested, maintainable)
@@ -13,6 +15,7 @@ Subagent (general-purpose):
   model: [MODEL — REQUIRED: choose per SKILL.md Model Selection; an omitted
          model silently inherits the session's most expensive one]
   prompt: |
+    You are the task-reviewer persona (`.agents/agents/task-reviewer.md`).
     You are reviewing one task's implementation: first whether it matches its
     requirements, then whether it is well-built. This is a task-scoped gate,
     not a merge review — a broad whole-branch review happens separately after

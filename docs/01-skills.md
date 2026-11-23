@@ -123,3 +123,25 @@ That is a key advantage of Skillgrid: it does not only provide prompts. It provi
 | `youtube-transcript` | 2.1 | model-invoked | Extract transcripts from YouTube videos |
 | `skill-creator` | 2.4 | model-invoked | Create, audit, and iterate skills; 10-rule audit; lifecycle curation |
 | `skillgrid` | 2.2 | model-invoked | Top-level router: take an idea to a shipped program end-to-end |
+
+## Agent Personas
+
+Skills define *how* a task is done; personas define *who does the subagent's part*. The pipeline's fresh-context subagents (implementers, reviewers, scouts, red-teamers) are dispatched by **persona brief** from `.agents/agents/` — the dispatch prompt names the persona file and the dispatch template carries the process. A persona owns identity, stance, and boundaries; it does not restate the process, and the template does not restate the identity. Each persona also has a thin omp subagent reference in `omp/agents/` (per `intent-driven-template`'s shared-layout convention): the reference names the persona and points the subagent at the shared brief — edit the brief, not the reference.
+
+| Persona | File | Dispatched by | Stance |
+|---|---|---|---|
+| `senior-dev` | `senior-dev.md` | `execute` (subagent mode) | Test-first implementer; `Owns:`-scoped |
+| `senior-qa` | `senior-qa.md` | `execute` (acceptance-test tickets) | Authors Gherkin/step definitions; never guesses the stack |
+| `adversarial-author` | `adversarial-author.md` | `adversarial-authoring` | Draft writer; read-only; punts no decision |
+| `adversarial-reviewer` | `adversarial-reviewer.md` | `adversarial-authoring` | Draft critic; read-only; names defects, never rewrites |
+| `implementer` | `implementer.md` | `execute` (subagent + fan-out) | Lazy-ladder, TDD, 4-pass loop, no subagents |
+| `task-reviewer` | `task-reviewer.md` | `execute` (per-task gate) | Skeptical; two verdicts (spec + quality); diff-only |
+| `re-reviewer` | `re-reviewer.md` | `execute` (fix loop) | Verdicts each finding; watches the fix for breakage |
+| `scout` | `scout.md` | `blueprint` research, `codebase-details` REVIEW, `projectwiki` mapping, `execute` scoping | Zero-inference mapper; JSON out; `None` is data |
+| `security-sentinel` | `security-sentinel.md` | `test` (Security area + lens) | Match ≠ vulnerability; reachability + blast radius first |
+| `wiki-keeper` | `wiki-keeper.md` | `projectwiki` (Maintain), task-end bookend | One atomic insight per page; same-edit rule |
+| `red-team-skeptic` | `red-team-skeptic.md` | `research` (red-team pass), `refactor` Step 4 | Zero-context bear-case hunter; conclusion + budget only |
+| `decomposer` | `decomposer.md` | `refactor` Step 3 (design-it-twice) | One radically different decomposition, no hedging |
+| `project-manager-backlog` | `project-manager-backlog.md` | `slicing` Part 2, `execute` ticket lifecycle (`ticketing.type: backlogmd`) | Atomic, testable, dependency-ordered tasks; CLI-only, never hand-edited |
+
+The Goldfish review lenses (fresh-context document reviewers under the R36 freshness STOP / R37 isolation contract) are a separate system: the lens briefs live in `.agents/agents/goldfish.md` and the protocol (R36/R37/R38) in `.agents/skills/_shared/craft/goldfish-protocol.md` — they review *artifacts* (briefings, blueprints) rather than executing work, and are dispatched under the four-part isolation contract, not the persona template pattern.

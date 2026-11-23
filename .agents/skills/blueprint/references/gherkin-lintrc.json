@@ -1,7 +1,7 @@
 {
   // Pinned gherkin-lint config for the EXTRACTED .feature files under
   // .extracted/ (gherkin-lint has no defaults; a config file is mandatory).
-  // Copy to acceptance-tests/.gherkin-lintrc (that name is auto-discovered).
+  // Copy to .skillgrid/acceptance-tests/.gherkin-lintrc (that name is auto-discovered).
   // Line numbers it reports are valid in the source acceptance.feature files.
   //
   // Deliberately OFF because enabling these makes "fix all lint issues"

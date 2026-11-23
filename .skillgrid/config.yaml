@@ -127,7 +127,7 @@ bdd:
   enabled: true
   stack: javascript
   specs_dir: .skillgrid/change-specs
-  runner_dir: acceptance-tests
+  runner_dir: .skillgrid/acceptance-tests
   lint: gherkin
 
 # --- Mnemonic (persistent memory + code index + web cache) ---

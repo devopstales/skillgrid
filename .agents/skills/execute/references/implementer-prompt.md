@@ -1,6 +1,9 @@
 # Implementer Subagent Prompt Template
 
-Use this template when dispatching an implementer subagent.
+Use this template when dispatching an implementer subagent. The persona brief
+lives at `.agents/agents/implementer.md` — the dispatch names it; the template
+below carries the process (brief, lazy ladder, 4-pass loop, escalation, report
+contract). Do not restate the persona's identity and boundaries here.
 
 ```
 Subagent (general-purpose):
@@ -8,6 +11,7 @@ Subagent (general-purpose):
   model: [MODEL — REQUIRED: choose per SKILL.md Model Selection; an omitted
          model silently inherits the session's most expensive one]
   prompt: |
+    You are the implementer persona (`.agents/agents/implementer.md`).
     You are implementing Task N: [task name]
 
     ## Task Description

@@ -6,24 +6,56 @@ Single source of truth for filesystem layout, artifact names, and phase order. I
 
 This is the only full chain. Other skills cite this section in one line and restate only their own previous and next step.
 
+**The strict sequence is the only order.** Skills follow one another in this
+order. A skill MUST NOT run unless every preceding skill has completed.
+There is no divergence: no skill runs in parallel with its predecessor or
+successor, no skill is skipped (except the single `drift` exception below),
+and no skill is revisited out of order. The three delegated skills
+(`questioning`, `research`, `prototype`) run **inline** inside
+`brainstorm`/`blueprint` at their canonical position — they are not
+independent stops in the chain.
+
 ```
-brainstorm → blueprint (Phase 1 research → Phase 2 draft → Phase 3 projectwiki → [Phase 4 prototype] → Phase 5 acceptance spec → Phase 6 write) → blueprint-validation (goldfish + user) → slicing → (user gate) → ticketing → execution → qa → code-review → receiving-code-review → ship → reflect
+skillgrid → brainstorm → questioning → research → prototype → blueprint → slicing → execute → test → adversarial-authoring → drift → ship
 ```
 
-`skillgrid:blueprint` owns a five-phase flow: Phase 1 research (single-pass or fan-out), Phase 2 section-by-section draft with the Section Approval Gate, Phase 3 project-wiki persistence, Phase 4 prototype (user-selectable), Phase 5 write file. `sketch` remains an optional pre-blueprint gate (UI/interaction variants). **Artifact creation order is permanent and sequential:** briefing → blueprint → blueprint validation → cucumber test file → tasks → slices. Never create the next artifact without the previous one existing. The user gate after `slicing` is mandatory: the user confirms the slice before execution. Fast-track waivers skip earlier planning skills only as `fast-track.md` allows; they do not skip the tail (`qa` through `reflect`).
+| # | Skill | Position |
+|---|---|---|
+| 0 | `skillgrid` | router — classify, route, resume |
+| 1 | `brainstorm` | classify path → design → spec (`briefing.md`) |
+| 2 | `questioning` | interview loop (inline in brainstorm) — design tree, frontier rounds, clarity gate |
+| 3 | `research` | fact-finding (inline in brainstorm/blueprint) → `findings.md` |
+| 4 | `prototype` | feasibility probe (inline in blueprint, user-opt-in) → `findings.md` |
+| 5 | `blueprint` | plan + acceptance spec → `blueprint.md` + `acceptance.feature` |
+| 6 | `slicing` | vertical tickets → `tasks.md` + user gate |
+| 7 | `execute` | implement tickets |
+| 8 | `test` | verdict → `report.md` (QA half) |
+| 9 | `adversarial-authoring` | council → `review.md` |
+| 10 | `drift` | detect divergence (the single exception — may run on demand at any point after `execute`, not only in sequence) |
+| 11 | `ship` | integrate + archive |
+
+**Enforcement:** a skill that starts before its predecessor has completed is
+a phase-order violation. The phase-derivation table below (deepest artifact
+present) is the machine-readable check: if the deepest artifact does not match
+the skill about to run, the skill MUST halt and report the divergence. The
+`state.yaml` drift guard (`qa/scripts/state-drift-check.mjs`) is the read-only
+verifier.
+
+`skillgrid:blueprint` owns a five-phase flow: Phase 1 research (delegated to `skillgrid:research`), Phase 2 section-by-section draft with the Section Approval Gate, Phase 3 project-wiki persistence, Phase 4 prototype (delegated to `skillgrid:prototype`, user-selectable), Phase 5 write file. **Artifact creation order is permanent and sequential:** briefing → blueprint → blueprint validation → cucumber test file → tasks → slices. Never create the next artifact without the previous one existing. The user gate after `slicing` is mandatory: the user confirms the slice before execution. Fast-track waivers skip earlier planning skills only as `fast-track.md` allows; they do not skip the tail (`test` through `ship`).
 
 | Skill | Role |
 |---|---|
 | `using-skillgrid` | Orchestrator — detect, classify, route, resume, user gate |
 | `onboarding` | Bootstrap — detect facts; write `config.yaml` + `state.yaml` + the `.skillgrid/` knowledge bundle zone + AGENTS block |
-| `brainstorming` | Requirements gathering via questioning (agent answer-select tool), ADR manifest |
+| `brainstorming` | Requirements gathering via `skillgrid:questioning` (delegated), ADR manifest |
 | `interviewing` | Grilling the user to a shared understanding (drives ADRs) |
 | `blueprint` Phase 5 (acceptance spec) | BDD `acceptance.feature` — valid Cucumber syntax, traceability oracle (folded in from the deleted `acceptance-test-authoring` skill) |
-| `blueprint` | Five-phase plan → `blueprint.md`: Phase 1 research → Phase 2 section-by-section draft (Section Approval Gate) → Phase 3 project-wiki persistence → [Phase 4 prototype, user-selectable] → Phase 5 write file; **must** run goldfish review + user validation before completion |
+| `blueprint` | Five-phase plan → `blueprint.md`: Phase 1 research (delegated to `skillgrid:research`) → Phase 2 section-by-section draft (Section Approval Gate) → Phase 3 project-wiki persistence → [Phase 4 prototype (delegated to `skillgrid:prototype`), user-selectable] → Phase 5 write file; **must** run goldfish review + user validation before completion |
 | ADR records | Domain model (terms in `glossary/`) + ADR authoring / supersession — contract + templates in `_shared/adr-records/` (cited, not restated); driven by `brainstorm` during the interview; adopting an external method/pattern follows `_shared/rules/adoption-decisions.md` (method-not-plugin test, Not-adopted list, smoke test, rename sweep, park-don't-defer) |
 | `projectwiki` | Read/maintain the `.skillgrid/projectwiki/` vault via the `projectwiki` engine (`mnemonic projectwiki ...`) — recall before re-deriving; concepts live in `decisions/`/`invariants/`/`workflows/`/`glossary/`/`gotchas/`/`architecture/` with `index/` projections rebuilt by `projectwiki index` in the same edit; ingests search/research + reflect results as typed, cross-linked pages (`DATA-LOADING.md`: `sources/` + `syntheses/` + `concepts/`). Top-level skill (cited, not restated) |
-| `research` / `code-research` | *(absorbed into `blueprint` Phase 1)* — external fact-finding → `findings.md` (Research section); still runnable standalone |
-| `prototype` | *(absorbed into `blueprint` Phase 4)* — feasibility probe → `findings.md` (Prototype section); still runnable standalone |
+| `research` | External fact-finding → `findings.md` (Research section); standalone skill, also run inline as blueprint Phase 1 |
+| `questioning` | Interview loop: design tree, frontier rounds, clarity gate; standalone skill, also run inline by brainstorm |
+| `prototype` | Feasibility probe → `findings.md` (Prototype section); standalone skill, also run inline as blueprint Phase 4 |
 | `sketch` | UI/interaction variants → `findings.md` (Sketch section) |
 | `slicing` | Vertical tickets → `tasks.md`; **always** uses task creation skills |
 | `ticketing` | Publish to tracker, track status |
@@ -120,16 +152,44 @@ The deepest artifact present in the change dir determines the phase. This is the
 
 | Deepest artifact present | Derived phase | Next skill |
 |---|---|---|
-| `briefing.md` | `spec` | `blueprint` |
-| `blueprint.md` (no validation) | `blueprint` | `blueprint-validation` (critic subagent + user) |
-| `blueprint.md` (validated) | `blueprint-validated` | `blueprint` Phase 5 (acceptance spec) |
-| `acceptance.feature` (valid syntax) | `spec-tests` | `slicing` |
+| `briefing.md` (STATUS `draft` / `revised`) | `spec` | user review — the user reads and flips the STATUS banner to `approved` (record `blocked(spec)` meanwhile) |
+| `briefing.md` (STATUS `approved`) | `spec` | `blueprint` |
+| `blueprint.md` (no validation) | `blueprint` | `blueprint-validation` (critic subagent, then the user flips the STATUS banner to `approved`) |
+| `blueprint.md` (validated, STATUS `proposed`) | `blueprint-validated` | user review — the user reads and flips the STATUS banner to `approved` |
+| `blueprint.md` (validated, STATUS `approved` / `assumed` / `accepted`) | `blueprint-validated` | `blueprint` Phase 5 (acceptance spec) |
+| `acceptance.feature` (STATUS `draft` / `revised`) | `spec-tests` | user review — the user reads and flips the STATUS banner to `approved` (record `blocked(spec-tests)` meanwhile) |
+| `acceptance.feature` (STATUS `approved`) | `spec-tests` | `slicing` |
 | `tasks.md` (no execution signal) | `slicing` | `execute` |
-| `tasks.md` + execution signal (`[x]` marks or `work/<YYYY-MM-DD-topic>/progress.md`) | `execution` | `qa` |
-| `report.md` (QA half written) | `qa` | `code-review` |
-| `review.md` (floor met) | `review` | `receiving-code-review` → `ship` |
-| Folder in `change-archive/`, retro sections empty | `reflect` | `reflect` |
-| Folder in `change-archive/`, retro sections filled | `complete` | none |
+| `tasks.md` + execution signal (`[x]` marks or `work/<YYYY-MM-DD-topic>/progress.md`) | `execution` | `test` |
+| `report.md` (QA half written) | `test` | `adversarial-authoring` |
+| `review.md` (floor met) | `adversarial-authoring` | `drift` → `ship` |
+| Folder in `change-archive/` | `complete` | none |
+
+**Strict-sequence check:** a skill about to run MUST verify the deepest
+artifact present matches its predecessor's output. If the deepest artifact
+does not match, the skill halts and reports the divergence. E.g. `test` MUST
+not start if `tasks.md` has no execution signal (i.e. `execute` has not
+completed). `adversarial-authoring` MUST not start if `report.md` is absent
+(i.e. `test` has not completed). `ship` MUST not start if `review.md` is
+absent (i.e. `adversarial-authoring` has not completed).
+
+### User approval gate
+
+`briefing.md` and `blueprint.md` are read by the user, not only by agents. The
+next phase that consumes one of them MUST find its STATUS banner at an
+approved value:
+
+- `blueprint` (any phase) requires `briefing.md` STATUS `approved`.
+- `blueprint` Phase 6 (commit) requires `acceptance.feature` STATUS `approved`.
+- `blueprint` Phase 5 (acceptance spec) and `slicing` require `blueprint.md`
+  STATUS `approved`, `assumed`, or `accepted` — the last two are created only
+  at a user decision point, so they count as read.
+
+If the banner is not there, the skill HALTs, tells the user exactly which
+line to flip, and records `blocked(<phase>): <file> awaiting user approval`
+in `state.yaml` — `resume` reports it. The approval is the user's own
+hand-edit of the banner (see § STATUS Banner), not a chat reply; the agent
+never writes `approved` itself.
 
 ### Directional implication (validation semantics)
 
@@ -186,18 +246,22 @@ This is a bounded routing token, not human prose. The human-readable explanation
 
 ## STATUS Banner
 
-`briefing.md` and `tasks.md` carry a machine-readable status on line 3 (a blockquote, after the `#` title). The `/plans` HTTP endpoint and the mockup's Changes panel parse it with the regex `^>\s*\*\*STATUS:\*\*\s*`?([a-z][a-z0-9-]+)`?` — the value must be lowercase, alphanumeric + hyphens, optionally backtick-wrapped.
+`briefing.md`, `blueprint.md`, `acceptance.feature`, and `tasks.md` carry a machine-readable status on line 3 (a blockquote, after the `#` title). The `/plans` HTTP endpoint and the mockup's Changes panel parse it with the regex `^>\s*\*\*STATUS:\*\*\s*`?([a-z][a-z0-9-]+)`?` — the value must be lowercase, alphanumeric + hyphens, optionally backtick-wrapped.
 
 **Format:** `> **STATUS:** \`<value>\` (YYYY-MM-DD)`
 
 | File | Initial value | Updated by |
 |---|---|---|
-| `briefing.md` | `draft` | brainstorming (write), ship (→ `shipped`) |
+| `briefing.md` | `draft` | brainstorming (write), user (→ `approved`, hand-edit), ship (→ `shipped`) |
+| `blueprint.md` | `proposed` | blueprint (write; `assumed` only via the Owed-Decision Gate), user (→ `approved`, hand-edit), Ratify (→ `accepted`), ship (→ `shipped`) |
+| `acceptance.feature` | `draft` | blueprint Phase 5 (write), user (→ `approved`, hand-edit), ship (→ `shipped`) |
 | `tasks.md` | `sliced` | slicing (write), execution (→ `in-progress` / `complete`), ship (→ `shipped`) |
 
-**Values:** `draft` → `sliced` → `in-progress` → `complete` → `shipped`. Side states: `stalled`, `blocked`, `revised`, `superseded`.
+**Values:** `proposed` / `draft` → `approved` → `sliced` → `in-progress` → `complete` → `shipped`. Side states: `assumed`, `accepted`, `stalled`, `blocked`, `revised`, `superseded`.
 
-**Rule:** every spec dir's `briefing.md` MUST carry the banner. `tasks.md` MUST carry it once slicing produces it. The `pre-commit` zone guard does not check it; the `/plans` endpoint returns `status: ""` when absent (the UI renders "unknown").
+**Ownership:** the agent may write every value except `approved`. `approved` is a user-only value: after reading the document, the user hand-edits the banner to `approved (YYYY-MM-DD)` — that edit IS the approval record (the User approval gate above). An agent edit after approval reverts the banner to `revised`, and the user must re-read and re-flip. A consuming skill confirms approval by re-reading line 3 from disk and quoting the banner in its reply — an agent that quotes an `approved` line the user never typed has self-approved.
+
+**Rule:** every spec dir's `briefing.md` MUST carry the banner. `blueprint.md` MUST carry it once blueprint writes it. `acceptance.feature` MUST carry it once blueprint Phase 5 writes it. `tasks.md` MUST carry it once slicing produces it. The `pre-commit` zone guard does not check it; the `/plans` endpoint returns `status: ""` when absent (the UI renders "unknown").
 
 ## `state.yaml` and the knowledge bundle
 
@@ -232,7 +296,7 @@ constraints_ref: .skillgrid/projectwiki/ASSUMPTIONS.md                       # p
 
 A user gate is a persisted decision point, not a conversational pause. It applies to spec-dir changes (entries in `changes:`); Bounded and fast-track work without a spec dir stays conversational.
 
-- **Write on reach:** the skill that pauses for a user decision writes `changes.<slug>.gate: <gate>` in the same edit that updates `phase`. Named gates: `blueprint-validation` (`blueprint`, at the User Review Gate), `owed-decision` (`blueprint`, when the in-flight doubt gate finds an unsourced load-bearing claim — the panel: resolve first / not a real decision / build on the assumption; `Status: ASSUMED` when the user picks the third), `user-gate-slice` (`slicing`, when it writes `tasks.md`), `qa-verdict` (`qa`, when the verdict is `CONCERNS` or `FAIL` — a human decision is required), `ship-decision` (`ship`, when the override path needs a human).
+- **Write on reach:** the skill that pauses for a user decision writes `changes.<slug>.gate: <gate>` in the same edit that updates `phase`. Named gates: `blueprint-validation` (`blueprint`, at the User Review Gate), `owed-decision` (`blueprint`, when the in-flight doubt gate finds an unsourced load-bearing claim — the panel: resolve first / not a real decision / build on the assumption; banner `assumed` when the user picks the third), `user-gate-slice` (`slicing`, when it writes `tasks.md`), `qa-verdict` (`qa`, when the verdict is `CONCERNS` or `FAIL` — a human decision is required), `ship-decision` (`ship`, when the override path needs a human).
 - **Screen:** one screen, readable in thirty seconds — **Done** (what was saved, with file names), **Assumed** (new assumptions, one line each, at most five), **Next** (the next step and roughly how long it takes), plus the reply menu: "ok to continue · tell me what to change · go to the end."
 - **Clear on respond:** the user's choice (ok, the named option, or a recorded override) clears the field in the same edit that advances the phase. A change request is written to the artifact under gate, the affected output is redone (at most twice; after that, record the disagreement and ask which version to keep), and the screen re-shows.
 - **Re-show on resume:** `resume` finds a non-empty `gate` and re-shows the same screen before any other action. It never passes the gate itself. A status report at a gated change names the pending gate without advancing.
@@ -249,7 +313,7 @@ The **project wiki vault** (`.skillgrid/projectwiki/`, OKF v0.2) holds the produ
 | Skill | Creates / updates | Path |
 |---|---|---|
 | onboarding | skeleton | `config.yaml`, `state.yaml`, `projectwiki/ASSUMPTIONS.md`, `projectwiki/ARCHITECTURE.md` (lazy), project wiki vault (via `projectwiki bootstrap`: `projectwiki/config.json` sentinel + `PROJECTWIKI_SCHEMA.md` + `.ignore` + page-type folders), AGENTS block, `.gitignore` |
-| brainstorming | briefing + state (questioning via agent answer-select tool) | `change-specs/<topic>/briefing.md`, `change-specs/<topic>/adr.md`, `projectwiki/ASSUMPTIONS.md` (new project or scope change → product + stack VERIFIED tier; VERIFIED/INFERRED tiers auto-written; LOCKED on user OK), `state.yaml` (`changes.<topic>` entry) |
+| brainstorming | briefing + state (questioning via `skillgrid:questioning`) | `change-specs/<topic>/briefing.md`, `change-specs/<topic>/adr.md`, `projectwiki/ASSUMPTIONS.md` (new project or scope change → product + stack VERIFIED tier; VERIFIED/INFERRED tiers auto-written; LOCKED on user OK), `state.yaml` (`changes.<topic>` entry) |
 | `_shared/adr-records` (via brainstorm) | terms + ADRs | `projectwiki/glossary/01-business-terms.md`, `projectwiki/glossary/02-technical-terms.md` (from the shared business/technical templates), `projectwiki/decisions/NNNN-slug.md` (body per config `adr_style` template in `_shared/adr-records/README.md`), `projectwiki/ASSUMPTIONS.md` (§ `LOCKED` ADR index pointer row only), `<specs_root>/<topic>/adr.md` (manifest from `brainstorm/references/adr-manifest.md`) |
 | `projectwiki` | concepts + catalogs | `.skillgrid/projectwiki/<decisions\|invariants\|workflows\|glossary\|gotchas\|architecture>/*.md` + `projectwiki/index/` projections (same-edit rule: every page write is followed by `projectwiki index`); ADR numbering stays with `_shared/adr-records/README.md`; derived index is engine-owned (`projectwiki index` rebuilds) |
 | `projectwiki` (`DATA-LOADING.md`) | ingested research + reflect results | `.skillgrid/projectwiki/sources/*.md` (one `SourceSummary` per external source, full `external:` citation), `syntheses/*.md` (one hub per research question), `concepts/*.md` (cut-out reusable ideas) + `preferences/<area>.md` from reflect; same-edit `projectwiki index` |
@@ -285,7 +349,7 @@ skills keep writing `state.yaml` directly at every phase transition; the
 guard owns the verification.
 
 **Run:** `node .agents/skills/qa/scripts/state-drift-check.mjs [project-root]` (defaults to
-cwd). ADR: `.skillgrid/projectwiki/decisions/04-adr-0008-state-drift-guard-js-yaml.md` (Node.js + `yaml` package).
+cwd). ADR: `.skillgrid/projectwiki/decisions/0008-state-drift-guard-js-yaml.md` (Node.js + `yaml` package).
 
 **Exit codes:** 0 clean, 1 drift (prints field/stale/derived table), 2
 usage/parse error.

@@ -72,7 +72,7 @@ Manage the project's durable knowledge: an OKF vault at `.skillgrid/projectwiki/
 ## Modes
 
 - **Read** (cheap, lazy): recall decisions/invariants/findings only when they bear on the task; stop once grounded.
-- **Maintain** (through the pipeline): author/revise concepts inside the SDD lifecycle (briefing → blueprint → tasks → gate → execution), never as drive-by edits.
+- **Maintain** (through the pipeline): author/revise concepts inside the SDD lifecycle (briefing → blueprint → tasks → gate → execution), never as drive-by edits. Dispatching a filing subagent for the task-end bookend? Name the persona: `.agents/agents/wiki-keeper.md`.
 
 **Task bookends (proactive — do not wait to be asked):**
 - **At task start:** if the task touches an area with durable knowledge, `projectwiki query` with the task's terms before re-deriving.

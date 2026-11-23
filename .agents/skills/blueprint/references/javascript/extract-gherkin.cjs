@@ -171,7 +171,7 @@ function collectSpecSources(specsDir, basename) {
 // capabilities executing.
 function extractAll(specsDir, outDir) {
   specsDir = specsDir ? path.resolve(specsDir) : path.resolve(process.cwd(), '.skillgrid/change-specs');
-  outDir = outDir ? path.resolve(outDir) : path.resolve(process.cwd(), 'acceptance-tests/.extracted');
+  outDir = outDir ? path.resolve(outDir) : path.resolve(process.cwd(), '.skillgrid/acceptance-tests/.extracted');
 
   fs.rmSync(outDir, { recursive: true, force: true });
 

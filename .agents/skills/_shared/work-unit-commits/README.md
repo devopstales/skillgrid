@@ -322,7 +322,7 @@ one is a one-line change in `checkpoint-state.js`.
 | `pre-commit` | **cwd-drift** (precommit-guard.js) | a prior `cd` left the worktree root; sentinel catches it | FATAL + RECOVERY `cd` |
 | `pre-commit` | **protected-ref / detached HEAD** (precommit-guard.js) | never commit on `main`/`master`/`develop`/`trunk`/`release/*` or detached; worktree branch must be per-agent (`agent-*`, `worktree-agent-*`, `worktree-wf_*`) | FATAL + RECOVERY |
 | `pre-commit` | **spec-zone XOR code-zone** (precommit-zone-guard.js) | BDD zone rule — commit `<specs_root>` before code, never both in one commit (execution skills, `blueprint` Phase 5, `qa`) | FATAL + split-into-two RECOVERY |
-| `pre-commit` | **generated/scratch not tracked** (precommit-ignore-guard.js) | `acceptance-tests/.extracted/` and the worktree dir stay untracked (`blueprint` Phase 5, `execute` Step 0) | auto-adds to `.gitignore` + unstages + FATAL |
+| `pre-commit` | **generated/scratch not tracked** (precommit-ignore-guard.js) | `.skillgrid/acceptance-tests/.extracted/` and the worktree dir stay untracked (`blueprint` Phase 5, `execute` Step 0) | auto-adds to `.gitignore` + unstages + FATAL |
 | `commit-msg` | **conventional subject + no AI-attribution trailer** | commit format (this contract) | FATAL + RECOVERY |
 | `commit-msg` | **tracker footer format** (ticketing) | a `Refs:`/`Closes:`/`Fixes:`/`Resolves:` footer must carry a parseable Tracker ID (`TASK-069`, `#42`, `PROJ-123`); footers stay optional, absence passes | FATAL + RECOVERY |
 | `prepare-commit-msg` | **Refs injector seam** (ticketing) | appends `Refs: <id>` from `SKILLGRID_TRACKER_REF` (exported by the agent from the active tasks.md Tracker ID) when the message has no footer yet | no-op without the env var, never blocks |

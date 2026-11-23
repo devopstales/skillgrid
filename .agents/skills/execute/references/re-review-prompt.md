@@ -1,8 +1,10 @@
 # Scoped Re-Review Prompt Template
 
-Use this template when dispatching a re-review after a fix round. The
-re-reviewer verifies the findings were addressed and checks the fix diff for
-new breakage. It is not a fresh review — the full review already happened.
+Use this template when dispatching a re-review after a fix round. The persona
+brief lives at `.agents/agents/re-reviewer.md` — the dispatch names it; the
+template below carries the process and output format. The re-reviewer
+verifies the findings were addressed and checks the fix diff for new
+breakage. It is not a fresh review — the full review already happened.
 
 **Purpose:** Verify each finding from the previous review was addressed, and
 that the fix itself broke nothing.
@@ -13,6 +15,7 @@ Subagent (general-purpose):
   model: [MODEL — REQUIRED: choose per SKILL.md Model Selection; an omitted
          model silently inherits the session's most expensive one]
   prompt: |
+    You are the re-reviewer persona (`.agents/agents/re-reviewer.md`).
     You are re-reviewing one task's fix round. A previous review produced
     findings; an implementer has attempted to fix them. Your job is to
     verdict each finding and inspect the fix diff — nothing else.

@@ -104,7 +104,7 @@ regression.
 ## The Finding Contract (applies to every step)
 
 This is the shared discipline; each step instantiates it. It borrows
-`skillgrid:code-research`'s verification epistemics and `skillgrid:code-review`'s
+`skillgrid:research`'s verification epistemics and `skillgrid:code-review`'s
 blindness + verdict discipline, scaled to a tool-reported finding.
 
 ### Blindness contract
@@ -210,14 +210,14 @@ TSX, Vue, Svelte, Astro and Python.
 **The load-bearing claims are the `unused-export` and `unused-file` findings**
 — the handful whose deletion actually changes the public surface. Those get a
 **fresh-context verifier** (Grade A when a subagent is available) per
-`skillgrid:code-research`'s verifier discipline: the verifier gets the finding
+`skillgrid:research`'s verifier discipline: the verifier gets the finding
 and a search budget, and hunts for the **independent source** that confirms or
 contradicts it — a grep the tool's traversal didn't do, a string-based router
 reference, a dynamic import, a test that references the export, a plugin file
 the tool doesn't parse. The verifier rules on status (`verified` / `disputed` /
 `unverified` / `overturned`) and does not rewrite the finding. Verification
 happens **as each finding lands**, not as an end-of-pass rewrite — the same
-"verify at landing, never at the end" rule `skillgrid:code-research` uses,
+"verify at landing, never at the end" rule `skillgrid:research` uses,
 because an hour of accumulated context makes you trust what the tool reported.
 
 `unused-import` and `unused-symbol` are lower-stakes (the build or a re-run
@@ -279,11 +279,11 @@ See `references/refactor-steps-3-5.md` for the full procedure.
 
 - **`skillgrid:dry-refactoring`** — the duplication pass this skill delegates
   Step 1 to (full guided workflow, triage for renamed/near-miss clones).
-- **`skillgrid:code-research`** — the verification epistemics and red-team
+- **`skillgrid:research`** — the verification epistemics and red-team
   discipline this skill scales to a tool-reported finding:
-  [researchers/verifier.md](../code-research/researchers/verifier.md)
+  [researchers/verifier.md](../research/references/researchers/verifier.md)
   (the 4-value claim status + independence rule) and
-  [researchers/red-team.md](../code-research/researchers/red-team.md)
+  [researchers/red-team.md](../research/references/researchers/red-team.md)
   (the fresh-context skeptic on a major conclusion).
 - **`skillgrid:code-review`** — the blindness contract, the six-value verdict
   table, and the resilience rule this skill's Finding Contract instantiates.

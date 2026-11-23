@@ -24,6 +24,11 @@ Verify a change from five angles — intent, functional, code quality, security,
 
 **Announce at start:** "I'm using the skillgrid:test skill to test this change."
 
+**Position in the chain:** … → `execute` → **`test`** → `adversarial-authoring` → …
+(per `_shared/rules/sdd-structure.md` § Phase Order). `execute` must have
+completed before this skill starts. No divergence: `adversarial-authoring`
+does not start until this skill is complete.
+
 This skill is a router over five test areas. Each area is a `references/` file
 loaded on demand, so a small change never pays the token cost of the areas it
 does not need. The areas are independent problem domains:
@@ -119,7 +124,7 @@ Per the `TARGET_URL` rule in Config: one gate, yield on the answer, then record 
 Read, in order:
 1. `briefing.md` — the falsifiable requirements (truths) and the stated goal
 2. `acceptance.feature` — every scenario (the traceability oracle) and each requirement's `#### Gates` block
-3. `blueprint.md` — the task breakdown, `SATISFIES` lines, the `Tier:` line, and the `**Status:**` line
+3. `blueprint.md` — the task breakdown, `SATISFIES` lines, the `Tier:` line, and the line-3 STATUS banner (`assumed` carries the decision-debt note)
 4. `tasks.md` — the ticket list and dependency graph
 5. `findings.md` (if present) — prototype/sketch results that constrain verification
 6. `.skillgrid/deferred-work.md` (if present) — the project's open deferred work: surface every `status: open` entry in the report (per `_shared/craft/review-ledger.md` § Debt surfacing — context, not a gate), flag stale entries, and add the WARNING when this change's scope touches an open entry's evidence file. When the ledger is absent, record "Deferred work: no ledger (nothing open)" — a project with open debt but no ledger is a red flag for the report.

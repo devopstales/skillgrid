@@ -9,7 +9,7 @@ metadata:
   part-of: skillgrid
   based_on: superpowers:brainstorming + egm:egm-brainstorm (Goldfish Brainstorming — 7-lens shootdown, synthesizer, readiness gate)
   created_by: human
-  related_skills: [blueprint]
+  related_skills: [blueprint, questioning]
   version: "2.2"
 ---
 
@@ -22,6 +22,8 @@ metadata:
 - Checklist and process flow / The Process / After the design
 
 **Announce at start:** "I'm using the skillgrid:brainstorm skill to turn this idea into a design."
+
+**Position in the chain:** `skillgrid` → **`brainstorm`** → `questioning` → `research` → `prototype` → `blueprint` → … (per `_shared/rules/sdd-structure.md` § Phase Order). `skillgrid` must have completed before this skill starts. This skill runs `questioning` inline, then delegates to `research` (just-in-time) and `prototype` (real-probe path) before handing off to `blueprint`. No divergence: `blueprint` does not start until this skill (and its delegated sub-steps) are complete.
 
 ## Overview
 
@@ -39,7 +41,20 @@ Turns a raw idea into an approved design and spec before any implementation begi
 
 Help turn ideas into fully formed designs and specs through natural collaborative dialogue.
 
-**Questioning mandate:** Brainstorming ALWAYS uses questioning for mutual understanding. The initial problem-drilling phase is **open-ended** (plain-text questions in chat, no structured tool, no pre-canned multiple-choice options); the structured answer-select tool (`question` in opencode, `AskUserQuestion` in Claude Code, equivalent in other agents) starts at the first frontier round, presenting options with tradeoffs. Never assume the user's preference — ask. One question at a time; stop and wait for the response before continuing. The full interview loop (design tree, frontier rounds, clarity gate, and the open-ended vs single-select phase split) is in `references/questioning.md`.
+**Questioning mandate:** Brainstorming ALWAYS uses questioning for mutual
+understanding. Delegate to **`skillgrid:questioning`** — the full interview
+loop (design tree, frontier rounds, clarity gate, and the open-ended vs
+single-select phase split) lives in that skill. The initial problem-drilling
+phase is **open-ended** (plain-text questions in chat, no structured tool, no
+pre-canned multiple-choice options); the structured answer-select tool
+(`question` in opencode, `AskUserQuestion` in Claude Code, equivalent in other
+agents) starts at the first frontier round, presenting options with tradeoffs.
+The gate format follows
+`skill-creator/references/interaction-gates.md` — one question per tool call,
+the call is the sole tool call in the turn, no `(Recommended)` prefixes,
+chat summary before the gate, yield immediately. Never assume the user's
+preference — ask. One question at a time; stop and wait for the response
+before continuing.
 
 Start by classifying how much process the request needs, then work
 through your path: understand the context, refine the idea, present a
@@ -61,10 +76,47 @@ the spec requires to be unambiguous. If you catch yourself sketching
 implementation (pseudocode, struct fields, endpoint shapes, file trees),
 STOP: that content belongs in the blueprint, where the Goldfish protocol
 validates it against the Zero-Decision Rule (see
-`_shared/elephant-goldfish/implementation-readiness.md`) before any code
+`.agents/agents/goldfish.md` § implementation-readiness) before any code
 is written. The one exception is the Prototype path, whose throwaway probe
 is code by definition — it stays labeled throwaway and never becomes the
 answer.
+</HARD-GATE>
+
+<HARD-GATE>
+**Hypotheses validated before any document exists.** Before the first
+spec-zone file is written (the briefing, the acceptance contract, the ADR
+manifest — nothing earlier), put your core understanding to the user: the
+claim you are about to encode — the problem as you understand it, the
+intended outcome, the key assumptions and the approaches you will weigh —
+asked as decisions through the structured answer tool (per
+`skillgrid:questioning` frontier rounds: options with trade-offs, one at a
+time, each with your recommendation). The user must accept, override, or
+amend each one. A hypothesis the user has not seen is an unvalidated
+assumption, and a document built on it encodes the guess, not the decision.
+Every validated decision that clears the ADR-sparingly test
+(`_shared/adr-records/README.md`) is written in this same step — the ADR
+file to `{projectwiki}/decisions/NNNN-slug.md` (monotonic number,
+frontmatter, body per the config's `adr_style` template) plus its pointer
+row in the `## LOCKED` ADR index in `{projectwiki}/ASSUMPTIONS.md` —
+before the spec-zone files go down, so the document set and the durable
+decision record land together. This is the last stop before the write:
+interview → approaches → design presentation → **hypothesis validation +
+ADR capture** → files.
+</HARD-GATE>
+
+<HARD-GATE>
+**Spec-zone only.** Every file this skill writes lands where
+`_shared/rules/sdd-structure.md` § Directory Structure says it lands —
+briefing, acceptance contract, ADR manifest and findings in
+`{specs_root}/YYYY-MM-DD-<topic>/`; PRD, ASSUMPTIONS, ARCHITECTURE, glossary
+terms and ADRs in `{projectwiki}/`. Nothing else: no `brainstorm.md`, no
+`design.md`, no `plan.md`, no new directories, and nothing outside
+`.skillgrid/`. The canonical names are load-bearing — `skillgrid:resume`
+derives the phase from which of these files exist, so a renamed or
+relocated file silently breaks the pipeline. If you are about to write a
+spec-zone artifact anywhere else, STOP: resolve the path from
+`.skillgrid/config.yaml` (`conventions.specs_root`, `conventions.artifacts`)
+and write it there.
 </HARD-GATE>
 
 ## Four Paths
@@ -103,7 +155,7 @@ override it:
   that restructures how components fit together or alters interfaces
    others depend on. There is no existing flow to read — you are
     creating the architecture. Follow the full process: interview the user
-    (`references/questioning.md` — design tree, rounds, clarity gate), approaches,
+    (`skillgrid:questioning` — design tree, rounds, clarity gate), approaches,
     sectioned design. Run the Goldfish brainstorming shootdown per
      `references/shootdown.md` (readiness gate → 7 parallel fresh lenses →
      synthesizer; all 🔴 Blockers dispositioned before the ADR
@@ -118,7 +170,7 @@ override it:
     than overwrite. Then the skillgrid:blueprint skill.
 - **New Function** — a new feature, endpoint, or capability added to an
    existing project whose architecture is already in place. Follow the
-   full process: interview the user (`references/questioning.md` — design tree,
+   full process: interview the user (`skillgrid:questioning` — design tree,
    rounds, clarity gate, confidence stop, Out-of-scope line), approaches,
    sectioned design. Run the Goldfish
    brainstorming shootdown per `references/shootdown.md` (readiness gate →
@@ -128,7 +180,7 @@ override it:
     `templates/briefing.md`. If
      the feature changes `.skillgrid/projectwiki/reference/00-prd.md` (scope, feature, metric),
      the global `.skillgrid/projectwiki/ASSUMPTIONS.md` (new VERIFIED fact, a new ADR file under
-     `decisions/04-adr-NNNN-slug.md`) or
+     `decisions/NNNN-slug.md`) or
      `.skillgrid/projectwiki/ARCHITECTURE.md` (new component, data store, integration), update
      those too — only when they exist AND the feature actually changes them. Then the
      skillgrid:blueprint skill.
@@ -185,6 +237,13 @@ was approved — lives in conversation, which rots.
   first incomplete step.
 - **Skip persistence** for the prototype and bounded paths — they are short by
   design and produce no spec dir.
+- **No ad-hoc artifacts.** Beyond the files named in the Directory Structure,
+  this skill creates nothing — no `brainstorm.md`, `design.md`, or `plan.md`
+  at the repo root or elsewhere. The full paths write the spec-zone files
+  (briefing, acceptance contract, ADR manifest) and the projectwiki globals;
+  the bounded and tiny paths write nothing. If a fact, finding, or option
+  table needs to survive the session, it goes into an existing artifact
+  (briefing, findings.md, ASSUMPTIONS.md), not a new file.
 
 ## Anti-Sycophancy & Stress-Testing
 
@@ -244,7 +303,6 @@ Per `_shared/craft/measurement.md`.
 |---|---|
 | "Too simple to need approval or a design" | What scales with simplicity is the artifact, never the approval. A two-sentence design in chat is still presented and still needs a yes. |
 | "I'll decide the approach myself and skip the paths" | The path classification is the process — it scales the ceremony to the task. Picking it silently is skipping the gate that lets your partner override. |
-| "The design is obvious, so skip the visual companion" | The companion is offered just-in-time only when a question is clearer shown than told. Obvious isn't the test — the test is whether it'd be understood better by seeing it. |
 | "I'll start implementing while they read the design" | The gate is the approval, not the design's length. Present, then stop until you hear yes. |
 | "I'll just refine the big plan so it covers everything" | A pile of independently shippable outcomes is a scope problem, not a plan problem. List the pile, recommend one first slice, let the human hold/cut/split — then write the plan for the pick, not the pile. |
 
@@ -260,14 +318,17 @@ Per `_shared/craft/measurement.md`.
 | "It grew, but I'm almost done — no need to re-classify" | Hidden complexity upgrades the path mid-task. Stop and say so. |
 | "They approved the prototype, so the follow-up change is approved too" | Each task gets its own classification and its own approval. |
 | "The briefing is still growing — I'll blueprints once it's settled" | A briefing that keeps absorbing requirements is a pile, not a design. Run Scope Pushback: list the outcomes, pick the first slice, record the hold/cut/split — then blueprint. |
+| "I'll save the design as a new file (brainstorm.md, design.md, plan.md)" | Spec-zone only: the file is `briefing.md` in `{specs_root}/YYYY-MM-DD-<topic>/` (or an existing projectwiki artifact). A new filename or location breaks `skillgrid:resume`'s phase detection — the pipeline can no longer find the spec. |
 
 ## Verification
 
-- [ ] A design or approach was produced (prototype answer, in-chat bounded design, or full spec) AND your human partner approved it — approval is quoted in the record, not implied
+- [ ] A design or approach was produced (prototype answer, in-chat bounded design, or full spec) AND your human partner approved it — full paths: the briefing's line-3 STATUS banner is `approved` (the user's hand-edit, confirmed by re-reading from disk); prototype/bounded: approval is quoted in chat, not implied
 - [ ] The chosen path (prototype / bounded / new project / new function) was classified and stated out loud before the first question
 - [ ] The approval gate was passed, not skipped — the task was not waved through as "too simple" without a presented design and an explicit yes
 - [ ] For new project / new function: the chosen approach is committed in the spec-zone (and mirrored to mnemonic if `mnemonic.enabled: true`)
-- [ ] If a visual companion or sketch was offered and accepted, the resulting mockup/frame artifact is saved (e.g. the sketch winner + constraints in the topic's `findings.md`)
+- [ ] For new project / new function: `skillgrid:projectwiki` was triggered (Maintain mode) at the end — `projectwiki index` after every page write, `log.md` lines for each action, ADR `## Related` blocks present, and the ship gate (`index` → `validate` → `lint` → `status --json`) passed with no new findings — before `skillgrid:blueprint` was invoked
+- [ ] For new project / new function: the hypothesis validation round ran through the structured answer tool BEFORE the first spec-zone file was written — the problem, intended outcome, key assumptions, and approaches were each put to the user and accepted, overridden, or amended — and every validated decision that cleared the ADR-sparingly test was written to `{projectwiki}/decisions/NNNN-slug.md` (with its `## LOCKED` pointer row) in that same step, before the spec-zone files
+- [ ] If a sketch was offered and accepted, the sketch winner + constraints are saved in the topic's `findings.md`
 
 ## Output Contract
 
@@ -284,7 +345,10 @@ The deliverable depends on the classified path:
 - **New Project:** `00-prd.md`, `ASSUMPTIONS.md`, `ARCHITECTURE.md`
   (merged, not overwritten, when they pre-exist) + `briefing.md` in the
   change folder, plus the 2-line codebase-fit verdict in the spec's Context.
-- **New Function:** `briefing.md` in the change folder, plus the 2-line
+  The briefing's STATUS banner is flipped to `approved` by the user
+  (hand-edit) before blueprint runs.
+- **New Function:** `briefing.md` in the change folder (STATUS banner flipped
+  to `approved` by the user before blueprint runs), plus the 2-line
   codebase-fit verdict; global files updated only when the feature actually
   changes them.
 
@@ -332,7 +396,11 @@ design is the whole process.
 - Check out the current project state first (files, docs, recent commits)
 - Before asking detailed questions, assess scope: if the request describes multiple independent subsystems (e.g., "build a platform with chat, file storage, billing, and analytics"), flag this immediately. Don't spend questions refining details of a project that needs to be decomposed first.
 - If the project is too large for a single spec, help the user decompose into sub-projects: what are the independent pieces, how do they relate, what order should they be built? Then brainstorm the first sub-project through the normal design flow. Each sub-project gets its own spec → plan → implementation cycle.
-- **New Project / New Function:** run the questioning loop (`references/questioning.md`) to reach shared understanding. It structures the conversation as a design tree worked in rounds (frontier per round, facts looked up by you, decisions put to the user) and exits when the frontier is empty AND the clarity gate passes. This replaces one-at-a-time questioning.
+- **New Project / New Function:** run the questioning loop
+  (`skillgrid:questioning`) to reach shared understanding. It structures the
+  conversation as a design tree worked in rounds (frontier per round, facts
+  looked up by you, decisions put to the user) and exits when the frontier is
+  empty AND the clarity gate passes. This replaces one-at-a-time questioning.
 - **Bounded:** ask clarifying questions one at a time — the conversation is short and casual, no frontier structure needed.
 - Focus on understanding: purpose, constraints, success criteria
 
@@ -391,6 +459,6 @@ works.
 
 ## After the design
 
-Spec write-up, self-review, the user review gate, implementation handoff, and the visual companion offer: [after-the-design.md](references/after-the-design.md).
+Spec write-up, self-review, the user review gate, and implementation handoff: [after-the-design.md](references/after-the-design.md).
 
 New project and new function end by invoking `skillgrid:blueprint`. Bounded work implements after approval, with no plan document. A prototype reports a recommendation.

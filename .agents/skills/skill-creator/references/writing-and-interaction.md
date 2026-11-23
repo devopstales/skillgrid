@@ -39,7 +39,7 @@ small, or skipping the spine sections, load `references/rationalizations.md`
 User interactions in skills follow the EGM (Elephant-Goldfish Model)
 interaction format — the same structure the skillgrid EGM skills
 (`brainstorm`, `blueprint`) and the shared Goldfish persona briefs in
-`_shared/elephant-goldfish/` use. The full protocol, including canonical
+`.agents/agents/goldfish.md` use. The full protocol, including canonical
 payloads, is `references/interaction-gates.md`; this section is the contract
 summary.
 

@@ -128,7 +128,7 @@ Each phase completes before the next begins.
    name in a large tree, use `fd '<name>'` rather than `find`.
 4. **Goldfish Diagnosis (before you state your hypothesis as the working one).**
    Dispatch a fresh read-only subagent per the brief at
-   `_shared/elephant-goldfish/goldfish-diagnosis.md`. The dispatch carries
+   `.agents/agents/goldfish.md` § goldfish-diagnosis. The dispatch carries
    **only** the symptom + the repro steps — never your hypothesized root
    cause, never the session's investigation so far. Ask for its top 1–3
    candidate root causes with file:line + the evidence that would falsify

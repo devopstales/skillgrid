@@ -24,6 +24,11 @@ Break a blueprint into vertical tracer-bullet tickets that each fit a single fre
 
 **Announce at start:** "I'm using the skillgrid:slicing skill to slice the blueprint into executable tickets and publish them to the tracker."
 
+**Position in the chain:** … → `blueprint` → **`slicing`** → `execute` → …
+(per `_shared/rules/sdd-structure.md` § Phase Order). `blueprint` must have
+completed before this skill starts. No divergence: `execute` does not start
+until this skill (including the mandatory user gate) is complete.
+
 This skill merges two former skills: `slicing` (blueprint → `tasks.md`) and `ticketing` (tracker publication + status lifecycle). The flow is one continuous pass: slice, then publish, then record IDs — no handoff between skills.
 
 ```mermaid
@@ -91,13 +96,13 @@ The waiver record (class, skips, reason, approved-by) must be present in `briefi
 
 **Downstream:** the `SATISFIES` scenario names in `tasks.md` are the traceability oracle for `skillgrid:qa` — every scenario must be referenceable from a test. Name them precisely.
 
-**Assumed blueprints:** if `blueprint.md` carries `**Status: ASSUMED**`, slicing proceeds normally (the flag never blocks). Add `Note: assumed decision (blueprint <path>)` to every ticket that implements the assumed value, so the decision debt is visible per ticket and survives into `qa`'s report and the ship Return Envelope.
+**Assumed blueprints:** if `blueprint.md`'s line-3 STATUS banner is `assumed`, slicing proceeds normally (it is created only at the user's Owed-Decision Gate, so it counts as read — it never blocks). Add `Note: assumed decision (blueprint <path>)` to every ticket that implements the assumed value, so the decision debt is visible per ticket and survives into `qa`'s report and the ship Return Envelope.
 
 ## Part 1: Slicing
 
 ### Step 1: Read the Blueprint
 
-1. Read `blueprint.md` (technical details, task breakdown, interfaces; note the `**Status:**` line — `ASSUMED` carries the debt note above)
+1. Read `blueprint.md` (technical details, task breakdown, interfaces). Check the line-3 STATUS banner first: it must be `approved`, `assumed`, or `accepted` — still `proposed` means the user has not read it: HALT, ask the user to read and flip the banner themselves (`proposed` → `approved (YYYY-MM-DD)` — the agent never writes `approved`), record `blocked(blueprint): blueprint.md awaiting user approval` in `state.yaml`, and stop. An `assumed` banner carries the debt note above.
 2. Read `briefing.md` (context, falsifiable requirements, acceptance criteria)
 3. Identify all work units in the blueprint
 
@@ -174,7 +179,7 @@ Before grouping into waves, estimate whether the implementation is likely to exc
 | Ticket too big (needs the blueprint mid-ticket) | Split along a natural seam: dependency, concern, or slim end-to-end. |
 | Single mechanical change with huge blast radius (rename across 40 files) | Expand → Migrate (batches, each blocked by expand) → Contract. Not a tracer bullet. |
 | Two sides would block each other (backend + frontend) | Contract-first: slice 0 is a frozen API contract; each side slices against it, integrates last. |
-| `blueprint.md` carries `Status: ASSUMED` | Proceed (the flag never blocks); add `Note: assumed decision` to every ticket implementing the assumed value. |
+| `blueprint.md` banner is `assumed` | Proceed (it counts as user-approved — created only at the user's Owed-Decision Gate); add `Note: assumed decision` to every ticket implementing the assumed value. |
 | `requirement-coverage.mjs` reports uncovered requirements | Not publishable until the validation matrix covers the briefing. |
 | `SATISFIES` dangling or a scenario unclaimed | Not publishable — fix the plan or the feature file, re-run. |
 
@@ -211,7 +216,7 @@ Independent tickets within a wave run in parallel worktrees. A ticket in a later
    - Execution order (waves, acceptance-first)
    - When a ticket's scope or rationale rests on a constraint/decision it did
      not earn (an operational rule or a prior ADR), CITE the source rather than
-     restate it (`per AGENTS.md § Rules <x>` / `per .skillgrid/projectwiki/decisions/04-adr-NNNN-slug.md`).
+     restate it (`per AGENTS.md § Rules <x>` / `per .skillgrid/projectwiki/decisions/NNNN-slug.md`).
 4. Save to `.skillgrid/change-specs/YYYY-MM-DD-<topic>/tasks.md`
 
 ### Ticket Execution Contract (optional fields)

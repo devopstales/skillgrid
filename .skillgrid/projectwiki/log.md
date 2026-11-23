@@ -105,6 +105,35 @@ the parallel session's `2026-11-23-mnemonic-core/findings.md` (hugot GoMLX
 backend, ncruces/go-sqlite3, sqlite-vec-go-bindings/ncruces). Next: Goldfish
 shootdown readiness gate → 7 fresh lenses → ADR manifest + briefing.
 
+## 2026-11-23 — ADR-0015: CGO-free stack selection (mnemonic-core)
+
+Vector-stack gate resolved (programmer chose option A after the
+"what did the old systems use?" check — both old generations ran
+brute-force cosine over BLOBs in a pure-Go driver). Filed
+`decisions/04-adr-0015-cgo-free-stack-selection.md` (accepted):
+`ncruces/go-sqlite3` + `sqlite-vec-go-bindings/ncruces` (tag `sqlitevec`)
++ `knights-analytics/hugot` GoMLX backend (tag `onnx`), `-tags ORT` escape,
+brute-force BLOB floor retained (falsifier (b)). Refines ADR-0004/0005/0006;
+supersedes none. ADR-0013/0014 are taken by the parallel
+`2026-11-23-mnemonic-code` session (treesitter / unified space) — hence 0015.
+LOCKED row + `index.md` catalog row added; the "Embedding + vec stack
+selection" open question replaced by the code-tool ANN-scale question.
+
+## 2026-11-23 — Phase-4 spikes run (mnemonic-core): both PASS, ADR-0015 amended
+
+Opt-in "now" gate accepted. Spike 1 (MiniLM on hugot GoMLX): PASS — dim 384,
+cross-backend cosine(GoMLX, ORT) = 1.000000 (independent ORT 1.22.0
+reference), p50 81 ms/sentence non-simd (target ≤ 3 s), semantic sanity
+0.5842 vs 0.0511. Spike 2 (vec + FTS5 in one CGO-free build): PASS but the
+**asg017 sqlite-vec ncruces binding proved unpairable** (wasm/host-table
+drift across v0.15.0/v0.17.1/v0.38.0, live-tested) — the working mechanism
+is ncruces v0.38.0's official **`ext/vec1`** + `ext/fts5`, registered
+per-connection, verified in one session. ADR-0015 (uncommitted at the time)
+amended: Decision Outcome → `ext/vec1`, spike record added, binding moved
+to Not-adopted; LOCKED row + index row updated; `findings.md` § Spike
+Results records the tables + blueprint impact. Falsifiers (a)/(b) not
+triggered.
+
 ## [2026-11-23] ship | pi-worktree plugin — Phase 7 editorial package + archive
 
 The `@devopstales/pi-worktree` plugin (the worktree-standard reference

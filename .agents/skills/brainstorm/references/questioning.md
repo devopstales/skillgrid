@@ -82,7 +82,6 @@ Rules:
 - **`content` is JSON, not markdown** — a decision's `content` MUST be the structured payload above (the dashboard parses it; markdown or a missing `state` is excluded from the inbox).
 - **`recommended` is your `➡️` answer**, encoded as an option `id` — the UI highlights it. Free-text questions still get options; never a decision with zero options.
 - **`topic_key` is stable per question** — re-saving the same key updates the question in place (upsert + version), which is how you revise a recommendation mid-interview.
-- **`visual` (optional):** when a question is clearer shown than told and the programmer has accepted the visual companion, write throwaway HTML to `.skillgrid/prototype/<topic>/<variant>.html` and add `"visual": "<topic>/<variant>.html"` to `content` — the card renders it in a sandboxed iframe.
 - **Read the answer back by polling.** After the programmer answers (dashboard or chat), poll `mem_search` on a word of the question; when the returned `content.state` is `"answered"`, fold `answeredOption` / `answerNote` into the tree and clear the question. A chat answer the programmer never posts to the dashboard: record it by re-saving the same `topic_key` with `state: "answered"` + the chosen option so the durable trail matches.
 - **Skip persistence** when the interview is purely conversational and the programmer has no dashboard — the bridge is a convenience view, not a requirement for the clarity gate.
 

@@ -118,9 +118,10 @@ The human's intent is fenced, not restated. The **frozen block** of a change
 is `briefing.md`'s `## Problem / Intent` + `## Purpose & Success Criteria`
 (including **Out of scope**) — the *what* the whole spec hangs from.
 
-**Freeze.** When the user approves the briefing (the brainstorm approval
-gate), the approver sets the briefing's `**Intent frozen:**` line to
-`yes (YYYY-MM-DD)`. From that line forward, the frozen block is **read-only
+**Freeze.** When the user approves the briefing — their own hand-edit of its
+STATUS banner to `approved` (the brainstorm approval gate, per
+`_shared/rules/sdd-structure.md` § STATUS Banner) — the agent sets the
+briefing's `**Intent frozen:**` line to `yes (YYYY-MM-DD)`. From that line forward, the frozen block is **read-only
 for agent steps** — blueprint, slicing, execute, test, ship may cite it, amend
 the sections *below* it (Context, Requirements, Implementation Decisions, …),
 but not edit the frozen sections themselves.

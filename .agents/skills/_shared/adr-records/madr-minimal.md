@@ -1,6 +1,6 @@
 # ADR entry template — madr-minimal
 
-> Write this file as `.skillgrid/projectwiki/decisions/04-adr-NNNN-slug.md`.
+> Write this file as `.skillgrid/projectwiki/decisions/NNNN-slug.md`.
 > Add one pointer row to the `## LOCKED` ADR index in `.skillgrid/projectwiki/ASSUMPTIONS.md`.
 > Do not paste this body into `ASSUMPTIONS.md`.
 

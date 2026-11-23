@@ -95,10 +95,13 @@ with low `use_count` from the usage sidecar.
 
 Load only the active phase's prompt and the references `references/pipeline/manifest.yaml` lists for it. Order is fixed. Phase 4 is never skipped, and no score is rendered before it.
 
+**The strict sequence is the only order.** The full chain is:
+`skillgrid → brainstorm → questioning → research → prototype → blueprint → slicing → execute → test → adversarial-authoring → drift → ship` (per `_shared/rules/sdd-structure.md` § Phase Order). A skill MUST NOT run unless every preceding skill has completed. The three delegated skills (`questioning`, `research`, `prototype`) run inline inside `brainstorm`/`blueprint` at their canonical position — they are not independent stops in the chain. `drift` is the single exception: it may run on demand at any point after `execute`. No divergence, no parallelism, no out-of-order revisits.
+
 | Phase | Owner skill(s) | Gate | Main outputs |
 |---|---|---|---|
-| Phase 0: Intake | onboarding (this skill, `references/pipeline/onboarding.md`) → `brainstorm` (questioning loop included) | `intake` | `config.yaml`, `state.yaml`, `projectwiki/ASSUMPTIONS.md`, `projectwiki/index.md`, `briefing.md`, `adr.md` |
-| Phase 1: Foundation | ADR records (`_shared/adr-records/`) + `research`/`prototype`/`sketch` (now blueprint Phase 1/4 when run via the blueprint) | `foundation` | `glossary/01-02`, `invariants/`, `entities/`, `concepts/`, `decisions/NNNN-*`, `findings.md` |
+| Phase 0: Intake | onboarding (this skill, `references/pipeline/onboarding.md`) → `brainstorm` (questioning via `skillgrid:questioning`) | `intake` | `config.yaml`, `state.yaml`, `projectwiki/ASSUMPTIONS.md`, `projectwiki/index.md`, `briefing.md`, `adr.md` |
+| Phase 1: Foundation | ADR records (`_shared/adr-records/`) + `skillgrid:research`/`skillgrid:prototype`/`sketch` (research and prototype delegated to standalone skills; sketch still inline in blueprint) | `foundation` | `glossary/01-02`, `invariants/`, `entities/`, `concepts/`, `decisions/NNNN-*`, `findings.md` |
 | Phase 2: Architecture | `blueprint` (5-phase plan + goldfish validation) | `blueprint-validation` | `blueprint.md` (validated) |
 | Phase 3: Drafting | `blueprint` Phase 5 (acceptance spec) → `slicing` → `ticketing` → execution | `user-gate-slice` | `acceptance.feature`, `tasks.md`, code |
 | Phase 4: Adversarial Audit | `qa` + `code-review`, fresh context | `qa-verdict` | `report.md` (QA half), `review.md` |

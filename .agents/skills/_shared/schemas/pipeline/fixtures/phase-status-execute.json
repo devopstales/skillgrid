@@ -1,0 +1,28 @@
+{
+  "schema": "skillgrid.phase-status/v1",
+  "contract": "skillgrid.pipeline/v1",
+  "authority": {
+    "change": "2026-11-23-pipeline-envelope",
+    "phase": "slicing",
+    "revision": "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+  },
+  "projection": {
+    "deepest_artifact": "tasks.md",
+    "artifacts": ["briefing.md", "blueprint.md", "acceptance.feature", "tasks.md"],
+    "banners": {
+      "briefing.md": "approved",
+      "blueprint.md": "approved",
+      "acceptance.feature": "approved",
+      "tasks.md": "sliced"
+    },
+    "edit_scope": ["src/envelope.ts", "test/envelope.test.ts"]
+  },
+  "next_transition": {
+    "kind": "execute",
+    "reason_code": "slice-approved",
+    "execute": {
+      "operation": "skillgrid:execute",
+      "next_step": "execute the waves in tasks.md per skillgrid:execute"
+    }
+  }
+}

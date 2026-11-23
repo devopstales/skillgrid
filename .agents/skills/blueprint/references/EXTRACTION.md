@@ -6,7 +6,7 @@
 
 A spec is `.skillgrid/change-specs/YYYY-MM-DD-<topic>/acceptance.feature`. It is a standard Skillgrid Markdown spec: the **structure** lives in Markdown headings and only the **Given/When/Then steps** live inside column-0 ` ```gherkin ` fences.
 
-Extraction **synthesizes** the Gherkin structure from the headings and copies fenced step lines verbatim, writing each `acceptance.feature` to `acceptance-tests/.extracted/<same-relative-path>/acceptance.feature`.
+Extraction **synthesizes** the Gherkin structure from the headings and copies fenced step lines verbatim, writing each `acceptance.feature` to `.skillgrid/acceptance-tests/.extracted/<same-relative-path>/acceptance.feature`.
 
 Discovery covers `.skillgrid/change-specs/`, anchored to the literal basename `acceptance.feature` — so other files in the change directory are excluded structurally.
 

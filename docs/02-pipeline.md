@@ -28,7 +28,7 @@ Solid edges are the happy-path pipeline. Dashed edges are cross-cutting skills r
 
 ### 1. Brainstorm
 
-Turn a raw idea into an approved design and spec. The agent questions the user until goal, scope, constraints, and tradeoffs are shared understanding. The interview converges on a **three-question test**: before declaring done, the agent writes the three questions it would ask next and predicts the answers — predictable all three means converged; the unpredictable one is the next question. Gates on explicit user approval before any implementation, at which point the briefing's intent sections are frozen (per `_shared/craft/review-ledger.md` § Frozen intent).
+Turn a raw idea into an approved design and spec. The agent questions the user until goal, scope, constraints, and tradeoffs are shared understanding. The interview converges on a **three-question test**: before declaring done, the agent writes the three questions it would ask next and predicts the answers — predictable all three means converged; the unpredictable one is the next question. Gates on explicit user approval — the user's own hand-edit of the briefing's line-3 STATUS banner (`draft` → `approved`), which the next phase checks before proceeding — at which point the briefing's intent sections are frozen (per `_shared/craft/review-ledger.md` § Frozen intent).
 
 **When to use:** before any creative work — creating features, building components, adding functionality, or modifying behavior.
 

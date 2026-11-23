@@ -4,9 +4,11 @@ The validation-seam dispatch protocol for blueprint review. Stages iterate
 under the sharpening loop in `goldfish-review-loop.md`; finding resolution
 runs per `goldfish-resolve.md`; harness capability and the freshness STOP
 rule live in `harnesses.md`. Persona briefs live in
-`.agents/skills/_shared/elephant-goldfish/` (the 7 review briefs:
-`zoom-out.md`, `comprehension.md`, `design-critic.md`, `structural.md`,
-`style.md`, `implementation-readiness.md`, `codebase-details.md`).
+`.agents/agents/goldfish.md` — one section per brief: the review lenses
+`## zoom-out`, `## comprehension`, `## design-critic`, `## structural`,
+`## implementation-readiness`, `## codebase-details`, plus `## synthesizer`
+and `## goldfish-diagnosis`. The protocol sections (R36/R37/R38) live in
+`_shared/craft/goldfish-protocol.md`.
 
 ## The five stages (R7)
 
@@ -14,29 +16,33 @@ One line per stage. The stage list is NOT a single combined prompt — each
 stage is a separate dispatch round against fresh subagents.
 
 - **Stage 5 — Initial Zoom Out** (target: full `blueprint.md`; YAGNI,
-  reuse, anti-weeds, altitude → dispatch `zoom-out.md` →
+  reuse, anti-weeds, altitude → dispatch `zoom-out` →
   `zoom_out_report.md`)
 - **Stage 6 — Comprehension Test** (target: `blueprint.md` + referenced
-  files; paraphrase first, self-containment → dispatch `comprehension.md`
+  files; paraphrase first, self-containment → dispatch `comprehension`
   → `comprehension_report.md`)
 - **Stage 7 — Critic Review** (target: `blueprint.md`, the *how*; dispatch
-  `design-critic.md` + `structural.md` + `style.md` — three fresh
-  subagents, one per brief, findings merged → `critic_report.md`)
+  `design-critic` + `structural` + `style` — three fresh
+  subagents, one per brief, findings merged → `critic_report.md`).
+  `style` has no brief file — dispatch as: prose/terminology/consistency
+  critic (audit vectors: vague phrasing, inconsistent terminology, broken
+  cross-references, duplicated statements that can drift, terminology not
+  matching the Terms section).
 - **Stage 8 — Intermediate Zoom Out** (target: full `blueprint.md`,
   re-read after Stages 6+7 fixes; catches altitude drift + scope creep
-  introduced by fixes — re-dispatch `zoom-out.md` as a *fresh* subagent,
+  introduced by fixes — re-dispatch `zoom-out` as a *fresh* subagent,
   not the Stage 5 one → `intermediate_zoom_out_report.md`)
 - **Stage 9 — Implementation Readiness** (target: `blueprint.md` task
   steps + codebase; actionability, codebase accuracy → dispatch
-  `implementation-readiness.md` + `codebase-details.md` + `style.md` →
+  `implementation-readiness` + `codebase-details` + `style` →
   `implementation_readiness_report.md`). Pass bar: the **Zero-Decision
-  Rule** in `implementation-readiness.md` — a Stage 9 failure blocks
-  slicing.
+  Rule** in the `implementation-readiness` brief — a Stage 9 failure
+  blocks slicing.
 
 After each stage's resolution the main agent folds findings inline — no
 synthesizer persona. The Consolidated preset's cross-stage dedup +
 traceability matrix is also main-agent work. R11 stage mapping:
-`style.md` is used by Stages 7 and 9 — not folded away.
+`style` is used by Stages 7 and 9 — not folded away.
 
 ## Presets (single-select, R8)
 

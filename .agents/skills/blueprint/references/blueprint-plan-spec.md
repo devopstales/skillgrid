@@ -66,8 +66,11 @@ Before defining tasks, derive the **`## Validation`** section from the
 spec's requirements — the plan's statement of *how it will be proven*, written
 before slicing. One row per in-scope requirement: the happy path, the edge,
 the failure mode; the check (a runnable command or a named gate); and the
-falsifier — the result that would falsify the plan. An out-of-scope row names
-what is deliberately not proven.
+the falsifier — the result that would falsify the plan. An out-of-scope row names
+what is deliberately not proven. The **Target** column carries the numeric
+performance/capacity value when the requirement is quantitative
+(e.g. `p95 < 200 ms at 1k rps`); otherwise `—`. A quantitative
+requirement without a target is a plan defect.
 
 - The **Check** column merges with the per-requirement test command (every
   in-scope requirement names a runnable signal before implementation).
@@ -162,39 +165,14 @@ no-placeholders rule: [task-structure.md](references/task-structure.md).
 ## Self-Review
 
 After the blueprint is fully drafted (section-by-section, per Phase 2) and
-re-run at Phase 6, look at the spec with fresh eyes and check the plan against
-it. This is a checklist you run yourself — not a subagent dispatch.
+re-run at Phase 6, run the two mechanical checks. This is a checklist you run
+yourself — not a subagent dispatch. The quality judgments (spec coverage,
+must-haves + validation coverage, one-way-door completeness, type
+consistency, wiki reconciliation) are the Goldfish pipeline's job — fresh-
+context reviewers catch them better than the author's own eyes (Stages 5,
+7, 9 of [goldfish-review.md](references/goldfish-review.md)).
 
-**1. Spec coverage:** Skim each section/requirement in the spec. Can you point
-to a task that implements it? List any gaps.
-
-**2. Must-haves coverage:** Does the Must-Haves section (truths, artifacts, key
-links) cover every spec requirement? If a spec requirement has no corresponding
-truth, artifact, or key link, the plan won't verify correctly — add it.
-
-**2. Must-haves + validation coverage:** does the Must-Haves section (truths, artifacts, key
-links) cover every spec requirement? If a spec requirement has no corresponding
-truth, artifact, or key link, the plan won't verify correctly — add it. Does
-`## Validation` carry a row for every
-in-scope spec requirement (happy / edge / failure / check / falsifier), with
-the check naming a runnable command or named gate? A requirement with no row
-is a plan defect — add the row. A `backstop` truth's held-out test must appear
-in its Check cell.
-
-**3. One-way-door completeness:** Are all hard-to-reverse decisions listed in
-the Must-Haves section AND tagged with `> ⚠ one-way:` on the task that
-implements them? If a migration, API change, or contract break is in a task but
-not flagged, add the tag.
-
-**4. Placeholder scan:** Search your plan for red flags — any of the patterns in
-[task-structure.md](references/task-structure.md) under "No Placeholders".
-Fix them.
-
-**5. Type consistency:** Do the types, method signatures, and property names
-you used in later tasks match what you defined in earlier tasks? A function
-called `clearLayers()` in Task 3 but `clearFullLayers()` in Task 7 is a bug.
-
-**6. Spec reconciliation:** re-read `briefing.md` and compare it against the
+**1. Spec reconciliation:** re-read `briefing.md` and compare it against the
 blueprint per [section-by-section.md](references/section-by-section.md) — a
 **contradiction** (the briefing decided a question, the blueprint decides it
 differently) is reported every time, quoting both; an **addition** (the
@@ -204,15 +182,12 @@ are listed first. Do NOT change the blueprint to match the briefing on your own
 — drafting reads code the brainstorm did not. If nothing diverges, say so in one
 line.
 
-**7. Wiki reconciliation (Phase 3 ran):** does the project wiki reflect every
-durable decision, research source, and technical detail the blueprint pins
-down? A `decisions/` ADR for each locked ADR-shaped choice, a `sources/` +
-`syntheses/` hub for each cited research result, an `architecture/` or
-`gotchas/` page for each pinned technical detail. A vault that has none of these
-is a document archive, not a wiki — `status --json` `by_type` skew is the tell.
+**2. Placeholder scan:** Search your plan for red flags — any of the patterns in
+[task-structure.md](references/task-structure.md) under "No Placeholders".
+Fix them.
 
 If you find issues, fix them inline. No need to re-review — just fix and move
-on. If you find a spec requirement with no task, add the task.
+on.
 
 ## Owed-Decision Gate (input coverage)
 
@@ -296,13 +271,13 @@ re-propose them.
 ### The Assumed block
 
 On **Build on the assumption**, write this block into `blueprint.md` directly
-after the header (before `## Must-Haves`), and set the header line
-`**Status: ASSUMED**` (replace the default `**Status: PROPOSED**`). The
+after the header (before `## Must-Haves`), and set the line-3 STATUS banner
+value to `assumed` (replace the default `proposed`). The
 assumed values in the task steps are the named content — no placeholders for
 them:
 
 ```markdown
-**Status: ASSUMED** — owes ratification (run `skillgrid:blueprint`
+**Assumed decision** — owes ratification (run `skillgrid:blueprint`
 with this blueprint as the topic to ratify)
 
 | | |
@@ -314,18 +289,19 @@ with this blueprint as the topic to ratify)
 ```
 
 Rules:
-- Only this gate (via option 3) creates an `ASSUMED` blueprint. Nothing else
-  sets the status.
+- Only this gate (via option 3) creates an `assumed` blueprint. Nothing else
+  sets that value.
 - The Assumed block records the assumption — it does NOT carry options,
   rationale, or alternatives. That content is written by Ratify.
-- `ASSUMED` never blocks execution, slicing, QA, or ship. It is surfaced
+- `assumed` never blocks execution, slicing, QA, or ship (it counts as
+  user-approved — created only at the user's Owed-Decision Gate). It is surfaced
   (WARNING, never CRITICAL) by `skillgrid:qa`, carried into the ship Return
   Envelope, and listed in the final `report.md` until ratified.
-- A blueprint stays `ASSUMED` through the whole change. Only Ratify clears it.
+- A blueprint stays `assumed` through the whole change. Only Ratify clears it.
 
 ## Ratify
 
-**When to use:** a change's blueprint carries `**Status: ASSUMED**` and the
+**When to use:** a change's blueprint carries STATUS `assumed` and the
 decision is now being deliberated — often phrased "ratify <feature>", or
 surfaced by `skillgrid:qa`'s decision-debt WARNING, the ship Return Envelope,
 or `skillgrid:reflect`'s report.
@@ -341,16 +317,16 @@ or `skillgrid:reflect`'s report.
    - **The assumption holds.** Fill in the real decision record in the
      change's `adr.md` (ADR + options considered + rationale, body per the
      `adr_style` template selected in `_shared/adr-records/README.md`), then
-     clear the flag: set the status line to
-     `**Status: PROPOSED**` (the build is still in flight) or
-     `**Status: ACCEPTED**` (built and verified). Delete nothing else.
+     clear the flag: set the banner to `proposed` (the build is still in
+     flight) or `accepted` (built and verified). Delete nothing else.
    - **The assumption was wrong.** Write a corrected blueprint (a new
      `.skillgrid/change-specs/YYYY-MM-DD-<topic>/blueprint.md` for the same
-     topic), mark the old one `**Status: SUPERSEDED by <new blueprint path>**`,
+     topic), mark the old one `superseded` in its banner
+     (`> **STATUS:** `superseded` (YYYY-MM-DD) — by <new blueprint path>`),
      and tell the user the build rests on a wrong assumption and should be
      redone against the corrected blueprint.
 
-**Never leave a blueprint ASSUMED after a ratify run.** Ratification is the
+**Never leave a blueprint `assumed` after a ratify run.** Ratification is the
 only path out of the state — that is what keeps an override honest without ever
 blocking the work.
 
@@ -367,12 +343,18 @@ findings resolve per [goldfish-resolve.md](references/goldfish-resolve.md).
 Stage reports commit under the change folder's `review/` directory.
 
 **User Review Gate** — the decide-then-fix loop: findings are routed back to
-the user *while the blueprint is still PROPOSED and cheap to change*; for each
+the user *while the blueprint's STATUS is still `proposed` and cheap to
+change*; for each
 finding the user decides the resolution path, the blueprint is updated to
 reflect it, and only the *final* updated blueprint is approved. On entering the
 gate, write `changes.<topic>.gate: blueprint-validation` to `state.yaml` and
 show the 30-second gate screen (User gate contract in
-`_shared/rules/sdd-structure.md`); wait for the user's decision.
+`_shared/rules/sdd-structure.md`); wait for the user's decision. Approval of
+the final blueprint is the user's own hand-edit of the line-3 STATUS banner —
+`proposed` → `approved (YYYY-MM-DD)`; the agent never writes `approved`.
+Confirm by re-reading line 3 from disk and quote the banner in your reply;
+further changes keep the banner at `proposed` (or `revised`) until the
+re-read flip.
 
 Never proceed to Phase 5/6 without the user approving the final blueprint. A
 critique surfaced only after the blueprint is committed — with no user decision
@@ -387,13 +369,13 @@ slicing is needed:
 
 | Condition | Action |
 |---|---|
-| Blueprint carries `Status: ASSUMED` and the decision is being deliberated | Run **Ratify**: assumption holds → fill `adr.md`, clear the flag to PROPOSED/ACCEPTED; wrong → corrected blueprint, old one `SUPERSEDED`, build redone against it. |
-| A blueprint is still `ASSUMED` after a ratify run | Not allowed — ratification is the only path out of the state. |
-| Goldfish review findings not dispositioned with a user decision | No Phase 5/6 — the user review gate runs while the blueprint is still PROPOSED and cheap to change. |
+| Blueprint banner is `assumed` and the decision is being deliberated | Run **Ratify**: assumption holds → fill `adr.md`, clear the flag to `proposed`/`accepted`; wrong → corrected blueprint, old one `superseded`, build redone against it. |
+| A blueprint is still `assumed` after a ratify run | Not allowed — ratification is the only path out of the state. |
+| Goldfish review findings not dispositioned with a user decision | No Phase 5/6 — the user review gate runs while the blueprint's STATUS is still `proposed` and cheap to change. |
 | 3+ tasks worth of work | Invoke `skillgrid:slicing` (vertical tickets, dependency edges, waves). |
 | 1–2 tasks | Skip slicing, execute directly. |
 | Large or high-risk blueprint (review escalation threshold) | Final review escalates to `skillgrid:code-review` fan-out (multi-reviewer), not the lightweight pass. |
-| A spec requirement has no truth/artifact/key link in Must-Haves | The plan won't verify correctly — add it before the self-review passes. |
+| A spec requirement has no truth/artifact/key link in Must-Haves | The plan won't verify correctly — add it before the Goldfish review. |
 | A requirement is missing from `## Validation` | Not publishable — the matrix covers the briefing or the slice descopeing it silently. |
 
 After the Goldfish review passes and the files are written (Phase 6), check if
@@ -404,6 +386,16 @@ break it into vertical tracer-bullet tickets with dependency edges and execution
 waves. Slicing produces `tasks.md` alongside the blueprint.
 
 **If the blueprint has 1-2 tasks** — skip slicing, execute directly.
+
+**Trigger `skillgrid:projectwiki` (Maintain mode)** — the run wrote ADRs
+(R26 + Phase 3 late-surfacing decisions), research sources/syntheses, and
+architecture pages; invoke the projectwiki skill to complete the vault
+update: same-edit rule (`projectwiki index` after every page write),
+`log.md` lines for each action, ADR `## Related` blocks where missing, and
+the ship gate (`projectwiki index` → `validate` → `lint` → `status --json`
+with no new findings). This runs BEFORE the handoff below and never skips:
+a vault whose index lags the pages it just received is an incomplete
+handoff.
 
 **Update `state.yaml`:** set `changes.<topic>.phase: blueprint` (the entry was
 created by brainstorming; if it's missing, add it with `status: in_progress`).
@@ -456,7 +448,7 @@ Per `_shared/craft/measurement.md`.
 | "I'll skip the one-way-door checkpoints, they're slow" | A one-way decision is expensive to undo; the `> ⚠ one-way:` stop is the only gate that surfaces a migration or contract break before the build commits to it. |
 | "Each task is small, granularity rules don't matter" | Right-Sizing + Bite-Sized Granularity keep every task an independently testable deliverable with its own review gate — a vague task is one a reviewer can't reject or approve. |
 | "That's just wiring — I'll decide it during execution" | The build model rationalizes real decisions as wiring and buries the choice in code. If a value's source isn't named in the blueprint, the Owed-Decision Gate says it is owed. Resolve it, or record it as Assumed — don't invent it mid-build. |
-| "The Assumed flag will get in the way later" | An `ASSUMED` blueprint never blocks execution, QA, or ship. What blocks later is the *silent* decision — the one that lived only in chat and got re-guessed by the next session. The flag is cheap insurance that the assumption stays visible until it's ratified. |
+| "The Assumed flag will get in the way later" | An `assumed` blueprint never blocks execution, QA, or ship. What blocks later is the *silent* decision — the one that lived only in chat and got re-guessed by the next session. The flag is cheap insurance that the assumption stays visible until it's ratified. |
 | "Research is overkill for this change" | Phase 1 is for facts not in the codebase. If the design rests on a library's current API or a version's behavior, the blueprint cites `findings.md` — a fact your codebase *assumes* still gets re-verified against the source that owns it. |
 | "The wiki is a nice-to-have, I'll skip Phase 3" | The wiki is the durable, cross-change knowledge that outlives the change. A blueprint that locks in an ADR-shaped decision or pins a non-obvious technical detail without filing it leaves the vault an archive, not a wiki — the next session re-derives it. |
 | "I'll keep the prototype code, it's almost production-ready" | A prototype's output is an answer + a liftable pure module. Keeping the *demo* is a new request — classify it as a feature and go through the normal flow. |
@@ -469,8 +461,8 @@ Per `_shared/craft/measurement.md`.
 - A task contains a placeholder (TBD, "implement later", "similar to Task N") — No Placeholders is violated.
 - A task is not independently testable, or two tasks share a file edit with no ordering — not a vertical tracer bullet.
 - A one-way-door decision (migration, contract break, data model) has no `> ⚠ one-way:` stop.
-- A task step uses a value whose source is named nowhere in the blueprint and no `ASSUMED` block covers it — an owed decision passed the gate.
-- An `ASSUMED` block with an empty "Assumption built on" cell — the assumption must be concrete, not "TBD".
+- A task step uses a value whose source is named nowhere in the blueprint and no Assumed block covers it — an owed decision passed the gate.
+- An Assumed block with an empty "Assumption built on" cell — the assumption must be concrete, not "TBD".
 - The Must-Haves / Goal-Backward Verification section is missing or empty — the verifier has nothing to check against.
 - A task's scope exceeds one fresh agent context window with no split proposed.
 - A design decision rests on a research fact, feasibility result, or chosen layout that is not cited in `findings.md` (Phase 1/4 ran but the citation is missing).
@@ -508,16 +500,17 @@ Per `_shared/craft/measurement.md`.
 - [ ] **Phase 5** — `acceptance.feature` exists in the change folder,
       passes the Gherkin parse (dry-run) and gherkin-lint with 0 errors,
       every requirement has ≥1 `happy path` + `edge` + `failure` scenario,
-      and the Section Approval Gate on the spec was approved.
+      and the line-3 STATUS banner is `approved` (user hand-edit, re-read from
+      disk, banner quoted).
 - [ ] **Phase 6** — the final `blueprint.md` and `acceptance.feature` are
-      committed; the Self-Review
-      (all checks including validation-matrix coverage and wiki reconciliation) ran; the Goldfish review
+      committed; the Self-Review (two mechanical checks: Spec Reconciliation +
+      Placeholder scan) ran; the Goldfish review
       produced a verdict — READY FOR EXECUTION (findings resolved or parked per
       the loop), not NEEDS REVISION; the user-decide-then-fix loop ran and the
       final blueprint was approved.
 - [ ] The Owed-Decision Gate (input coverage check) ran: every value the build
       must produce has a named source, or the blueprint carries a filled
-      `ASSUMED` block (no empty cells).
+      Assumed block (no empty cells).
 - [ ] The Must-Haves (Goal-Backward Verification) section is present and covers
       every spec requirement with verifiable truths, artifacts, and key links.
 - [ ] A placeholder scan (the No Placeholders patterns) returns zero hits across

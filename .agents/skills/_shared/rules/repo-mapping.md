@@ -5,8 +5,9 @@ pages that map a repository subtree. Home: `architecture/` (projectwiki
 page type `Architecture`). Consumed by `execute` Step 5 (scoped refresh,
 automatic) and by `projectwiki` Maintain (full map, on demand).
 
-Scouts run under [rules/scout-contract.md](scout-contract.md). Multi-scout
-runs are gated by [planning/fan-out-gate.md](../planning/fan-out-gate.md).
+Scouts run under [rules/scout-contract.md](scout-contract.md), the `scout`
+persona (`.agents/agents/scout.md`). Multi-scout runs are gated by
+[planning/fan-out-gate.md](../planning/fan-out-gate.md).
 The deterministic scope computation is
 [scripts/map-scope.mjs](../scripts/map-scope.mjs) — the agent decides
 *whether* to map; the script owns *what* to map.

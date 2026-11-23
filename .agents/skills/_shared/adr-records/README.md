@@ -47,7 +47,7 @@ shape:
 ## The IRON RULE — never delete an ADR file
 
 An accepted ADR file is a frozen historical record. To change a decision,
-author a NEW `decisions/04-adr-NNNN-slug.md` whose `status` is `accepted` and
+author a NEW `decisions/NNNN-slug.md` whose `status` is `accepted` and
 whose `supersedes` names the prior one, explain in its Context *why* the prior
 decision is being revisited, and flip the prior row in the `## LOCKED` ADR
 index to "In force: no". Consumers derive what is **currently in force** from
@@ -60,7 +60,7 @@ is flipped. The file is never removed.
 Sequential 4-digit: `0001`, `0002`, etc. Scan the `## LOCKED` ADR index (its
 "Highest sequence in use" line) for the highest existing number and increment
 by one; the sequence is monotonic and never reused. In a multi-context repo,
-prefix the slug with the context (`04-adr-0003-<context>-….md`). Every new or
+prefix the slug with the context (`0003-<context>-….md`). Every new or
 superseding ADR gets a pointer row in the `## LOCKED` ADR index in the same
 edit — a short description + the path; `status`/`supersedes`/`date` live in
 the file's frontmatter, not the row.
@@ -109,7 +109,7 @@ date: 'YYYY-MM-DD'
 status: accepted
 ---
 
-Source: `.skillgrid/projectwiki/decisions/04-adr-NNNN-slug.md`
+Source: `.skillgrid/projectwiki/decisions/NNNN-slug.md`
 
 <verbatim artifact file>
 ```
@@ -117,7 +117,7 @@ Source: `.skillgrid/projectwiki/decisions/04-adr-NNNN-slug.md`
 - The artifact is the record. If the copy disagrees, recopy from the artifact.
 - A new ADR → a new decision file. A superseding ADR → a new decision file
   **and** set the prior copy's `status` to `superseded`. Do not delete a copy.
-- Onboarding copies any `04-adr-*.md` that has no matching `decision-NNN`
+- Onboarding copies any `*.md` that has no matching `decision-NNN`
   file.
 - Other trackers (`gh` / `glab` / `jira`) do not get a copy.
 
@@ -129,5 +129,5 @@ Source: `.skillgrid/projectwiki/decisions/04-adr-NNNN-slug.md`
 | "The decision is obvious, skip the ADR" | Obvious *now* is not obvious to the future reader. If it's hard to reverse and surprising without context, it's an ADR. |
 | "I'll write the ADRs after the fact in bulk" | The manifest runs at the end of the interview, *before* the blueprint. Bulk-writes miss the in-force set and the `supersedes` trail. |
 | "I'll just bump the status on the old ADR" | Status is immutable on an accepted ADR file. A superseding file sets its own `status: accepted`; the prior file is untouched. |
-| "I'll add it to the terms instead — it's faster" | The terms files are a vocabulary, not a decision record. Decisions live as `decisions/04-adr-NNNN-slug.md` with a pointer row in the `## LOCKED` ADR index. |
+| "I'll add it to the terms instead — it's faster" | The terms files are a vocabulary, not a decision record. Decisions live as `decisions/NNNN-slug.md` with a pointer row in the `## LOCKED` ADR index. |
 | "I'll paste the body into ASSUMPTIONS.md" | `ASSUMPTIONS.md` stores the path. The body is the file. |

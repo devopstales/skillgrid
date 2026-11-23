@@ -1,9 +1,10 @@
 # Setup
 
 Loaded on demand from `execute` SKILL.md before dispatching Task 1:
-workspace creation, the progress ledger, the commit position, and the
-pre-flight conflict scan. The Status Guard and the gate subsections stay in the
-main file; this is the detailed setup procedure.
+workspace creation, the progress ledger, the commit position, the
+worktree-placement self-check, and the pre-flight conflict scan. The Status
+Guard and the gate subsections stay in the main file; this is the detailed
+setup procedure.
 
 ## Isolated workspace
 
@@ -53,6 +54,19 @@ only in todos.
   off — use both.
 - `git clean -fdx` will destroy the workspace (it's git-ignored scratch); if
   that happens, recover from `git log`.
+
+## Worktree placement self-check
+
+Before the first commit in a newly created worktree, verify the worktree lives
+where the shared contract says worktrees live (`_shared/work-unit-commits/README.md`
+§ Worktree root + detection): `<project-root>/.worktree/<name>`. Resolve the
+worktree's real path (`git worktree list --porcelain`) and assert it starts
+with the project root followed by `.worktree/`. A worktree under a **sibling**
+of the project root (e.g. `<project-root>-<branch>` next to the checkout), a
+path outside the repo root, or any tool default layout is a placement error —
+STOP, report the actual path, and recreate under the standard root before any
+work. `git worktree add` does not enforce the root; it creates wherever the
+path says.
 
 ## Read the plan
 

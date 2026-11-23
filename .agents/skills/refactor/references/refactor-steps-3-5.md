@@ -47,7 +47,8 @@ one clear.
 4. **For a high-complexity file (cx ≥ 50) where the split isn't obvious, run
    design-it-twice.** Per `skillgrid:codebase-design`'s
    [DESIGN-IT-TWICE.md](../codebase-design/DESIGN-IT-TWICE.md): spawn 2–3
-   subagents in parallel, each producing a **radically different**
+   subagents in parallel under the `decomposer` persona
+   (`.agents/agents/decomposer.md`), each producing a **radically different**
    decomposition of the file (one minimizing the public interface, one
    maximizing testability through a seam, one optimizing for the most common
    caller). Compare them on **depth** (leverage at the interface), **locality**
@@ -71,10 +72,11 @@ one clear.
 Before declaring the pass done, the **major conclusions** — the handful of
 structural claims the pass actually rests on ("this module is safe to
 delete", "these two files are safe to merge", "this split reduces complexity")
-— get a **fresh-context red-team pass** per `skillgrid:code-research`'s
-red-team discipline. A skeptic subagent is given the conclusion and a search
-budget, but **no supporting evidence and no run context** — its job is to find
-the evidence the conclusion is wrong:
+— get a **fresh-context red-team pass** per `skillgrid:research`'s
+red-team discipline, under the `red-team-skeptic` persona
+(`.agents/agents/red-team-skeptic.md`). A skeptic subagent is given the
+conclusion and a search budget, but **no supporting evidence and no run
+context** — its job is to find the evidence the conclusion is wrong:
 
 - the deleted "dead" module that a string-based router, a test, or a plugin
   still reaches

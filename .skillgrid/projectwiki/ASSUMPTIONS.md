@@ -63,6 +63,7 @@ LOCKED (ADR index — pointer rows only), Open Questions.
 | Tree-sitter in pure Go (`odvcencio/gotreesitter`), not a CGo binding — no CGo anywhere in the default build | `decisions/0013-pure-go-treesitter.md` |
 | One embedding space across tools — same model + dim per project; code and memory vectors comparable; no cross-domain fusion in v1 | `decisions/0014-unified-embedding-space.md` |
 | Go module path — `github.com/devopstales/skillgrid/mnemonic` (same path as the old module; branch handover) | `decisions/04-adr-0012-go-module-path.md` |
+| CGO-free stack — `ncruces/go-sqlite3` v0.38 + official `ext/vec1` (tag `sqlitevec`) + `knights-analytics/hugot` GoMLX (tag `onnx`); brute-force BLOB floor; spikes passed 2026-11-23 (asg017 vec0 binding refuted) | `decisions/04-adr-0015-cgo-free-stack-selection.md` |
 
 ## Open Questions
 
@@ -72,8 +73,7 @@ LOCKED (ADR index — pointer rows only), Open Questions.
 - Does the family want a shared `@devopstales/pi-*` manifest
   convention doc (first plugin sets the precedent)?
 - Where does `wt` live? (not on PATH at spec time)
-- Embedding + vec stack selection — research (2026-11-23, `findings.md`) named
-  `knights-analytics/hugot` Go backend (GoMLX) and
-  `ncruces/go-sqlite3` + `sqlite-vec-go-bindings/ncruces`; the v0.2 spike
-  must demonstrate MiniLM end-to-end on the Go backend (opset + latency) and
-  vec0+FTS5 in one CGO-free build.
+- ANN mechanism for the `code` tool at 10⁴–10⁵ chunk scale — vec0 (locked
+  stack, ADR-0015) is the default; confirm the speed target (T7) at that
+  scale during the code tool's spike, before committing to a cover/IVF
+  alternative.
