@@ -49,8 +49,8 @@ LOCKED (ADR index — pointer rows only), Open Questions.
 | Local ONNX CPU model is the default embedder tier; API (Ollama-compatible) opt-in; hash-64 floor | `decisions/0006-local-onnx-default-embedder.md` |
 | Single handler, two adapters — CLI + MCP over one Handler, byte-identical envelopes (K6 parity) | `decisions/0007-single-handler-two-adapters.md` |
 | v1 = memory core only — code/web tools, serve, projectwiki, team_*, LLM curator, importer explicitly deferred | `decisions/0008-memory-core-only-v1.md` |
-| Concurrency: WAL + busy_timeout only — no leases, no write daemon in v1 | `decisions/0009-wal-only-concurrency.md` |
-| Multi-tool binary — `mnemonic <tool> <verb>`, per-tool MCP servers, top-level init/doctor | `decisions/0010-multi-tool-binary.md` |
+| Concurrency: WAL + busy_timeout only — no leases, no write daemon in v1 | `decisions/04-adr-0009-wal-only-concurrency.md` |
+| Multi-tool binary — `mnemonic <tool> <verb>`, per-tool MCP servers, top-level init/doctor | `decisions/04-adr-0010-multi-tool-binary.md` |
 | Degradation contract — `degraded: true` never silent; floors never block save/search | `decisions/04-adr-0011-degradation-contract.md` |
 | Go module path — `github.com/devopstales/skillgrid/mnemonic` (same path as the old module; branch handover) | `decisions/04-adr-0012-go-module-path.md` |
 
