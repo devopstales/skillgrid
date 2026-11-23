@@ -150,3 +150,28 @@ none (re-graded by consequence to the end user — no data loss, no git-state co
 ## Human Override
 
 - **Override:** none. The `qa-verdict` gate decisions (A=wire, E=fix, bench=accept) are applied in `f1b58b8`.
+
+## Final Score (Phase 6)
+
+Eight dimensions scored 1–10 against a named artifact, combined by weight, floored by the weakest load-bearing dimension.
+
+| # | Dimension | Wt | Score | Justification |
+|---|---|---|---|---|
+| 1 | Spec fit | 2 | 9 | all 13 acceptance scenarios pass + the implied edge cases are tested (non-ASCII, rename, unborn-HEAD, resume, before-restore); a few benign edge cases deferred (B3/C/F) |
+| 2 | Test evidence | 2 | 9 | 48/48 name behavior and fail for the right reason; e2e 6/6; command + output recorded |
+| 3 | Code health | 1.5 | 8 | small functions, jscpd 1.66% (advisory); `runWorktrunk` is long (~200 lines) |
+| 4 | Security | 1.5 | 8 | trust boundaries named (argv not shell, directive validation), trivy 0, approval via PTY; the wt piped-interactive limitation documented |
+| 5 | Review axes | 1 | 9 | 5 independent lenses (independence A); every axis passes, no open CRITICAL/WARNING (A/E fixed) |
+| 6 | Operability | 1 | 8 | one-command build (`npm pack`), config documented, actionable errors; a Pi plugin (no server) |
+| 7 | Change safety | 0.5 | 8 | rollback = revert the plugin commits; scope within plan (11 tickets + 2 fix passes) |
+| 8 | Handoff | 0.5 | 8 | README + CHANGELOG present; the plugin is the reference implementation |
+
+Calibrated score = (9·2 + 9·2 + 8·1.5 + 8·1.5 + 9·1 + 8·1 + 8·0.5 + 8·0.5) / 10 = **8.5**. Weakest load-bearing dimension = 8 (0.5 below target), with accepted fixes (the deferred DW items) → floor **met-with-fixes**.
+
+```
+Completeness: complete
+Review: met-with-fixes
+Score: 8.5 / target 8.5 (grade A)
+Gates: QA PASS · Scope PASS · Ship PENDING (ship-decision gate)
+Independence: A — isolated-subagent
+```

@@ -43,6 +43,9 @@ _(none yet)_
 | Page | Summary |
 |---|---|
 | `fts5-external-content-upsert.md` | FTS5 external-content triggers desync on the `topic_key` upsert/revision (UPDATE) path — cover INSERT/UPDATE/DELETE, regression-test it |
+| `git-cquote-non-ascii-paths.md` | git C-quotes non-ASCII paths in `--porcelain` output; spawn with `-c core.quotePath=false` + unquote, else `JSON.parse` throws on octal escapes |
+| `wt-piped-runtime-non-interactive.md` | wt 0.50.0 piped (no-TTY) runtime silently skips unapproved hooks (exit 0) and `--yes` can't confirm from a pipe — probe `wt hook <phase>`, store approvals under a PTY (`script -qec …`) |
+| `git-writetree-dirty-index-cache-tree.md` | `git write-tree` on a dirty/staged index persists the cache-tree extension — the index file is not byte-identical even when the tree SHA is unchanged |
 
 ## entities/
 

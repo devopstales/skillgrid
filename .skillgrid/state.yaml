@@ -35,9 +35,9 @@ changes:
         - "gotreesitter version pin (predecessor v0.55.1 vs current
           v0.58.0)"
   2026-11-22-pi-worktree-plugin:
-    phase: "score"
+    phase: "ship"
     status: in_progress
-    gate: ""
+    gate: "ship-decision"
     verdict: PASS
     autonomy: check-in
     genesis:
@@ -50,8 +50,9 @@ changes:
       audit_status: ""
       passes:
         review: 1
-        score: 0
+        score: 1
       quality_target: 8.5
+      score: 8.5
       panel: []
       decisions:
         - "QA verdict CONCERNS then PASS (2026-11-23): 11 review findings

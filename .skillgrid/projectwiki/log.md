@@ -104,3 +104,25 @@ intake). The code tool's briefing inherits the corrected CGO-free stack from
 the parallel session's `2026-11-23-mnemonic-core/findings.md` (hugot GoMLX
 backend, ncruces/go-sqlite3, sqlite-vec-go-bindings/ncruces). Next: Goldfish
 shootdown readiness gate → 7 fresh lenses → ADR manifest + briefing.
+
+## [2026-11-23] ship | pi-worktree plugin — Phase 7 editorial package + archive
+
+The `@devopstales/pi-worktree` plugin (the worktree-standard reference
+implementation) reached **PASS** at the qa-verdict gate and shipped to
+`change-archive/2026-11-22-pi-worktree-plugin/`.
+
+- **Gate decision (A=wire, E=fix, bench=accept):** the three core invariants
+  (R7 `applyMergeDefaults`, R8 `checkBranchAllowList`, R9 `observeWorktreeRoot`
+  via `isWorktreeContext`) are wired into `runWorktrunk`; the R10 wt-approval
+  flow is fixed (probe `wt hook <phase>` for the piped exit-0 case, store under
+  a PTY via `script -qec`, core `handleWtApproval` ask→store→retry-once). Both
+  are in plugin commit `f1b58b8` on top of the 11-ticket build `f548ef8` +
+  fix-pass `9376e19`.
+- **Evidence:** `bun test` 48/48, `e2e` 6/6, trivy 0, jscpd 1.66% (advisory),
+  drift guard green. Score **8.5 / target 8.5 (grade A)**, floor
+  met-with-fixes (3 gotchas deferred as DW with re-entry paths).
+- **3 durable gotchas** reflected to `gotchas/`: git C-quoting of non-ASCII
+  paths, wt's piped non-interactive runtime, and `write-tree`'s cache-tree
+  index side effect.
+- **Rollback:** `git reset --hard f548ef8^` in the plugin repo (the plugin is a
+  standalone repo under `.worktree/`); spec-zone = revert the skillgrid commits.
