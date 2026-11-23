@@ -94,6 +94,13 @@ changes:
           2026-11-22); chain.strategy stored as stacked-to-main"
         - "tier default T1 (programmer, 2026-11-22); the plugin change
           stays T2 per its blueprint"
+        - "shipped to plugins/omp/pi-worktree (2026-11-23): built in a
+          throwaway worktree repo, now committed to the main repo at 5397690
+          and the build worktree (.worktree/pi-worktree-wf_t5) removed. Two
+          observeWorktreeRoot tests got a 15000ms timeout bump (git worktree
+          add flaked bun's 5s default under load). NOTE: the 2026-11-22
+          override above named plugins/pi/pi-worktree; the final location is
+          plugins/omp/pi-worktree per the programmer (2026-11-23)."
       open_questions:
         - "pin exact minimum wt version for the directive
           protocol (wt 0.50.0 verified on PATH 2026-11-22)"
