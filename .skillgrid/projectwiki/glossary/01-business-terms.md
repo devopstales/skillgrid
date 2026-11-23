@@ -21,7 +21,9 @@ One meaning per term. Do not use a synonym in its place.
 | Term | Definition | Use when | Avoid |
 |---|---|---|---|
 | **Program** | The software being built. | The product scope, README, delivery. | "book", "manuscript", "sourcecode" (one word). |
-| **Change** | One self-contained pipeline unit under `.skillgrid/change-specs/<topic>/`, from briefing to archive. | Referring to the unit of work end to end. | "ticket" (a smaller slice), "PR" (an integration artifact). |
+| **Change** | An object containing a briefing and a blueprint, one self-contained pipeline unit under `.skillgrid/change-specs/<topic>/`, from briefing to archive. | Referring to the unit of work end to end. | "ticket" (a smaller slice), "PR" (an integration artifact). |
+| **Briefing** | The requirements document of a change (`briefing.md`): falsifiable requirements, goal, scope, and the interview's clarity report. | Referring to the requirements half of a change. | "brief" (a per-ticket execution summary), "spec" (too generic). |
+| **Blueprint** | The technical plan of a change (`blueprint.md`): the design, architecture, and implementation approach derived from the briefing. | Referring to the technical plan half of a change. | "plan" (too generic), "spec" (too generic), "design doc" (informal). |
 | **Work unit** | A slice of a change that can ship as one focused commit or PR, with its own test and rollback boundary. | Slicing, execution waves, PR planning. | "chapter", "step" (overloaded with SDD steps). |
 | **Ticket** | The tracker record for a work unit (Backlog.md, GitHub, GitLab, Jira). | Ticketing, dependency edges, status transitions. | "task" when the tracker record is meant; "change" (broader). |
 | **Phase** | A named stage of the pipeline (`briefing`, `blueprint`, `acceptance`, `slicing`, `execution`, `qa`, `review`, `ship`, `reflect`). | State, routing, checkpoints. | "step" (tickets and SDD steps are different). |
