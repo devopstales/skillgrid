@@ -1,0 +1,10 @@
+created: 2026-11-22
+title: Skillgrid scratch checkpoints and worktrunk runner for pi sessions
+intro: >-
+  This release adds turn-level scratch checkpoints of the worktree
+  (`refs/skillgrid/`, safe decision-gated restore) and a Worktrunk runner with
+  linked-session movement, no-replay recovery, skillgrid branch allow-listing,
+  and `--no-squash --no-commit` merge defaults, so pi sessions follow the
+  skillgrid worktree standard instead of restating it.
+source:
+  mode: sync-stable-queue

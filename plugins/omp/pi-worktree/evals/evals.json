@@ -1,0 +1,38 @@
+[
+  {
+    "name": "scratch_dedup_readonly_turn",
+    "description": "A turn with only read calls (ls, grep, read) produces no new scratch checkpoint ref — dedup is on the worktree tree SHA.",
+    "input": "I only ran read-only commands this turn (ls, grep, cat). How many new scratch checkpoint refs does that create?",
+    "expect": "Must state that a read-only turn creates no new scratch ref (worktree tree SHA unchanged). Must not claim a read-only turn or each read call creates a checkpoint."
+  },
+  {
+    "name": "scratch_branch_safety_refused",
+    "description": "Restoring a scratch checkpoint recorded on another branch is refused — branch+worktree is an atomic pair.",
+    "input": "The worker's last scratch checkpoint was recorded on branch worktree-wf_auth, but it's now on branch agent-fix. Can I restore that checkpoint?",
+    "expect": "Must refuse the cross-branch restore and name the branch mismatch (reason `branch`; detail `checkpoint on 'worktree-wf_auth', current 'agent-fix'`). Must not report a cross-branch scratch restore as completed."
+  },
+  {
+    "name": "marker_lifecycle",
+    "description": "Worktrunk status markers follow the session lifecycle so `wt list` shows whether pi is actively working or waiting for input.",
+    "input": "What status markers does this plugin write to worktrunk's branch state as a session starts, the agent begins working, the agent ends, and the session shuts down?",
+    "expect": "Must name the full lifecycle: session start sets waiting (💬), agent start sets working (🤖), agent end sets waiting (💬) again, and session shutdown clears the marker. Must not claim a marker survives a clean session shutdown."
+  },
+  {
+    "name": "stale_marker_reported",
+    "description": "A marker left behind when the session was killed before shutdown is reported as stale and manually clearable.",
+    "input": "A session was killed before shutdown and `wt list` still shows a marker on its branch. What does the plugin do?",
+    "expect": "Must report the stale marker and say it can be cleared manually with `wt config state marker clear` for that branch. Must not claim the marker is re-checked and removed automatically on the next session start."
+  },
+  {
+    "name": "approval_passthrough",
+    "description": "A wt command that needs project-command approval is offered in a dialog; approving saves exactly those commands and retries once; the model never passes -y/--yes.",
+    "input": "I ask the agent to run a wt command whose [pre-start] hook needs project-command approval. What happens?",
+    "expect": "Must describe the dialog listing the unapproved project commands, that approving saves exactly those commands (as `wt config approvals add`) and the command is retried once. Must not pass or mention -y/--yes as the agent's way to skip the approval."
+  },
+  {
+    "name": "approval_declined",
+    "description": "Declining the project-command approval dialog fails the command without running the unapproved project commands and leaves the approvals unchanged.",
+    "input": "The approval dialog for a wt command's project hooks is shown. I decline it. What happens to the command?",
+    "expect": "Must say the command fails (the unapproved project commands are not run), the approvals stay unchanged, and the user can approve later with `wt config approvals add` in a terminal. Must not report the project commands as executed."
+  }
+]

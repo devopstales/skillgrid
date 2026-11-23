@@ -1,0 +1,25 @@
+{
+  "name": "@devopstales/pi-worktree",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "files": ["src/", "references/"],
+  "pi": {
+    "extensions": ["./src/scratch.ts", "./src/wt.ts"]
+  },
+  "engines": {
+    "pi": ">=0.99.1"
+  },
+  "scripts": {
+    "test": "bun test",
+    "bench": "bun run tests/bench.ts"
+  },
+  "devDependencies": {
+    "bun-types": "latest"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^1.6.0",
+    "@earendil-works/pi-tui": "1.6.0",
+    "typebox": "1.3.27"
+  }
+}
