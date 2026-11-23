@@ -126,3 +126,30 @@ implementation) reached **PASS** at the qa-verdict gate and shipped to
   index side effect.
 - **Rollback:** `git reset --hard f548ef8^` in the plugin repo (the plugin is a
   standalone repo under `.worktree/`); spec-zone = revert the skillgrid commits.
+
+## 2026-11-23 — Brainstorm complete: Goldfish shootdown + briefing (mnemonic-code)
+
+All 7 Goldfish lenses completed (fresh `reviewer` subagents, R37 isolation,
+Mode BRAINSTORM): 3 🔴 / 38 🟡 / 13 🟢 raw → deduplicated to 16 🟡 groups +
+🟢 nits. Blockers all resolved at user gates: B1 (model swap strands corpus)
+→ two-phase model stamp + coverage backfill; B2 (first index hours) →
+batch-32 backfill + synchronous structural phase / background embedding
+(spike-corrected: 81 ms/sentence non-simd → ~54 min for 40k items, not the
+original 5.5–22 h estimate); B3 (tier degradation invisible) → persisted
+per-language tiers + span-free uids + counted cascade. Q5 machinery
+re-confirmed after evidence: LSP **keep** (real JSON-RPC client in v1,
+despite the prod-stub finding), watch **keep** with fixes (hash-confirm,
+death reporting, non-blocking re-index, re-embed on change). Wrote
+`change-specs/2026-11-23-mnemonic-code/briefing.md` (STATUS `draft`,
+R1–R13 with acceptance scenario pointers, approaches A–E, pre-mortem,
+timebox with query-core shrink slice, 16 🟡 + nits recorded) and `adr.md`
+manifest (in-force: 0001/0002/0003–0011 + 0015 + 04-adr-0012; new durable:
+0013, 0014; supersessions: none). Inherited verified stack from
+`2026-11-23-mnemonic-core/findings.md` (hugot v0.8.6 GoMLX, ncruces v0.38.0
++ ext/vec1 + ext/fts5, go ≥ 1.27; asg017 vec0 binding not adopted).
+Open questions for the blueprint gate: v1 language set, gotreesitter pin,
+memory-core tag/commit pin, two-domain model eval (at arrival), skill-flip
+spec, code-domain latency SLO. Note: questioning exit-check clarity scores
+were not recorded; the clarity gate passed by user confirmation at the
+interview close + readiness gate. Next: user approves the briefing
+(hand-edit STATUS → `approved`) → phase intake→blueprint.
