@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devopstales/skillgrid.git"
+  },
+  "homepage": "https://github.com/devopstales/skillgrid/tree/main/plugins/omp/pi-worktree",
   "files": ["src/", "references/"],
   "pi": {
     "extensions": ["./src/scratch.ts", "./src/wt.ts"]

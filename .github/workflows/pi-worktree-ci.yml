@@ -1,0 +1,43 @@
+name: pi-worktree CI
+
+# Build + test for @devopstales/pi-worktree (plugins/omp/pi-worktree).
+# Modeled on ../skill-pi/.github/workflows/ci.yml, adapted for a single
+# bun-based package: bun for install/test, worktrunk (wt) installed so the
+# wt-dependent unit tests run instead of skipping. The e2e session smoke
+# (tests/e2e.sh) needs a live LLM endpoint, so it runs via `task e2e`
+# locally, not here. Publication is via `task publish` (GitHub Packages).
+
+on:
+  push:
+    branches: [main]
+    paths: ["plugins/omp/pi-worktree/**"]
+  pull_request:
+    paths: ["plugins/omp/pi-worktree/**"]
+
+concurrency:
+  group: pi-worktree-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugins/omp/pi-worktree
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: file:plugins/omp/pi-worktree/.bun-version
+      # worktrunk (wt) on PATH so the wt-dependent unit tests run
+      - uses: Homebrew/setup-brew@v3
+      - run: brew install worktrunk
+      - run: bun install --frozen-lockfile
+      - run: bun test
+      - run: bun test --coverage --coverage-reporter=lcov
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pi-worktree-coverage
+          path: plugins/omp/pi-worktree/coverage/
+          retention-days: 14

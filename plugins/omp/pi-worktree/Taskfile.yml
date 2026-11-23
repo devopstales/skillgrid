@@ -1,0 +1,81 @@
+version: "3"
+
+# Build & publication for @devopstales/pi-worktree.
+#
+# Modeled on ../skill-pi/Taskfile.yml, adapted for a single bun-based
+# package (no npm workspaces): bun for install/test, npm for pack/publish
+# to GitHub Packages — bun 1.4.x has no `bun pack` / `bun publish`, so
+# publication goes through npm (which reads the .npmrc below for the
+# registry + token).
+
+tasks:
+  install:
+    desc: "Install dependencies (frozen lockfile)"
+    cmds:
+      - bun install --frozen-lockfile
+
+  test:
+    desc: "Run the unit test suite (wt tests skip if wt is absent)"
+    cmds:
+      - bun test
+
+  e2e:
+    desc: "Run the end-to-end session smoke (needs pi + wt on PATH)"
+    cmds:
+      - bash tests/e2e.sh
+
+  build:
+    desc: "Unit test gate that runs before publish"
+    cmds:
+      - task: test
+
+  pack:
+    desc: "Create the .tgz package (no upload)"
+    cmds:
+      - npm pack --pack-destination .
+
+  publish:
+    desc: "Publish to GitHub Packages (runs the build gate first)"
+    deps: [build]
+    cmds:
+      - npm publish --access public
+    preconditions:
+      - test: test -n "$GITHUB_TOKEN"
+        message: "No GitHub Packages auth. Set GITHUB_TOKEN (see .npmrc)"
+
+  publish-dry-run:
+    desc: "Dry-run publishing to GitHub Packages (no upload)"
+    cmds:
+      - npm publish --access public --dry-run
+    preconditions:
+      - test: test -n "$GITHUB_TOKEN"
+        message: "No GitHub Packages auth. Set GITHUB_TOKEN (see .npmrc)"
+
+  version:patch:
+    desc: "Bump the package version (patch)"
+    cmds:
+      - npm version patch --no-git-tag-version
+
+  version:minor:
+    desc: "Bump the package version (minor)"
+    cmds:
+      - npm version minor --no-git-tag-version
+
+  version:major:
+    desc: "Bump the package version (major)"
+    cmds:
+      - npm version major --no-git-tag-version
+
+  clean:
+    desc: "Remove node_modules and local artifacts"
+    cmds:
+      - rm -rf node_modules *.tgz
+    status:
+      - test ! -d node_modules
+
+  all:
+    desc: "Clean, install, build"
+    cmds:
+      - task: clean
+      - task: install
+      - task: build
