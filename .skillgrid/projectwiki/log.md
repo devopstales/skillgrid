@@ -81,3 +81,26 @@ module-identity corrections, ADRs untouched per IRON RULE):
 `concepts/in-file-vector-layer.md` (vec0 binding),
 `concepts/degradation-floor.md` (ONNX runtime row). `Degraded: projectwiki`
 (engine down — index hand-kept).
+
+## [2026-11-23] interview | mnemonic-code brainstorm: frontier closed (6 decisions)
+
+Ran the `skillgrid:brainstorm` (New Function) interview for the `code` tool
+via `skillgrid:questioning`. Resolved: Q1 GitNexus-core 7-tool surface
+(`code_search`, `code_context`, `code_impact`, `code_path`, `code_explain`,
+`code_index`, `code_status`); Q2 pure-Go tree-sitter — the programmer
+overrode the CGo-build-tag option and pointed at `odvcencio/gotreesitter`,
+which IS the pure-Go runtime (the predecessor's v0.55.1 binding) — no build
+fork needed, ADR-0005 holds; Q3 chunk + symbol embeddings (the predecessor's
+two-table model, over the chunks-only recommendation); Q4 code files only
+(docs/configs stay out of the index); Q5 core + LSP pass + watch
+(predecessor-lite machinery); Q6 knowledge base = in-file graph + hybrid
+search, generated docs deferred (consistent with ADR-0008 + Q1). Files:
+`glossary/02-technical-terms.md` (code-tool term cluster),
+`decisions/0013-pure-go-treesitter.md` +
+`decisions/0014-unified-embedding-space.md` (renumbered from 0012/0013 —
+`04-adr-0012-go-module-path.md` from the parallel mnemonic-core session took
+0012) + LOCKED rows, the `2026-11-23-mnemonic-code` state entry (phase
+intake). The code tool's briefing inherits the corrected CGO-free stack from
+the parallel session's `2026-11-23-mnemonic-core/findings.md` (hugot GoMLX
+backend, ncruces/go-sqlite3, sqlite-vec-go-bindings/ncruces). Next: Goldfish
+shootdown readiness gate → 7 fresh lenses → ADR manifest + briefing.

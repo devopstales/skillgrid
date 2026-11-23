@@ -22,6 +22,23 @@ One meaning per term. Do not use a synonym in its place.
 | **K6 seam** | The transport contract: CLI and MCP are two adapters over one shared Handler; identical inputs produce byte-identical envelopes (parity-tested). | Adding a tool surface, parity tests. | "API" (implies network). |
 | **trail** | One row per retrieval (query, route, per-leg ranks, hits) — the audit and eval substrate for recall behavior. | Recall debugging, RRF tuning, eval fixtures. | "log" (that's `log.md` / session logs). |
 
+## mnemonic code tool (knowledge graph + hybrid search)
+
+| Term | Definition | Use when | Avoid |
+|---|---|---|---|
+| **code index** | The in-file knowledge graph of a project's code files: `files`, `chunks`, `symbols`, `edges` (+ FTS + vector tables) inside the same per-project `.sqlite` as memory, via additive migrations (the 100+ range). | The `code` tool, schema, freshness. | "codebase" (the source, not the index). |
+| **chunk** | The text unit of the FTS + semantic leg: AST-first — one per function/method/class (~1000-char target; long spans split into 80/10 line windows); `kind` = `ast` or `line`. | Chunking, embeddings, search hits. | "block", "snippet" (a hit's preview is a snippet). |
+| **symbol** | One graph node: an extracted definition with a stable, path-independent `uid` (name + kind + span); the single node table for every graph node. | Graph ops, `code_context`, `code_explain`. | "AST node" (a raw tree cell). |
+| **edge** | A typed relationship between symbols (`calls`, `imports`, `heritage`, `references`) carrying a `confidence` tag; `to_id NULL` + `to_name` = name-only (unresolved). | Graph ops, impact, path. | "link" (too generic). |
+| **EXTRACTED / INFERRED** | Edge confidence: `EXTRACTED` = explicit in the source; `INFERRED` = resolved by inference; `LSP_RESOLVED` upgrades a name-only edge after language-server confirmation. Path confidence = its weakest hop. | Any graph result envelope. | "confidence" with no value. |
+| **drop-not-guess** | The extraction invariant: a statically-unbound reference is kept name-only + a row in `unresolved_edges` — never guessed, never dropped. | Extraction, LSP pass, the ledger. | "best-effort" (no ledger attached). |
+| **extraction ladder** | Three tiers, all pure-Go: gotreesitter one-pass extractors (the rich 6) → per-language node maps (~25) → regex floor; a panicking grammar quarantines its language to the regex tier (circuit breaker). | Extraction design, `degraded` notes. | "parser" (implies one tier). |
+| **gotreesitter** | The pure-Go tree-sitter runtime (`odvcencio/gotreesitter`): parser, lexer, query engine, incremental reparse and external scanners in Go; grammar blobs from upstream `parser.c`; no CGo. v1 links only the supported grammars (standalone packages / build tags); the copyleft grammars are excluded. | The AST layer, build profile. | "tree-sitter" alone (ambiguous with the C runtime). |
+| **LSP pass** | The best-effort language-server resolution run after the core index: typed call edges written as `LSP_RESOLVED`; a missing or failing server yields no edges (all-or-nothing per call site, 30 s timeout). | `code_impact` / `code_path` precision, `doctor`. | "autocomplete" (the LSP's job, not the tool's). |
+| **index_freshness** | The staleness record: extractor stamp, schema fingerprint, graph counts, `last_indexed_at`. Drives the `stale` flag on search envelopes. | `code_status`, watch, staleness. | "cache" (not invalidatable that way). |
+| **stale** | The envelope flag: the working tree drifted past the freshness record; the query still sees the last committed index and never blocks. | Search envelopes, watch. | "outdated" (no contract attached). |
+| **watch** | `mnemonic code watch`: the fsnotify loop — debounces bursts (2 s default), collapses each burst into ONE incremental re-index, isolates failures (a failure never stops the watcher). | Freshness during a session. | "daemon" (it is a foreground command). |
+
 ## Related
 
 - Supersedes: none.

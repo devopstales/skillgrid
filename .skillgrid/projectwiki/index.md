@@ -25,6 +25,8 @@ Catalog of `.skillgrid/projectwiki/`. Every page gets a row here.
 | `04-adr-0009-wal-only-concurrency.md` | mnemonic: WAL + busy_timeout only — no leases, no write daemon in v1 |
 | `04-adr-0010-multi-tool-binary.md` | mnemonic: `mnemonic <tool> <verb>` multi-tool binary, per-tool MCP servers, top-level init/doctor |
 | `04-adr-0011-degradation-contract.md` | mnemonic: `degraded: true` never silent; floors never block save/search |
+| `0013-pure-go-treesitter.md` | mnemonic code tool: tree-sitter in pure Go (`odvcencio/gotreesitter`), not a CGo binding — ADR-0005's C/CGo-free target holds for the whole binary |
+| `0014-unified-embedding-space.md` | mnemonic code tool: one embedder model + dim per project — code and memory vectors comparable; no cross-domain fusion in v1 |
 
 ## invariants/
 

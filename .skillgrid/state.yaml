@@ -1,7 +1,7 @@
 schema: skillgrid/state/v2
 changes:
-  2026-11-22-pi-worktree-plugin:
-    phase: "blueprint"
+  2026-11-23-mnemonic-code:
+    phase: "intake"
     status: in_progress
     gate: ""
     autonomy: check-in
@@ -19,6 +19,51 @@ changes:
       quality_target: 8.5
       panel: []
       decisions:
+        - "v1 tool surface: GitNexus-core 7 tools (programmer,
+          2026-11-23)"
+        - "AST: pure-Go gotreesitter, no CGo (programmer, 2026-11-23;
+          ADR-0013)"
+        - "embeddings: chunks + symbols, unified project embedding space
+          (programmer, 2026-11-23; ADR-0014)"
+        - "index scope: code files only (programmer, 2026-11-23)"
+        - "machinery: core + LSP pass + watch (programmer, 2026-11-23)"
+        - "knowledge base: in-file graph + hybrid search; generated docs
+          deferred (programmer, 2026-11-23)"
+      open_questions:
+        - "v1 language set: inherited rich-6 (go, python, java,
+          javascript, typescript, tsx) + which map-tier languages"
+        - "gotreesitter version pin (predecessor v0.55.1 vs current
+          v0.58.0)"
+  2026-11-22-pi-worktree-plugin:
+    phase: "qa"
+    status: in_progress
+    gate: "qa-verdict"
+    verdict: CONCERNS
+    autonomy: check-in
+    genesis:
+      independence:
+        level: isolated-subagent
+        grade: B
+        writer_model: qwen3.8
+        reviewer_model: qwen3.8
+        isolation_check: not_run
+      audit_status: ""
+      passes:
+        review: 1
+        score: 0
+      quality_target: 8.5
+      panel: []
+      decisions:
+        - "QA verdict CONCERNS (2026-11-23): 11 review findings fixed and
+          committed 9376e19 (non-ASCII + rename capture, unborn-HEAD branch,
+          resume dedup seeding, before-restore outcome, no-surviving report,
+          loadCheckpoint hardening, recovery-test timeouts); bun test 44/44,
+          e2e 6/6, trivy 0, drift guard green. ESCALATED at the qa-verdict
+          gate: A (unwired invariants R7/R8/R9 - wire into runWorktrunk vs
+          amend-spec) and E (approval passthrough broken in the piped runtime
+          R10 - wt-CLI fix vs document as a limitation). ~20 edge-case /
+          test-quality / cosmetic findings deferred to
+          .skillgrid/deferred-work.md"
         - "build location: plugins/pi/pi-worktree inside
           skillgrid-skills (programmer override, 2026-11-22)"
         - "working style: work on the current branch (programmer,

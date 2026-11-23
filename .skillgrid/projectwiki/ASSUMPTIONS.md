@@ -27,6 +27,14 @@ LOCKED (ADR index — pointer rows only), Open Questions.
   module path TBC); v1 scope is memory-core only; the CLI is the
   multi-tool form `mnemonic <tool> <verb>` with `memory` as the first tool
   (programmer-locked 2026-11-23; ADR-0003…0011). Briefing status: draft.
+- Active change `2026-11-23-mnemonic-code`: the `code` tool of the `mnemonic`
+  binary — in-file knowledge graph + hybrid search over the project's code
+  files, on top of the memory-core store/embedder/transport (queued behind
+  its v0.1). v1 = GitNexus-core 7 tools (`code_search`, `code_context`,
+  `code_impact`, `code_path`, `code_explain`, `code_index`, `code_status`);
+  pure-Go gotreesitter AST (no CGo); chunk+symbol embeddings in the unified
+  project embedding space; code files only; core + LSP pass + watch
+  (programmer-locked 2026-11-23; ADR-0013, ADR-0014).
 
 ## INFERRED (HYPOTHESIS)
 
@@ -51,7 +59,9 @@ LOCKED (ADR index — pointer rows only), Open Questions.
 | v1 = memory core only — code/web tools, serve, projectwiki, team_*, LLM curator, importer explicitly deferred | `decisions/0008-memory-core-only-v1.md` |
 | Concurrency: WAL + busy_timeout only — no leases, no write daemon in v1 | `decisions/04-adr-0009-wal-only-concurrency.md` |
 | Multi-tool binary — `mnemonic <tool> <verb>`, per-tool MCP servers, top-level init/doctor | `decisions/04-adr-0010-multi-tool-binary.md` |
-| Degradation contract — `degraded: true` never silent; floors never block save/search | `decisions/04-adr-0011-degradation-contract.md` |
+| Degradation contract — `degraded: true` never silent; floors never block save/search | `decisions/0011-degradation-contract.md` |
+| Tree-sitter in pure Go (`odvcencio/gotreesitter`), not a CGo binding — no CGo anywhere in the default build | `decisions/0013-pure-go-treesitter.md` |
+| One embedding space across tools — same model + dim per project; code and memory vectors comparable; no cross-domain fusion in v1 | `decisions/0014-unified-embedding-space.md` |
 | Go module path — `github.com/devopstales/skillgrid/mnemonic` (same path as the old module; branch handover) | `decisions/04-adr-0012-go-module-path.md` |
 
 ## Open Questions
