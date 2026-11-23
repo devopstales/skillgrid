@@ -1,0 +1,19 @@
+{
+  "name": "@devopstales/omp-skillgrid-guards",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "files": ["src/", "hooks/"],
+  "engines": {
+    "bun": ">=1.0"
+  },
+  "scripts": {
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "bun-types": "latest"
+  },
+  "dependencies": {
+    "yaml": "^2.9.0"
+  }
+}
