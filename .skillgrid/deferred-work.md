@@ -84,8 +84,8 @@
 - **What:** the restore test name says "refuses" but asserts success; the safeClean comment says "three sets" but lists two; `setFooter` flashes the default text before the message.
 - **Re-entry:** rename the test to the behavior it asserts; correct the comment; drop the pre-flash.
 
-## Open — escalated (tracked at the `qa-verdict` gate, not deferred)
+## Resolved at the `qa-verdict` gate (2026-11-23)
 
-- **A (R7/R8/R9):** `applyMergeDefaults`/`checkBranchAllowList`/`observeWorktreeRoot` are exported + unit-tested but never called on the extension path. **Decision pending:** wire into `runWorktrunk` vs amend `acceptance.feature`.
-- **E (R10):** approval passthrough broken in the piped runtime (wt spawned non-interactive); both R10 gates vacuous. **Decision pending:** fix the approval flow vs document as a wt-runtime limitation.
-- **bench (R12):** 5k median 161/238ms under shared load vs the 150ms gate (idle carry 65–117ms). **Decision pending:** accept given the idle carry vs re-run idle to clear.
+- **A (R7/R8/R9):** the programmer chose **wire** → applied in `f1b58b8` (`applyMergeDefaults` + `checkBranchAllowList` + `observeWorktreeRoot` wired into `runWorktrunk` via `isWorktreeContext`). No longer open.
+- **E (R10):** the programmer chose **fix** → applied in `f1b58b8` (`probeUnapprovedHooks` detection + `storeApprovalsPty` PTY store + core `handleWtApproval`; the 2 approval gates now match). No longer open.
+- **bench (R12):** the programmer chose **accept** given the 65–117ms idle carry (the 161/238ms runs are shared-load artifacts). Not a code defect; no DW entry.

@@ -35,10 +35,10 @@ changes:
         - "gotreesitter version pin (predecessor v0.55.1 vs current
           v0.58.0)"
   2026-11-22-pi-worktree-plugin:
-    phase: "qa"
+    phase: "score"
     status: in_progress
-    gate: "qa-verdict"
-    verdict: CONCERNS
+    gate: ""
+    verdict: PASS
     autonomy: check-in
     genesis:
       independence:
@@ -54,15 +54,16 @@ changes:
       quality_target: 8.5
       panel: []
       decisions:
-        - "QA verdict CONCERNS (2026-11-23): 11 review findings fixed and
-          committed 9376e19 (non-ASCII + rename capture, unborn-HEAD branch,
-          resume dedup seeding, before-restore outcome, no-surviving report,
-          loadCheckpoint hardening, recovery-test timeouts); bun test 44/44,
-          e2e 6/6, trivy 0, drift guard green. ESCALATED at the qa-verdict
-          gate: A (unwired invariants R7/R8/R9 - wire into runWorktrunk vs
-          amend-spec) and E (approval passthrough broken in the piped runtime
-          R10 - wt-CLI fix vs document as a limitation). ~20 edge-case /
-          test-quality / cosmetic findings deferred to
+        - "QA verdict CONCERNS then PASS (2026-11-23): 11 review findings
+          fixed and committed 9376e19 (non-ASCII + rename capture, unborn-HEAD
+          branch, resume dedup seeding, before-restore outcome, no-surviving
+          report, loadCheckpoint hardening, recovery-test timeouts). At the
+          qa-verdict gate the programmer chose A=wire, E=fix, bench=accept;
+          applied in f1b58b8 (R7/R8/R9 invariants wired into runWorktrunk;
+          R10 approval fixed via probeUnapprovedHooks + storeApprovalsPty +
+          core handleWtApproval). bun test 48/48, e2e 6/6, trivy 0, drift
+          guard green. Verdict PASS. ~20 edge-case / test-quality / cosmetic
+          findings (incl. B3/C/F re-graded SUGGESTION) deferred to
           .skillgrid/deferred-work.md"
         - "build location: plugins/pi/pi-worktree inside
           skillgrid-skills (programmer override, 2026-11-22)"

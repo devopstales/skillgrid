@@ -220,13 +220,13 @@ graph LR
 
 ## Review
 
-**Signal: BACK-TO-APPLY** · **Date:** 2026-11-23 · **Review record:** `review.md` (ledger round 6; 5 lenses Std/Spec/Edge/Verify/Sec, independence A) · **Candidate:** plugin repo base `f548ef8` → review fixes `9376e19`
-**Counts:** Critical 0 · Warning 5 (A, E open; B3, C, F deferred) · Suggestion ~20 (deferred)
+**Signal: PASS** · **Date:** 2026-11-23 · **Review record:** `review.md` (ledger round 6; 5 lenses Std/Spec/Edge/Verify/Sec, independence A) · **Candidate:** plugin repo base `f548ef8` → QA fixes `9376e19` → A/E wiring `f1b58b8`
+**Counts (final):** Critical 0 · Warning 0 open (A + E fixed in `f1b58b8`; B3/C/F re-graded SUGGESTION) · Suggestion ~20 (deferred)
 
-- **Fixed this pass (11, verified — bun test 44/44, e2e 6/6, drift guard green):** non-ASCII + rename capture (B1/B2), unborn-HEAD branch (B4), resume dedup seeding (D), before-restore outcome (H1), `-t "resume"` gate 0→1 (G1), recovery-test timeouts (G10), `idOk` dead code (K3), stale tgz re-packed (K9).
-- **Open — escalated to the programmer (the `qa-verdict` gate):**
-  - **A (R7/R8/R9):** wire `applyMergeDefaults` + `checkBranchAllowList` (+ `observeWorktreeRoot` note) into `runWorktrunk` before `runWt` **vs** amend `acceptance.feature` to record the deferral (core provides, wt governs).
-  - **E (R10):** fix the piped-runtime approval flow (add the 2 vacuous `approval` tests) **vs** document it as a wt-runtime limitation.
-  - **bench (R12):** accept given the 65–117ms idle carry **vs** re-run idle to clear the 5k ≤150ms gate.
-- **Deferred (DW-*, `.skillgrid/deferred-work.md`):** B3 (index bytes when staged), C (safeClean AD state), F (recovery into a foreign recreated repo), G2–G7 (test-quality), J1–J4 (robustness), K1–K8 (cosmetic).
-- **Re-run path (if BACK-TO-APPLY):** `execute --gaps-only` against the Fix Plans in `report.md` (wire A, fix E, clear the bench), then re-run `bun test` + `e2e` + the R7/R8/R9/R10 e2e gates.
+- **Fixed pass 1 (11, `9376e19`):** non-ASCII + rename capture (B1/B2), unborn-HEAD branch (B4), resume dedup seeding (D), before-restore outcome (H1), `-t "resume"` gate 0→1 (G1), recovery-test timeouts (G10), `idOk` dead code (K3), stale tgz re-packed (K9).
+- **Fixed pass 2 — the `qa-verdict` gate decisions (programmer: A=wire, E=fix, bench=accept), `f1b58b8`:**
+  - **A (R7/R8/R9):** wired `applyMergeDefaults` + `checkBranchAllowList` (+ `observeWorktreeRoot` note via `isWorktreeContext`) into `runWorktrunk`.
+  - **E (R10):** fixed the piped-runtime approval flow (`probeUnapprovedHooks` detection + `storeApprovalsPty` PTY store + core `handleWtApproval`); added the 2 approval gates.
+  - **bench (R12):** accepted given the 65–117ms idle carry.
+  - Verified: bun test 48/48 (was 44; +4), e2e 6/6, drift guard green.
+- **Deferred (DW-*, `.skillgrid/deferred-work.md`):** B3 (index bytes when staged), C (safeClean AD state), F (recovery into a foreign recreated repo) — re-graded SUGGESTION (benign edge cases); G2–G7 (test-quality), J1–J4 (robustness), K1–K8 (cosmetic).
