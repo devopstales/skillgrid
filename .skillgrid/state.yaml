@@ -3,7 +3,7 @@ changes:
   2026-11-23-mnemonic-code:
     phase: "intake"
     status: in_progress
-    gate: ""
+    gate: "briefing-approval"
     autonomy: check-in
     genesis:
       independence:
@@ -29,15 +29,37 @@ changes:
         - "machinery: core + LSP pass + watch (programmer, 2026-11-23)"
         - "knowledge base: in-file graph + hybrid search; generated docs
           deferred (programmer, 2026-11-23)"
+        - "Goldfish shootdown 7/7 lenses (fresh reviewer subagents, R37
+          isolation, 2026-11-23): 3 red all resolved, 16 yellow groups +
+          green nits recorded in briefing.md"
+        - "B1 resolved: model-swap coverage backfill + two-phase model
+          stamp (programmer gate, 2026-11-23)"
+        - "B2 resolved: batch-32 backfill + synchronous structural phase
+          / background embedding (programmer gate, 2026-11-23)"
+        - "B3 resolved: persisted per-language tiers + span-free uids +
+          counted cascade (programmer gate, 2026-11-23)"
+        - "LSP pass: keep as built - real JSON-RPC client in v1
+          (programmer re-confirm against prod-stub evidence, 2026-11-23)"
+        - "watch: keep as built with fixes - hash-confirm, death
+          reporting, non-blocking re-index, re-embed on change (programmer
+          re-confirm, 2026-11-23)"
       open_questions:
         - "v1 language set: inherited rich-6 (go, python, java,
           javascript, typescript, tsx) + which map-tier languages"
         - "gotreesitter version pin (predecessor v0.55.1 vs current
-          v0.58.0)"
+          v0.58.0; UID parity fixture decides)"
+        - "memory-core tag/commit pin after v0.1 schema freeze (stable
+          base this change builds on)"
+        - "two-domain model eval (memory + code fixtures) at code-tool
+          arrival (MiniLM is prose-trained)"
+        - "skill-flip spec: server wiring + old->new tool-name remap
+          table"
+        - "code-domain latency SLO per tool (default build = seconds;
+          <100 ms criterion is memory-domain)"
   2026-11-22-pi-worktree-plugin:
-    phase: "ship"
-    status: in_progress
-    gate: "ship-decision"
+    phase: "archived"
+    status: complete
+    gate: ""
     verdict: PASS
     autonomy: check-in
     genesis:
@@ -76,6 +98,6 @@ changes:
         - "pin exact minimum wt version for the directive
           protocol (wt 0.50.0 verified on PATH 2026-11-22)"
 progress:
-  completed_changes: 0
+  completed_changes: 1
   blocked_changes: 0
 constraints_ref: .skillgrid/projectwiki/ASSUMPTIONS.md
