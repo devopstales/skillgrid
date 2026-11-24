@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a working, fully tested, in-process (no daemon) local-first SQLite memory: `mnemonic memory save|search|get` backed by `~/.mnemonic/global.db` + `~/.mnemonic/<repo>.db` with FTS5 lexical search, `topic_key` revisions, idempotent saves and sessions.
+**Goal:** Build a working, fully tested, in-process (no daemon) local-first SQLite memory: `mnemonic memory save|search|get` backed by `~/.skillgrid/mnemonic/global.db` + `~/.skillgrid/mnemonic/<repo>.db` with FTS5 lexical search, `topic_key` revisions, idempotent saves and sessions.
 
 **Architecture:** `internal/platform/*` is the reusable kernel (errors, paths, project slug, SQLite pool, migration runner). `internal/memory/{api,store,engine,cli}` is the first subsystem; `engine.Local` implements `api.Service` and is the only code that knows about DB routing. Later plans add vectors, MCP, daemon, TUI behind the same `api.Service`.
 
@@ -238,7 +238,7 @@ git commit -m "feat(platform): scaffold module and apperr; amend spec (standalon
 - Test: `internal/platform/config/paths_test.go`
 
 **Interfaces:**
-- Produces: `config.Paths{Dir string}`, `config.NewPaths(flagDir string) (Paths, error)` (resolution order: flag, `MNEMONIC_DATA_DIR`, `~/.mnemonic`; creates dir `0700`), `(Paths).GlobalDB() string`, `(Paths).ProjectDB(slug string) string`, `(Paths).RunDir() string`.
+- Produces: `config.Paths{Dir string}`, `config.NewPaths(flagDir string) (Paths, error)` (resolution order: flag, `MNEMONIC_DATA_DIR`, `~/.skillgrid/mnemonic`; creates dir `0700`), `(Paths).GlobalDB() string`, `(Paths).ProjectDB(slug string) string`, `(Paths).RunDir() string`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -284,7 +284,7 @@ func TestDefaultsToHome(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("MNEMONIC_DATA_DIR", "")
 	p, err := NewPaths("")
-	if err != nil || p.Dir != filepath.Join(home, ".mnemonic") {
+	if err != nil || p.Dir != filepath.Join(home, ".skillgrid", "mnemonic") {
 		t.Fatalf("got %q err %v", p.Dir, err)
 	}
 }
@@ -311,7 +311,7 @@ import (
 
 type Paths struct{ Dir string }
 
-// NewPaths resolves the data dir (flag > MNEMONIC_DATA_DIR > ~/.mnemonic)
+// NewPaths resolves the data dir (flag > MNEMONIC_DATA_DIR > ~/.skillgrid/mnemonic)
 // and creates it with 0700 permissions.
 func NewPaths(flagDir string) (Paths, error) {
 	dir := flagDir
@@ -323,7 +323,7 @@ func NewPaths(flagDir string) (Paths, error) {
 		if err != nil {
 			return Paths{}, fmt.Errorf("resolve home dir: %w", err)
 		}
-		dir = filepath.Join(home, ".mnemonic")
+		dir = filepath.Join(home, ".skillgrid", "mnemonic")
 	}
 	abs, err := filepath.Abs(dir)
 	if err != nil {
@@ -3401,7 +3401,7 @@ type common struct {
 }
 
 func (c *common) bind(fs *flag.FlagSet) {
-	fs.StringVar(&c.dataDir, "data-dir", "", "data directory (default $MNEMONIC_DATA_DIR or ~/.mnemonic)")
+	fs.StringVar(&c.dataDir, "data-dir", "", "data directory (default $MNEMONIC_DATA_DIR or ~/.skillgrid/mnemonic)")
 	fs.StringVar(&c.project, "project", "", "project slug (default: auto-detect)")
 }
 
@@ -3667,10 +3667,12 @@ git commit -m "feat(memory): mnemonic memory save/search/get/session CLI"
 Run:
 
 ```bash
-gofmt -l . && go vet ./... && CGO_ENABLED=0 go build -o /tmp/mnemonic ./cmd/mnemonic && go test ./... -race -count=1
+gofmt -w . && go mod tidy && go vet ./... && CGO_ENABLED=0 go build -o /tmp/mnemonic ./cmd/mnemonic && go test ./... -race -count=1
 ```
 
-Expected: `gofmt -l` prints nothing; vet clean; build succeeds; all packages `ok`.
+Expected: vet clean; build succeeds; all packages `ok`. (`gofmt -w` realigns struct comments in `save_test.go`, `testutil_test.go`, and `config/paths.go`; commit the result.)
+
+> Plan verification: every code block in this plan was extracted into a scratch module and passed `go vet`, `go test ./... -race`, and this smoke test before the plan was committed.
 
 - [ ] **Step 2: Real-binary smoke test against a throwaway data dir**
 

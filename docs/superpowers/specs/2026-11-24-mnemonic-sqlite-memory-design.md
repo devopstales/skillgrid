@@ -9,7 +9,7 @@
 
 ## 1. Purpose & Goals
 
-Mnemonic is a **strictly local-first, zero-CGo Go persistent memory engine for AI agents**, backed exclusively by SQLite (`~/.mnemonic/global.db` + `~/.mnemonic/<repo>.db`).
+Mnemonic is a **strictly local-first, zero-CGo Go persistent memory engine for AI agents**, backed exclusively by SQLite (`~/.skillgrid/mnemonic/global.db` + `~/.skillgrid/mnemonic/<repo>.db`).
 
 It combines the strongest engineering qualities of its two predecessors while eliminating their architectural debt:
 
@@ -23,8 +23,8 @@ It combines the strongest engineering qualities of its two predecessors while el
   - Deterministic offline degradation plus bounded session and retrieval trails.
 - **New Capabilities & Debt Eliminated**:
   - **First-class local ONNX CPU embeddings** (quantized `BAAI/bge-small-en-v1.5`, 384-dim, zero CGo) as the default semantic tier, paired with optional external `Ollama` / `OpenAI`-compatible HTTP embeddings and optional LLM write-time semantic dedup/consolidation.
-  - **Isolated Dual-Tier Local Storage**: `~/.mnemonic/global.db` (`user` & `global` memories + project catalog) + `~/.mnemonic/<repo>.db` (`project` memories), eliminating cross-repo write contention while keeping cross-scope recall fast.
-  - **Shared Local Daemon + Seamless In-Process Fallback**: Auto-spawned background daemon (`~/.mnemonic/run/daemon.sock` + authenticated loopback HTTP) holds **1x** ONNX model in RAM across all IDE sessions, with automatic in-process fallback for restricted sandboxes.
+  - **Isolated Dual-Tier Local Storage**: `~/.skillgrid/mnemonic/global.db` (`user` & `global` memories + project catalog) + `~/.skillgrid/mnemonic/<repo>.db` (`project` memories), eliminating cross-repo write contention while keeping cross-scope recall fast.
+  - **Shared Local Daemon + Seamless In-Process Fallback**: Auto-spawned background daemon (`~/.skillgrid/mnemonic/run/daemon.sock` + authenticated loopback HTTP) holds **1x** ONNX model in RAM across all IDE sessions, with automatic in-process fallback for restricted sandboxes.
   - **Modular Subsystem Architecture (`mnemonic memory ...`)**: Built around a reusable `internal/platform` kernel and pluggable subsystem contracts so future pillars (e.g., `mnemonic code ...`, `mnemonic wiki ...`) attach without refactoring core packages or breaking CLI/MCP/daemon namespaces.
   - **Zero Sync/Cloud/Dual-DB Bloat**: No PostgreSQL dialect seams (`RawQuery` type assertions), no cloud outbox/tombstone/chunk replication tables, no 15k-LOC monolithic files, and zero stub MCP tools.
 
@@ -47,7 +47,7 @@ cmd/mnemonic/
 └── main.go                       # Root CLI entry: dispatches subsystems + platform commands
 internal/
 ├── platform/                     # Shared foundation for `memory` and future subsystems
-│   ├── config/                   # ~/.mnemonic/config.yaml + .mnemonic.yaml + env/flag loader
+│   ├── config/                   # ~/.skillgrid/mnemonic/config.yaml + .mnemonic.yaml + env/flag loader
 │   ├── project/                  # Canonical repo slug resolver, alias lookup, reserved-name guard
 │   ├── sqlitepool/               # Ref-counted DB handles (1 writer + N readers), WAL, inode fence, writeQueue
 │   ├── migrate/                  # Per-subsystem migration runner (`schema_migrations(subsystem, version)`)
@@ -112,27 +112,27 @@ type Subsystem interface {
 └─────────────────────┬─────────────────────┘                   │
                       └────────────────────┬────────────────────┘
                                            ▼
-                      ┌─────────────────────────────────────────┐
-                      │           platform/sqlitepool           │
-                      │ ~/.mnemonic/global.db + <repo>.db       │
-                      │ (1 Writer + N WAL Readers + Inode Fence)│
-                      └─────────────────────────────────────────┘
+                      ┌─────────────────────────────────────────────┐
+                      │             platform/sqlitepool             │
+                      │ ~/.skillgrid/mnemonic/global.db + <repo>.db │
+                      │  (1 Writer + N WAL Readers + Inode Fence)   │
+                      └─────────────────────────────────────────────┘
 ```
 
-1. Unless `--standalone` (`MNEMONIC_STANDALONE=1`) is set, `ResolveBackend` dials `~/.mnemonic/run/daemon.sock`.
-2. If the socket is absent or unresponsive, `ResolveBackend` acquires `~/.mnemonic/run/spawn.lock` and spawns `mnemonic daemon run --idle-timeout=30m` detached, polling readiness for up to `1.5s`.
+1. Unless `--standalone` (`MNEMONIC_STANDALONE=1`) is set, `ResolveBackend` dials `~/.skillgrid/mnemonic/run/daemon.sock`.
+2. If the socket is absent or unresponsive, `ResolveBackend` acquires `~/.skillgrid/mnemonic/run/spawn.lock` and spawns `mnemonic daemon run --idle-timeout=30m` detached, polling readiness for up to `1.5s`.
 3. If process spawning or Unix socket binding fails (e.g., restricted container sandbox), `ResolveBackend` logs a structured diagnostic note to stderr and returns `memory/engine.Local` directly in-process.
 
 ---
 
 ## 3. Filesystem Layout, Storage Pool & SQLite Schema
 
-### 3.1 Data Directory Layout (`~/.mnemonic/`)
+### 3.1 Data Directory Layout (`~/.skillgrid/mnemonic/`)
 
 Overridable via `MNEMONIC_DATA_DIR` or `--data-dir`:
 
 ```text
-~/.mnemonic/
+~/.skillgrid/mnemonic/
 ├── config.yaml                  # Global configuration
 ├── global.db                    # Project registry/aliases + all `user` & `global` scope memories
 ├── <repo>.db                    # One isolated SQLite DB per canonical repo slug (`project` scope)
@@ -162,7 +162,7 @@ Project slug `<repo>` is resolved in priority order:
 
 | Operation | `scope = "project"` (default) | `scope = "user"` or `"global"` | Unscoped Read (`scope = ""`) | `all_projects = true` Read |
 |---|---|---|---|---|
-| **Target DB(s)** | `~/.mnemonic/<repo>.db` (+ touch `projects` row in `global.db`) | `~/.mnemonic/global.db` | Parallel read of `<repo>.db` + `global.db` | Parallel read of `global.db` + all existing `<repo>.db` in `projects` (bounded semaphore = 8) |
+| **Target DB(s)** | `~/.skillgrid/mnemonic/<repo>.db` (+ touch `projects` row in `global.db`) | `~/.skillgrid/mnemonic/global.db` | Parallel read of `<repo>.db` + `global.db` | Parallel read of `global.db` + all existing `<repo>.db` in `projects` (bounded semaphore = 8) |
 
 Each observation carries a globally unique **UUIDv7 `uid`**, guaranteeing collision-free IDs across `global.db` and all `<repo>.db` files without cross-database sequence coordination. For ID-targeted operations (`get`, `update`, `pin`, `unpin`, `delete`, `timeline`), if `scope` is omitted, the engine probes the active `<repo>.db` first and falls back to `global.db` via `idx_obs_uid`.
 
@@ -451,7 +451,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS observations_vec USING vec0(
 
 ### 4.1 Intelligence Providers (`platform/intelligence`)
 
-#### Configuration (`~/.mnemonic/config.yaml`)
+#### Configuration (`~/.skillgrid/mnemonic/config.yaml`)
 
 ```yaml
 embedding:
@@ -477,7 +477,7 @@ llm:
 - Implemented via `knights-analytics/hugot` using its **pure-Go `gomlx` CPU backend** by default so `CGO_ENABLED=0 go build` produces a static, cross-platform single binary on macOS (`arm64`/`amd64`) and Linux (`amd64`/`arm64`).
 - Supports optional dynamic `purego` `libonnxruntime` acceleration when present on the host without requiring CGo at build time.
 - Prefixes asymmetric BGE queries automatically (`"Represent this sentence for searching relevant passages: "` on queries when model family is `bge-*`) and L2-normalizes all output vectors.
-- Model weights are stored in `~/.mnemonic/models/<slug>/` with pinned SHA-256 checksums; `mnemonic models pull` downloads explicitly, or the daemon performs a non-blocking background pull on first start while serving FTS5 searches with `degraded: true` until ready.
+- Model weights are stored in `~/.skillgrid/mnemonic/models/<slug>/` with pinned SHA-256 checksums; `mnemonic models pull` downloads explicitly, or the daemon performs a non-blocking background pull on first start while serving FTS5 searches with `degraded: true` until ready.
 
 #### Degradation Circuit Breaker
 
@@ -552,8 +552,8 @@ Built on `github.com/mark3labs/mcp-go` over stdio. Strict JSON Schema validation
 ### 5.2 Local Daemon (`mnemonic daemon`)
 
 - **Endpoints**:
-  - Unix socket: `~/.mnemonic/run/daemon.sock` (`0600` file permissions; OS filesystem permissions enforce local-user auth).
-  - Optional TCP HTTP (`daemon.http_enabled: true`, default `127.0.0.1:7438`): Enforces `Authorization: Bearer <token>` matching `~/.mnemonic/run/daemon.token` (`0600`) on all routes except `GET /v1/health` (which returns only `{"status":"ok","version":"..."}`).
+  - Unix socket: `~/.skillgrid/mnemonic/run/daemon.sock` (`0600` file permissions; OS filesystem permissions enforce local-user auth).
+  - Optional TCP HTTP (`daemon.http_enabled: true`, default `127.0.0.1:7438`): Enforces `Authorization: Bearer <token>` matching `~/.skillgrid/mnemonic/run/daemon.token` (`0600`) on all routes except `GET /v1/health` (which returns only `{"status":"ok","version":"..."}`).
 - **Routes**:
   - `GET /v1/health`, `GET /v1/capabilities`
   - `POST /v1/memory/sessions/{start|summary|end|finalize}`, `GET /v1/memory/sessions`

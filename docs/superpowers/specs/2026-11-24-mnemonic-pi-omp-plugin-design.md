@@ -47,7 +47,7 @@ mnemonic memory call --schema      # dumps all tool schemas (JSON), used by the 
 ```
 
 - A single Go tool registry (`internal/tools`: name, JSON schema, handler, tier) feeds MCP (Plan 3), the daemon (Plan 4) and `memory call`. `memory call` and `--schema` are added to **Plan 2**.
-- Binary resolution: `MNEMONIC_BIN` -> `mnemonic` on `PATH` -> `~/.mnemonic/bin/mnemonic`. Missing binary = offline mode (tools return a clear error, hooks no-op).
+- Binary resolution: `MNEMONIC_BIN` -> `mnemonic` on `PATH` -> `~/.skillgrid/mnemonic/bin/mnemonic`. Missing binary = offline mode (tools return a clear error, hooks no-op).
 - Concurrency: at most 4 spawns in flight. Hook calls are fire-and-forget and bounded; tool calls are awaited.
 - Capability gating: the plugin registers only tools present in the `--schema` dump, so v0.1 works with Plan 1 + `call` and gains tools as later plans land.
 

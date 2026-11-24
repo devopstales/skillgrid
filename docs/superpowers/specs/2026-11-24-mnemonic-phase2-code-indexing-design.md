@@ -1,7 +1,7 @@
 # Mnemonic Phase 2: Local-First Code Indexing & Static Intelligence — Design Specification
 
 - **Date**: 2026-11-24
-- **Status**: Draft — Pending User Spec Review
+- **Status**: Approved for Implementation Planning
 - **Repository**: `skillgrid-mnamonic` (`mnemonic` binary)
 - **Prerequisite**: `docs/superpowers/specs/2026-11-24-mnemonic-sqlite-memory-design.md` (Phase 1 Platform & Memory Subsystem)
 - **Lineage**: Synthesized from `skillgrid-v2/mnemonic`, [CodeGraph](https://github.com/colbymchenry/codegraph), [GitNexus](https://github.com/abhigyanpatwari/GitNexus), and [Graphify](https://github.com/Graphify-Labs/graphify)
@@ -12,7 +12,7 @@
 
 Phase 2 introduces the **`mnemonic code` subsystem** (`internal/code`), attaching cleanly onto Phase 1's `internal/platform` foundation (`CGO_ENABLED=0` pure Go, `modernc.org/sqlite` + `vec0`, shared `mnemonic daemon` with `--standalone` fallback, `hugot` 384-dim `bge-small-en-v1.5` ONNX CPU embeddings, and `platform/registry.Subsystem`).
 
-It stores the complete code graph, lexical/segment/vector indexes, architectural topology, framework contracts, and intra-procedural CFG/PDG/taint summaries directly inside the project's existing **`~/.mnemonic/<repo>.db`** (`subsystem = "code"`), enabling zero-overhead SQL joins between durable `memory` observations and live code symbols.
+It stores the complete code graph, lexical/segment/vector indexes, architectural topology, framework contracts, and intra-procedural CFG/PDG/taint summaries directly inside the project's existing **`~/.skillgrid/mnemonic/<repo>.db`** (`subsystem = "code"`), enabling zero-overhead SQL joins between durable `memory` observations and live code symbols.
 
 ### 1.1 Architectural Synthesis
 
@@ -80,7 +80,7 @@ internal/
 
 ### 2.2 Platform Seam Extensions (`platform/sqlitepool` & `platform/migrate`)
 
-Because `subsystem = "code"` shares `~/.mnemonic/<repo>.db` with `subsystem = "memory"`, two minimal additive safeguards are built into `internal/platform`:
+Because `subsystem = "code"` shares `~/.skillgrid/mnemonic/<repo>.db` with `subsystem = "memory"`, two minimal additive safeguards are built into `internal/platform`:
 
 1. **Target Scope Filter on `Subsystem`**: `Subsystem` adds `AppliesToGlobalDB() bool` (`true` for `memory`, `false` for `code` so `global.db` never creates empty `code_*` tables).
 2. **Two-Lane Priority `writeQueue` & `WalCheckpointValve` in `sqlitepool`**:
@@ -236,15 +236,13 @@ CREATE TABLE code_name_segments (
 ) WITHOUT ROWID;
 CREATE INDEX idx_code_segments_sym ON code_name_segments(symbol_id);
 
--- 8. FTS5 Lexical Tables (Symbol Metadata + Trigram Source Chunks)
+-- 8. Standalone FTS5 Lexical Tables (matches Phase 1 Plan 1 standalone FTS rule for corruption-safe DELETE triggers)
 CREATE VIRTUAL TABLE code_symbols_fts USING fts5(
     name,
     qualified_name,
     signature,
     docstring,
-    tokenize = 'unicode61 remove_diacritics 1',
-    content = 'code_symbols',
-    content_rowid = 'id'
+    tokenize = 'unicode61 remove_diacritics 1'
 );
 
 CREATE TRIGGER code_sym_fts_ai AFTER INSERT ON code_symbols BEGIN
@@ -252,31 +250,27 @@ CREATE TRIGGER code_sym_fts_ai AFTER INSERT ON code_symbols BEGIN
     VALUES (new.id, new.name, new.qualified_name, new.signature, new.docstring);
 END;
 CREATE TRIGGER code_sym_fts_ad AFTER DELETE ON code_symbols BEGIN
-    INSERT INTO code_symbols_fts(code_symbols_fts, rowid, name, qualified_name, signature, docstring)
-    VALUES ('delete', old.id, old.name, old.qualified_name, old.signature, old.docstring);
+    DELETE FROM code_symbols_fts WHERE rowid = old.id;
 END;
 CREATE TRIGGER code_sym_fts_au AFTER UPDATE OF name, qualified_name, signature, docstring ON code_symbols BEGIN
-    INSERT INTO code_symbols_fts(code_symbols_fts, rowid, name, qualified_name, signature, docstring)
-    VALUES ('delete', old.id, old.name, old.qualified_name, old.signature, old.docstring);
+    DELETE FROM code_symbols_fts WHERE rowid = old.id;
     INSERT INTO code_symbols_fts(rowid, name, qualified_name, signature, docstring)
     VALUES (new.id, new.name, new.qualified_name, new.signature, new.docstring);
 END;
 
 CREATE VIRTUAL TABLE code_chunks_fts USING fts5(
     text,
-    tokenize = 'trigram',
-    content = 'code_chunks',
-    content_rowid = 'id'
+    tokenize = 'trigram'
 );
 
 CREATE TRIGGER code_chunks_fts_ai AFTER INSERT ON code_chunks BEGIN
     INSERT INTO code_chunks_fts(rowid, text) VALUES (new.id, new.text);
 END;
 CREATE TRIGGER code_chunks_fts_ad AFTER DELETE ON code_chunks BEGIN
-    INSERT INTO code_chunks_fts(code_chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
+    DELETE FROM code_chunks_fts WHERE rowid = old.id;
 END;
 CREATE TRIGGER code_chunks_fts_au AFTER UPDATE OF text ON code_chunks BEGIN
-    INSERT INTO code_chunks_fts(code_chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
+    DELETE FROM code_chunks_fts WHERE rowid = old.id;
     INSERT INTO code_chunks_fts(rowid, text) VALUES (new.id, new.text);
 END;
 
