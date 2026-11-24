@@ -94,7 +94,7 @@ Before slicing, classify the change per `.skillgrid/config.yaml` `rules.fast_tra
 
 The waiver record (class, skips, reason, approved-by) must be present in `briefing.md` before `slicing` produces a light `tasks.md`. See `../_shared/planning/fast-track.md`.
 
-**Downstream:** the `SATISFIES` scenario names in `tasks.md` are the traceability oracle for `skillgrid:qa` — every scenario must be referenceable from a test. Name them precisely.
+**Downstream:** the `SATISFIES` scenario names in `tasks.md` are the traceability oracle for `skillgrid:test` — every scenario must be referenceable from a test. Name them precisely.
 
 **Assumed blueprints:** if `blueprint.md`'s line-3 STATUS banner is `assumed`, slicing proceeds normally (it is created only at the user's Owed-Decision Gate, so it counts as read — it never blocks). Add `Note: assumed decision (blueprint <path>)` to every ticket that implements the assumed value, so the decision debt is visible per ticket and survives into `qa`'s report and the ship Return Envelope.
 
@@ -245,7 +245,7 @@ Use `one-way` and `Precondition:` on migration, trust-boundary, and destructive
 tickets. Leave them off for routine, reversible work — the back-compat default
 is the point.
 
-5. Commit per `skillgrid:work-unit-commits` — conventional subject, a `[skillgrid-context]` block. Wave commits (between execution waves) carry the same block so a resumed session knows which wave is done and which is next.
+5. Commit per `_shared/work-unit-commits` — conventional subject, a `[skillgrid-context]` block. Wave commits (between execution waves) carry the same block so a resumed session knows which wave is done and which is next.
 
 ### Slicing Self-Review
 

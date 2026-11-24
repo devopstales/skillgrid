@@ -34,7 +34,7 @@ An agent that writes the code and the checks takes the cheapest road to green. T
 
 ## The Topology Step
 
-Select the fan-out from diff size / risk / rigor tier, never from a choice between skills. Per `skillgrid:code-review`:
+Select the fan-out from diff size / risk / rigor tier, never from a choice between skills. Per `_shared/planning/rigor-tiers.md` (review escalation threshold):
 
 - **<50 changed lines, low risk** → the 3-axis pass (Standards + Spec + Security).
 - **≥50 changed lines, or high-risk** (auth, data migration, money, concurrency, public API) → the core five (Standards, Spec, Edge cases, Verification gaps, Security), plus conditional Accessibility (diff touches UI) / Performance (diff touches data access / rendering) specialists.
@@ -48,7 +48,7 @@ The line-count floor gates the *core* five, not the domain specialists: a small 
 
 Launch **every selected lens in a single message** (multiple subagent calls) so they run in parallel, each with fresh context and no bias from the others. Use a `general-purpose` subagent per lens. Each lens's prompt is: the lens template, the diff scope (`$BASE_SHA..$HEAD_SHA` passed as a **path**, not inlined text — each lens reads it), and the Blindness Contract.
 
-The lens set (templates live in `skillgrid:code-review`'s `reviewers/` directory):
+The lens set (templates in `references/reviewers/`):
 
 | Lens | Focus | Selected when |
 |------|-------|---------------|
@@ -101,7 +101,7 @@ Do this yourself — the lenses file findings, you render the verdict. They lack
 
 ## The Fix Loop
 
-Route every surviving entry into the fix loop per `skillgrid:receiving-code-review` — triage buckets, fix, validate, repeat.
+Route every surviving entry into the fix loop below — triage buckets, fix, validate, repeat (receiving-side protocols: [handling-findings.md](handling-findings.md)).
 
 ### 1. Triage (the human's call)
 

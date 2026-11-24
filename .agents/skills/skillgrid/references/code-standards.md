@@ -202,10 +202,10 @@ never a hard violation:
 | **Unbounded growth** — a cache, buffer, or collection that accumulates without eviction; large allocations in a hot path | bound it, or evict what it holds |
 | **Blocking I/O on a hot path** — a synchronous or pool-blocking call in per-request, per-render, or per-item work | make it async, cap the fan-out, or move it off the path |
 
-At T3 the `skillgrid:code-review` performance specialist owns this in
+At T3 the performance specialist of `skillgrid:test`'s review area owns this in
 depth; at T2 this table is the net that catches the obvious regressions.
 
-The `skillgrid:code-review` skill applies this contract and smell baseline.
+The review area of `skillgrid:test` applies this contract and smell baseline.
 
 ## What NOT to do
 

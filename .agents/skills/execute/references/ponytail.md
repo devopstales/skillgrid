@@ -78,7 +78,7 @@ requirements carry in `acceptance.feature`.
 - Trivial one-liners need no new test, YAGNI applies to tests too — but the
   task's existing gate still has to pass.
 - If the task's gate is missing, author it before claiming done (per
-  `skillgrid:test-driven-verification`). Never "done" while a happy-path gate
+  `_shared/references/test-driven-verification.md`). Never "done" while a happy-path gate
   is unmet or `ABANDON`ed.
 
 ## Output
@@ -124,7 +124,7 @@ just less code, the physical world needs tuning a minimal model can't see.
 
 ## Pair with
 
-- `skillgrid:test-driven-verification` — owns the `#### Gates` contract this
+- `_shared/references/test-driven-verification.md` — owns the `#### Gates` contract this
   file's check rule points at.
 - [code-structuring.md](code-structuring.md) — the deep-module vocabulary
   (seam, depth, deletion test, one-adapter rule) for the design decisions the

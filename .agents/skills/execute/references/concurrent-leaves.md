@@ -40,7 +40,7 @@ implementer, plus two coordination lines:
   verified complete.
 
 Record both in the dispatch brief. The brief also carries the leaf's `#### Gates`
-oracles (see `skillgrid:test-driven-verification`) and the 4-pass refinement loop
+oracles (see `_shared/references/test-driven-verification.md`) and the 4-pass refinement loop
 (see `skillgrid:execute` → implementer template).
 
 ## Dispatch
@@ -71,7 +71,7 @@ A leaf's self-pass is a claim, not verification. Before marking any leaf
 complete:
 
 1. Re-run its `#### Gates` oracles yourself — the runnable `CHECK:` + `EXPECT:`
-   lines, freshly run (per `skillgrid:test-driven-verification`).
+   lines, freshly run (per `_shared/references/test-driven-verification.md`).
 2. For a shared file or interface, re-verify the integration gate from the
    integrated leaf, not from the individual leaves.
 3. Confirm no leaf wrote outside its `Owns:` — a stray write into a sibling's

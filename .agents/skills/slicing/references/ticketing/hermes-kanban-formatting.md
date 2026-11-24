@@ -29,7 +29,8 @@ Title: `Epic: <epic summary from tasks.md>`.
 - Assignee: the profile from `ticketing.kanban.assignee`.
 - Parent: none (top-level card).
 - Milestone mapping: the epic card stands in for the other trackers'
-  milestone. The full spec folder name (e.g. `2026-10-06-mnemonic-standalone`)
+  milestone, created at ticketing publish time (this tracker has no milestone
+  object, so there is nothing to create at Phase 0). The full spec folder name (e.g. `2026-10-06-mnemonic-standalone`)
   goes in the epic card's body as a `Spec: <spec-folder-name>` line so the
   `epic → spec` mapping stays 1:1 and recoverable from the board alone. Never
   use a short slug or numeric ID there.

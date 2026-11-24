@@ -1,7 +1,7 @@
 # Final Review
 
 Loaded on demand from `execute` SKILL.md once every task is complete
-and `skillgrid:qa` has passed — the whole-branch review that precedes ship.
+and `skillgrid:test` has passed — the whole-branch review that precedes ship.
 
 The final whole-branch review gets a package too: run
 `node .agents/skills/execute/scripts/review-package.mjs PLAN_FILE MERGE_BASE HEAD` (MERGE_BASE = the commit the
@@ -9,7 +9,7 @@ branch started from, e.g. `git merge-base main HEAD`) and include the printed
 path in the final review dispatch, so the reviewer reads one file instead of
 re-deriving the branch diff with git commands. Dispatch on the most capable
 available model (see `model-selection.md`) using
-`skillgrid:code-review`'s 3-axis templates, in parallel:
+`skillgrid:test`'s review area 3-axis templates, in parallel:
 `code-reviewer.md`
 (Standards — glossary, in-force ADRs, smell baseline),
 `spec-reviewer.md`
@@ -22,7 +22,7 @@ merge.
 
 **Escalate for large or high-risk branches:** if the whole-branch diff is large
 (50+ changed lines) or high-risk (auth, data migration, money, concurrency,
-public API), `skillgrid:code-review`'s topology becomes the fan-out — specialist
+public API), the topology of `skillgrid:test`'s review area becomes the fan-out — specialist
 reviewers (Standards, Spec, edge cases, verification gaps, security, red team)
 run in parallel, then triage and deduplicate their findings. The per-task
 reviews stay the lightweight 3-axis pass; only the final whole-branch review
@@ -39,6 +39,6 @@ on the load-bearing ones and ledger what you decided. Only the four breaker
 classes stop you here. There is no second fix wave — residual load-bearing
 findings surface to your human partner when ship presents the options.
 
-Per-task fix loops follow `skillgrid:receiving-code-review` triage rules
+Per-task fix loops follow the review fix loop's triage rules in `skillgrid:test`
 (fix now / defer / human look / noise) applied through the ledger's
 park-and-rule mechanism.

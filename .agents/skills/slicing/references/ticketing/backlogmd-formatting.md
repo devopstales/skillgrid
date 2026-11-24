@@ -12,7 +12,7 @@ Shared formatting conventions for `backlog.md`-based workflows. Consumed by the 
 - **Task** — a single deliverable that lands in one PR. One file per task.
 - **Bug** — separate sibling task files per component; urgent, no wrapper needed.
 
-**Standing rule (one milestone per SDD change):** Backlog.md has no real epics, so the milestone is the grouping mechanism — not a parent task. For every change: `backlog milestone add "<YYYY-MM-DD-topic>"` using the spec slug folder name verbatim, then assign the epic parent (if one was created, it stays as a pointer only) and every ticket via `backlog task edit <ID> -m <milestone-id>`. Never group a change's tickets by parent-task alone.
+**Standing rule (one milestone per SDD change):** Backlog.md has no real epics, so the milestone is the grouping mechanism — not a parent task. The milestone is created **with the change folder at Phase 0** (`backlog milestone add "<YYYY-MM-DD-topic>"`, spec slug folder name verbatim — `_shared/rules/sdd-structure.md` § Writing Rules). At publish time, look it up (`backlog milestone list`) and use that ID; create it only if it is missing (e.g. ticketing was enabled mid-change) — never a second one. Then assign the epic parent (if one was created, it stays as a pointer only) and every ticket via `backlog task edit <ID> -m <milestone-id>`. Never group a change's tickets by parent-task alone.
 
 ## Milestone Template
 

@@ -117,5 +117,5 @@ The system SHALL <falsifiable SHALL/MUST sentence in domain language>.
 #   the module's shape, in the same CHECK+EXPECT format (e.g. "the public interface
 #   exposes ≤3 entry points", "tests cross the seam and assert on outcomes, not
 #   internal state"). These are the deep-module invariants from
-#   skillgrid:writing-blueprints → references/codebase-design.md (deletion test,
+#   skillgrid:blueprint → references/codebase-design.md (deletion test,
 #   one-adapter rule). Assert the shape, not the internals.

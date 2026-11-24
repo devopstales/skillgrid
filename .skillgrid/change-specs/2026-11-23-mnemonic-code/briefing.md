@@ -52,7 +52,10 @@ is bloat, and it predates the brain's store contract.
   communities, generated docs; docs/config files in the index (code files
   only); cross-domain embedding fusion (one code query mixing memory + code);
   bundling or managing LSP server binaries (detection only); multi-project
-  watch; ANN index rebuild automation beyond a mismatch note.
+  watch; ANN index rebuild automation beyond a mismatch note; the
+  **web-cache domain and its TTL bars** (v1: context7 720h, exa 168h,
+  deepwiki 336h, fetch 168h — owned by the memory/core store contract, not
+  this change).
 
 ## Context
 
@@ -357,6 +360,42 @@ namespaces; cloning one repo to a different path keeps the same identity
 stated in the envelope, not discovered by overwrite.
 Acceptance scenario: same-basename repos do not collide (acceptance.feature,
 scenario "Project identity from repo identity").
+
+**R14 — Agent orientation contract (v1's Orientation Ladder, ported).**
+Current: the v1 code index ships a usage contract
+(`mnemonic/references/code-indexing.md` in the v1 skill tree) — the
+canonical Orientation Ladder plus Index-Freshness trust rules — and this
+7-tool surface has no equivalent. R6 quantifies drift but never tells an
+agent *when to trust the index* or *in what order to navigate*; without the
+contract the index is an untrusted sidecar (the pre-mortem's dead-weight
+risk, line: "agent workflows don't call the 7 tools, they are dead weight").
+Target: the tools carry v1's orientation contract, adapted to the v2
+surface:
+- **Freshness enum** `fresh|lag|empty|unknown` as the carrier of R6's drift
+  quantification: no drift → `fresh`; drift past threshold → `lag` (with
+  optional `lagged_paths`); no index → `empty`; unreadable mtime/hash →
+  `unknown` (never false-clean). `stale=true` stays **empty-index compat
+  only** — lag is `freshness=lag`, not a silent "fine".
+- **Canonical navigation order** (prefer over dumping whole directory
+  trees): `code_status` → `code_search` (narrow the unit — identifier,
+  structural, or semantic) → `code_context` (the narrowed unit's definition
+  + 80/10-line chunk + callers/callees/dependents + graph neighbors) →
+  `code_explain` (deep dive on the narrowed target).
+- **Trust gating:** when freshness is `lag`, `empty`, or `unknown`, run
+  `code_index` before trusting `code_search`/`code_context` results.
+- **Read rule:** no speculative whole-file reads — exact slices come from
+  `code_context`'s chunk window for a path + range already narrowed.
+- **Tool choice:** prefer the index tools over `rg`/`grep` when exploring
+  an **unfamiliar** large repo; `rg`/`grep` stay the tool for
+  exact-identifier lookups and when the index is a poor fit.
+Acceptance: `code_status` reports `freshness: fresh` on a clean index,
+`lag` + `lagged_paths` after a bounded edit, `empty` on a fresh store;
+each tool's envelope/docs state its ladder position and the trust-gating
+rule; the consuming skill reference (skill-flip spec, Open Questions)
+carries the ladder so agent workflows call the tools in order.
+Acceptance scenario: freshness gates trust and the ladder documents
+navigation (acceptance.feature, scenario "Freshness gates trust, ladder
+documents navigation").
 
 ## Implementation Decisions
 

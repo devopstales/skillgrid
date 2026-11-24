@@ -5,12 +5,11 @@ description: "Use when a change has passed QA and review and needs to be closed 
 license: MIT
 metadata:
   author: devopstales
-  version: "2.2"
+  version: "2.5"
   part-of: skillgrid
   based_on: skillgrid:reflect 1.0 + skillgrid:environment-retro 1.0 + skillgrid:document 1.0 + skillgrid:ship 1.1
   created_by: human
   related_skills: [drift, writing]
-  version: "2.4"
 ---
 
 # Ship
@@ -121,6 +120,19 @@ Before any step:
 | Review gate | **advisory** | `not met` or a Grade C axis → WARNING, the human owns the decision. `met` / `met-with-fixes` → proceed. Never blocks on its own. |
 
 If a hard gate fails, **STOP and return `blocked`** with the failing gate named. Do not reflect, do not move.
+
+**The Ship Decision (GO / NO-GO).** The integration and the move are mechanical; the **decision** is the artifact. Synthesize the gates into a single verdict, rendered before the integration menu (Step 6) and recorded in the Return Envelope (Step 8).
+
+**Gather the review signal first.** If the change is **non-trivial** and no review verdict exists in `tasks.md` `## Review` (review-waived), run the review fan-out per `skillgrid:test`'s review area (topology per `_shared/planning/rigor-tiers.md`) on the diff **before** rendering the verdict — the ship decision rests on a fresh fan-out, not an absence of one; record its result in `tasks.md`. Two cases skip the fan-out: a change meeting the **Trivial skip** threshold (`rigor-tiers.md` — ≤ 2 files AND < 50 lines AND no auth / payments / data migration / config touch), and a prior verdict already in `tasks.md` (`REVIEW-PASS` or an accepted `BACK-TO-APPLY`) — reuse it, don't re-review.
+
+**Verdict rules (apply in order; the first that matches wins):**
+
+1. **QA `FAIL`, or an unresolved CRITICAL** → **NO-GO**. Nothing downstream overrides a hard gate.
+2. **Any Critical review finding** → **NO-GO**, unless the human explicitly accepted the risk (record the acceptance).
+3. **QA `CONCERNS` or a `BACK-TO-APPLY` review verdict** → **NO-GO** by default; the human can override to GO. Record the override and what was accepted.
+4. **Everything else (QA `PASS`/`WAIVED`, review clean or waived)** → **GO**, with the rollback plan attached (Step 6).
+
+A NO-GO discovered before the archive move (Step 7) leaves the folder untouched. A NO-GO discovered *after* the move is corrected in the next change, not by un-archiving.
 
 **The gate read is one call** — `node .agents/skills/ship/scripts/ship-gates.mjs <change-dir>` (read-only, pre-move). It returns `{qa, qa_blocks, qa_needs_override, review, review_needs_override, blocked, block_reason, findings}`: the `report.md` → `## Gate Decision` verdict + the unresolved-CRITICAL scan, and the `review.md` → `## Verdict` + Grade-C axes. `blocked: true` (exit 1) with `block_reason` `qa-failed` / `qa-critical-unresolved` / `qa-unverifiable` → return `blocked`. `qa_needs_override` / `review_needs_override` are the human decisions to surface — the script names them, it never makes them. When the script is absent, the gate read is the mechanical table above.
 
@@ -269,6 +281,8 @@ Which option?
 
 **Rollback plan (mandatory before any GO):** name the trigger and the procedure — merged → `git revert <merge-commit> -m 1`; PR open → close the PR (the branch stays); branch kept → the branch is the rollback. A trivial fast-track change may use one line: "revert the single commit."
 
+**Render the ship decision now** (the GO / NO-GO from the Gates section): state the verdict + basis + rollback plan, then present the menu. A NO-GO does not show the integration menu — return `blocked` (or the recorded human override to GO).
+
 **Drift gate (pre-archive):** before the mechanical archive move, run `skillgrid:drift` on the change's `blueprint.md` (and any project-wiki pages the change touched). A BLOCKER-level divergence (a Must-Have the spec claims that the code lacks, or an architectural divergence that breaks a stated invariant) is **WAIVE or FIX** — the user names the waiver (human + recorded risk) or the fix lands before the folder moves. MAJOR divergences surface in the ship report. No drift → the report says "No drift detected." and the gate passes. See the drift skill's gate section.
 
 
@@ -312,6 +326,8 @@ mem_save(
 
 ```markdown
 ## Change Closed
+
+**Ship Decision**: {GO | NO-GO} — {basis: QA {verdict} + review {verdict} + {human override, if any}} · Rollback: {trigger → procedure}
 
 See `references/ship-closeout.md` for the full procedure.
 

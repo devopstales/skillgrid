@@ -8,8 +8,8 @@ Match the verification effort to the risk. A throwaway prototype self-checks; a 
 |---|---|---|---|---|---|
 | **T0** | Prototype | none (direct execution from briefing) | skipped (record the skip) | self-check evidence only (L1, no gates) | none |
 | **T1** | Alpha | light (header + Must-Haves, no threat matrix unless applicable) | required | L1 + runtime verification (verify the behavior runs) | none |
-| **T2** | Beta | full | required | L2 + L3 (full suite, build, coverage, lint/typecheck) | code-review per its topology |
-| **T3** | GA | full | required | L4 (mutation + security) + all thresholds | code-review fan-out, at least one reviewer on a **fresh model** (different from the implementer's) |
+| **T2** | Beta | full | required | L2 + L3 (full suite, build, coverage, lint/typecheck) | review per its topology (`test` review area) |
+| **T3** | GA | full | required | L4 (mutation + security) + all thresholds | review fan-out, at least one reviewer on a **fresh model** (different from the implementer's) |
 
 The QA floor references [verification-ladder.md](../rules/verification-ladder.md) L1–L4. T2 is the project default; T3's fresh-model rule exists because a model reviewing its own work carries its own blind spots.
 
@@ -31,19 +31,19 @@ Three dials, three different questions:
 
 ## What each skill does with the tier
 
-- `skillgrid:writing-blueprints` — records `Tier: T<n>` in the blueprint header; selects which blueprint sections are mandatory (T1: light header, no threat matrix unless applicable; T2/T3: full).
+- `skillgrid:blueprint` — records `Tier: T<n>` in the blueprint header; selects which blueprint sections are mandatory (T1: light header, no threat matrix unless applicable; T2/T3: full).
 - `skillgrid:slicing` — reads the tier from the blueprint/briefing; T0 skips slicing (direct execution), T1 may use a light `tasks.md`.
-- `skillgrid:qa` — the tier selects the verification floor and which audits run (T0: self-check evidence only; T3: mutation + security mandatory). The change-classification floor still applies as the minimum.
-- `skillgrid:code-review` — the tier selects the review topology (T2: the 3-axis pass; T3: parallel fan-out with a fresh-model reviewer), per its topology step.
+- `skillgrid:test` — the tier selects the verification floor and which audits run (T0: self-check evidence only; T3: mutation + security mandatory). The change-classification floor still applies as the minimum.
+- `skillgrid:test` (review area) — the tier selects the review topology (T2: the 3-axis pass; T3: parallel fan-out with a fresh-model reviewer), per its topology step.
 
 ## Review escalation threshold
 
 The single source for when the 3-axis pass escalates to fan-out. Do not restate the numbers elsewhere — reference this section.
 
-- **Escalate to `skillgrid:code-review` fan-out** when the diff has **50+ changed lines OR is high-risk** (auth, data migration, money, concurrency, public API).
+- **Escalate to the `test` review-area fan-out** when the diff has **50+ changed lines OR is high-risk** (auth, data migration, money, concurrency, public API).
 - **Trivial skip** — a change that is **≤ 2 files AND < 50 lines AND touches no auth / payments / data migration / config** skips fan-out; the decision rests on the QA gate plus a one-line rollback.
 
-`skillgrid:code-review`'s own specialist-selection rule ("< 50 changed lines, low risk → the 3-axis pass; ≥ 50 or high-risk → the core five") applies the same threshold at dispatch time.
+The review area's own specialist-selection rule ("< 50 changed lines, low risk → the 3-axis pass; ≥ 50 or high-risk → the core five") applies the same threshold at dispatch time.
 
 ## Review budget
 
@@ -67,7 +67,7 @@ The maximum number of review rounds per change, by tier. This is the upfront bud
 
 The single source for fix/review loop caps. Do not restate the round counts elsewhere — reference this section.
 
-- **Gate fix loop** (QA gate FAIL, or a review fix loop: `skillgrid:qa`, `skillgrid:code-review`, `skillgrid:receiving-code-review`, `skillgrid:execute`): **3 rounds, then escalate to the human**. Past the cap the failure is structural (architectural or scope), not a test gap.
+- **Gate fix loop** (QA gate FAIL, or a review fix loop: `skillgrid:test` QA + review areas, `skillgrid:execute`): **3 rounds, then escalate to the human**. Past the cap the failure is structural (architectural or scope), not a test gap.
 - **Task-level fix loop** (`skillgrid:execute`, subagent mode, per task): **5 rounds, then the breaker adjudicates** each open finding (park with a ruling, or rule on the smallest change that unblocks dependent work). Rounds 1-3 resume the original implementer; rounds 4-5 dispatch a fresh implementer on a more capable model.
 
 ## Rules

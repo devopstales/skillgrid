@@ -52,7 +52,7 @@ List the valid next actions, then stop. Never skip ahead to "catch up" to the ex
 - Climb the lazy ladder before every coding task (The Lazy Discipline) — never simplify away what the ladder protects
 - Follow plan steps exactly
 - Don't skip verifications
-- Commit after every task per `skillgrid:work-unit-commits` — commits are your checkpoints
+- Commit after every task per `_shared/work-unit-commits` — commits are your checkpoints
 - Reference skills when the plan says to
 - Stop when blocked, don't guess
 - Never start implementation on main/master without explicit user consent

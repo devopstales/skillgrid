@@ -80,7 +80,7 @@
   - If no → `ticketing.enabled: false`, use `backlogmd` tracker type
 
 **Commit discipline:**
-- Always on — `skillgrid:work-unit-commits` is fully active during execution
+- Always on — `_shared/work-unit-commits` is fully active during execution
 - Ask the programmer: "Commit mode — (1) commit-only, (2) commit + session events (recommended)?"
   - (2) → install the `pre-commit` + `commit-msg` hook shims; each work-unit commit feeds a `commit` event
   - (1) → conventional commits + guards only, no session event detail
@@ -200,7 +200,7 @@ Show the detected facts to the programmer. Confirm one at a time — don't dump 
 
 10. **BDD / Acceptance testing** — "Executable acceptance tests: always on (like TDD). Stack: `javascript` (cucumber-js). Specs live at `.skillgrid/change-specs/<id>/acceptance.feature`; the runner at `.skillgrid/acceptance-tests/` is scaffolded on first use. The acceptance scenarios ARE the executable spec. Correct?"
 
-11. **QA gates** — "The `skillgrid:qa` skill enforces hard quality gates before merge. Here are the defaults — adjust any of them:
+11. **QA gates** — "The `skillgrid:test` skill enforces hard quality gates before merge. Here are the defaults — adjust any of them:
     - **Coverage minimum:** 80% (set 0 to disable)
     - **Mutation minimum:** 80% (set 0 to disable — requires a mutation tool like Stryker)
     - **P0 pass rate:** 100% (all P0 tests must pass)

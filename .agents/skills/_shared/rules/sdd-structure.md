@@ -30,7 +30,7 @@ skillgrid → brainstorm → questioning → research → prototype → blueprin
 | 6 | `slicing` | vertical tickets → `tasks.md` + user gate |
 | 7 | `execute` | implement tickets |
 | 8 | `test` | verdict → `report.md` (QA half) |
-| 9 | `adversarial-authoring` | council → `review.md` |
+| 9 | `adversarial-authoring` | cross-model council → council notes beside the reviewed artifact (`<basename>.council.md`; `review.md` itself was written by `test`'s review area) |
 | 10 | `drift` | detect divergence (the single exception — may run on demand at any point after `execute`, not only in sequence) |
 | 11 | `ship` | integrate + archive |
 
@@ -38,42 +38,42 @@ skillgrid → brainstorm → questioning → research → prototype → blueprin
 a phase-order violation. The phase-derivation table below (deepest artifact
 present) is the machine-readable check: if the deepest artifact does not match
 the skill about to run, the skill MUST halt and report the divergence. The
-`state.yaml` drift guard (`qa/scripts/state-drift-check.mjs`) is the read-only
+`state.yaml` drift guard (`test/scripts/state-drift-check.mjs`) is the read-only
 verifier.
 
 `skillgrid:blueprint` owns a five-phase flow: Phase 1 research (delegated to `skillgrid:research`), Phase 2 section-by-section draft with the Section Approval Gate, Phase 3 project-wiki persistence, Phase 4 prototype (delegated to `skillgrid:prototype`, user-selectable), Phase 5 write file. **Artifact creation order is permanent and sequential:** briefing → blueprint → blueprint validation → cucumber test file → tasks → slices. Never create the next artifact without the previous one existing. The user gate after `slicing` is mandatory: the user confirms the slice before execution. Fast-track waivers skip earlier planning skills only as `fast-track.md` allows; they do not skip the tail (`test` through `ship`).
 
 | Skill | Role |
 |---|---|
-| `using-skillgrid` | Orchestrator — detect, classify, route, resume, user gate |
-| `onboarding` | Bootstrap — detect facts; write `config.yaml` + `state.yaml` + the `.skillgrid/` knowledge bundle zone + AGENTS block |
-| `brainstorming` | Requirements gathering via `skillgrid:questioning` (delegated), ADR manifest |
-| `interviewing` | Grilling the user to a shared understanding (drives ADRs) |
+| `skillgrid` (router) | Orchestrator — detect, classify, route, resume, user gate (Smart Entry; `references/pipeline/host-contract.md`) |
+| `skillgrid` (onboarding, `references/pipeline/onboarding.md`) | Bootstrap — detect facts; write `config.yaml` + `state.yaml` + the `.skillgrid/` knowledge bundle zone + AGENTS block |
+| `brainstorm` | Requirements gathering via `skillgrid:questioning` (delegated), ADR manifest |
+| `questioning` | Grilling the user to a shared understanding (drives ADRs) |
 | `blueprint` Phase 5 (acceptance spec) | BDD `acceptance.feature` — valid Cucumber syntax, traceability oracle (folded in from the deleted `acceptance-test-authoring` skill) |
 | `blueprint` | Five-phase plan → `blueprint.md`: Phase 1 research (delegated to `skillgrid:research`) → Phase 2 section-by-section draft (Section Approval Gate) → Phase 3 project-wiki persistence → [Phase 4 prototype (delegated to `skillgrid:prototype`), user-selectable] → Phase 5 write file; **must** run goldfish review + user validation before completion |
 | ADR records | Domain model (terms in `glossary/`) + ADR authoring / supersession — contract + templates in `_shared/adr-records/` (cited, not restated); driven by `brainstorm` during the interview; adopting an external method/pattern follows `_shared/rules/adoption-decisions.md` (method-not-plugin test, Not-adopted list, smoke test, rename sweep, park-don't-defer) |
-| `projectwiki` | Read/maintain the `.skillgrid/projectwiki/` vault via the `projectwiki` engine (`mnemonic projectwiki ...`) — recall before re-deriving; concepts live in `decisions/`/`invariants/`/`workflows/`/`glossary/`/`gotchas/`/`architecture/` with `index/` projections rebuilt by `projectwiki index` in the same edit; ingests search/research + reflect results as typed, cross-linked pages (`DATA-LOADING.md`: `sources/` + `syntheses/` + `concepts/`). Top-level skill (cited, not restated) |
+| `projectwiki` | Read/maintain the `.skillgrid/projectwiki/` vault via the `projectwiki` engine (`mnemonic projectwiki ...`) — recall before re-deriving; concepts live in `decisions/`/`invariants/`/`workflows/`/`glossary/`/`gotchas/`/`architecture/` with `index/` projections rebuilt by `projectwiki index` in the same edit; ingests search/research + ship retro results as typed, cross-linked pages (`DATA-LOADING.md`: `sources/` + `syntheses/` + `concepts/`). Top-level skill (cited, not restated) |
 | `research` | External fact-finding → `findings.md` (Research section); standalone skill, also run inline as blueprint Phase 1 |
 | `questioning` | Interview loop: design tree, frontier rounds, clarity gate; standalone skill, also run inline by brainstorm |
 | `prototype` | Feasibility probe → `findings.md` (Prototype section); standalone skill, also run inline as blueprint Phase 4 |
-| `sketch` | UI/interaction variants → `findings.md` (Sketch section) |
+| `sketch` (inline in `blueprint`) | UI/interaction variants → `findings.md` (Sketch section); the variant mechanic lives in `blueprint/references/sketch-phase.md` |
 | `slicing` | Vertical tickets → `tasks.md`; **always** uses task creation skills |
-| `ticketing` | Publish to tracker, track status |
+| `ticketing` | *(absorbed into `slicing` — `slicing/references/ticketing/`)* — publish to tracker, track status |
 | `subagent-execution` / `simple-execution` | *(absorbed into `execute` modes)* — implement tickets (subagent / inline mode) |
 | `parallel-execution` | *(absorbed into `execute` fan-out mode)* — fan out independent tasks across subagents |
-| `structured-debugging` | Root-cause-first debugging discipline |
-| `test-driven-development` | RED → GREEN → TRIANGULATE → REFACTOR |
-| `test-driven-verification` | Evidence before any "done" claim |
+| `debug` | Root-cause-first debugging discipline |
+| `test-driven-development` | RED → GREEN → TRIANGULATE → REFACTOR (skill; canon in `_shared/references/strict-tdd.md`) |
+| `_shared/references/test-driven-verification.md` | Evidence before any "done" claim (shared canon, not a skill) |
 | `_shared/work-unit-commits` | Commit protocol + commit events for resume (contract + hooks, cited by execution skills) |
 | `isolated-workspace` | *(absorbed into `execute` Step 0)* — worktree isolation before execution |
 | `ponytail` | *(folded into `execute` as the lazy discipline)* — lazy-minimal solution ladder (fully active on every coding task during execution) |
-| `qa` | Quality gate → `report.md` (QA half: test plan + verdict + evidence) |
-| `code-review` | Review → `review.md` |
-| `receiving-code-review` | Process findings |
+| `test` (QA area) | Quality gate → `report.md` (QA half: test plan + verdict + evidence) |
+| `test` (review area) | Review → `review.md` (lens templates: `test/references/reviewers/`; topology + fix loop: `test/references/review-and-fix-loop.md`) |
+| `test/references/handling-findings.md` | Process findings (receiving-side protocol) |
 | `ship` | Integrate to base + move change folder to `change-archive/` |
-| `reflect` | **Terminal** — completes `report.md`'s retro half in place in the archive + session close |
-| `environment-retro` | Sub-phase of `reflect` — sweeps the agent *environment* (checks, navigation, steering no-ops, tool economy) and appends `## Environment Retro` to `report.md`; proposes fixes, never edits code |
-| `resume` | Re-orient from durable state at session start / context rot |
+| `ship` (Steps 2–3) | **Terminal** — completes `report.md`'s retro half in place + session close |
+| `environment-retro` | Sub-phase of `ship` Step 3 — sweeps the agent *environment* (checks, navigation, steering no-ops, tool economy) and appends `## Environment Retro` to `report.md`; proposes fixes, never edits code |
+| `skillgrid` (Smart Entry) | Re-orient from durable state at session start / context rot |
 
 ## Naming
 
@@ -97,7 +97,7 @@ verifier.
 │   └── YYYY-MM-DD-<topic>/
 ├── change-specs/               # ACTIVE change artifacts (committed); closed changes move to change-archive/
 │   └── YYYY-MM-DD-<topic>/
-│       ├── briefing.md         # brainstorming (falsifiable requirements, goal)
+│       ├── briefing.md         # brainstorm (falsifiable requirements, goal)
 │       ├── acceptance.feature  # BDD scenarios (the traceability oracle)
 │       ├── blueprint.md        # blueprint (technical plan)
 │       ├── tasks.md            # slicing (tickets, waves, dependencies)
@@ -105,10 +105,10 @@ verifier.
 │       ├── findings.md         # research/prototype/sketch consolidated evidence (optional)
 │       ├── ledger.md           # consistency ledger (terms, invariants, interfaces, errors, config)
 │       ├── evaluations/        # panel verdicts
-│       ├── report.md           # two-phase: qa writes the QA half (test plan + gate verdict + evidence)
-│       └── review.md           # code-review audit record; read by ship and reflect
+│       ├── report.md           # two-phase: test writes the QA half (test plan + gate verdict + evidence)
+│       └── review.md           # code-review audit record (test review area); read by ship
 ├── change-archive/             # CLOSED changes (committed, immutable); created lazily by ship
-│   └── YYYY-MM-DD-<topic>/     #   moved here by ship; reflect completes report.md's retro half in place
+│   └── YYYY-MM-DD-<topic>/     #   moved here by ship (retro half completed pre-move, Step 2)
 ├── projectwiki/                # LLM-wiki (committed, cross-change) — the agent writes and maintains it
 │   ├── ASSUMPTIONS.md          # DURABLE root record — VERIFIED/INFERRED/LOCKED/Open Questions; first file a reader opens
 │   ├── ARCHITECTURE.md         # DURABLE root record (created lazily) — live repo/program structure
@@ -130,17 +130,17 @@ verifier.
 
 ## Resume markers
 
-`resume` and `using-skillgrid` read these markers to pick the next skill. If another skill's table disagrees with this section, this section wins.
+The `skillgrid` router (Smart Entry) reads these markers to pick the next skill. If another skill's table disagrees with this section, this section wins.
 
 | Marker | Next |
 |---|---|
-| `report.md` absent, or `## Gate Decision` verdict empty / `PENDING` / still the template placeholder | `qa` |
-| QA verdict filled (`PASS` / `CONCERNS` / `FAIL` / `WAIVED`) and `review.md` missing or its `## Verdict` floor not met | `code-review` |
-| `review.md` floor met (`met` or `met-with-fixes`) and the folder is still under `change-specs/` | `receiving-code-review`, then `ship` |
-| Folder in `change-archive/`, QA verdict filled, retro sections empty | `reflect` |
+| `report.md` absent, or `## Gate Decision` verdict empty / `PENDING` / still the template placeholder | `test` |
+| QA verdict filled (`PASS` / `CONCERNS` / `FAIL` / `WAIVED`) and `review.md` missing or its `## Verdict` floor not met | `test` (review area) |
+| `review.md` floor met (`met` or `met-with-fixes`) and the folder is still under `change-specs/` | `adversarial-authoring` (when the change warrants a council round), then `ship` |
+| Folder in `change-archive/`, QA verdict filled, retro sections empty | `ship` (retro half — recovery path for an interrupted close) |
 | Folder in `change-archive/` and retro sections filled (`## Acceptance Verdict` already chosen, or `## Lessons` / `## Decisions` non-empty) | none — cycle complete |
 
-Planning-phase detection (which spec files exist, whether `tasks.md` is checked) stays in `skillgrid:resume`. The tail above is the part that used to collapse review and ship into one step.
+Planning-phase detection (which spec files exist, whether `tasks.md` is checked) stays in the `skillgrid` router's Smart Entry (`references/pipeline/host-contract.md`). The tail above is the part that used to collapse review and ship into one step.
 
 ## Status Contract
 
@@ -187,7 +187,7 @@ approved value:
 
 If the banner is not there, the skill HALTs, tells the user exactly which
 line to flip, and records `blocked(<phase>): <file> awaiting user approval`
-in `state.yaml` — `resume` reports it. The approval is the user's own
+in `state.yaml` — the router reports it. The approval is the user's own
 hand-edit of the banner (see § STATUS Banner), not a chat reply; the agent
 never writes `approved` itself.
 
@@ -206,7 +206,7 @@ checklist:
   `acceptance.feature` — never `briefing.md`, which is already present.
 
 Every validator of spec-folder state (the `state.yaml` drift guard, a
-`skillgrid validate`-style command, resume's phase derivation) MUST use this
+`skillgrid validate`-style command, the router's phase derivation) MUST use this
 semantics: the deepest present artifact is checked against the set of
 artifacts before it, and only missing predecessors are findings. A
 full-inventory rule flags every in-flight change and trains the agent to
@@ -214,7 +214,7 @@ ignore it.
 
 ### Resume rule
 
-`resume` and `using-skillgrid` MUST derive phase from artifacts first, then cross-check `state.yaml`. If they disagree, **artifacts win** (the spec zone is the deeper truth — same principle as the state-drift-guard). The skill records the disagreement as a dated entry in `.skillgrid/projectwiki/index/log.md` and patches the phase to match. `state.yaml` holds no freeform journal — prose goes to the KB write log, not `state.yaml`.
+The `skillgrid` router (Smart Entry) MUST derive phase from artifacts first, then cross-check `state.yaml`. If they disagree, **artifacts win** (the spec zone is the deeper truth — same principle as the state-drift-guard). The router records the disagreement as a dated entry in `.skillgrid/projectwiki/index/log.md` and patches the phase to match. `state.yaml` holds no freeform journal — prose goes to the KB write log, not `state.yaml`.
 
 ### Edit scope guard
 
@@ -232,7 +232,7 @@ blocked(<phase>): <one-line reason>
 
 Example: `blocked(execution): ticket T003 blocked by T001 (incomplete)`.
 
-A `blocked(...)` entry is the machine-readable signal that `resume` reads to report the blocker to the human. An unexplained halt (no `blocked(...)` entry) is a bug in the skill, not a state.
+A `blocked(...)` entry is the machine-readable signal that the router reads to report the blocker to the human. An unexplained halt (no `blocked(...)` entry) is a bug in the skill, not a state.
 
 ### nextRecommended
 
@@ -252,7 +252,7 @@ This is a bounded routing token, not human prose. The human-readable explanation
 
 | File | Initial value | Updated by |
 |---|---|---|
-| `briefing.md` | `draft` | brainstorming (write), user (→ `approved`, hand-edit), ship (→ `shipped`) |
+| `briefing.md` | `draft` | brainstorm (write), user (→ `approved`, hand-edit), ship (→ `shipped`) |
 | `blueprint.md` | `proposed` | blueprint (write; `assumed` only via the Owed-Decision Gate), user (→ `approved`, hand-edit), Ratify (→ `accepted`), ship (→ `shipped`) |
 | `acceptance.feature` | `draft` | blueprint Phase 5 (write), user (→ `approved`, hand-edit), ship (→ `shipped`) |
 | `tasks.md` | `sliced` | slicing (write), execution (→ `in-progress` / `complete`), ship (→ `shipped`) |
@@ -286,53 +286,53 @@ progress:
 constraints_ref: .skillgrid/projectwiki/ASSUMPTIONS.md                       # pointer, not a copy
 ```
 
-- The `changes:` map is the **resume pointer** — `resume` and `using-skillgrid` read it first, replacing the old "find newest `change-specs/` dir" heuristic. Each entry's `slug` is the `change-specs/<slug>/` directory name; `phase` + `status` describe where that change is right now.
+- The `changes:` map is the **resume pointer** — the `skillgrid` router (Smart Entry) reads it first, replacing the old "find newest `change-specs/` dir" heuristic. Each entry's `slug` is the `change-specs/<slug>/` directory name; `phase` + `status` describe where that change is right now.
 - **Parallel development:** multiple changes may coexist in the map simultaneously. There is no single "active" change — every entry is its own independent pipeline position.
 - `constraints_ref` points at `.skillgrid/projectwiki/ASSUMPTIONS.md` (the durable project understanding); operational rules live in AGENTS.md's `### Rules` section, not in `state.yaml`.
-- Onboarding creates it with an empty `changes:` map. `ship` removes the change's entry from the map and increments `completed_changes`. `reflect` sets the entry's `phase: complete`.
+- Onboarding creates it with an empty `changes:` map. `ship` removes the change's entry from the map and increments `completed_changes` (terminal).
 - **Legacy v1** (single `pipeline.current_change` + `current_phase`) is still parsed by the drift guard for backward compatibility, but new writes use v2.
 
 ### User gate contract
 
 A user gate is a persisted decision point, not a conversational pause. It applies to spec-dir changes (entries in `changes:`); Bounded and fast-track work without a spec dir stays conversational.
 
-- **Write on reach:** the skill that pauses for a user decision writes `changes.<slug>.gate: <gate>` in the same edit that updates `phase`. Named gates: `blueprint-validation` (`blueprint`, at the User Review Gate), `owed-decision` (`blueprint`, when the in-flight doubt gate finds an unsourced load-bearing claim — the panel: resolve first / not a real decision / build on the assumption; banner `assumed` when the user picks the third), `user-gate-slice` (`slicing`, when it writes `tasks.md`), `qa-verdict` (`qa`, when the verdict is `CONCERNS` or `FAIL` — a human decision is required), `ship-decision` (`ship`, when the override path needs a human).
+- **Write on reach:** the skill that pauses for a user decision writes `changes.<slug>.gate: <gate>` in the same edit that updates `phase`. Named gates: `blueprint-validation` (`blueprint`, at the User Review Gate), `owed-decision` (`blueprint`, when the in-flight doubt gate finds an unsourced load-bearing claim — the panel: resolve first / not a real decision / build on the assumption; banner `assumed` when the user picks the third), `user-gate-slice` (`slicing`, when it writes `tasks.md`), `qa-verdict` (`test`, when the verdict is `CONCERNS` or `FAIL` — a human decision is required), `ship-decision` (`ship`, when the override path needs a human).
 - **Screen:** one screen, readable in thirty seconds — **Done** (what was saved, with file names), **Assumed** (new assumptions, one line each, at most five), **Next** (the next step and roughly how long it takes), plus the reply menu: "ok to continue · tell me what to change · go to the end."
 - **Clear on respond:** the user's choice (ok, the named option, or a recorded override) clears the field in the same edit that advances the phase. A change request is written to the artifact under gate, the affected output is redone (at most twice; after that, record the disagreement and ask which version to keep), and the screen re-shows.
-- **Re-show on resume:** `resume` finds a non-empty `gate` and re-shows the same screen before any other action. It never passes the gate itself. A status report at a gated change names the pending gate without advancing.
+- **Re-show on resume:** the router (Smart Entry) finds a non-empty `gate` and re-shows the same screen before any other action. It never passes the gate itself. A status report at a gated change names the pending gate without advancing.
 - **`autonomy`:** default `check-in`. "Go to the end" (or equivalent) sets `autonomy: autonomous` — from then on, gates become one-line records (the plan's ledger during execution, a dated note in the artifact under gate during planning) instead of stops, except hard stops: a `blocked(...)` entry, missing tools or permissions, or a failed gate still persist and wait. "Check in again" reverts to `check-in`.
 
 **`projectwiki/ASSUMPTIONS.md`** is the *durable* project understanding — the four tiers `## VERIFIED` / `## INFERRED (HYPOTHESIS)` / `## LOCKED` / `## Open Questions`. `## LOCKED` is **the ADR index only**: one pointer row per in-force decision (a short description + the path to the record). `status`, `supersedes`, and `date` live in the file's frontmatter, not the row. The decision body is the file. Operational rules that are *not* decisions (build toolchain floor, commit format, dependency policy, spec/code zone order) live in AGENTS.md's `### Rules` section, not here.
 
 **`projectwiki/ARCHITECTURE.md`** is the *live* repo/program structure record — created lazily as the repo takes shape.
 
-The **project wiki vault** (`.skillgrid/projectwiki/`, OKF v0.2) holds the product + stack understanding (`ASSUMPTIONS.md` § VERIFIED), the terms glossary (`projectwiki/glossary/01/02-*-terms.md`), locked constraints (`projectwiki/invariants/`), and one ADR file per locked decision (`projectwiki/decisions/NNNN-slug.md`). Durable cross-change findings land as `projectwiki/decisions/` ADRs or `projectwiki/gotchas/` pages. The per-change `findings.md` stays in `change-specs/` for traceability; `reflect` lifts the durable, still-relevant findings into the vault so they survive the archive.
+The **project wiki vault** (`.skillgrid/projectwiki/`, OKF v0.2) holds the product + stack understanding (`ASSUMPTIONS.md` § VERIFIED), the terms glossary (`projectwiki/glossary/01/02-*-terms.md`), locked constraints (`projectwiki/invariants/`), and one ADR file per locked decision (`projectwiki/decisions/NNNN-slug.md`). Durable cross-change findings land as `projectwiki/decisions/` ADRs or `projectwiki/gotchas/` pages. The per-change `findings.md` stays in `change-specs/` for traceability; `ship` (retro half) lifts the durable, still-relevant findings into the vault so they survive the archive.
 
 ## Artifact File Paths
 
 | Skill | Creates / updates | Path |
 |---|---|---|
-| onboarding | skeleton | `config.yaml`, `state.yaml`, `projectwiki/ASSUMPTIONS.md`, `projectwiki/ARCHITECTURE.md` (lazy), project wiki vault (via `projectwiki bootstrap`: `projectwiki/config.json` sentinel + `PROJECTWIKI_SCHEMA.md` + `.ignore` + page-type folders), AGENTS block, `.gitignore` |
-| brainstorming | briefing + state (questioning via `skillgrid:questioning`) | `change-specs/<topic>/briefing.md`, `change-specs/<topic>/adr.md`, `projectwiki/ASSUMPTIONS.md` (new project or scope change → product + stack VERIFIED tier; VERIFIED/INFERRED tiers auto-written; LOCKED on user OK), `state.yaml` (`changes.<topic>` entry) |
+| `skillgrid` (onboarding ref) | skeleton | `config.yaml`, `state.yaml`, `projectwiki/ASSUMPTIONS.md`, `projectwiki/ARCHITECTURE.md` (lazy), project wiki vault (via `projectwiki bootstrap`: `projectwiki/config.json` sentinel + `PROJECTWIKI_SCHEMA.md` + `.ignore` + page-type folders), AGENTS block, `.gitignore` |
+| `brainstorm` | briefing + state + milestone (when ticketing enabled) (questioning via `skillgrid:questioning`) | `change-specs/<topic>/briefing.md`, `change-specs/<topic>/adr.md`, `projectwiki/ASSUMPTIONS.md` (new project or scope change → product + stack VERIFIED tier; VERIFIED/INFERRED tiers auto-written; LOCKED on user OK), milestone in the resolved tracker (title = folder name, created with the change folder), `state.yaml` (`changes.<topic>` entry) |
 | `_shared/adr-records` (via brainstorm) | terms + ADRs | `projectwiki/glossary/01-business-terms.md`, `projectwiki/glossary/02-technical-terms.md` (from the shared business/technical templates), `projectwiki/decisions/NNNN-slug.md` (body per config `adr_style` template in `_shared/adr-records/README.md`), `projectwiki/ASSUMPTIONS.md` (§ `LOCKED` ADR index pointer row only), `<specs_root>/<topic>/adr.md` (manifest from `brainstorm/references/adr-manifest.md`) |
 | `projectwiki` | concepts + catalogs | `.skillgrid/projectwiki/<decisions\|invariants\|workflows\|glossary\|gotchas\|architecture>/*.md` + `projectwiki/index/` projections (same-edit rule: every page write is followed by `projectwiki index`); ADR numbering stays with `_shared/adr-records/README.md`; derived index is engine-owned (`projectwiki index` rebuilds) |
-| `projectwiki` (`DATA-LOADING.md`) | ingested research + reflect results | `.skillgrid/projectwiki/sources/*.md` (one `SourceSummary` per external source, full `external:` citation), `syntheses/*.md` (one hub per research question), `concepts/*.md` (cut-out reusable ideas) + `preferences/<area>.md` from reflect; same-edit `projectwiki index` |
+| `projectwiki` (`DATA-LOADING.md`) | ingested research + ship retro results | `.skillgrid/projectwiki/sources/*.md` (one `SourceSummary` per external source, full `external:` citation), `syntheses/*.md` (one hub per research question), `concepts/*.md` (cut-out reusable ideas) + `preferences/<area>.md` from ship's retro half; same-edit `projectwiki index` |
 | research | findings | `change-specs/<topic>/findings.md` (`## Research:` section) + durable findings to the project wiki vault (`projectwiki/decisions/` ADR or `projectwiki/gotchas/` page) |
 | prototype | findings + probe | `prototype/<YYYY-MM-DD-topic>/` (`prototype.md` + throwaway code, permanently retained) + `change-specs/<topic>/findings.md` (`## Prototype:` section) |
-| sketch | findings | `change-specs/<topic>/findings.md` (`## Sketch:` section) |
+| sketch (inline in blueprint) | findings | `change-specs/<topic>/findings.md` (`## Sketch:` section) |
 | blueprint | plan + critic validation + state | `change-specs/<topic>/blueprint.md`, `state.yaml` (phase → `blueprint` then `blueprint-validated`) |
 | blueprint Phase 5 (acceptance spec) | BDD scenarios (valid Cucumber syntax) + state | `change-specs/<topic>/acceptance.feature`, `state.yaml` (phase) |
 | slicing | tickets + state (always via task creation skills) | `change-specs/<topic>/tasks.md`, `state.yaml` (phase) |
 | ticketing | tracker IDs | `change-specs/<topic>/tasks.md` (Tracker ID fields) |
 | execution | progress + state | `work/<YYYY-MM-DD-topic>/progress.md` + `tasks.md` `[x]` marks + session `commit` events, `state.yaml` (phase) |
-| qa | report (QA half) + state | `change-specs/<topic>/report.md` (test plan + verdict + evidence; retro half left empty), `state.yaml` (phase) |
-| review | findings + state | `change-specs/<topic>/` (review artifacts), `state.yaml` (phase) |
+| test (QA area) | report (QA half) + state | `change-specs/<topic>/report.md` (test plan + verdict + evidence; retro half left empty), `state.yaml` (phase) |
+| test (review area) | findings + state | `change-specs/<topic>/` (review artifacts: `review.md` + `review-ledger.md`), `state.yaml` (phase) |
 | ship | move + state | **moves** `change-specs/<topic>/` → `change-archive/YYYY-MM-DD-<topic>/`; `state.yaml` (remove `changes.<topic>` entry, completed_changes +1) |
-| reflect | report (retro half) + state + artifacts | completes `change-archive/YYYY-MM-DD-<topic>/report.md` in place (from `## Final-State Facts` onward); lifts durable findings to the project wiki vault (`projectwiki/decisions/` ADR or `projectwiki/gotchas/` page); `state.yaml` (terminal phase) + Mnemonic session close |
+| ship (Steps 2–3) | report (retro half) + state + artifacts | completes `change-archive/YYYY-MM-DD-<topic>/report.md` in place (from `## Final-State Facts` onward); lifts durable findings to the project wiki vault (`projectwiki/decisions/` ADR or `projectwiki/gotchas/` page); `state.yaml` (terminal phase) + Mnemonic session close |
 
 ## Writing Rules
 
-- Create the change folder **before** writing the briefing.
+- Create the change folder **before** writing the briefing. When the folder is created, create the change's milestone in the same step if `ticketing.enabled: true` in `.skillgrid/config.yaml` — title = the folder name `YYYY-MM-DD-topic` verbatim, via the resolved tracker's mechanism (`slicing/references/ticketing/` formatting reference). One milestone per SDD change: `ticketing` later looks the milestone up and assigns tickets to it; it never creates a second one.
 - READ before UPDATE; never blind overwrite.
 - Commit spec-zone changes (`.skillgrid/change-specs/`) before code changes — the `pre-commit` zone guard enforces it.
 - ADRs live as `projectwiki/decisions/NNNN-slug.md` — one file per decision, created lazily, global, not per-change. `projectwiki/ASSUMPTIONS.md` § `LOCKED` (the ADR index) stores a short description + the path only; `status`/`supersedes`/`date` live in the file's frontmatter. The per-change `change-specs/<topic>/adr.md` is a manifest of pointers to those files, never a copy.
@@ -342,13 +342,13 @@ The **project wiki vault** (`.skillgrid/projectwiki/`, OKF v0.2) holds the produ
 
 ## `state.yaml` drift guard
 
-`.agents/skills/qa/scripts/state-drift-check.mjs` is a **read-only** verifier that compares
+`.agents/skills/test/scripts/state-drift-check.mjs` is a **read-only** verifier that compares
 `.skillgrid/state.yaml` against the spec zone (`.skillgrid/change-specs/`) and
 reports a named drift verdict. It does **not** own the write — pipeline
 skills keep writing `state.yaml` directly at every phase transition; the
 guard owns the verification.
 
-**Run:** `node .agents/skills/qa/scripts/state-drift-check.mjs [project-root]` (defaults to
+**Run:** `node .agents/skills/test/scripts/state-drift-check.mjs [project-root]` (defaults to
 cwd). ADR: `.skillgrid/projectwiki/decisions/0008-state-drift-guard-js-yaml.md` (Node.js + `yaml` package).
 
 **Exit codes:** 0 clean, 1 drift (prints field/stale/derived table), 2
@@ -373,18 +373,18 @@ matching the Artifact File Paths table above:
 | `blueprint.md` | `blueprint` |
 | `tasks.md` (no execution signal) | `slicing` |
 | `tasks.md` + `work/<YYYY-MM-DD-topic>/progress.md` with `[x]` or `tasks.md` with `[x]` | `execution` |
-| `report.md` (any content — qa writes the Test Plan first, then the verdict) | `qa` |
+| `report.md` (any content — test writes the Test Plan first, then the verdict) | `qa` |
 
 For v2: every `change-specs/<slug>/` dir is compared against its `changes.<slug>` entry. A dir with no map entry is presence drift (Check 2); a map entry with no dir is also presence drift. Phase drift (Check 1) is per-entry.
 
 ### Wiring
 
-- **`skillgrid:qa`** — Step 9.5 runs the guard. A drift hit renders as a
+- **`skillgrid:test`** — runs the guard before rendering the gate. A drift hit renders as a
   **WARNING** in `report.md`'s `## State Drift` section (never CRITICAL,
   never affects the four-state verdict — same treatment as
-  decision-debt). If drifted, qa patches `state.yaml` to match the derived
+  decision-debt). If drifted, test patches `state.yaml` to match the derived
   values and commits the fix with the report.
-- **`skillgrid:resume`** — unchanged (the guard is qa-scoped; resume keeps
+- **`skillgrid` router** — unchanged (the guard is test-scoped; the router keeps
   its existing "trust the spec zone" prose).
 
 ### Rule
@@ -404,15 +404,15 @@ Finding | Waived By | Date | Status`. Window IDs are sequential (`W001`,
 `W002`, …). Status is `open` until explicitly closed.
 
 **Lifecycle:**
-- **`qa`** (Step 10, after rendering the gate): auto-appends each open
+- **`test`** (after rendering the gate): auto-appends each open
   WARNING/SUGGESTION finding to WINDOWS.md. If 0 open findings, no change.
 - **`ship`**: no change — windows are already recorded; the archive move
   does not touch WINDOWS.md (it is project-level, not per-change).
-- **`reflect`**: no change.
-- **Future:** a `qa` pre-check or `review-backlog` skill reads WINDOWS.md
+- **`ship` (retro half)**: no change.
+- **Future:** a `test` pre-check or `review-backlog` skill reads WINDOWS.md
   and surfaces open windows as context ("N open windows from prior changes").
 
-**Rule:** qa auto-appends (mechanical copy of the report's open findings).
+**Rule:** test auto-appends (mechanical copy of the report's open findings).
 The human can edit WINDOWS.md to waive, fix, or close windows. The ledger is
 advisory — it never blocks a gate.
 
@@ -427,7 +427,7 @@ block — it warns.
 **CLI:** `node scripts/state-lock.mjs <acquire|release|check> [args]`.
 
 **Lifecycle:**
-- **`brainstorming`** (acquire): after adding the `changes.<topic>` entry, runs
+- **`brainstorm`** (acquire): after adding the `changes.<topic>` entry, runs
   `acquire <topic> [session-id]`. Exit 1 (active lock for a different
   change) → surface the conflict warning (advisory). Exit 0 → continue.
 - **`ship`** (release): after removing the `changes.<topic>` entry, runs
@@ -449,7 +449,7 @@ the budget JSON records the last-known size.
 shipped in the skill source repo at
 `.agents/skills/skill-creator/scripts/skill-size-budget.mjs`; consumer projects
 run it from their installed skill tree (the same path shape this rule's other
-scripts use — the `qa` skill's QA path runs the check before rendering the gate).
+scripts use — the `test` skill's gate path runs the check before rendering the gate).
 
 **Tiers:** `standard` 22KB (default), `large` 38KB, `xl` 40KB. Skills
 explicitly assigned a tier in the `tiers` map; unlisted skills use `standard`.
@@ -467,7 +467,7 @@ A skill that grows past its ceiling to carry new behavior should push that
 behavior into `references/` — or drop the eval — rather than raise the ceiling.
 
 **Lifecycle:**
-- **`qa`** (check): runs `check` before rendering the gate. Overages become
+- **`test`** (check): runs `check` before rendering the gate. Overages become
   WARNING findings in the report (advisory, never blocks).
 - **`--write`**: regenerates the `skills` size map (keeps `ceiling` and
   `tiers`). Run after intentionally growing a skill.
@@ -482,14 +482,14 @@ integration, while the spec is still the contract. The anticipated set is
 the union of `tasks.md` Files column and `blueprint.md` Global Constraints
 paths.
 
-**CLI:** `node .agents/skills/qa/scripts/ship-drift-check.mjs check <base-ref>
+**CLI:** `node .agents/skills/test/scripts/ship-drift-check.mjs check <base-ref>
 --anticipated <dir>... [--exclude <glob>...] [project-root]`.
 
 **Default excludes:** `*.lock`, `*.sum`, `package-lock.json`, `yarn.lock`,
 `pnpm-lock.yaml`.
 
 **Lifecycle:**
-- **`qa`** (Step 9.6): resolves `<base-ref>` from `tasks.md` → `Chain
+- **`test`** (ship-drift check, before the gate renders): resolves `<base-ref>` from `tasks.md` → `Chain
   strategy:` and runs the check. Exit 1 (drift) → WARNING finding in the
   report's `## Structure Drift` section. Advisory — never blocks the gate.
 
@@ -507,5 +507,5 @@ On completion, **`ship`** moves the change folder out of the active `change-spec
 - **`change-specs/` is active-only.** A folder present in `change-specs/` is in-flight; a folder in `change-archive/` is closed. The date prefix in the folder name is preserved as the archive key.
 - **`change-archive/` is the single closed sink for the spec zone** — the only place a closed change's committed artifacts (briefing, blueprint, tasks, report, review) live. It is distinct from `work/`, which is **live execution scratch** (the Execution Ledger, ADR-0020): `work/<YYYY-MM-DD-topic>/` holds the in-flight `progress.md` / briefs / attempts / packets, is gitignored, and is ephemeral — `git clean -fdx` is the assumed disposal. A closed change's ledger is **not moved into `change-archive/`**; it simply stops being live. The two are separate sinks for separate lifetimes — never mix them, and never leave a closed change's ledger in `work/`.
 - **The move is mechanical** (shell `git mv` / `mv` only, never model Read→Write) with a **`diff -r` readback** against a pre-move snapshot — an empty diff is the only passing evidence. See `ship` (Step 7).
-- **`reflect`** then runs read-only over the archived folder: it completes `report.md`'s retro half in place (from `## Final-State Facts` onward — integration evidence + retrospective + archive summary) and owns the Mnemonic session close.
-- `change-archive/` is created lazily by `ship` if absent. Archived changes are **never deleted or modified** after the move (except the retro sections of `report.md`, completed in place by `reflect` after the move — the QA half is pre-move and included in the `diff -r` readback; the retro half is appended after).
+- **`ship`** (Steps 2–3) completes `report.md`'s retro half in place (from `## Final-State Facts` onward — integration evidence + retrospective + archive summary) and owns the Mnemonic session close.
+- `change-archive/` is created lazily by `ship` if absent. Archived changes are **never deleted or modified** after the move (the retro half of `report.md` is written pre-move by `ship` Step 2 and is included in the `diff -r` readback).

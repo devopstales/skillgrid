@@ -51,14 +51,14 @@ nothing.
 
 ## Where It Applies
 
-- **Drift scripts** (`.agents/skills/qa/scripts/state-drift-check.mjs`,
-  `.agents/skills/qa/scripts/ship-drift-check.mjs`): after the `DRIFT:` verdict line, emit a
+- **Drift scripts** (`.agents/skills/test/scripts/state-drift-check.mjs`,
+  `.agents/skills/test/scripts/ship-drift-check.mjs`): after the `DRIFT:` verdict line, emit a
   separate `SCOPE: <atom>` line describing the scope of the enumeration that
   produced the verdict. Exit codes are unchanged — scope is additive.
-- **QA gate** (`skillgrid:qa`): the `report.md` carries a `## Verification
+- **QA gate** (`skillgrid:test`): the `report.md` carries a `## Verification
   Scope` field naming the scope of the goal-backward and traceability
   derivations. The four-state gate treats non-`COMPLETE` scope as routing away
-  from PASS (see `skillgrid:qa` fail-closed rule).
+  from PASS (see `skillgrid:test` fail-closed rule).
 - **Any skill that reports a count or "none"** (resume, progress, review): if
   the number is a zero or the result is "none", say the scope.
 

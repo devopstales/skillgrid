@@ -37,7 +37,7 @@ Tag a Must-Have truth **`backstop`** when it cannot be confirmed by reading the
 diff alone — it needs a held-out test, a runtime, or state the diff doesn't
 show (a behavior only observable through a real integration, a timing property,
 a cross-component contract). `backstop` truths get a concrete held-out test in
-the plan, and they are the spec-time signal that `skillgrid:code-review`
+the plan, and they are the spec-time signal that `skillgrid:test`'s review area
 consumes: its verification-gap lens abstains (routes to `could-not-verify`
 rather than a confident pass) on a check a `backstop` truth designates as
 exogenous. Omit the tag for truths a plain diff read settles.
@@ -295,7 +295,7 @@ Rules:
   rationale, or alternatives. That content is written by Ratify.
 - `assumed` never blocks execution, slicing, QA, or ship (it counts as
   user-approved — created only at the user's Owed-Decision Gate). It is surfaced
-  (WARNING, never CRITICAL) by `skillgrid:qa`, carried into the ship Return
+  (WARNING, never CRITICAL) by `skillgrid:test`, carried into the ship Return
   Envelope, and listed in the final `report.md` until ratified.
 - A blueprint stays `assumed` through the whole change. Only Ratify clears it.
 
@@ -303,8 +303,8 @@ Rules:
 
 **When to use:** a change's blueprint carries STATUS `assumed` and the
 decision is now being deliberated — often phrased "ratify <feature>", or
-surfaced by `skillgrid:qa`'s decision-debt WARNING, the ship Return Envelope,
-or `skillgrid:reflect`'s report.
+surfaced by `skillgrid:test`'s decision-debt WARNING, the ship Return Envelope,
+or `skillgrid:ship`'s report.
 
 **Process:**
 1. Read the Assumed blueprint in full. Its Owed decision, Assumption built on,
@@ -374,7 +374,7 @@ slicing is needed:
 | Goldfish review findings not dispositioned with a user decision | No Phase 5/6 — the user review gate runs while the blueprint's STATUS is still `proposed` and cheap to change. |
 | 3+ tasks worth of work | Invoke `skillgrid:slicing` (vertical tickets, dependency edges, waves). |
 | 1–2 tasks | Skip slicing, execute directly. |
-| Large or high-risk blueprint (review escalation threshold) | Final review escalates to `skillgrid:code-review` fan-out (multi-reviewer), not the lightweight pass. |
+| Large or high-risk blueprint (review escalation threshold) | Final review escalates to the review fan-out per `skillgrid:test` (multi-reviewer), not the lightweight pass. |
 | A spec requirement has no truth/artifact/key link in Must-Haves | The plan won't verify correctly — add it before the Goldfish review. |
 | A requirement is missing from `## Validation` | Not publishable — the matrix covers the briefing or the slice descopeing it silently. |
 
@@ -423,10 +423,10 @@ per ticket, if sliced), review between tasks, fast iteration
 - Batch execution with checkpoints for review
 
 **Review at the end (both options):** the default is the lightweight pass of
-`skillgrid:code-review` (the 3-axis pass at small/low-risk). For a large or
+`skillgrid:test`'s review area (the 3-axis pass at small/low-risk). For a large or
 high-risk blueprint (at the review escalation threshold, per
 `_shared/planning/rigor-tiers.md`), the final review escalates to
-`skillgrid:code-review` fan-out — multi-reviewer. The execution skill decides
+the review fan-out per `skillgrid:test` — multi-reviewer. The execution skill decides
 when to escalate; you just tell the user the option exists when the blueprint
 looks risky.
 

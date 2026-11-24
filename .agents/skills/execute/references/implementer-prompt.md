@@ -40,7 +40,7 @@ Subagent (general-purpose):
     2. Implement exactly what the task specifies
     3. Write tests (TDD is always on — follow `skillgrid:test-driven-development`: failing test first, watch it fail, implement, then TRIANGULATE a second test with different inputs before refactoring). **BDD is always on** — the task carries a `SATISFIES: [scenario-name]` — that is the acceptance scenario in `.skillgrid/change-specs/<id>/acceptance.feature` you must make green. Confirm it is RED before writing code.
 4. Verify implementation works
-5. Commit your work per skillgrid:work-unit-commits (commit `.skillgrid/change-specs/` changes before code changes — zone rule, BDD is always on). Conventional subject, no AI-attribution trailer, atomic + independently-revertable. Put a `[skillgrid-context]` block in the body (Task / Decisions / Remaining / Tried). The git hooks enforce the guards; commit *after* the gate is green, *before* any long install/build.
+5. Commit your work per `_shared/work-unit-commits` (commit `.skillgrid/change-specs/` changes before code changes — zone rule, BDD is always on). Conventional subject, no AI-attribution trailer, atomic + independently-revertable. Put a `[skillgrid-context]` block in the body (Task / Decisions / Remaining / Tried). The git hooks enforce the guards; commit *after* the gate is green, *before* any long install/build.
 6. Self-review (see below)
     7. Report back
 

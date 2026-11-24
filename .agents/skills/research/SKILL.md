@@ -9,7 +9,6 @@ metadata:
   based_on: skillgrid:blueprint (Phase 1 research extracted)
   created_by: human
   related_skills: [blueprint, brainstorm]
-  version: "1.0"
 ---
 
 # Research
@@ -28,7 +27,7 @@ as a standalone concern. `blueprint` still runs it inline as Phase 1 when the
 design needs grounding; this skill owns the full protocol so it can also be
 dispatched independently from `brainstorm` or directly by the programmer.
 
-**Announce at start:** "I'm using the skillgrid:research skill to ground the
+**Announce at start:** "I'm using skillgrid:research to ground the
 design."
 
 **Position in the chain:** … → `questioning` → **`research`** → `prototype` → …

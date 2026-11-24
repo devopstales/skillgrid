@@ -5,12 +5,11 @@ description: Use when a change needs testing beyond the implementation — inten
 license: MIT
 metadata:
   author: devopstales
-  version: "2.1"
   part-of: skillgrid
   based_on: skillgrid:qa 1.1 + skillgrid:dogfood 1.0 + skillgrid:playwright-cli 1.0 + skillgrid:jscpd 1.0 + skillgrid:refactoring 2.0 + skillgrid:dry-refactoring 1.0 + skillgrid:trivy 1.0 + skillgrid:nuclei 1.0 + skillgrid:wapiti 1.0 + skillgrid:akca 1.0 + skillgrid:owasp-security 1.0 + skillgrid:code-review 1.0 + skillgrid:receiving-code-review 1.0
   created_by: human
   related_skills: [projectwiki]
-  version: "2.3"
+  version: "2.5"
 ---
 
 # Test
@@ -33,11 +32,11 @@ This skill is a router over five test areas. Each area is a `references/` file
 loaded on demand, so a small change never pays the token cost of the areas it
 does not need. The areas are independent problem domains:
 
-- **Intent testing** (references/intent-testing.md) — does the change satisfy the stated requirement? Goal-backward verification from the briefing's falsifiable truths and the `acceptance.feature` scenarios. This is the gate that actually verifies the feature exists, not just that the suite is green.
+- **Intent testing** (references/intent-testing.md) — does the change satisfy the stated requirement? Goal-backward verification from the briefing's falsifiable truths and the `acceptance.feature` scenarios. This is the gate that actually verifies the feature exists, not just that the suite is green. It includes the **TDD Evidence Audit**: the per-scenario RED→GREEN evidence `skillgrid:execute` collected — a scenario with no recorded RED failure is `MISSING_RED`, a CRITICAL finding (per `references/test-rigor.md`).
 - **Functional testing** (references/functional-testing.md) — does the behavior actually run? The test suite, layer selection, the exploratory browser pass (driven by `playwright-cli` — full command reference in references/playwright-cli.md), and the regression check on the diff.
 - **Code quality** (references/code-quality.md) — duplication and complexity via jscpd: exact / renamed / near-miss clones, the health score, dead code, and the refactoring hotspots.
 - **Security** (references/security.md) — the five tools: trivy (SCA / secrets / IaC / SBOM), nuclei (broad DAST), wapiti (lightweight DAST), akca (deep evidence-backed DAST), and owasp-security (code/diff review).
-- **Review + fix loop** (references/review-and-fix-loop.md) — does the code follow standards and implement the spec? The topology-driven code review (Standards / Spec / Security + conditional specialists, red team last), triage, and the receiving-code-review fix loop that closes the findings with tests.
+- **Review + fix loop** (references/review-and-fix-loop.md) — does the code follow standards and implement the spec? The topology-driven code review (Standards / Spec / Security + conditional specialists, red team last), triage, and the fix loop that closes the findings with tests (receiving-side protocols: `references/handling-findings.md`).
 
 The mode only changes *which areas run and how deep* — the config, the verdict, and the report are shared.
 
@@ -83,7 +82,7 @@ The URL is an input to the security and functional areas, not a gate: an absent 
 - A re-test run (when a prior `test` verdict returned CONCERNS or FAIL).
 - A human asks "is this actually done / is this secure / is this clean?"
 
-**When NOT to use:** mid-implementation (test is a gate at the end, not a running check); a single trivial change with one acceptance scenario that the spec reviewer in `skillgrid:code-review` already covers.
+**When NOT to use:** mid-implementation (test is a gate at the end, not a running check); a single trivial change with one acceptance scenario that the spec reviewer in `skillgrid:test`'s review area already covers.
 
 ## Area Selection
 
@@ -145,13 +144,18 @@ The review area runs only after intent + functional render PASS or CONCERNS (or 
 
 ### Step 3: Render the Verdict
 
+**Drift guards (run before the gate renders):**
+
+1. **State drift** — run `node .agents/skills/test/scripts/state-drift-check.mjs [project-root]` (exit 0 clean / 1 drift / 2 usage-parse). A drift hit renders as a **WARNING** in `report.md`'s `## State Drift` section — never CRITICAL, never affects the four-state verdict (same treatment as decision-debt). If drifted, test patches `state.yaml` to the derived values the guard printed and commits the fix with the report (the guard is read-only; the write stays with the pipeline).
+2. **Structure drift** — resolve `<base-ref>` from `tasks.md`'s `Chain strategy:` (stacked-to-main → the stack base; feature-branch-chain → the parent branch; pending → skip the check and record a named re-run path in `## Structure Drift`), then run `node .agents/skills/test/scripts/ship-drift-check.mjs check <base-ref> --anticipated <dirs> [project-root]` where `--anticipated` is the union of `tasks.md`'s `Files:` column and `blueprint.md`'s Global Constraints paths. Exit 1 (drift) → **WARNING** in `report.md`'s `## Structure Drift` section; advisory — never blocks the gate.
+
 Complete the report from [templates/report.md](templates/report.md) and render the four-state gate — **the matrix is a script**: `node .agents/skills/test/scripts/verdict-render.mjs` (JSON in, JSON out). Feed it the area signals as the input shape in the script's header (each area's state per the criteria below); it returns `{verdict, floor_area, floor_reasons, non_answers, needs_human, notes}`. The matrix below is the contract the script implements — when they disagree, the script's output is the render and the matrix text is the bug to fix:
 
 | Verdict | Criteria |
 |---------|----------|
 | **PASS** | All of: every truth VERIFIED (intent), every scenario covered by a test that ran and passed (functional), no CRITICAL finding from any area, all code-quality gates PASS or N/A (coverage / mutation / lint / typecheck / P0 / P1 at thresholds, jscpd duplication ≤ `duplication.fail_on` when `> 0`), no Trivy finding at or above `security.trivy.fail_on` (if set), the review signal is `REVIEW-PASS` (no unresolved `high`/`medium` entries) or an accepted `BACK-TO-APPLY`, and every verification-scope derivation `COMPLETE`. |
-| **CONCERNS** | No CRITICAL finding and all hard gates PASS, but at least one of: a `PRESENT_BEHAVIOR_UNVERIFIED` truth, a WARNING finding, a P0 without triangulation, a changed-file coverage dip, a verification-scope that is `TRUNCATED`/`UNSCOPED` with a named re-run path, or a `STALE` verification. These are non-answers the human can clear by re-running with full scope or current evidence. |
-| **FAIL** | Any of: a truth UNVERIFIED, a scenario with no covering test, a test that ran and failed, a CRITICAL finding from any area (including a CRITICAL assertion-quality gap), a CRITICAL security finding, a code-quality gate below threshold, a Trivy finding at or above `fail_on`, a duplication % above `duplication.fail_on` (if `> 0`), or an unresolved `high` review entry (the review signal is `BACK-TO-APPLY` with open items). |
+| **CONCERNS** | No CRITICAL finding and all hard gates PASS, but at least one of: a `PRESENT_BEHAVIOR_UNVERIFIED` truth, a WARNING finding, a P0 without triangulation (the "second test, different inputs" rule — `references/test-rigor.md`), a changed-file coverage dip, a verification-scope that is `TRUNCATED`/`UNSCOPED` with a named re-run path, or a `STALE` verification. These are non-answers the human can clear by re-running with full scope or current evidence. |
+| **FAIL** | Any of: a truth UNVERIFIED, a scenario with no covering test, a test that ran and failed, a CRITICAL finding from any area (including a CRITICAL assertion-quality gap — a banned assertion as the load-bearing assertion of a P0 test, per `references/test-rigor.md`), a CRITICAL security finding, a code-quality gate below threshold, a Trivy finding at or above `fail_on`, a duplication % above `duplication.fail_on` (if `> 0`), or an unresolved `high` review entry (the review signal is `BACK-TO-APPLY` with open items). |
 | **WAIVED** | The human explicitly waived a specific criterion. The waiver, the criterion, and the accepted risk are recorded in the report. WAIVED is never a machine decision. |
 
 **Hard rules:**
@@ -168,7 +172,7 @@ Complete the report from [templates/report.md](templates/report.md) and render t
 |---|---|
 | No `TARGET_URL` provided | DAST tools and browser pass are `N/A — no URL`; record it in the report header. |
 | Any area renders a FAIL-valued signal | Verdict **FAIL** — the floor caps; a strong overall never compensates for a weak part. |
-| No CRITICAL, but a non-answer (unverified truth, WARNING, P0 without triangulation, TRUNCATED/UNSCOPED scope, STALE verification) | Verdict **CONCERNS** — name the re-run path; the human can clear it. |
+| No CRITICAL, but a non-answer (unverified truth, WARNING, P0 without triangulation per `test-rigor.md`, TRUNCATED/UNSCOPED scope, STALE verification) | Verdict **CONCERNS** — name the re-run path; the human can clear it. |
 | A gate threshold is 0 | That gate is N/A — it cannot FAIL. |
 | Verification scope is not `COMPLETE` | Fail-closed: route to CONCERNS (named re-run) or FAIL, never a silent PASS. |
 | The human explicitly waives a specific criterion | Verdict **WAIVED** — record the waiver, the criterion, and the accepted risk. Never a machine decision. |
@@ -302,12 +306,18 @@ On-demand detail for this skill, in `references/`:
 - `references/playwright/` — the ten task-specific browser guides, loaded only when the functional area's browser pass needs one: tests (run/debug), request-mocking, running-code, session-management, storage-state, test-generation, tracing, video-recording, pr-attachments, element-attributes.
 - [code-quality.md](references/code-quality.md) — jscpd: clone kinds, the health/dashboard score, the summary hotspots, dead code, and the coverage/mutation/lint/typecheck/P0/P1 gates.
 - [security.md](references/security.md) — the five tools: trivy, nuclei, wapiti, akca, owasp-security; when to run each, the triage rubric, and the finding block.
-- [review-and-fix-loop.md](references/review-and-fix-loop.md) — the topology-driven code review (Standards / Spec / Security + conditional specialists, red team last), the Blindness Contract, the six-value verdict table, and the receiving-code-review fix loop (triage → fix → validate → repeat). When the diff touches a REST surface, the review area checks the contract against [api-design.md](../execute/references/api-design.md) (resource naming, semantic status codes, the envelope, pagination, and the breaking-vs-non-breaking versioning decision).
+- [review-and-fix-loop.md](references/review-and-fix-loop.md) — the topology-driven code review (Standards / Spec / Security + conditional specialists, red team last), the Blindness Contract, the six-value verdict table, and the fix loop (triage → fix → validate → repeat). When the diff touches a REST surface, the review area checks the contract against [api-design.md](../execute/references/api-design.md) (resource naming, semantic status codes, the envelope, pagination, and the breaking-vs-non-breaking versioning decision).
+- `references/reviewers/` — the eight lens templates the review area dispatches (standards, spec, security, edge-cases, verification-gap, accessibility, performance, red-team); one file per lens, loaded only for the selected lenses.
+- [handling-findings.md](references/handling-findings.md) — the receiving side of the fix loop: unclear feedback, source-specific handling, YAGNI check, when to push back, thread-reply format.
+- [test-rigor.md](references/test-rigor.md) — the test-quality contracts: the banned-assertion catalogue (defines the "CRITICAL assertion-quality gap" FAIL criterion), the P0 triangulation procedure (defines the "P0 without triangulation" CONCERNS criterion), assert-the-degraded-verdict, safety-net/baseline.
+- [verification-gap.md](references/verification-gap.md) — the verification-gap audit: the gap shapes (regression / missing-adoption / broken-verification / missing-oracle), the Smallest Regression column, and how the audit renders into `report.md`.
 
 Scripts in `scripts/`:
 
 - `node scripts/area-scope.mjs CHANGE_DIR [TARGET_URL]` — emit the area-selection table for a change (which areas to run, which are N/A, and why), from the change shape. Exit 0 = selection made, 2 = usage error.
 - `node scripts/verdict-render.mjs [input.json]` — the four-state gate as one call (area signals in → `{verdict, floor_area, floor_reasons, non_answers, needs_human}` out); the matrix in Step 3 is the contract it implements. Exit 0 = rendered, 2 = usage.
+- `node scripts/state-drift-check.mjs [project-root]` — the read-only state guard (Step 3): compares `state.yaml` against the spec zone (phase / presence / completion). Exit 0 = `DRIFT: clean`, 1 = drift (table of hits + `SCOPE:` line), 2 = usage/parse.
+- `node scripts/ship-drift-check.mjs check <base-ref> --anticipated <path>... [--exclude <glob>...] [project-root]` — the structure drift guard (Step 3): changed files outside the anticipated set (the union of tasks.md `Files:` + blueprint.md Global Constraints paths, resolved by the caller). Exit 0 = clean, 1 = drift (unexpected paths listed + `SCOPE:` line), 2 = usage/git error.
 
 Shared rules:
 

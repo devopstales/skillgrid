@@ -84,7 +84,7 @@ artifacts in `{prototype.dir}/`. Nothing else: no `plan.md`, no `design.md`,
 no `architecture.md`, no new directories, and nothing outside `.skillgrid/`
 (the throwaway probe code is the one exception — it lives under
 `{prototype.dir}/` and is labeled throwaway). The canonical names are
-load-bearing — `skillgrid:resume` derives the phase from which of these files
+load-bearing — the resume protocol in `skillgrid:skillgrid` derives the phase from which of these files
 exist, so a renamed or relocated file silently breaks the pipeline. If you are
 about to write an artifact anywhere else, STOP: resolve the path from
 `.skillgrid/config.yaml` (`conventions.specs_root`, `conventions.artifacts`)
@@ -503,7 +503,7 @@ Per `_shared/craft/measurement.md`.
 | "Research is overkill — I know this library" | The gate is the citation, not the confidence. If a section rests on a fact not in the codebase, Phase 1 ran or the doubt gate fires. |
 | "The acceptance spec can wait — execution will write the scenarios as it goes" | BDD is always on. `acceptance.feature` is committed before code (Zone Rule); the red scenarios at propose time ARE the change's work list. |
 | "I'll draft the blueprint in chat and paste it into the file later" | Artifact-first: write to `blueprint.md` with the file tool and give the user the path. Chat carries the 2–3 key decisions, never the document. |
-| "The folder is small enough that a plan.md or a separate architecture.md would be clearer" | Spec-zone only: the files are `blueprint.md` (+ `acceptance.feature`, `findings.md`) in the change folder. A renamed or extra file breaks `skillgrid:resume`'s phase detection. |
+| "The folder is small enough that a plan.md or a separate architecture.md would be clearer" | Spec-zone only: the files are `blueprint.md` (+ `acceptance.feature`, `findings.md`) in the change folder. A renamed or extra file breaks phase detection in `skillgrid:skillgrid`'s resume protocol. |
 
 ## Red Flags
 
@@ -512,7 +512,7 @@ Per `_shared/craft/measurement.md`.
 | "The briefing is thin — I'll just assume the intent" | An `approved` briefing is the contract; a gap in it is an Owed-Decision (the panel fires) or an `intent_gap` back to brainstorm — not a silent assumption in the blueprint. |
 | "This section is obviously right — no need to present the gate" | The gate is the user's decision point, not my confidence. Present it anyway; "approve-and-proceed" takes one click. |
 | "The prototype is optional, so I'll skip it to save time" | Optional means the user decides. If a load-bearing unknown would invalidate a section if wrong, present the opt-in — the user says no, recorded, and that is the right outcome. |
-| "I'll save the plan as plan.md / architecture.md / a new file" | Spec-zone only: the file is `blueprint.md` in `{specs_root}/YYYY-MM-DD-<topic>/` (plus `acceptance.feature`, `findings.md`). A new filename or location breaks `skillgrid:resume`'s phase detection — the pipeline can no longer find the plan. |
+| "I'll save the plan as plan.md / architecture.md / a new file" | Spec-zone only: the file is `blueprint.md` in `{specs_root}/YYYY-MM-DD-<topic>/` (plus `acceptance.feature`, `findings.md`). A new filename or location breaks phase detection in `skillgrid:skillgrid`'s resume protocol — the pipeline can no longer find the plan. |
 | "The draft has drifted from the briefing — I'll patch the briefing later" | No silent rewrites. Phase 6 reconciles against the briefing: contradictions quoted and listed, additions reported when load-bearing. A briefing change after freeze is an `intent_gap` (HALT + human decision). |
 | "Two blueprints can share one change folder if the topics are related" | One change folder per change; a multi-phase build gets sibling folders under `{specs_root}/` ([multi-phase.md](references/multi-phase.md)), never nested and never merged. |
 

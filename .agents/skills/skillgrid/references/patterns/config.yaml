@@ -45,7 +45,7 @@ testing:
   tdd: true
 
 # --- QA Gates (configurable thresholds, asked at onboarding) ---
-# All values are hard gates: the skillgrid:qa skill FAILs the gate when a
+# All values are hard gates: the skillgrid:test skill FAILs the gate when a
 # threshold is not met. Set to 0 to disable a gate.
 # coverage_min: minimum line/branch coverage % (0 = disabled)
 # mutation_min: minimum mutation score % (0 = disabled, requires testing.mutation)
@@ -70,7 +70,7 @@ duplication:
 
 # --- Security Scan (Trivy) ---
 # Trivy is a multi-scanner: vulnerability (CVE), misconfiguration, secret,
-# and license. The skillgrid:qa skill runs it during the Security Audit step.
+# and license. The skillgrid:test skill runs it during the Security Audit step.
 # command: the trivy invocation ("" = disabled, falls back to manual checks)
 # target: what to scan (default: the current directory)
 # severities: minimum severity to report (comma-separated, highest first)
@@ -124,7 +124,7 @@ conventions:
   state_file: .skillgrid/state.yaml
 
 # --- Work-unit commits (commit discipline + session events) ---
-# skillgrid:work-unit-commits is fully active during execution. Each work-unit
+# _shared/work-unit-commits is fully active during execution. Each work-unit
 # commit carries a [skillgrid-context] block (the durable record); the hooks
 # record it as a `commit` event on the session event stream. The git hooks
 # (pre-commit, commit-msg) enforce the safety guards and the commit format.

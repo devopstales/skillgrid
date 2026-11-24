@@ -90,6 +90,23 @@ akca:   <ran / N/A> → <N> verified findings
 ### SUGGESTION
 <finding blocks, or "none">
 
+## State Drift
+
+<!-- Step 3 drift guard 1: `node .agents/skills/test/scripts/state-drift-check.mjs`.
+     A drift hit is a WARNING (never CRITICAL, never affects the verdict — same
+     treatment as decision-debt). If drifted, test patches state.yaml to the
+     derived values the guard printed and commits the fix with this report. -->
+State drift: clean   <!-- or: DRIFT: <n> hit(s) + the guard's table (| Check | Field | State says | Derived |) -->
+
+## Structure Drift
+
+<!-- Step 3 drift guard 2: `node .agents/skills/test/scripts/ship-drift-check.mjs
+     check <base-ref> --anticipated <dirs>`; <base-ref> from tasks.md `Chain
+     strategy:` (stacked-to-main → the stack base; feature-branch-chain → the
+     parent branch; pending → skipped, with the named re-run path). A hit is a
+     WARNING — advisory, never blocks the gate. -->
+Structure drift: clean   <!-- or: DRIFT: <n> unexpected file(s) + the path list (base: <base-ref>) -->
+
 ## Gate Decision
 
 - **Verdict:** PASS / CONCERNS / FAIL / WAIVED

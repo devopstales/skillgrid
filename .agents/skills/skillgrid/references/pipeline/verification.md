@@ -6,7 +6,7 @@ The exit checklist for a genesis run, plus the deliberate deviations this bundle
 
 Every box is evidence-gated. "Seems right" is not evidence.
 
-- [ ] `state.yaml` matches the deepest artifact present; `node .agents/skills/qa/scripts/state-drift-check.mjs` exits 0.
+- [ ] `state.yaml` matches the deepest artifact present; `node .agents/skills/test/scripts/state-drift-check.mjs` exits 0.
 - [ ] Every phase in `manifest.yaml` has its listed outputs on disk and was read back after writing.
 - [ ] `changes.<slug>.genesis.independence` is filled, and every verdict in `report.md`/`review.md` names the same grade.
 - [ ] Phase 4 ran before any score; the audit packet contains no targets, earlier scores or panel verdicts.

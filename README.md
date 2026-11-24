@@ -77,4 +77,14 @@ Tools the skills invoke that you need installed. "optional" = only when the corr
 ## ToDos
 
 * herdr agent instad of subagents
-
+* brainstormig generate todo
+* menmonic memory
+* menmonic memory plugin
+* mnemonic code
+* mnemonic code plugin
+* mnemonic projectwiki index
+* mnemonic projectwiki plugin
+* risk-based testing
+* formal werification - pstack
+* update ".skillgrid/work/" at exexute run
+* update ".skillgrid/state.yaml"

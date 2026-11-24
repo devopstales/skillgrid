@@ -42,7 +42,7 @@ backlog → ready → in-progress → review → done
 - Title: `Epic: <epic summary from tasks.md>`
 - Body: epic summary + link to `tasks.md` + dependency graph
 - Status: `backlog`
-- **Milestone name = spec folder name** (e.g. `2026-10-06-mnemonic-standalone`). The milestone must be named after the full spec folder under `.skillgrid/change-specs/` or `.skillgrid/change-archive/`, never a short slug or numeric ID. This makes the `milestone → spec` mapping 1:1 and recoverable from the tracker alone.
+- **Milestone name = spec folder name** (e.g. `2026-10-06-mnemonic-standalone`). The milestone must be named after the full spec folder under `.skillgrid/change-specs/` or `.skillgrid/change-archive/`, never a short slug or numeric ID. This makes the `milestone → spec` mapping 1:1 and recoverable from the tracker alone. It is created together with the change folder at Phase 0 (`_shared/rules/sdd-structure.md` § Writing Rules) — look it up and assign tickets to that ID; only create it if it is missing (e.g. ticketing was enabled mid-change). Never create a second milestone for the change.
 
 **Tickets** — one per ticket in tasks.md:
 - Title: per the formatting reference's title convention (e.g. `TICKET-<NN>: <title>` or `[TYPE] description (COMPONENT)`). **ASCII only** — the backlog CLI slugifies titles into filenames; em dashes and other non-ASCII characters produce unquotable filenames. Use ASCII hyphens for separators.

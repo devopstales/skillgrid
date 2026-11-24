@@ -68,24 +68,22 @@ function checkCwdDrift() {
 // `git update-ref` — surface it as a blocker instead.
 function checkProtectedRef() {
   const sym = git('symbolic-ref', '--quiet', 'HEAD');
-  const headRef = sym.status === 0 ? sym.stdout.trim() : 'DETACHED';
-  // On an unborn branch (initial commit) `--abbrev-ref HEAD` errors; fall back
-  // to the branch name from symbolic-ref, then to "HEAD".
-  let actualBranch = git('rev-parse', '--abbrev-ref', 'HEAD').stdout.trim();
-  if (!actualBranch) {
-    actualBranch = headRef.replace(/^refs\/heads\//, '');
-    if (actualBranch === 'HEAD') actualBranch = 'HEAD';
-  }
-
-  // First commit of the repo: no HEAD yet. Allow it — the protected-ref rule
-  // bites once history exists (you should be on a per-agent branch by then).
-  if (actualBranch === 'HEAD') return;
-
-  if (headRef === 'DETACHED') {
+  // Consult symbolic-ref first: it fails ONLY when HEAD is detached (points
+  // straight at a commit), while `rev-parse --abbrev-ref HEAD` reports "HEAD"
+  // in that case — which used to swallow the detached case into the
+  // unborn-branch allowance below, making the FATAL branch dead code.
+  if (sym.status !== 0) {
     process.stderr.write('FATAL: refusing to commit — worktree HEAD is detached (expected a per-agent branch).\n');
     process.stderr.write('RECOVERY: create/checkout a per-agent branch, e.g. git checkout -b agent-<id>.\n');
     process.exit(1);
   }
+
+  // First commit of the repo: HEAD's target has no history yet. Allow it —
+  // the protected-ref rule bites once history exists (you should be on a
+  // per-agent branch by then).
+  if (git('rev-parse', '--verify', '--quiet', 'HEAD').status !== 0) return;
+
+  const actualBranch = sym.stdout.trim().replace(/^refs\/heads\//, '');
 
   const protectedList = (process.env.SKILLGRID_PROTECTED_BRANCHES || 'main master develop trunk release/').split(/\s+/).filter(Boolean);
   for (const p of protectedList) {

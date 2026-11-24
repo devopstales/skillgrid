@@ -236,7 +236,7 @@ source of truth. If the feature added no new terms, write "None".]
 
 ## Retrospective
 
-[Filled post-ship — by `skillgrid:reflect` (the terminal SDD phase, which
+[Filled post-ship — by `skillgrid:ship` (the terminal SDD phase, which
 completes the retro half), not during planning. Until then this section
 stays `pending`. It is the check against the frozen intent: was the
 intent actually met, and did the plan anticipate what broke?]

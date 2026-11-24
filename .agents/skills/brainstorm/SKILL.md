@@ -111,7 +111,7 @@ briefing, acceptance contract, ADR manifest and findings in
 `{specs_root}/YYYY-MM-DD-<topic>/`; PRD, ASSUMPTIONS, ARCHITECTURE, glossary
 terms and ADRs in `{projectwiki}/`. Nothing else: no `brainstorm.md`, no
 `design.md`, no `plan.md`, no new directories, and nothing outside
-`.skillgrid/`. The canonical names are load-bearing — `skillgrid:resume`
+`.skillgrid/`. The canonical names are load-bearing — the resume protocol in `skillgrid:skillgrid`
 derives the phase from which of these files exist, so a renamed or
 relocated file silently breaks the pipeline. If you are about to write a
 spec-zone artifact anywhere else, STOP: resolve the path from
@@ -211,7 +211,7 @@ session: interview → approaches → design → feasibility → shootdown → A
 manifest → briefing. The path state — which checklist item you are on, which approach
 was approved — lives in conversation, which rots.
 
-- **The spec-zone artifacts ARE the phase signal.** `skillgrid:resume`
+- **The spec-zone artifacts ARE the phase signal.** The resume protocol in `skillgrid:skillgrid`
   determines the phase from which files exist in the spec dir
   (`briefing.md` present = planning started; `blueprint.md` present =
   planning done; `tasks.md` with `[ ]` items = slicing done). No separate
@@ -232,7 +232,7 @@ was approved — lives in conversation, which rots.
   `mnemonic.enabled: true`, mirror with
   `mem_save(topic_key: skillgrid/<topic>/briefing, type: architecture)`
   (upsert).
-- **On resume:** the `skillgrid:resume` check in `skillgrid:using-skillgrid`
+- **On resume:** the resume protocol in `skillgrid:skillgrid` (the router)
   reads the spec-zone artifacts and the checkpoint, and re-enters at the
   first incomplete step.
 - **Skip persistence** for the prototype and bounded paths — they are short by
@@ -318,7 +318,7 @@ Per `_shared/craft/measurement.md`.
 | "It grew, but I'm almost done — no need to re-classify" | Hidden complexity upgrades the path mid-task. Stop and say so. |
 | "They approved the prototype, so the follow-up change is approved too" | Each task gets its own classification and its own approval. |
 | "The briefing is still growing — I'll blueprints once it's settled" | A briefing that keeps absorbing requirements is a pile, not a design. Run Scope Pushback: list the outcomes, pick the first slice, record the hold/cut/split — then blueprint. |
-| "I'll save the design as a new file (brainstorm.md, design.md, plan.md)" | Spec-zone only: the file is `briefing.md` in `{specs_root}/YYYY-MM-DD-<topic>/` (or an existing projectwiki artifact). A new filename or location breaks `skillgrid:resume`'s phase detection — the pipeline can no longer find the spec. |
+| "I'll save the design as a new file (brainstorm.md, design.md, plan.md)" | Spec-zone only: the file is `briefing.md` in `{specs_root}/YYYY-MM-DD-<topic>/` (or an existing projectwiki artifact). A new filename or location breaks phase detection in `skillgrid:skillgrid`'s resume protocol — the pipeline can no longer find the spec. |
 
 ## Verification
 

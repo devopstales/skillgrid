@@ -1,7 +1,7 @@
 schema: skillgrid/state/v2
 changes:
   2026-11-23-mnemonic-code:
-    phase: "intake"
+    phase: "spec"
     status: in_progress
     gate: "briefing-approval"
     autonomy: check-in
@@ -56,54 +56,26 @@ changes:
           table"
         - "code-domain latency SLO per tool (default build = seconds;
           <100 ms criterion is memory-domain)"
-  2026-11-22-pi-worktree-plugin:
-    phase: "archived"
-    status: complete
-    gate: ""
-    verdict: PASS
+  2026-11-23-mnemonic-core:
+    phase: "blueprint"
+    status: in_progress
+    gate: "blueprint-validation"
     autonomy: check-in
-    genesis:
-      independence:
-        level: isolated-subagent
-        grade: B
-        writer_model: qwen3.8
-        reviewer_model: qwen3.8
-        isolation_check: not_run
-      audit_status: ""
-      passes:
-        review: 1
-        score: 1
-      quality_target: 8.5
-      score: 8.5
-      panel: []
-      decisions:
-        - "QA verdict CONCERNS then PASS (2026-11-23): 11 review findings
-          fixed and committed 9376e19 (non-ASCII + rename capture, unborn-HEAD
-          branch, resume dedup seeding, before-restore outcome, no-surviving
-          report, loadCheckpoint hardening, recovery-test timeouts). At the
-          qa-verdict gate the programmer chose A=wire, E=fix, bench=accept;
-          applied in f1b58b8 (R7/R8/R9 invariants wired into runWorktrunk;
-          R10 approval fixed via probeUnapprovedHooks + storeApprovalsPty +
-          core handleWtApproval). bun test 48/48, e2e 6/6, trivy 0, drift
-          guard green. Verdict PASS. ~20 edge-case / test-quality / cosmetic
-          findings (incl. B3/C/F re-graded SUGGESTION) deferred to
-          .skillgrid/deferred-work.md"
-        - "build location: plugins/pi/pi-worktree inside
-          skillgrid-skills (programmer override, 2026-11-22)"
-        - "working style: work on the current branch (programmer,
-          2026-11-22); chain.strategy stored as stacked-to-main"
-        - "tier default T1 (programmer, 2026-11-22); the plugin change
-          stays T2 per its blueprint"
-        - "shipped to plugins/omp/pi-worktree (2026-11-23): built in a
-          throwaway worktree repo, now committed to the main repo at 5397690
-          and the build worktree (.worktree/pi-worktree-wf_t5) removed. Two
-          observeWorktreeRoot tests got a 15000ms timeout bump (git worktree
-          add flaked bun's 5s default under load). NOTE: the 2026-11-22
-          override above named plugins/pi/pi-worktree; the final location is
-          plugins/omp/pi-worktree per the programmer (2026-11-23)."
-      open_questions:
-        - "pin exact minimum wt version for the directive
-          protocol (wt 0.50.0 verified on PATH 2026-11-22)"
+  2026-11-23-pipeline-envelope:
+    phase: "intake"
+    status: in_progress
+    gate: ""
+    autonomy: check-in
+  2026-11-24-brainstorm-skill-improvements:
+    phase: "intake"
+    status: in_progress
+    gate: ""
+    autonomy: check-in
+  2026-11-24-v1-learnings-port:
+    phase: "execution"
+    status: in_progress
+    gate: "user-decisions"  # install/ROUTER + cross-ecosystem refs
+    autonomy: check-in
 progress:
   completed_changes: 1
   blocked_changes: 0

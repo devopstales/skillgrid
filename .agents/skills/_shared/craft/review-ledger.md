@@ -12,9 +12,9 @@ The `review-ledger` skill is demoted to this reference (R41); the old invocation
 ## When to Use
 
 **Mandatory — three fixed points cite this reference:**
-- After every review round completes (after the `code-review` skill returns findings)
+- After every review round completes (after the `test` review area returns findings)
 - When a review finding is parked (dispositioned as "parked" with a ruling)
-- At `qa` time, to surface open findings from prior changes
+- At `test` time, to surface open findings from prior changes
 
 **When NOT to cite:**
 - T0 changes (no review)
@@ -30,7 +30,7 @@ Append a round entry to `.skillgrid/change-specs/<topic>/review-ledger.md`. Crea
 ## Round <N> — <YYYY-MM-DD>
 
 **Frozen candidate:** base <hash> → head <hash>, <N> files, hash <hash>
-**Reviewer:** <code-review: 3-axis pass | core-five fan-out>
+**Reviewer:** <test review area: 3-axis pass | core-five fan-out>
 **Independence grade:** <A | B | C>
 **Budget:** round <N>/<total> (tier T<n>)
 
@@ -175,7 +175,7 @@ against the code on a schedule the per-change ledger does not have.
 
 ### Debt surfacing (at QA time)
 
-When `skillgrid:qa` (the `test` skill) runs for a **new** change, it reads the
+When `skillgrid:test` runs for a **new** change, it reads the
 project's `.skillgrid/deferred-work.md` (the cross-change view) and surfaces
 every `status: open` entry, with the originating change's `R<N>-F<NNN>` id
 from the entry's `source:` line:

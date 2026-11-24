@@ -44,7 +44,7 @@ only in todos.
   `_shared/rules/mnemonic-memory.md`: ledger path plus the current tail.
   The in-repo ledger stays the source of truth. SDD dispatch does not use
   the teams MCP tools.
-- On resume, also read the commit position per `skillgrid:work-unit-commits`:
+- On resume, also read the commit position per `_shared/work-unit-commits`:
   `git log --oneline -5` plus the latest commit's `[skillgrid-context]` block.
   If its `Remaining:` names a partial unit, finish that unit before dispatching
   the next task. For another session's position, read its events via

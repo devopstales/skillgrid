@@ -89,6 +89,7 @@ Read the files in this folder in numeric order:
 4. `03-tools.md` explains the executable scripts, external tools, and MCP servers.
 5. `04-lifecycle.md` explains skill provenance, usage telemetry, and curation.
 6. `05-commands.md` explains the workflow commands and how to invoke the pipeline.
+7. `06-concepts.md` is the synthesis — every named seam (gates, tiers, clarity gate, depth tree, review discipline) in one screen of reference.
 
 ## First Mental Model
 

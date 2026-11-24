@@ -186,7 +186,7 @@ other theories; converge only when the survivors can disprove the rest.
 
 1. **Write the failing test first** — the simplest automated reproduction
    (or a one-off repro script when no framework exists). It must be RED
-   before the fix exists. (Per `skillgrid:test-driven-verification`: the
+   before the fix exists. (Per `_shared/references/test-driven-verification.md`: the
    regression test is proven by red-green — write → green → revert fix →
    RED → restore → green.)
 2. **Apply one fix**, at the origin of the bad value. No bundled
@@ -322,9 +322,9 @@ Per `_shared/craft/measurement.md`.
 - [scripts/trail.mjs](scripts/trail.mjs) — the hypothesis-trail state machine (init / append / list / open / count / status + the 3-fix gate); [scripts/test-trail.mjs](scripts/test-trail.mjs) proves it
 - [references/root-cause-tracing.md](references/root-cause-tracing.md) — backward tracing through call stacks to the origin of the bad value
 - [references/defense-in-depth.md](references/defense-in-depth.md) — validation layers to add after the root-cause fix, so the same class of defect cannot slip through again
-- `skillgrid:test-driven-verification` — the gate function for the "fixed" claim (fresh evidence, no vibes)
+- `_shared/references/test-driven-verification.md` — the gate function for the "fixed" claim (fresh evidence, no vibes)
 - `skillgrid:regression-dog` — the behavioral-delta check on the fix diff before it commits
-- `skillgrid:architectural-decision-records` — decision-cause recording and routing
+- `_shared/adr-records/README.md` — decision-cause recording and routing
 - `skillgrid:prototype` — when the fix is itself an unproven technical claim, de-risk it before committing to the approach
 - [../_shared/rules/evidence-claims.md](../_shared/rules/evidence-claims.md) — the evidence rules behind the verdict gate: repro-before-closure, named-test closure, the mechanism-passes-on-main rule, taught-to-agree fixtures, baseline discipline, deletion-first fix ranking
 - [../skill-creator/references/rationalizations.md](../skill-creator/references/rationalizations.md) — the authoring rationalizations (script extraction, size, spine sections); load when you or the user push back on this skill's shape

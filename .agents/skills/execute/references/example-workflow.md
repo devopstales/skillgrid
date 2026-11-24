@@ -65,7 +65,7 @@ Re-reviewer: Missing progress reporting — ADDRESSED (src/recovery.js:41).
 ...
 
 [After all tasks]
-[Run skillgrid:qa — goal-backward verification, verification-gap audit, traceability, TDD evidence]
+[Run skillgrid:test — goal-backward verification, verification-gap audit, traceability, TDD evidence]
 QA gate: PASS (all truths verified, all scenarios covered, no CRITICAL findings)
 [Run review-package PLAN_FILE MERGE_BASE HEAD; dispatch final code-reviewer, most capable model]
 Final reviewer: All requirements met. Deferred minors triaged: none block merge.

@@ -32,7 +32,7 @@ The goal is a program built with the measured patterns of production codebases, 
 - A `.skillgrid/` folder exists with an unfinished change and the programmer says "continue".
 - The programmer wants a finished program audited, revised or packaged for release.
 
-**When NOT to use:** a single bug fix, a typo, or a change that `fast-track.md` classifies as trivial or small — run the fast-track path instead of the full pipeline. Not for reviewing someone else's diff (`skillgrid:code-review` alone) and not for a one-off question.
+**When NOT to use:** a single bug fix, a typo, or a change that `fast-track.md` classifies as trivial or small — run the fast-track path instead of the full pipeline. Not for reviewing someone else's diff (`skillgrid:test`'s review area alone) and not for a one-off question.
 
 ## Start here
 
@@ -101,13 +101,13 @@ Load only the active phase's prompt and the references `references/pipeline/mani
 | Phase | Owner skill(s) | Gate | Main outputs |
 |---|---|---|---|
 | Phase 0: Intake | onboarding (this skill, `references/pipeline/onboarding.md`) → `brainstorm` (questioning via `skillgrid:questioning`) | `intake` | `config.yaml`, `state.yaml`, `projectwiki/ASSUMPTIONS.md`, `projectwiki/index.md`, `briefing.md`, `adr.md` |
-| Phase 1: Foundation | ADR records (`_shared/adr-records/`) + `skillgrid:research`/`skillgrid:prototype`/`sketch` (research and prototype delegated to standalone skills; sketch still inline in blueprint) | `foundation` | `glossary/01-02`, `invariants/`, `entities/`, `concepts/`, `decisions/NNNN-*`, `findings.md` |
+| Phase 1: Foundation | ADR records (`_shared/adr-records/`) + `skillgrid:research`/`skillgrid:prototype`/`sketch` (research and prototype delegated to standalone skills; sketch inline in blueprint — `blueprint/references/sketch-phase.md`) | `foundation` | `glossary/01-02`, `invariants/`, `entities/`, `concepts/`, `decisions/NNNN-*`, `findings.md` |
 | Phase 2: Architecture | `blueprint` (5-phase plan + goldfish validation) | `blueprint-validation` | `blueprint.md` (validated) |
 | Phase 3: Drafting | `blueprint` Phase 5 (acceptance spec) → `slicing` → `ticketing` → execution | `user-gate-slice` | `acceptance.feature`, `tasks.md`, code |
-| Phase 4: Adversarial Audit | `qa` + `code-review`, fresh context | `qa-verdict` | `report.md` (QA half), `review.md` |
-| Phase 5: Revision Loop | `receiving-code-review` + fix + re-run | — | `review.md` updated, `report.md` re-rendered |
-| Phase 6: Final Score | `qa` gate + calibration + floor | — | `report.md` final verdict |
-| Phase 7: Editorial Package | `document` + `ship` + `reflect` | `ship-decision` | PR body/changelog, archive move, retro half |
+| Phase 4: Adversarial Audit | `test` (QA + review areas) + `adversarial-authoring` (council), fresh context | `qa-verdict` | `report.md` (QA half), `review.md` |
+| Phase 5: Revision Loop | `test` (review-area fix loop, `handling-findings.md`) + fix + re-run | — | `review.md` updated, `report.md` re-rendered |
+| Phase 6: Final Score | `test` gate + calibration + floor | — | `report.md` final verdict |
+| Phase 7: Editorial Package | `writing` + `ship` (retro half) | `ship-decision` | PR body/changelog, archive move, retro half |
 
 `references/pipeline/phases.md` is the one-screen overview. `references/pipeline/workflow.md` is the chain summary.
 
@@ -116,10 +116,10 @@ flowchart TD
     A[Phase 0: Intake - onboarding + brainstorm] --> B[Phase 1: Foundation - ADRs, glossary, invariants]
     B --> C[Phase 2: Architecture - blueprint + goldfish validation]
     C --> D[Phase 3: Drafting - acceptance spec, slicing, ticketing, execution]
-    D -->|user-gate-slice| E[Phase 4: Adversarial Audit - qa + code-review, fresh context]
+    D -->|user-gate-slice| E[Phase 4: Adversarial Audit - test + adversarial-authoring, fresh context]
     E --> F[Phase 5: Revision Loop - fix + re-run, cap 3]
-    F --> G[Phase 6: Final Score - qa gate + calibration + floor]
-    G --> H[Phase 7: Editorial Package - document + ship + reflect]
+    F --> G[Phase 6: Final Score - test gate + calibration + floor]
+    G --> H[Phase 7: Editorial Package - writing + ship retro]
     H -->|ship-decision| I[archived: change-archive/]
     E -.->|gate FAIL: back to revision| F
     F -.->|pass limit reached: stop, programmer decides| E
@@ -187,7 +187,7 @@ Per `_shared/craft/measurement.md`.
 ## Verification
 
 - [ ] `.skillgrid/config.yaml` — the onboarding gate ran: the full rendered draft was shown to the programmer and approved before the write (approval visible in the conversation, not inferred from per-item confirmations).
-- [ ] `state.yaml` matches the deepest artifact present (`qa` drift guard exits 0).
+- [ ] `state.yaml` matches the deepest artifact present (state drift guard exits 0).
 - [ ] **Self-validation backstop:** every new gate or checker this change introduces was run against this change's own spec folder before hand-off — with its negative half proven first (the checker catches a deliberately broken copy, e.g. a requirement with no `## Validation` row) and its positive half after (a clean run exits 0). A checker that never caught its own change is not wired.
 - [ ] Every phase in `manifest.yaml` has its listed outputs on disk, read back.
 - [ ] Phase 4 ran before any score; the audit packet contains no targets or scores.

@@ -76,7 +76,7 @@ and a machine without `wt` runs the git path with no other difference.
 
 The `[skillgrid-context]` block is the source of truth for *decisions*; git
 history is the source of truth for *state*. A fresh session resumes from
-`git log` plus the session's events (see `skillgrid:resume`).
+`git log` plus the session's events (see the resume protocol in `skillgrid:skillgrid`).
 
 ## Commit format
 
@@ -179,7 +179,7 @@ Every `[x]` in a PR checklist is a **public claim requiring evidence**
 ## When to commit
 
 Commit **after** a verified gate (a green `G<n>` from
-`skillgrid:test-driven-verification` — not "I think it's done"), and **before**
+`_shared/references/test-driven-verification.md` — not "I think it's done"), and **before**
 a long-running install/build/test command (so an interruption lands on a
 checkpoint, not mid-command). Never commit broken tests or mid-edit state.
 
@@ -329,9 +329,9 @@ one is a one-line change in `checkpoint-state.js`.
 | `pre-commit` | **backlog completeness** (ticketing-guard.js) | staged `<backlog_directory>/tasks/*.md` (dir from `ticketing.backlogmd.dir`) carry frontmatter `type:`, non-empty `references:`, and DoD items (ticketing completeness gate); missing Implementation Plan is WARNING-only (the CLI creates plan-less triage tasks) | FATAL + fix-via-CLI RECOVERY |
 | `pre-push` | **outgoing footer check** (ticketing-pre-push.js) | no malformed `Closes:`/`Fixes:`/`Resolves:` in the outgoing range (local `git log` only, never network) | FATAL on Closes, WARNING on advisory `Refs:` |
 | `post-merge` | **duplicate-ID scan** (ticketing-post-merge.js) | `backlog doctor` (read-only) after merges; gh/glab/jira have nothing local to reconcile | WARNING, never blocks |
-| `pre-commit` | **gate blocks well-formed** (gate-lint.js) | every runnable `G<n>` carries CHECK+EXPECT, ABANDON has a reason, no happy-path requirement lacks a gate (`blueprint` Phase 5, `test-driven-verification`) | WARNING (advisory, never blocks) |
-| `stop` (agent hook, `--with-stop`) | **tests must pass** (stop-tests.js) | "commit after the gate is green" / "run the full suite before committing" — blocks the stop on a red `testing.runner` (execution + qa skills) | blocks stop + shows failures |
-| `gate-stop` (agent hook, `--with-stop`) | **every gate met** (gate-stop.js → gate-state.js) | "no done-claim while any happy-path gate is unmet or abandoned" — fresh `--reverify`; blocks the stop on an unmet `G<n>` or a happy-path requirement with no gate; HANDOFF note when only `ABANDON` remain; 6-block loop guard (`test-driven-verification`) | blocks stop + lists outstanding gates |
+| `pre-commit` | **gate blocks well-formed** (gate-lint.js) | every runnable `G<n>` carries CHECK+EXPECT, ABANDON has a reason, no happy-path requirement lacks a gate (`blueprint` Phase 5, `_shared/references/test-driven-verification.md`) | WARNING (advisory, never blocks) |
+| `stop` (agent hook, `--with-stop`) | **tests must pass** (stop-tests.js) | "commit after the gate is green" / "run the full suite before committing" — blocks the stop on a red `testing.runner` (execution + test skills) | blocks stop + shows failures |
+| `gate-stop` (agent hook, `--with-stop`) | **every gate met** (gate-stop.js → gate-state.js) | "no done-claim while any happy-path gate is unmet or abandoned" — fresh `--reverify`; blocks the stop on an unmet `G<n>` or a happy-path requirement with no gate; HANDOFF note when only `ABANDON` remain; 6-block loop guard (`_shared/references/test-driven-verification.md`) | blocks stop + lists outstanding gates |
 | (manual) `post-check` | **unexpected deletions** in HEAD | worth a glance, not a hard block | WARNING (document in the block) |
 
 The `stop` and `gate-stop` hooks are **agent harness hooks** (Stop events), not

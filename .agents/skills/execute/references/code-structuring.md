@@ -119,7 +119,7 @@ Compare the score and grade to the measurement you took before the pass. A dimen
 
 ### Committing the pass
 
-**Commit each step separately** (duplication fixes, dead-code removal, complexity simplification) per `skillgrid:work-unit-commits` — a reviewer verifying "did this actually reduce X" wants a diff scoped to X, and each step is independently revertable.
+**Commit each step separately** (duplication fixes, dead-code removal, complexity simplification) per `_shared/work-unit-commits` — a reviewer verifying "did this actually reduce X" wants a diff scoped to X, and each step is independently revertable.
 
 ## Part 3 — Design (deep modules for new or reshaped interfaces)
 

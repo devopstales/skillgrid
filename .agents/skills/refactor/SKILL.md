@@ -104,8 +104,8 @@ regression.
 ## The Finding Contract (applies to every step)
 
 This is the shared discipline; each step instantiates it. It borrows
-`skillgrid:research`'s verification epistemics and `skillgrid:code-review`'s
-blindness + verdict discipline, scaled to a tool-reported finding.
+`skillgrid:research`'s verification epistemics and the blindness + verdict
+discipline of `skillgrid:test`'s review area, scaled to a tool-reported finding.
 
 ### Blindness contract
 
@@ -149,7 +149,7 @@ The pass renders exactly one verdict per finding, after verification:
 to a human look or a held-out test, because a silent pass on a check you
 couldn't infer is the failure mode this skill exists to catch. This is the
 same refusal to "confidently pass a check you can't infer" that
-`skillgrid:code-review` enforces on its verdicts.
+`skillgrid:test`'s review area enforces on its verdicts.
 
 ### Resilience rule
 
@@ -158,8 +158,8 @@ dead-code traversal fails on part of the tree, record which paths didn't run
 and continue with the survivors. If **all** of a step's findings are
 `unverified` or the step itself didn't finish, the pass is **"possibly
 incomplete", never "clean"** — report that it may be incomplete and list which
-paths or categories didn't run. This mirrors `skillgrid:code-review`'s
-resilience rule verbatim.
+paths or categories didn't run. This mirrors the resilience rule of
+`skillgrid:test`'s review area verbatim.
 
 ## Step 1 — Duplicated code
 
@@ -285,7 +285,7 @@ See `references/refactor-steps-3-5.md` for the full procedure.
   (the 4-value claim status + independence rule) and
   [researchers/red-team.md](../research/references/researchers/red-team.md)
   (the fresh-context skeptic on a major conclusion).
-- **`skillgrid:code-review`** — the blindness contract, the six-value verdict
+- **`skillgrid:test`'s review area** — the blindness contract, the six-value verdict
   table, and the resilience rule this skill's Finding Contract instantiates.
 - **`skillgrid:codebase-design`** — the deep-module vocabulary (depth,
   locality, seam) and the

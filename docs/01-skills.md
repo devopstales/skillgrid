@@ -43,6 +43,7 @@ These are reachable from any pipeline phase:
 - `ui-design` — product/application UI design with Operate-mode bias.
 - `writing` — human-facing text: guides, READMEs, RFCs, PR feedback, changelog, release notes.
 - `projectwiki` — durable knowledge vault: OKF pages, FTS index, query/cite/lint engine.
+- `test-driven-development` — the TDD discipline (Iron Law, RED/VERIFY/GREEN/REFACTOR, triangulation, TDD Evidence); canon in `_shared/references/strict-tdd.md`.
 - `youtube-transcript` — extract transcripts from YouTube videos for research.
 
 These are the skills that keep the work honest, visible, and durable. A solution is not complete just because code changed.
@@ -120,6 +121,7 @@ That is a key advantage of Skillgrid: it does not only provide prompts. It provi
 | `ui-design` | 2.2 | model-invoked | Product/application UI design with Operate-mode bias |
 | `writing` | 1.2 | model-invoked | Human-facing text: guides, READMEs, RFCs, PR feedback, changelog, postmortems |
 | `projectwiki` | 1.7 | model-invoked | Durable knowledge vault: OKF pages, FTS index, query/cite/lint engine |
+| `test-driven-development` | 2.0 | model-invoked | The TDD discipline: Iron Law, RED/VERIFY/GREEN/REFACTOR, triangulation, TDD Evidence (canon: `_shared/references/strict-tdd.md`) |
 | `youtube-transcript` | 2.1 | model-invoked | Extract transcripts from YouTube videos |
 | `skill-creator` | 2.4 | model-invoked | Create, audit, and iterate skills; 10-rule audit; lifecycle curation |
 | `skillgrid` | 2.2 | model-invoked | Top-level router: take an idea to a shipped program end-to-end |
