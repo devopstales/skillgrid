@@ -12,13 +12,15 @@
 
 ## LOCKED
 
-ADR index — in-force decisions. One row per decision; the body lives in the linked file. Highest sequence in use: 0003.
+ADR index — in-force decisions. One row per decision; the body lives in the linked file. Highest sequence in use: 0005.
 
 | ADR | Decision | In force | Record |
 | --- | --- | --- | --- |
 | ADR-0001 | Phase 3 = projectwiki pillar; separate `projectwiki_*` table family, no unified cross-domain graph | yes | [decisions/04-adr-0001-projectwiki-pillar-separate-tables.md](decisions/04-adr-0001-projectwiki-pillar-separate-tables.md) |
 | ADR-0002 | Vault is source of truth; DB is derived, always-rebuildable index | yes | [decisions/04-adr-0002-vault-is-source-of-truth.md](decisions/04-adr-0002-vault-is-source-of-truth.md) |
-| ADR-0003 | v1 generation = index/serve/validate/cite + LLM Synthesizer ("1+3") | yes | [decisions/04-adr-0003-llm-synthesizer-in-v1.md](decisions/04-adr-0003-llm-synthesizer-in-v1.md) |
+| ADR-0003 | v1 generation = index/serve/validate/cite + LLM Synthesizer ("1+3") | no (superseded by ADR-0004) | [decisions/04-adr-0003-llm-synthesizer-in-v1.md](decisions/04-adr-0003-llm-synthesizer-in-v1.md) |
+| ADR-0004 | v1 generate = deterministic promote floor + page protection; LLM Synthesizer deferred | yes | [decisions/04-adr-0004-deterministic-promote-v1.md](decisions/04-adr-0004-deterministic-promote-v1.md) |
+| ADR-0005 | Knowledge graph is first-class and queryable in v1 (6 node kinds + traversal tools) | yes | [decisions/04-adr-0005-graph-first-class-v1.md](decisions/04-adr-0005-graph-first-class-v1.md) |
 
 ## Locked constraints (inherited from v2)
 
