@@ -81,6 +81,13 @@ changes:
     status: in_progress
     gate: ""
     autonomy: check-in
+  # Self-improving-skills plan (2026-11-25): five stacked changes, p0 -> p4.
+  # Each briefing is STATUS draft — user flips each banner at the spec gate.
+  2026-11-25-selfimprove-p0-loop:
+    phase: "spec"
+    status: in_progress
+    gate: ""
+    autonomy: check-in
 progress:
   completed_changes: 1
   blocked_changes: 0
