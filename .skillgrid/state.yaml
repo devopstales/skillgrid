@@ -98,6 +98,11 @@ changes:
     status: in_progress
     gate: ""
     autonomy: check-in
+  2026-11-25-selfimprove-p3-project-mode:
+    phase: "spec"
+    status: in_progress
+    gate: ""
+    autonomy: check-in
 progress:
   completed_changes: 1
   blocked_changes: 0
