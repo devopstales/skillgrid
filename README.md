@@ -88,3 +88,5 @@ Tools the skills invoke that you need installed. "optional" = only when the corr
 * formal werification - pstack
 * update ".skillgrid/work/" at exexute run
 * update ".skillgrid/state.yaml"
+* https://github.com/code-yeongyu/oh-my-openagent/blob/dev/.agents/skills/hyperplan/SKILL.md
+* https://github.com/tomasz-tomczyk/crit
