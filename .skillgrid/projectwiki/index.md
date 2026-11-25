@@ -28,6 +28,7 @@ Catalog of `.skillgrid/projectwiki/`. Every page gets a row here.
 | `0013-pure-go-treesitter.md` | mnemonic code tool: tree-sitter in pure Go (`odvcencio/gotreesitter`), not a CGo binding — ADR-0005's C/CGo-free target holds for the whole binary |
 | `0014-unified-embedding-space.md` | mnemonic code tool: one embedder model + dim per project — code and memory vectors comparable; no cross-domain fusion in v1 |
 | `04-adr-0015-cgo-free-stack-selection.md` | mnemonic: CGO-free stack locked — `ncruces/go-sqlite3` v0.38 + official `ext/vec1` (tag `sqlitevec`) + hugot GoMLX (tag `onnx`); brute-force BLOB floor; spikes passed 2026-11-23 (asg017 vec0 binding refuted; refines ADR-0004/0005/0006) |
+| `0016-skill-registry-index-location.md` | Skill registry index (name, full description, scope, exact `SKILL.md` path) at `.skillgrid/projectwiki/skill-registry.md` — not gentle-ai's `.atl/` managed dir; generator + handoff contract deferred to the implementing change |
 
 ## invariants/
 

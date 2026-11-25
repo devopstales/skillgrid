@@ -76,6 +76,11 @@ changes:
     status: in_progress
     gate: "user-decisions"  # install/ROUTER + cross-ecosystem refs
     autonomy: check-in
+  2026-11-25-skill-registry-and-workflow-projection:
+    phase: "intake"
+    status: in_progress
+    gate: ""
+    autonomy: check-in
 progress:
   completed_changes: 1
   blocked_changes: 0

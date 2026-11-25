@@ -182,3 +182,15 @@ spec, code-domain latency SLO. Note: questioning exit-check clarity scores
 were not recorded; the clarity gate passed by user confirmation at the
 interview close + readiness gate. Next: user approves the briefing
 (hand-edit STATUS → `approved`) → phase intake→blueprint.
+
+## [2026-11-25] create | ADR-0016 skill-registry-index-location
+
+Pinned the skill registry index location from the 2026-11-25 gentle-ai
+study: `.skillgrid/projectwiki/skill-registry.md` (not gentle-ai's
+`.atl/` managed dir — skillgrid keeps every durable artifact under
+`.skillgrid/`). The registry pattern (index of name, full description,
+scope, exact `SKILL.md` path; subagent handoffs pass exact paths, "delegators
+pass paths, not digested rules") is adopted; the refresh/generator and the
+handoff contract belong to the implementing change, not this ADR. Files:
+`decisions/0016-skill-registry-index-location.md`, `ASSUMPTIONS.md` (LOCKED),
+`index.md` (decisions row).

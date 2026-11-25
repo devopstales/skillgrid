@@ -64,6 +64,7 @@ LOCKED (ADR index — pointer rows only), Open Questions.
 | One embedding space across tools — same model + dim per project; code and memory vectors comparable; no cross-domain fusion in v1 | `decisions/0014-unified-embedding-space.md` |
 | Go module path — `github.com/devopstales/skillgrid/mnemonic` (same path as the old module; branch handover) | `decisions/04-adr-0012-go-module-path.md` |
 | CGO-free stack — `ncruces/go-sqlite3` v0.38 + official `ext/vec1` (tag `sqlitevec`) + `knights-analytics/hugot` GoMLX (tag `onnx`); brute-force BLOB floor; spikes passed 2026-11-23 (asg017 vec0 binding refuted) | `decisions/04-adr-0015-cgo-free-stack-selection.md` |
+| Skill registry index (name, description, scope, exact SKILL.md path) lives at `.skillgrid/projectwiki/skill-registry.md` — not gentle-ai's `.atl/` | `decisions/0016-skill-registry-index-location.md` |
 
 ## Open Questions
 
